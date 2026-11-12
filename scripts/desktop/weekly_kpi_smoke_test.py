@@ -10,7 +10,7 @@ class Run:
 
     def command(self, command):
         self.commands.append(command)
-        if command.get('action') == 'progress':
+        if command.get('action') in ['progress', 'sixWeeks', 'twelveMonths']:
             self.progress = True
         if command.get('action') in ['previous', 'current', 'next']:
             self.progress = False
@@ -25,7 +25,7 @@ class Run:
         return {'ready': True, 'progress': self.progress, 'aboveHundred': True,
                 'unknown': True, 'gaps': self.progress, 'contained': True,
                 'notesCorrect': not self.progress, 'allCharts': self.progress,
-                'chartsSized': self.progress, 'bottomVisible': command.get('action') == 'bottom'}
+                'chartsSized': self.progress, 'rangeCorrect': self.progress, 'bottomVisible': command.get('action') == 'bottom'}
 
     def wait(self, predicate, _label):
         if not predicate({'view': 'Trainer'}):
@@ -39,6 +39,7 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
         expected = [(view, size, edge) for view in ['current', 'next', 'previous'] for size in ['wide', 'narrow'] for edge in ['frame', 'notes']]
         expected += [('progress', size, edge) for size in ['wide', 'narrow', 'wide-short', 'narrow-short'] for edge in ['frame', 'middle', 'bottom']]
         expected += [('progress', size, 'bottom') for size in ['wide', 'narrow']]
+        expected += [(view, size, edge) for view in ['sixWeeks', 'twelveMonths'] for size in ['wide', 'narrow'] for edge in ['frame', 'middle', 'bottom']]
         self.assertEqual([(value['view'], value['preset'], value['edge']) for value in result], expected)
         self.assertFalse(any(value.get('action') in ['reload', 'measurement'] for value in run.commands))
         self.assertTrue(all(set(value) <= {'type', 'action', 'target', 'view', 'preset'} for value in run.commands))
@@ -92,7 +93,7 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
         self.assertEqual(sum(value['type'] == 'captureView' for value in run.commands), 1)
 
     def test_bottom_and_all_chart_failures_do_not_pass_or_retry(self):
-        for field in ['allCharts', 'chartsSized', 'bottomVisible', 'notesCorrect']:
+        for field in ['allCharts', 'chartsSized', 'rangeCorrect', 'bottomVisible', 'notesCorrect']:
             run = Run()
             original = run.command
             def invalid(value):

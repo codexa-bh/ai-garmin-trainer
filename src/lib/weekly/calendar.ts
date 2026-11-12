@@ -80,3 +80,40 @@ export function weeklyCalendar(now: Date, timeZone: string) {
     sunday: day === 0,
   };
 }
+
+/** Progress presets, in display order. Weeks count inclusive Monday weeks;
+ * months go back calendar months from the current week's Monday. */
+export const PROGRESS_PERIODS = ["6w", "12w", "2m", "6m", "12m"] as const;
+export type ProgressPeriod = (typeof PROGRESS_PERIODS)[number];
+/** Largest preset span: Last 12 months always covers 54 inclusive weeks. */
+export const PROGRESS_MAX_WEEKS = 54;
+
+function monthsBefore(value: string, months: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const index = year * 12 + (month - 1) - months;
+  const targetYear = Math.floor(index / 12);
+  const targetMonth = index % 12;
+  const lastDay = new Date(
+    Date.UTC(targetYear, targetMonth + 1, 0),
+  ).getUTCDate();
+  return new Date(Date.UTC(targetYear, targetMonth, Math.min(day, lastDay)))
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** Inclusive Monday range ending with the current week for one preset. */
+export function progressPeriodRange(
+  period: ProgressPeriod,
+  currentWeekStart: string,
+): { from: string; through: string } {
+  if (!validWeek(currentWeekStart)) throw new Error("invalid_week");
+  const amount = Number(period.slice(0, -1));
+  if (period.endsWith("w"))
+    return {
+      from: addDays(currentWeekStart, -7 * (amount - 1)),
+      through: currentWeekStart,
+    };
+  const date = monthsBefore(currentWeekStart, amount);
+  const day = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return { from: addDays(date, -((day + 6) % 7)), through: currentWeekStart };
+}

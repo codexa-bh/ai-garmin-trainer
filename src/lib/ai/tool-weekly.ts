@@ -1,6 +1,9 @@
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolPorts } from "./tool-ports";
 import type { TrainerToolStep } from "./tool-types";
+
+/** Trainer evidence stays bounded to 12 weeks; the app view may read more. */
+const KPI_PROGRESS_TOOL_MAX_WEEKS = 12;
 export function executeWeeklyTool(
   input: TrainerToolExecutionInput,
   weekly: TrainerToolPorts["weekly"],
@@ -32,7 +35,11 @@ export function executeWeeklyTool(
         result = weekly.readKpis(input.input.weekStart, input.input.setId);
         break;
       case "getKpiProgress":
-        result = weekly.progress(input.input.from, input.input.through);
+        result = weekly.progress(
+          input.input.from,
+          input.input.through,
+          KPI_PROGRESS_TOOL_MAX_WEEKS,
+        );
         break;
       case "saveWeeklyKpis":
         result = weekly.saveKpis(

@@ -43,8 +43,7 @@ const sample: KpiRead = {
           definition: "Count and duration of the same selected sessions",
           selection: "Exclude repeated references",
           evidenceRequired: "Reported source",
-          availablePoints: 100,
-          scoring: "One allocation, no automatic attainment",
+          scoring: "Per-measurement allocations, no automatic attainment",
           tracks: [
             {
               key: "count",
@@ -52,6 +51,7 @@ const sample: KpiRead = {
               unit: "sessions",
               meaning: "Selected session count",
               target: { comparator: "at-least", value: 2 },
+              availablePoints: 60,
             },
             {
               key: "time",
@@ -59,6 +59,7 @@ const sample: KpiRead = {
               unit: "minutes",
               meaning: "Selected session duration",
               target: null,
+              availablePoints: 40,
             },
           ],
         },
@@ -79,10 +80,9 @@ const sample: KpiRead = {
         {
           itemId: "compound",
           actuals: [
-            { trackKey: "count", value: 0 },
-            { trackKey: "time", value: null },
+            { trackKey: "count", value: 0, awardedPoints: 0 },
+            { trackKey: "time", value: null, awardedPoints: 0 },
           ],
-          awardedPoints: 0,
           explanation: "Remaining commitment disclosed",
           status: "provisional",
           evidence: {
@@ -108,7 +108,7 @@ it("formats duration fractions and finite display values without changing stored
   expect(kpiValue(Number.POSITIVE_INFINITY, "m")).toBe("Unknown");
 });
 
-it("renders one numeric measurement per row with a shared allocation, zero/unknown and the unchanged saved total", () => {
+it("renders one numeric measurement per row with its own points, zero/unknown and the unchanged saved total", () => {
   render(<WeeklyKpiScorecard kpis={sample} loadSet={vi.fn()} />);
   const table = screen.getByRole("table") as HTMLTableElement;
   expect(table.tBodies[0].rows).toHaveLength(2);
@@ -121,8 +121,11 @@ it("renders one numeric measurement per row with a shared allocation, zero/unkno
     "Qualifying sessions · minutes",
     "Total",
   ]);
-  expect(screen.getByText("0 / 100").getAttribute("rowspan")).toBe("2");
-  expect(screen.getAllByText("0 / 100")).toHaveLength(1);
+  expect(
+    [...table.tBodies[0].rows].map((row) => row.cells[3].textContent),
+  ).toEqual(["0 / 60", "0 / 40"]);
+  expect(table.querySelector("[rowspan]")).toBeNull();
+  expect(screen.queryByText("Shared")).toBeNull();
   expect(
     screen.getAllByRole("columnheader").map((value) => value.textContent),
   ).toEqual(["KPI", "Target", "Actual", "Points"]);
@@ -159,7 +162,7 @@ it("keeps boolean conditions out of normal target/actual rows without modifying 
   expect(
     within(table).queryByRole("rowheader", { name: /qualification/i }),
   ).toBeNull();
-  expect(screen.getByText("0 / 100").getAttribute("rowspan")).toBe("2");
+  expect(screen.getByText("0 / 60")).toBeTruthy();
   expect(screen.queryByText("Scoring and evidence")).toBeNull();
   expect(data.sets[0].items[0].tracks.at(-1)?.meaning).toBe(
     "Authored saved condition, not a numeric measurement.",
@@ -170,6 +173,7 @@ it("retains condition-only legacy allocations in a concise summary and total, no
   const data = structuredClone(sample);
   const item = data.sets[0].items[0];
   item.label = "Recorded condition";
+  item.availablePoints = 100;
   item.tracks = [
     {
       key: "condition",
@@ -183,6 +187,7 @@ it("retains condition-only legacy allocations in a concise summary and total, no
   assessment.items[0].actuals = [{ trackKey: "condition", value: true }];
   assessment.items[0].awardedPoints = 100;
   assessment.totalPoints = 100;
+  // Legacy condition-only pool, read-only.
   const original = JSON.stringify(data);
   render(<WeeklyKpiScorecard kpis={data} loadSet={vi.fn()} />);
   const table = screen.getByRole("table") as HTMLTableElement;
@@ -205,8 +210,7 @@ it("keeps scored rows including zero allocation before monitoring, preserving ea
     id,
     conceptId: id,
     label: id,
-    availablePoints,
-    tracks: structuredClone(compound.tracks.slice(0, 1)),
+    tracks: [{ ...structuredClone(compound.tracks[0]), availablePoints }],
   });
   data.sets[0].items = [
     item("Monitor first", null),
@@ -230,6 +234,58 @@ it("keeps scored rows including zero allocation before monitoring, preserving ea
     "Total",
   ]);
   expect(JSON.stringify(data)).toBe(original);
+});
+it("orders a monitoring measurement of a scored KPI after scored rows and shows no points for it", () => {
+  const data = structuredClone(sample);
+  delete data.sets[0].items[0].tracks[1].availablePoints;
+  delete data.assessments[0].items[0].actuals[1].awardedPoints;
+  data.assessments[0].extras = [
+    {
+      label: "Authored extra",
+      points: 5,
+      explanation: "Relevant extra",
+      evidence: data.assessments[0].items[0].evidence,
+    },
+  ];
+  render(<WeeklyKpiScorecard kpis={data} loadSet={vi.fn()} />);
+  const table = screen.getByRole("table") as HTMLTableElement;
+  expect(
+    [...table.tBodies[0].rows].map((row) => [
+      row.cells[0].textContent,
+      row.cells.length === 4
+        ? row.cells[3].textContent
+        : row.cells[2].textContent,
+    ]),
+  ).toEqual([
+    ["Qualifying sessions · sessions", "0 / 60"],
+    ["Authored extra", "+5"],
+    ["Qualifying sessions · minutesMonitoring", "—"],
+  ]);
+  expect(screen.getByText("112.5 / 60 points · 187.5%")).toBeTruthy();
+});
+it("shows an unmapped legacy multi-measurement pool once as combined points, not split or Shared", () => {
+  const data = structuredClone(sample);
+  const item = data.sets[0].items[0];
+  for (const track of item.tracks) delete track.availablePoints;
+  item.availablePoints = 100;
+  const result = data.assessments[0].items[0];
+  for (const actual of result.actuals) delete actual.awardedPoints;
+  result.awardedPoints = 0;
+  render(<WeeklyKpiScorecard kpis={data} loadSet={vi.fn()} />);
+  const table = screen.getByRole("table") as HTMLTableElement;
+  expect(
+    [...table.tBodies[0].rows].map((row) => row.cells[0].textContent),
+  ).toEqual([
+    "Qualifying sessions · sessions",
+    "Qualifying sessions · minutes",
+    "Qualifying sessions · combined points",
+  ]);
+  expect(screen.getAllByText("0 / 100")).toHaveLength(1);
+  expect(screen.getAllByText("—")).toHaveLength(3);
+  expect(screen.getByText("Saved before per-measurement points")).toBeTruthy();
+  expect(screen.queryByText("Shared")).toBeNull();
+  expect(table.querySelector("[rowspan]")).toBeNull();
+  expect(screen.getByText("112.5 / 100 points · 112.5%")).toBeTruthy();
 });
 it("distinguishes empty, unassessed and incomplete latest-plan reads without obsolete fallback", () => {
   const { rerender } = render(
@@ -383,11 +439,7 @@ it("reads progress/weekly selection without writes, retains range and ignores st
         <button onClick={() => run(weekly.load("history", "2026-11-09"))}>
           New
         </button>
-        <button
-          onClick={() => run(weekly.loadProgress("2026-11-02", "2026-11-09"))}
-        >
-          Range
-        </button>
+        <button onClick={() => run(weekly.loadProgress("6w"))}>Range</button>
         <WeeklyPlanView
           weekly={weekly}
           openGeneral={async () => {}}
@@ -408,15 +460,21 @@ it("reads progress/weekly selection without writes, retains range and ignores st
   await waitFor(() => expect(screen.getByText(/2026-11-09 –/)).toBeTruthy());
   fireEvent.click(screen.getByText("Range"));
   await screen.findByRole("heading", { name: "Weekly achievement" });
-  expect(screen.getByLabelText("From Monday")).toHaveProperty(
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
     "value",
-    "2026-11-02",
+    "6w",
   );
-  expect(screen.queryByRole("button", { name: /Reload/ })).toBeNull();
-  fireEvent.submit(screen.getByLabelText("From Monday").closest("form")!);
+  expect(
+    screen.queryByRole("button", { name: /Reload|Load range/ }),
+  ).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "Period" }), {
+    target: { value: "12m" },
+  });
   await waitFor(() =>
-    expect(requests.filter((r) => r.includes("from=2026-11-02"))).toHaveLength(
-      2,
-    ),
+    expect(requests.filter((r) => r.includes("view=progress"))).toHaveLength(2),
+  );
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "12m",
   );
 });

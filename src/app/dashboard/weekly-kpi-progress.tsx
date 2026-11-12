@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { PROGRESS_PERIODS } from "@/lib/weekly/calendar";
 import {
   CartesianGrid,
   Line,
@@ -84,177 +85,185 @@ export function WeeklyKpiProgress({
         Saved points against each week’s latest plan — not fitness improvement.
         Gaps are not zero.
       </p>
-      <form
-        className="weekly-progress-controls"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const form = new FormData(event.currentTarget);
-          run(
-            weekly.loadProgress(
-              String(form.get("from")),
-              String(form.get("through")),
-            ),
-          );
-        }}
-      >
+      <div className="weekly-progress-controls">
         <label>
-          From Monday
-          <input
-            type="date"
-            name="from"
-            required
-            defaultValue={weekly.progressRange?.from}
-          />
-        </label>
-        <label>
-          Through Monday
-          <input
-            type="date"
-            name="through"
-            required
-            defaultValue={weekly.progressRange?.through}
-          />
-        </label>
-        <button type="submit" className="chrome-button">
-          Load range (up to 12 weeks)
-        </button>
-      </form>
-      {scores.some((point) => point.percentage !== null) ? (
-        <ProgressChart
-          label="Weekly KPI achievement (%)"
-          values={scores.map(
-            (point) =>
-              `${point.weekStart}: ${point.percentage === null ? point.reason : `${kpiNumber(point.total!)} / ${kpiNumber(point.available!)} points, ${kpiNumber(point.percentage)}%`}${point.provisional ? ", provisional" : ""}${point.assessment ? `, as of ${kpiCutoff(point.assessment.asOf)}` : ""}`,
-          )}
-        >
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={scores}
-              margin={{ top: 12, right: 24, left: 4, bottom: 8 }}
-            >
-              <CartesianGrid stroke="var(--line)" />
-              <XAxis
-                dataKey="weekStart"
-                tickFormatter={(value: string) => value.slice(5)}
-                tick={{ fill: "var(--muted)", fontSize: 11 }}
-              />
-              <YAxis
-                unit="%"
-                tickFormatter={(value: number) => kpiNumber(value)}
-                domain={[0, (maximum: number) => Math.max(100, maximum)]}
-                tick={{ fill: "var(--muted)", fontSize: 11 }}
-              />
-              <Tooltip formatter={(value) => `${kpiNumber(Number(value))}%`} />
-              <Line
-                type="linear"
-                dataKey="percentage"
-                name="Weekly KPI achievement"
-                stroke="#49d6c8"
-                connectNulls={false}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </ProgressChart>
-      ) : (
-        <p>No saved achievement scores in this range.</p>
-      )}
-      <details className="weekly-individual-kpis" open>
-        <summary>Individual KPIs</summary>
-        {!charts.length ? (
-          <p>
-            {latest?.complete === false
-              ? "Latest-plan KPIs are unavailable."
-              : latestSet?.items.length
-                ? "No numeric measurements in the latest established plan."
-                : "No KPIs in the latest established plan."}
-          </p>
-        ) : (
-          <>
-            <p className="training-plan-meta">
-              Latest established plan · {latest?.weekStart}. Dashed: target.
-              Solid: recorded actual.
-            </p>
-            {charts.map(({ item, track, label }) => {
-              const measurements = weeks.map(({ weekStart, kpis }) => {
-                const point = latestKpiMeasurement(kpis, item.conceptId, track);
-                return {
-                  weekStart,
-                  point,
-                  actual:
-                    typeof point?.value === "number" &&
-                    Number.isFinite(point.value)
-                      ? point.value
-                      : null,
-                  target:
-                    typeof point?.track.target?.value === "number"
-                      ? point.track.target.value
-                      : null,
-                };
-              });
-              return (
-                <ProgressChart
-                  key={`${item.conceptId}/${track.key}`}
-                  label={label}
-                  values={measurements.map(
-                    ({ weekStart, point }) =>
-                      `${weekStart}: target ${point ? kpiTarget(point.track) : "unavailable"}; actual ${kpiValue(point?.value, track.unit)}; ${point?.result?.status ?? "Not assessed"}${point?.assessment ? `; as of ${kpiCutoff(point.assessment.asOf)}` : ""}${point?.result?.evidence.qualification ? `; ${point.result.evidence.qualification}` : ""}${point?.result?.evidence.limitations ? `; ${point.result.evidence.limitations}` : ""}`,
-                  )}
-                >
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={measurements}
-                      margin={{ top: 12, right: 24, left: 4, bottom: 8 }}
-                    >
-                      <CartesianGrid stroke="var(--line)" />
-                      <XAxis
-                        dataKey="weekStart"
-                        tickFormatter={(value: string) => value.slice(5)}
-                        tick={{ fill: "var(--muted)", fontSize: 11 }}
-                      />
-                      <YAxis
-                        domain={[0, "auto"]}
-                        tick={{ fill: "var(--muted)", fontSize: 11 }}
-                      />
-                      <Tooltip
-                        formatter={(value) =>
-                          kpiValue(Number(value), track.unit)
-                        }
-                      />
-                      <Line
-                        type="linear"
-                        dataKey="target"
-                        name="Target"
-                        stroke="#b6a3ff"
-                        strokeDasharray="5 5"
-                        connectNulls={false}
-                        isAnimationActive={false}
-                      />
-                      <Line
-                        type="linear"
-                        dataKey="actual"
-                        name="Recorded actual"
-                        stroke="#49d6c8"
-                        connectNulls={false}
-                        isAnimationActive={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </ProgressChart>
+          Period
+          <select
+            value={weekly.progressPeriod}
+            onChange={(event) => {
+              const period = PROGRESS_PERIODS.find(
+                (value) => value === event.currentTarget.value,
               );
-            })}
-          </>
-        )}
-      </details>
-      {latest?.complete === false ? (
-        <button
-          type="button"
-          className="chrome-button"
-          onClick={() => run(weekly.refresh())}
-        >
-          Retry latest KPIs
-        </button>
-      ) : null}
+              if (period) run(weekly.loadProgress(period));
+            }}
+          >
+            <option value="6w">Last 6 weeks</option>
+            <option value="12w">Last 12 weeks</option>
+            <option value="2m">Last 2 months</option>
+            <option value="6m">Last 6 months</option>
+            <option value="12m">Last 12 months</option>
+          </select>
+        </label>
+      </div>
+      {weekly.state === "loading" || weekly.state === "idle" ? (
+        <p role="status">Loading saved progress…</p>
+      ) : weekly.state === "error" ? (
+        <div role="alert">
+          <p>Saved progress could not be loaded.</p>
+          <button
+            type="button"
+            className="chrome-button"
+            onClick={() => run(weekly.refresh())}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <>
+          {scores.some((point) => point.percentage !== null) ? (
+            <ProgressChart
+              label="Weekly KPI achievement (%)"
+              values={scores.map(
+                (point) =>
+                  `${point.weekStart}: ${point.percentage === null ? point.reason : `${kpiNumber(point.total!)} / ${kpiNumber(point.available!)} points, ${kpiNumber(point.percentage)}%`}${point.provisional ? ", provisional" : ""}${point.assessment ? `, as of ${kpiCutoff(point.assessment.asOf)}` : ""}`,
+              )}
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={scores}
+                  margin={{ top: 12, right: 24, left: 4, bottom: 8 }}
+                >
+                  <CartesianGrid stroke="var(--line)" />
+                  <XAxis
+                    dataKey="weekStart"
+                    tickFormatter={(value: string) => value.slice(5)}
+                    tick={{ fill: "var(--muted)", fontSize: 11 }}
+                  />
+                  <YAxis
+                    unit="%"
+                    tickFormatter={(value: number) => kpiNumber(value)}
+                    domain={[0, (maximum: number) => Math.max(100, maximum)]}
+                    tick={{ fill: "var(--muted)", fontSize: 11 }}
+                  />
+                  <Tooltip
+                    formatter={(value) => `${kpiNumber(Number(value))}%`}
+                  />
+                  <Line
+                    type="linear"
+                    dataKey="percentage"
+                    name="Weekly KPI achievement"
+                    stroke="#49d6c8"
+                    connectNulls={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </ProgressChart>
+          ) : (
+            <p>No saved achievement scores in this range.</p>
+          )}
+          <details className="weekly-individual-kpis" open>
+            <summary>Individual KPIs</summary>
+            {!charts.length ? (
+              <p>
+                {latest?.complete === false
+                  ? "Latest-plan KPIs are unavailable."
+                  : latestSet?.items.length
+                    ? "No numeric measurements in the latest established plan."
+                    : "No KPIs in the latest established plan."}
+              </p>
+            ) : (
+              <>
+                <p className="training-plan-meta">
+                  Latest established plan · {latest?.weekStart}. Dashed: target.
+                  Solid: recorded actual.
+                </p>
+                {charts.map(({ item, track, label }) => {
+                  const measurements = weeks.map(({ weekStart, kpis }) => {
+                    const point = latestKpiMeasurement(
+                      kpis,
+                      item.conceptId,
+                      track,
+                    );
+                    return {
+                      weekStart,
+                      point,
+                      actual:
+                        typeof point?.value === "number" &&
+                        Number.isFinite(point.value)
+                          ? point.value
+                          : null,
+                      target:
+                        typeof point?.track.target?.value === "number"
+                          ? point.track.target.value
+                          : null,
+                    };
+                  });
+                  return (
+                    <ProgressChart
+                      key={`${item.conceptId}/${track.key}`}
+                      label={label}
+                      values={measurements.map(
+                        ({ weekStart, point }) =>
+                          `${weekStart}: target ${point ? kpiTarget(point.track) : "unavailable"}; actual ${kpiValue(point?.value, track.unit)}; ${point?.result?.status ?? "Not assessed"}${point?.assessment ? `; as of ${kpiCutoff(point.assessment.asOf)}` : ""}${point?.result?.evidence.qualification ? `; ${point.result.evidence.qualification}` : ""}${point?.result?.evidence.limitations ? `; ${point.result.evidence.limitations}` : ""}`,
+                      )}
+                    >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={measurements}
+                          margin={{ top: 12, right: 24, left: 4, bottom: 8 }}
+                        >
+                          <CartesianGrid stroke="var(--line)" />
+                          <XAxis
+                            dataKey="weekStart"
+                            tickFormatter={(value: string) => value.slice(5)}
+                            tick={{ fill: "var(--muted)", fontSize: 11 }}
+                          />
+                          <YAxis
+                            domain={[0, "auto"]}
+                            tick={{ fill: "var(--muted)", fontSize: 11 }}
+                          />
+                          <Tooltip
+                            formatter={(value) =>
+                              kpiValue(Number(value), track.unit)
+                            }
+                          />
+                          <Line
+                            type="linear"
+                            dataKey="target"
+                            name="Target"
+                            stroke="#b6a3ff"
+                            strokeDasharray="5 5"
+                            connectNulls={false}
+                            isAnimationActive={false}
+                          />
+                          <Line
+                            type="linear"
+                            dataKey="actual"
+                            name="Recorded actual"
+                            stroke="#49d6c8"
+                            connectNulls={false}
+                            isAnimationActive={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </ProgressChart>
+                  );
+                })}
+              </>
+            )}
+          </details>
+          {latest?.complete === false ? (
+            <button
+              type="button"
+              className="chrome-button"
+              onClick={() => run(weekly.refresh())}
+            >
+              Retry latest KPIs
+            </button>
+          ) : null}
+        </>
+      )}
     </section>
   );
 }

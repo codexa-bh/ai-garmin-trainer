@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { weekly } from "@/lib/weekly/composition";
 import {
+  PROGRESS_MAX_WEEKS,
   validTimeZone,
   weeklyCalendar,
   weekInterval,
@@ -19,6 +20,7 @@ export function GET(request: Request) {
         weekly.progress(
           query.get("from") ?? calendar.weekStart,
           query.get("through") ?? calendar.weekStart,
+          PROGRESS_MAX_WEEKS,
         ),
       );
     const before = query.get("before");

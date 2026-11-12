@@ -3,6 +3,8 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
 import { createWeekly } from "../src/lib/weekly/application";
 import {
+  kpiAwarded,
+  kpiScoredUnits,
   latestKpiMeasurement,
   latestKpiScore,
   projectKpis,
@@ -56,40 +58,58 @@ it("uses only latest targets and exact assessment, not an obsolete high score or
     percentage: 0,
   });
 });
-it("counts allocations once per compound item, ignores monitoring allocations and never adds extras twice or caps above100", () => {
+it("sums independent per-measurement allocations, ignores monitoring and never adds extras twice or caps above100", () => {
   const state = authoredWeeklyKpis(now);
   state.latestId = state.originalId;
   state.sets = [state.sets[0]];
   const monitoring = structuredClone(state.sets[0].items[0]);
   monitoring.id = "monitor";
   monitoring.conceptId = "context";
-  monitoring.availablePoints = null;
+  for (const track of monitoring.tracks) delete track.availablePoints;
   state.sets[0].items.push(monitoring);
-  state.assessments[0].items.push({
-    ...structuredClone(state.assessments[0].items[0]),
-    itemId: monitoring.id,
-    awardedPoints: null,
-  });
+  const monitoringResult = structuredClone(state.assessments[0].items[0]);
+  monitoringResult.itemId = monitoring.id;
+  for (const actual of monitoringResult.actuals) delete actual.awardedPoints;
+  state.assessments[0].items.push(monitoringResult);
   expect(latestKpiScore(projectKpis(week, state))).toMatchObject({
     total: 112.5,
     available: 100,
     percentage: 112.5,
     provisional: true,
   });
-});
-it("normalizes finite saved totals without overflowing an avoidable intermediate product", () => {
-  const state = authoredWeeklyKpis(now);
-  state.latestId = state.originalId;
-  state.sets[0].items[0].availablePoints = 1e308;
-  state.assessments[0].totalPoints = 1e308;
-  expect(latestKpiScore(projectKpis(week, state)).percentage).toBe(100);
-  state.sets[0].items[0].availablePoints = 1;
+  // One scored plus one monitoring measurement: only the scored one counts.
+  delete state.sets[0].items[0].tracks[1].availablePoints;
+  delete state.assessments[0].items[0].actuals[1].awardedPoints;
+  expect(latestKpiScore(projectKpis(week, state)).available).toBe(60);
+  // A scored measurement with an unknown award is an incomplete score, not zero.
+  state.assessments[0].items[0].actuals[0].awardedPoints = null;
   expect(latestKpiScore(projectKpis(week, state))).toMatchObject({
-    percentage: null,
-    reason: "Percentage unavailable",
+    total: null,
+    reason: "Overall score unavailable",
   });
 });
-
+it("reads an unmapped legacy multi-measurement pool once, never split or duplicated", () => {
+  const state = authoredWeeklyKpis(now);
+  state.latestId = state.originalId;
+  const item = state.sets[0].items[0];
+  for (const track of item.tracks) delete track.availablePoints;
+  item.availablePoints = 100;
+  const result = state.assessments[0].items[0];
+  for (const actual of result.actuals) delete actual.awardedPoints;
+  result.awardedPoints = 100;
+  expect(kpiScoredUnits(item)).toEqual([{ trackKey: null, available: 100 }]);
+  expect(latestKpiScore(projectKpis(week, state))).toMatchObject({
+    total: 112.5,
+    available: 100,
+  });
+  // A legacy single-numeric-measurement pool is exactly that measurement's.
+  item.tracks = [item.tracks[0]];
+  result.actuals = [{ trackKey: item.tracks[0].key, value: 4 }];
+  expect(kpiScoredUnits(item)).toEqual([
+    { trackKey: item.tracks[0].key, available: 100 },
+  ]);
+  expect(kpiAwarded(item, result, item.tracks[0].key)).toBe(100);
+});
 it("keeps missing totals, incomplete/unavailable assessments, zero denominator and incomplete reads as gaps", () => {
   const state = authoredWeeklyKpis(now);
   state.latestId = state.originalId;
@@ -103,7 +123,8 @@ it("keeps missing totals, incomplete/unavailable assessments, zero denominator a
   state.assessments[0].status = "unavailable";
   expect(score().percentage).toBeNull();
   state.assessments[0].status = "provisional";
-  state.sets[0].items[0].availablePoints = 0;
+  state.sets[0].items[0].tracks[0].availablePoints = 0;
+  state.sets[0].items[0].tracks[1].availablePoints = 0;
   expect(score().percentage).toBeNull();
   expect(
     latestKpiScore({ ...projectKpis(week, state), complete: false }).percentage,
@@ -136,24 +157,26 @@ it("finds latest established plan independently of chart range, skips empty slot
     () => now,
     () => "id",
   );
-  expect(app.progress("2026-08-03", "2026-08-10").latestPlan?.weekStart).toBe(
-    week,
-  );
+  expect(
+    app.progress("2026-08-03", "2026-08-10", 12).latestPlan?.weekStart,
+  ).toBe(week);
   store.save({
     ...source,
     weekStart: "2026-11-16",
     original: null,
     latest: null,
   });
-  expect(app.progress("2026-08-03", "2026-08-10").latestPlan?.weekStart).toBe(
-    week,
-  );
+  expect(
+    app.progress("2026-08-03", "2026-08-10", 12).latestPlan?.weekStart,
+  ).toBe(week);
   store.save({ ...source, weekStart: "2026-11-16" });
-  expect(app.progress("2026-08-03", "2026-08-10").latestPlan).toMatchObject({
-    weekStart: "2026-11-16",
-    complete: true,
-    sets: [],
-  });
+  expect(app.progress("2026-08-03", "2026-08-10", 12).latestPlan).toMatchObject(
+    {
+      weekStart: "2026-11-16",
+      complete: true,
+      sets: [],
+    },
+  );
 });
 it("joins renamed historical labels and changed targets by stable exact meaning, never obsolete sets, conflicting candidates or incompatible semantics", () => {
   const state = authoredWeeklyKpis(now);

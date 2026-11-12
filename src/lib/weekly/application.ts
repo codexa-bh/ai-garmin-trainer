@@ -1,4 +1,10 @@
-import { addDays, validWeek, weeklyCalendar, weekInterval } from "./calendar";
+import {
+  addDays,
+  PROGRESS_MAX_WEEKS,
+  validWeek,
+  weeklyCalendar,
+  weekInterval,
+} from "./calendar";
 import { applyKpiChange, projectKpis } from "./kpis";
 import type { KpiChange, KpiRead, KpiProgress } from "./kpi-contracts";
 import type {
@@ -203,12 +209,21 @@ export function createWeekly(
       ? readKpis(weekStart, header.latestPlanSetId)
       : { ...header, sets: [], assessments: [], availableSets: [] };
   }
-  function progress(from: string, through: string): KpiProgress {
+  /** maxWeeks is the caller's inclusive bound: the app Progress view allows
+   * PROGRESS_MAX_WEEKS, while the trainer tool keeps its narrower limit. */
+  function progress(
+    from: string,
+    through: string,
+    maxWeeks: number,
+  ): KpiProgress {
     if (
       !validWeek(from) ||
       !validWeek(through) ||
       from > through ||
-      through > addDays(from, 77)
+      !Number.isInteger(maxWeeks) ||
+      maxWeeks < 1 ||
+      maxWeeks > PROGRESS_MAX_WEEKS ||
+      through > addDays(from, 7 * (maxWeeks - 1))
     )
       throw new Error("invalid_progress_range");
     const weeks: KpiProgress["weeks"] = [];

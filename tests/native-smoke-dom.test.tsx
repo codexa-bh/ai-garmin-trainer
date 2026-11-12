@@ -1927,12 +1927,21 @@ it("exercises finite previous-week and current-plan measurement actions on real 
             }
           : query.get("view") === "progress"
             ? {
-                from: previous,
+                from: query.get("from"),
                 through: week,
-                weeks: [
-                  { weekStart: previous, kpis: current },
-                  { weekStart: week, kpis: current },
-                ],
+                weeks: Array.from(
+                  {
+                    length:
+                      Math.round(
+                        (Date.parse(week) - Date.parse(query.get("from")!)) /
+                          604800000,
+                      ) + 1,
+                  },
+                  (_, index) => {
+                    const weekStart = addDays(query.get("from")!, index * 7);
+                    return { weekStart, kpis: { ...current, weekStart } };
+                  },
+                ),
                 latestPlan: current,
               }
             : { record: null, kpis: current },
@@ -1970,8 +1979,14 @@ it("exercises finite previous-week and current-plan measurement actions on real 
     "T0321 authored context · loadMonitoring",
     "T0321 authored context · recoveryMonitoring",
   ]);
-  const allocation = table.querySelector("td[rowspan='2']")!;
-  expect(allocation.textContent).toBe("100 / 80Shared");
+  expect(table.querySelector("[rowspan]")).toBeNull();
+  const allocations = [...table.querySelectorAll("tbody tr")]
+    .slice(0, 2)
+    .map((row) => row.querySelector("td:last-child")!);
+  expect(allocations.map((cell) => cell.textContent)).toEqual([
+    "50 / 50",
+    "30 / 30",
+  ]);
   const currentCapture = (
     await command({ type: "captureView", view: "weeklyKpis", preset: "wide" })
   ).result;
@@ -1979,7 +1994,9 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(
     numericHeaders.every((node) => node.hasAttribute("data-smoke-reveal")),
   ).toBe(true);
-  expect(allocation.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect(
+    allocations.every((cell) => cell.hasAttribute("data-smoke-reveal")),
+  ).toBe(true);
   smoke.__trainerSmokeRestore();
   const extraBoolean = document.createElement("div");
   extraBoolean.textContent = "Yes";
@@ -2028,7 +2045,32 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(
     (await command({ type: "weeklyKpis", action: "measurement" })).result.ok,
   ).toBe(false);
-  expect(screen.queryByRole("combobox")).toBeNull();
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "12w",
+  );
+  for (const [action, period, count] of [
+    ["sixWeeks", "6w", 6],
+    ["twelveMonths", "12m", 54],
+  ] as const) {
+    const observation = (await command({ type: "weeklyKpis", action })).result;
+    expect(observation.ok).toBe(true);
+    // React act flushes the async reload after the command settles; observe
+    // that settled render, as the native runner's wait_kpis does.
+    expect(
+      (await command({ type: "weeklyKpis", action: "observe" })).result
+        .rangeCorrect,
+    ).toBe(true);
+    expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+      "value",
+      period,
+    );
+    expect(
+      [...document.querySelectorAll(".weekly-chart-block ul")].map(
+        (list) => list.children.length,
+      ),
+    ).toEqual([count, count, count, count, count]);
+  }
   expect(document.querySelectorAll(".weekly-chart-block")).toHaveLength(5);
   // jsdom has no chart geometry. Bind the mask fixture to the installed
   // Recharts tick generator, not a guessed axis; actual native smoke is separate.
@@ -2053,6 +2095,11 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(
     (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
       .result.ok,
+  ).toBe(true);
+  expect(
+    screen
+      .getByRole("combobox", { name: "Period" })
+      .hasAttribute("data-smoke-reveal"),
   ).toBe(true);
   expect(
     [...document.querySelectorAll("figcaption")].every((caption) =>

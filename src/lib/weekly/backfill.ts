@@ -176,3 +176,130 @@ export function reconcileKpiSources(
     return { applied, reconciled, weeks: mappings.length };
   });
 }
+
+export type ReviewedKpiPointMapping = {
+  /** Exact current narrative record and structured state, as reviewed. */
+  source: WeeklyRecord;
+  expected: WeeklyKpis;
+  /** Reviewed per-measurement replacement and matching narrative text. */
+  replacement: { record: WeeklyRecord; state: WeeklyKpis };
+  newRevision: string;
+};
+
+function sameIdentity(before: WeeklyKpis, after: WeeklyKpis): boolean {
+  const shape = (state: WeeklyKpis) =>
+    JSON.stringify([
+      state.timeZone,
+      state.originalId,
+      state.latestId,
+      state.reviewDefinedId,
+      state.sets.map((set) => [
+        set.id,
+        set.origin,
+        set.savedAt,
+        set.planRevision ?? null,
+        set.items.map((item) => [
+          item.id,
+          item.conceptId,
+          item.tracks.map((t) => [t.key, t.kind, t.unit, t.meaning]),
+        ]),
+      ]),
+      state.assessments.map((a) => [a.setId, a.revision, a.savedAt, a.asOf]),
+    ]);
+  return shape(before) === shape(after);
+}
+
+function sameNarrativeIdentity(
+  before: WeeklyRecord,
+  after: WeeklyRecord,
+): boolean {
+  // Only document text may change; revisions, titles and bindings stay exact.
+  const shape = (record: WeeklyRecord) =>
+    JSON.stringify([
+      record.weekStart,
+      record.timeZone,
+      ...(["original", "latest", "review"] as const).map((key) => {
+        const document = record[key];
+        return document
+          ? { ...document, contentMarkdown: undefined }
+          : document;
+      }),
+    ]);
+  return shape(before) === shape(after);
+}
+
+/** Explicit maintenance only: replace reviewed legacy item-level point pools
+ * with operator-approved per-measurement points and matching narrative text.
+ * Never chooses weights, touches unlisted weeks or replays a changed source. */
+export function mapKpiPoints(
+  store: WeeklyStore,
+  mappings: ReviewedKpiPointMapping[],
+  now: Date,
+) {
+  if (
+    !mappings.length ||
+    mappings.length > 52 ||
+    new Set(mappings.map((m) => m.source.weekStart)).size !== mappings.length
+  )
+    throw new Error("invalid_point_mapping_manifest");
+  return store.transaction(() => {
+    let applied = 0;
+    let reconciled = 0;
+    for (const { source, expected, replacement, newRevision } of mappings) {
+      const { record, state } = replacement;
+      const narrativeChanged =
+        JSON.stringify(record) !== JSON.stringify(source);
+      if (
+        !validWeek(source.weekStart) ||
+        !validId(newRevision) ||
+        newRevision === expected.revision ||
+        state.revision !== newRevision ||
+        record.revision !==
+          (narrativeChanged ? newRevision : source.revision) ||
+        !sameIdentity(expected, state) ||
+        !sameNarrativeIdentity(source, record)
+      )
+        throw new Error("invalid_point_mapping");
+      const changedSets = state.sets.filter(
+        (set, index) =>
+          JSON.stringify(set) !== JSON.stringify(expected.sets[index]),
+      );
+      if (!changedSets.length) throw new Error("invalid_point_mapping");
+      for (const set of changedSets) validateKpiSet(set);
+      for (const assessment of state.assessments) {
+        const set = state.sets.find((s) => s.id === assessment.setId)!;
+        const before = expected.assessments.find(
+          (a) => a.setId === assessment.setId,
+        );
+        if (
+          changedSets.includes(set) ||
+          JSON.stringify(before) !== JSON.stringify(assessment)
+        )
+          validateKpiAssessment(
+            assessment,
+            set,
+            source.weekStart,
+            state.timeZone,
+            now,
+          );
+      }
+      const currentRecord = store.read(source.weekStart);
+      const currentState = store.readKpis(source.weekStart);
+      if (
+        JSON.stringify(currentRecord) === JSON.stringify(record) &&
+        JSON.stringify(currentState) === JSON.stringify(state)
+      ) {
+        reconciled++;
+        continue;
+      }
+      if (JSON.stringify(currentRecord) !== JSON.stringify(source))
+        throw new Error("point_mapping_source_changed");
+      if (JSON.stringify(currentState) !== JSON.stringify(expected))
+        throw new Error("point_mapping_state_changed");
+      if (narrativeChanged) store.save(record);
+      store.saveKpis(source.weekStart, state);
+      applied++;
+    }
+    return { applied, reconciled, weeks: mappings.length };
+  });
+}
