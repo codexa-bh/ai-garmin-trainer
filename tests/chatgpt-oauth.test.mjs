@@ -6,6 +6,7 @@ import {
   authorization,
   callbackResult,
   validateIdentity,
+  failureResult,
   refresh,
   models,
   revoke,
@@ -214,6 +215,108 @@ test("signed ID tokens require trusted key, algorithm, issuer, audience, expiry,
           : json({ keys: [jwk] }),
     ),
     /discovery/,
+  );
+});
+
+test("identity failures expose only allowlisted categories, never token, claim, key or exception contents", async () => {
+  const secret = "authored-private-do-not-echo";
+  const refused = async (token, reason, network = transport()) => {
+    await assert.rejects(
+      validateIdentity(token, registration.clientId, "authored-nonce", network),
+      (error) => {
+        assert.equal(error.message, "identity");
+        assert.deepEqual(failureResult(error), {
+          ok: false,
+          code: "identity",
+          reason,
+        });
+        assert.equal(
+          JSON.stringify(failureResult(error)).includes(secret),
+          false,
+        );
+        return true;
+      },
+    );
+  };
+  for (const token of [
+    secret,
+    "a.b.c",
+    `${Buffer.from("null").toString("base64url")}.e30.c2ln`,
+    `e30.${Buffer.from("null").toString("base64url")}.c2ln`,
+    `e30.${Buffer.from("[]").toString("base64url")}.c2ln`,
+  ])
+    await refused(token, "format");
+  for (const header of [
+    { alg: secret },
+    { kid: "" },
+    { jku: secret },
+    { jwk: { secret } },
+    { x5u: secret },
+    { crit: [secret] },
+  ])
+    await refused(jwt({}, header), "header");
+  for (const [claims, reason] of [
+    [{ iss: secret }, "issuer"],
+    [{ sub: "" }, "subject"],
+    [{ aud: secret }, "audience"],
+    [{ aud: [registration.clientId, secret], azp: secret }, "audience"],
+    [{ exp: now - 1 }, "expiry"],
+    [{ exp: secret }, "expiry"],
+    [{ nbf: now + 600 }, "expiry"],
+    [{ nonce: secret }, "nonce"],
+    [{ nonce: undefined }, "nonce"],
+  ])
+    await refused(jwt(claims), reason);
+  for (const keys of [[], [jwk, jwk], [{ ...jwk, kid: secret }]])
+    await refused(jwt(), "key", async (url) =>
+      String(url).endsWith("openid-configuration")
+        ? json(config)
+        : json({ keys }),
+    );
+  const token = jwt();
+  await refused(token.slice(0, -8) + "AAAAAAAA", "signature");
+  const multiAudience = await validateIdentity(
+    jwt({ aud: [registration.clientId, "other"], azp: registration.clientId }),
+    registration.clientId,
+    "authored-nonce",
+    transport(),
+  );
+  assert.equal(multiAudience.subject, registration.subject);
+  for (const error of [
+    null,
+    new Error(secret),
+    { message: "identity", reason: secret, token, claims: secret },
+    { message: "identity", reason: { secret }, stack: secret },
+    { message: "network", reason: "nonce", body: secret },
+  ]) {
+    const result = failureResult(error);
+    assert.equal(JSON.stringify(result).includes(secret), false);
+    assert.deepEqual(Object.keys(result), ["ok", "code"]);
+  }
+  await assert.rejects(
+    validateIdentity(
+      jwt(),
+      registration.clientId,
+      "authored-nonce",
+      async () => {
+        throw new Error(secret);
+      },
+    ),
+    (error) => {
+      assert.deepEqual(failureResult(error), { ok: false, code: "network" });
+      return true;
+    },
+  );
+  await assert.rejects(
+    refresh(registration, transport({ id_token: jwt({ sub: secret }) })),
+    (error) => {
+      assert.deepEqual(failureResult(error), {
+        ok: false,
+        code: "identity",
+        reason: "registration",
+      });
+      return true;
+    },
   );
 });
 
