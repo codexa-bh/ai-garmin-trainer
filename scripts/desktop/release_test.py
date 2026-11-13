@@ -51,6 +51,18 @@ class MetadataTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             metadata.prepare(self.root, '0.2.0-rc.1', 'no overwrite')
 
+    def test_prepare_changes_only_the_tauri_version_token_and_refuses_ambiguity(self):
+        tauri = self.root / 'src-tauri/tauri.conf.json'
+        authored = '{\n  "version": "0.1.0",\n  "title": "Trainer \u2014 Settings",\n  "bundle": { "macOS": { "minimumSystemVersion": "12.0" } }\n}\n'
+        tauri.write_text(authored)
+        metadata.prepare(self.root, '0.1.1', 'Reviewed synthetic future changes')
+        self.assertEqual(tauri.read_text(), authored.replace('"version": "0.1.0"', '"version": "0.1.1"'))
+        tauri.write_text('{"version": "0.1.1", "plugin": {"version": "0.1.1"}}')
+        with self.assertRaisesRegex(ValueError, 'Ambiguous Tauri'):
+            metadata.prepare(self.root, '0.1.2', 'Reviewed synthetic future changes')
+        self.assertFalse((self.root / 'release-notes/0.1.2.md').exists())
+        self.assertEqual(json.loads((self.root / 'package.json').read_text())['version'], '0.1.1')
+
     def test_malformed_versions_and_mirrors_refuse(self):
         for version in ['v1.2.3', '01.2.3', '1.2', '1.2.3+ambiguous', '../1.2.3', '1.2.3-01']:
             with self.subTest(version=version), self.assertRaises(ValueError):
