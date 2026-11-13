@@ -1414,7 +1414,12 @@ mod tests {
                 &format!("x-chatgpt-owner: {}\r\n", owner.capability),
                 json!({"operation":"credential","registrationId":r.id,"epoch":1}),
             );
-            assert!(response.starts_with("HTTP/1.1 409"));
+            assert!(
+                response.starts_with("HTTP/1.1 409"),
+                "terminal={terminal}; broker status={:?}; response_bytes={}",
+                response.lines().next().map(|line| line.chars().take(64).collect::<String>()),
+                response.len()
+            );
             let store = owner.store.lock().unwrap();
             let saved = &store.document.registrations[0];
             assert_eq!(saved.client_id, r.client_id);

@@ -248,6 +248,9 @@ it("distinguishes saved membership from new and removed drafts through actual Sa
   expect(savedEntries).toEqual(saved);
   expect(choices()[0].disabled).toBe(true);
   expect(choices()[0].checked).toBe(false);
+  expect(choices()[0].closest("label")?.hidden).toBe(true);
+  expect(choices()[1].closest("label")?.hidden).toBe(false);
+  expect(byId("chatgpt-model-picker").hidden).toBe(false);
   expect(choices()[0].closest("label")?.textContent).toContain(
     "Saved in catalog",
   );
@@ -280,6 +283,30 @@ it("distinguishes saved membership from new and removed drafts through actual Sa
   );
   await reload();
   expect(savedEntries).toEqual(saved);
+});
+it("hides the add picker when every account model is already in the catalog and restores only removed choices", async () => {
+  fireEvent.click(byId("chatgpt-select-all"));
+  add();
+  expect(choices().every((input) => input.closest("label")?.hidden)).toBe(true);
+  expect(byId("chatgpt-model-picker").hidden).toBe(true);
+  expect(byId("catalog-chatgpt-add").hidden).toBe(true);
+  expect(rows()).toHaveLength(2);
+  fireEvent.submit(byId("settings"));
+  await waitFor(() => expect(savedEntries).toHaveLength(2));
+  await reload();
+  expect(byId("chatgpt-model-picker").hidden).toBe(true);
+  expect(byId("catalog-chatgpt-add").hidden).toBe(true);
+  const saved = structuredClone(savedEntries);
+  fireEvent.click(document.querySelector("#catalog-chatgpt-rows button")!);
+  expect(byId("chatgpt-model-picker").hidden).toBe(false);
+  expect(byId("catalog-chatgpt-add").hidden).toBe(false);
+  expect(choices()[0].closest("label")?.hidden).toBe(false);
+  expect(choices()[1].closest("label")?.hidden).toBe(true);
+  expect(choices()[0].checked).toBe(false);
+  await reload();
+  expect(savedEntries).toEqual(saved);
+  expect(rows()).toHaveLength(2);
+  expect(byId("chatgpt-model-picker").hidden).toBe(true);
 });
 it("select-all and clear use actual checkboxes and cannot add the same pair twice", () => {
   fireEvent.click(byId("chatgpt-select-all"));

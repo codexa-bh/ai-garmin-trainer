@@ -20,7 +20,13 @@ export function subscriptionEntryLabel(
     ).length === 1
       ? model.displayName
       : entry.modelId;
-  return `ChatGPT plan · ${index < 0 ? "unavailable account" : `account ${index + 1}`} / ${name}`;
+  const account =
+    index < 0
+      ? " · unavailable account"
+      : connections.length > 1
+        ? ` ${index + 1}`
+        : "";
+  return `ChatGPT plan${account} / ${name}`;
 }
 /** Secret-free native projection; pure validation, no authentication capability. */
 export type ChatgptConnection = {

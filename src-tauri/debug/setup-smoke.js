@@ -235,11 +235,14 @@
           input?.type === "checkbox" &&
           !input.checked &&
           input.disabled &&
+          label.hidden &&
           input.value ===
             ["synthetic/chatgpt:one", "synthetic/chatgpt:three"][index]
         );
       }) &&
       byId("catalog-chatgpt-add").disabled &&
+      byId("catalog-chatgpt-add").hidden &&
+      byId("chatgpt-model-picker").hidden &&
       group.length === 2 &&
       group.every(
         (row, index) =>

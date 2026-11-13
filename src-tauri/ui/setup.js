@@ -206,15 +206,21 @@ function updateChatgptModelControls() {
     input.disabled =
       catalogLocked() || chatgptPending || !connection?.planEnabled || added;
     if (added) input.checked = false;
-    input.closest("label").querySelector(".chatgpt-model-note").textContent =
-      added
-        ? saved?.id === added.id
-          ? "Saved in catalog"
-          : "Added — Save pending"
-        : saved
-          ? "Removed — Save pending"
-          : "";
+    const label = input.closest("label");
+    label.hidden = Boolean(added);
+    label.querySelector(".chatgpt-model-note").textContent = added
+      ? saved?.id === added.id
+        ? "Saved in catalog"
+        : "Added — Save pending"
+      : saved
+        ? "Removed — Save pending"
+        : "";
   }
+  const hasNewModels =
+    connection?.planEnabled &&
+    inputs.some((input) => !input.closest("label").hidden);
+  byId("chatgpt-model-picker").hidden = !hasNewModels;
+  byId("catalog-chatgpt-add").hidden = !hasNewModels;
   const available = inputs.filter((input) => !input.disabled);
   const selected = selectedChatgptModels();
   const remaining = 32 - catalog.entries.length;

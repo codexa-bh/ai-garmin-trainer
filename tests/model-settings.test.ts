@@ -5,6 +5,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createModelSettings } from "@/lib/model-settings/application";
 import type { ModelConfiguration } from "@/lib/model-settings/contracts";
 import { decodeChoice, priorChoice } from "@/lib/model-settings/policy";
+import {
+  subscriptionEntryLabel,
+  type ChatgptConnection,
+} from "@/lib/model-settings/chatgpt-metadata";
 import { getOptionalEnv, hasConfiguredSecret } from "@/lib/env";
 const config = (): ModelConfiguration => ({
   catalog: {
@@ -77,6 +81,50 @@ it.each([
   expect(JSON.stringify(first)).not.toMatch(
     /private-corrupt|unknown-private|defaultEntryId|effective|source/,
   );
+});
+it("keeps subscription labels compact for a sole connection without losing multi-account distinction or exact model fallback", () => {
+  const connection: ChatgptConnection = {
+    id: "registration_11111111-1111-4111-8111-111111111111",
+    epoch: 1,
+    label: "private-label",
+    state: "connected",
+    planEnabled: true,
+    disclosed: true,
+    models: [{ slug: "gpt-6-luna", displayName: "GPT-6-Luna" }],
+  };
+  const entry = {
+    id: "entry_plan",
+    provider: "chatgpt" as const,
+    registrationId: connection.id,
+    modelId: "gpt-6-luna",
+  };
+  expect(subscriptionEntryLabel(entry, [connection])).toBe(
+    "ChatGPT plan / GPT-6-Luna",
+  );
+  const other = {
+    ...connection,
+    id: "registration_22222222-2222-4222-8222-222222222222",
+  };
+  expect(subscriptionEntryLabel(entry, [connection, other])).toBe(
+    "ChatGPT plan 1 / GPT-6-Luna",
+  );
+  expect(
+    subscriptionEntryLabel({ ...entry, registrationId: other.id }, [
+      connection,
+      other,
+    ]),
+  ).toBe("ChatGPT plan 2 / GPT-6-Luna");
+  expect(subscriptionEntryLabel(entry, [])).toBe(
+    "ChatGPT plan · unavailable account / gpt-6-luna",
+  );
+  connection.models.push({
+    slug: "different-model",
+    displayName: "GPT-6-Luna",
+  });
+  expect(subscriptionEntryLabel(entry, [connection])).toBe(
+    "ChatGPT plan / gpt-6-luna",
+  );
+  expect(entry.registrationId).toBe(connection.id);
 });
 it("does not provider-only map a custom or ambiguous legacy identity", () => {
   const c = config();
