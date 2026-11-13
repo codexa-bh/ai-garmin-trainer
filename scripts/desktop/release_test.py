@@ -125,8 +125,11 @@ class PayloadTests(unittest.TestCase):
     def test_payload_requires_runtime_notices_architecture_and_declared_signing(self):
         root = self.app / 'Contents/Resources/resources'
         for name in ['NODE-LICENSE.txt', 'THIRD-PARTY-NOTICES.txt', 'REDISTRIBUTION-REVIEW.txt',
+                     'redistribution/index.json', 'redistribution/NOTICES.txt', 'redistribution/sources/native-crates.tar.gz',
                      'runtime/runtime.cjs', 'runtime/scripts/garmin_auth.py', 'runtime/scripts/garmin_auth.py.lock',
-                     'runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node', 'node']:
+                     'runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+                     'runtime/node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64-0.35.5.node',
+                     'runtime/node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib', 'node']:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'synthetic bundled input')
@@ -140,10 +143,14 @@ class PayloadTests(unittest.TestCase):
             self.assertTrue(artifact.payload_checks(self.app, '0.1.0'))
             with self.assertRaisesRegex(ValueError, 'version'):
                 artifact.payload_checks(self.app, '1.0.0')
-            (root / 'NODE-LICENSE.txt').unlink()
-            with self.assertRaises(FileNotFoundError):
-                artifact.payload_checks(self.app, '0.1.0')
-            (root / 'NODE-LICENSE.txt').write_text('synthetic license')
+            for required in ['NODE-LICENSE.txt', 'redistribution/index.json', 'redistribution/NOTICES.txt',
+                             'redistribution/sources/native-crates.tar.gz']:
+                path = root / required
+                original = path.read_bytes()
+                path.unlink()
+                with self.subTest(required=required), self.assertRaises(FileNotFoundError):
+                    artifact.payload_checks(self.app, '0.1.0')
+                path.write_bytes(original)
             with patch.object(artifact, 'run', return_value=subprocess.CompletedProcess([], 0, b'x86_64', b'')):
                 with self.assertRaisesRegex(ValueError, 'ARM64'):
                     artifact.payload_checks(self.app, '0.1.0')

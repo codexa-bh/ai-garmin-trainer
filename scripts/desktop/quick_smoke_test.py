@@ -65,13 +65,25 @@ class QuickTests(unittest.TestCase):
             resources.mkdir(parents=True)
             file = resources / 'node'
             file.write_bytes(b'unit inventory fixture')
+            notice = resources / 'THIRD-PARTY-NOTICES.txt'
+            notice.write_bytes(b'actual upstream notice fixture')
             provenance = resources / 'provenance.json'
-            record = {'sourceFingerprint': 'a' * 64, 'files': [{'path': 'node', 'sha256': hashlib.sha256(file.read_bytes()).hexdigest()}]}
+            record = {'sourceFingerprint': 'a' * 64, 'files': [
+                {'path': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in [file, notice]]}
             provenance.write_text(json.dumps(record))
             with patch('native_smoke.REPO', repo):
                 verify_resources('a' * 64)
                 with self.assertRaises(ValueError):
                     verify_resources('b' * 64)
+                notice.write_bytes(b'changed notice')
+                with self.assertRaisesRegex(ValueError, 'inventory mismatch'):
+                    verify_resources('a' * 64)
+                notice.write_bytes(b'actual upstream notice fixture')
+                omitted = {**record, 'files': record['files'][:1]}
+                provenance.write_text(json.dumps(omitted))
+                with self.assertRaisesRegex(ValueError, 'inventory mismatch'):
+                    verify_resources('a' * 64)
+                provenance.write_text(json.dumps(record))
                 file.write_bytes(b'changed')
                 with self.assertRaises(ValueError):
                     verify_resources('a' * 64)

@@ -407,7 +407,7 @@ def verify_resources(source):
         if path.is_symlink():
             raise ValueError('Resource aliases refused')
         relative = path.relative_to(resources).as_posix()
-        if path.is_file() and relative not in ('provenance.json', 'THIRD-PARTY-NOTICES.txt'):
+        if path.is_file() and relative != 'provenance.json':
             actual[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
     if actual != expected:
         raise ValueError('Prepared resource inventory mismatch')

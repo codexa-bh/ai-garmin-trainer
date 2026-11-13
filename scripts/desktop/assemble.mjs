@@ -149,6 +149,10 @@ await cp(
   join(root, "docs/redistribution.md"),
   join(resources, "REDISTRIBUTION-REVIEW.txt"),
 );
+execFileSync("python3", ["scripts/desktop/redistribution.py"], {
+  cwd: root,
+  stdio: "inherit",
+});
 const files = [];
 async function inventory(dir, relative = "") {
   for (const item of await readdir(dir, { withFileTypes: true })) {
@@ -164,7 +168,6 @@ async function inventory(dir, relative = "") {
     else throw new Error("Unexpected resource alias/device.");
   }
 }
-await inventory(resources);
 const lock = JSON.parse(
   await readFile(join(root, "package-lock.json"), "utf8"),
 );
@@ -177,8 +180,10 @@ const notices = Object.entries(lock.packages)
   .join("\n");
 await writeFile(
   join(resources, "THIRD-PARTY-NOTICES.txt"),
-  `Local unsigned build only. No distribution authorization.\nNode: see NODE-LICENSE.txt.\nTauri: Apache-2.0 OR MIT (Cargo.lock pins native inputs; complete native notice review remains required).\nSee REDISTRIBUTION-REVIEW.txt for first-party/helper/component publication gates.\nNext production dependencies (lockfile license metadata, not legal certification):\n${notices}\n`,
+  `Unsigned build. Notices are not redistribution authorization.\nNode and embedded components: see NODE-LICENSE.txt.\nActual npm/native/upstream license texts: see redistribution/NOTICES.txt.\nSources and exact input digests: see redistribution/index.json and redistribution/sources/.\nSee REDISTRIBUTION-REVIEW.txt for limited permissions, attribution, rebuild directions and remaining publication gates.\nProduction npm dependency metadata (conservative superset, not legal certification):\n${notices}\n`,
 );
+// Bind the generated notices and source corpus as well as runtime resources.
+await inventory(resources);
 await writeFile(
   join(resources, "provenance.json"),
   JSON.stringify(

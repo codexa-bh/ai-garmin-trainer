@@ -53,7 +53,7 @@ const output = argValue("--output");
 const evidence = {
   generatedAt: new Date().toISOString(),
   boundary:
-    "local MCP-only source beta; no package publication, container image, desktop bundle, public release, deployment, or beta invitation",
+    "local single-user macOS ARM64 desktop; npm audit/connector evidence only, not Node/Rust/Python/compiled-vendor clearance or binary publication approval",
   node: {
     engine: pkg.engines?.node,
     dependencyCount: Object.keys(pkg.dependencies ?? {}).length,
@@ -72,9 +72,9 @@ const evidence = {
   },
   python: {
     boundary:
-      "uvx resolves pinned garmin_mcp and Python transitive dependencies during source-beta setup",
+      "uvx resolves pinned garmin_mcp and Python transitive dependencies on explicit integration use; external Python/uv distributions are not bundled",
     unresolvedExternalBetaBlocker:
-      "Qualified license/security review remains required before external invitation or redistribution; this evidence does not provide legal conclusions.",
+      "Qualified license/security review, explicit residual-risk disposition and exact-source/artifact approval remain required before binary publication; this evidence does not provide legal conclusions.",
   },
   audit: maybeAudit(),
 };

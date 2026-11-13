@@ -1,0 +1,517 @@
+{
+  "version": 1,
+  "ogPatch": "next-16.4.3-og-1.0.1.txt",
+  "basis": {
+    "node_modules/next/package.json": "16.4.3",
+    "node_modules/sharp/package.json": "0.35.5",
+    "node_modules/@img/sharp-libvips-darwin-arm64/package.json": "1.3.4",
+    "node_modules/@img/sharp-wasm32/package.json": "0.35.5",
+    "node_modules/next/dist/compiled/@vercel/og/package.json": "1.0.1"
+  },
+  "sources": [
+    {
+      "name": "next-16.4.3-og-1.0.1",
+      "url": "https://raw.githubusercontent.com/vercel/next.js/v16.4.3/patches/%40vercel__og%401.0.1.patch",
+      "file": "next-16.4.3-og-1.0.1.txt",
+      "size": 1134128,
+      "sha256": "3d59af991a9f85bbc368d2891b4e965f10dd11c86b9786e79fc4a362bb01401b"
+    },
+    {
+      "name": "proxy-libintl-0.5",
+      "url": "https://codeload.github.com/frida/proxy-libintl/tar.gz/0.5",
+      "file": "proxy-libintl-0.5.tar.gz",
+      "size": 13056,
+      "sha256": "f7a1cbd7579baaf575c66f9d99fb6295e9b0684a28b095967cfda17857595303"
+    },
+    {
+      "name": "zlib-ng-2.3.3",
+      "url": "https://codeload.github.com/zlib-ng/zlib-ng/tar.gz/2.3.3",
+      "file": "zlib-ng-2.3.3.tar.gz",
+      "size": 2447397,
+      "sha256": "f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1"
+    },
+    {
+      "name": "libffi-3.8.0",
+      "url": "https://github.com/libffi/libffi/releases/download/v3.8.0/libffi-3.8.0.tar.gz",
+      "file": "libffi-3.8.0.tar.gz",
+      "size": 1581626,
+      "sha256": "7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4"
+    },
+    {
+      "name": "glib-2.90.0",
+      "url": "https://download.gnome.org/sources/glib/2.90/glib-2.90.0.tar.xz",
+      "file": "glib-2.90.0.tar.xz",
+      "size": 5830480,
+      "sha256": "17d15cac2af80a33271127408e0abc2748eb297c595c2a26409e81e14e7d1b8f"
+    },
+    {
+      "name": "libxml2-2.15.4",
+      "url": "https://download.gnome.org/sources/libxml2/2.15/libxml2-2.15.4.tar.xz",
+      "file": "libxml2-2.15.4.tar.xz",
+      "size": 3177444,
+      "sha256": "98087fd181d9070724f3fbc65c7377db03038eb92bd882374daff44940138821"
+    },
+    {
+      "name": "libexif-0.6.26",
+      "url": "https://github.com/libexif/libexif/releases/download/v0.6.26/libexif-0.6.26.tar.xz",
+      "file": "libexif-0.6.26.tar.xz",
+      "size": 1335488,
+      "sha256": "4a055ed6575e61ca46c3172be3c753cc16c9becd0f99ec71d58dd0e471476c0c"
+    },
+    {
+      "name": "lcms-2.19.1",
+      "url": "https://github.com/mm2/Little-CMS/releases/download/lcms2.19.1/lcms2-2.19.1.tar.gz",
+      "file": "lcms-2.19.1.tar.gz",
+      "size": 5728743,
+      "sha256": "bfc54f7bab59fbc921012014a8032e4cba4abd46db47d46b76416a8c0b2815c8"
+    },
+    {
+      "name": "aom-3.15.1",
+      "url": "https://storage.googleapis.com/aom-releases/libaom-3.15.1.tar.gz",
+      "file": "aom-3.15.1.tar.gz",
+      "size": 6623477,
+      "sha256": "8ca0c52746174603500f0adb6f2a215d69c9ca2aab2acb3caa06fb791d8d01bf"
+    },
+    {
+      "name": "libheif-1.23.5",
+      "url": "https://github.com/strukturag/libheif/releases/download/v1.23.5/libheif-1.23.5.tar.gz",
+      "file": "libheif-1.23.5.tar.gz",
+      "size": 2276803,
+      "sha256": "fd9036064c4432f0550d15072ddf34956a248279ee9aeaff0fba3fa0f77d8f1a"
+    },
+    {
+      "name": "mozjpeg-0826579",
+      "url": "https://codeload.github.com/mozilla/mozjpeg/tar.gz/0826579",
+      "file": "mozjpeg-0826579.tar.gz",
+      "size": 2442053,
+      "sha256": "1dc1e510d1f0a550f5dfc6f6924ba01143cbb427a02d17f102701d4d427d135d"
+    },
+    {
+      "name": "libpng-1.6.58",
+      "url": "https://codeload.github.com/pnggroup/libpng/tar.gz/v1.6.58",
+      "file": "libpng-1.6.58.tar.gz",
+      "size": 1592190,
+      "sha256": "a9d4df463d36a6e5f9c29bd6f4967312d17e996c1854f3511f833924eb1993cf"
+    },
+    {
+      "name": "libimagequant-2.4.1",
+      "url": "https://codeload.github.com/lovell/libimagequant/tar.gz/v2.4.1",
+      "file": "libimagequant-2.4.1.tar.gz",
+      "size": 45792,
+      "sha256": "47d2a84b7b1052975c9d50a3d4e3cacbf57b43d84a4c3131210848ead9964dfb"
+    },
+    {
+      "name": "libwebp-1.6.0",
+      "url": "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz",
+      "file": "libwebp-1.6.0.tar.gz",
+      "size": 4296070,
+      "sha256": "e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564"
+    },
+    {
+      "name": "libtiff-4.7.2",
+      "url": "https://gitlab.com/libtiff/libtiff/-/archive/v4.7.2/libtiff-v4.7.2.tar.gz",
+      "file": "libtiff-4.7.2.tar.gz",
+      "size": 2616788,
+      "sha256": "62b15f44c10106065211efa22a2dc77937bd97ee1f6e3afd2c9659010de112eb"
+    },
+    {
+      "name": "highway-1.4.0",
+      "url": "https://codeload.github.com/google/highway/tar.gz/1.4.0",
+      "file": "highway-1.4.0.tar.gz",
+      "size": 3691240,
+      "sha256": "e72241ac9524bb653ae52ced768b508045d4438726a303f10181a38f764a453c"
+    },
+    {
+      "name": "freetype-2.14.3",
+      "url": "https://codeload.github.com/freetype/freetype/tar.gz/VER-2-14-3",
+      "file": "freetype-2.14.3.tar.gz",
+      "size": 2515533,
+      "sha256": "dc49de6b01a266eef4876a4dd34d9842c475d3e28ff2eff63bd2fb760ab56261"
+    },
+    {
+      "name": "expat-2.8.5",
+      "url": "https://github.com/libexpat/libexpat/releases/download/R_2_8_5/expat-2.8.5.tar.xz",
+      "file": "expat-2.8.5.tar.xz",
+      "size": 528380,
+      "sha256": "1e727b8933ec51a77a9a9d9afcf8e688bce45d907c13e36ab7393fe36e703182"
+    },
+    {
+      "name": "libarchive-3.8.9",
+      "url": "https://github.com/libarchive/libarchive/releases/download/v3.8.9/libarchive-3.8.9.tar.xz",
+      "file": "libarchive-3.8.9.tar.xz",
+      "size": 6617696,
+      "sha256": "888c934f9d95648ecb9163dc8e23ab80a476ecb81a8f1154704a227b5b676dde"
+    },
+    {
+      "name": "fontconfig-2.18.3",
+      "url": "https://gitlab.freedesktop.org/fontconfig/fontconfig/-/archive/2.18.3/fontconfig-2.18.3.tar.gz",
+      "file": "fontconfig-2.18.3.tar.gz",
+      "size": 666753,
+      "sha256": "9ae01e1d53acdef56010c5451cd34aa41d325b2faccd8606448d8fa01b2496b3"
+    },
+    {
+      "name": "harfbuzz-14.5.0",
+      "url": "https://codeload.github.com/harfbuzz/harfbuzz/tar.gz/14.5.0",
+      "file": "harfbuzz-14.5.0.tar.gz",
+      "size": 38777964,
+      "sha256": "97ec7488a46b974e18e08ee774af93173e7e1dbf738424796eb315ebcb735ec5"
+    },
+    {
+      "name": "pixman-0.46.4",
+      "url": "https://cairographics.org/releases/pixman-0.46.4.tar.gz",
+      "file": "pixman-0.46.4.tar.gz",
+      "size": 827198,
+      "sha256": "d09c44ebc3bd5bee7021c79f922fe8fb2fb57f7320f55e97ff9914d2346a591c"
+    },
+    {
+      "name": "cairo-1.18.6",
+      "url": "https://cairographics.org/releases/cairo-1.18.6.tar.xz",
+      "file": "cairo-1.18.6.tar.xz",
+      "size": 32725456,
+      "sha256": "1c767308174337a74694da0f3ec069c271452163a1ef4540964c50c301f157d4"
+    },
+    {
+      "name": "fribidi-1.0.17",
+      "url": "https://github.com/fribidi/fribidi/releases/download/v1.0.17/fribidi-1.0.17.tar.xz",
+      "file": "fribidi-1.0.17.tar.xz",
+      "size": 1203284,
+      "sha256": "6949dcde27d41cebad1fd741fcafc36d55a1020d2d872d4a6eb3914caabbada2"
+    },
+    {
+      "name": "pango-1.58.2",
+      "url": "https://download.gnome.org/sources/pango/1.58/pango-1.58.2.tar.xz",
+      "file": "pango-1.58.2.tar.xz",
+      "size": 1918112,
+      "sha256": "342385b6ca3b7c73455d7c80a13b7dbe4489e00bc3bd4c5bd6ed4dce421e374a"
+    },
+    {
+      "name": "librsvg-2.63.2",
+      "url": "https://download.gnome.org/sources/librsvg/2.63/librsvg-2.63.2.tar.xz",
+      "file": "librsvg-2.63.2.tar.xz",
+      "size": 6768408,
+      "sha256": "852b18e1a00b8605528825a27dc7748bff2a5dd254028f59dc22a34ea57e81b6"
+    },
+    {
+      "name": "cgif-0.5.4",
+      "url": "https://codeload.github.com/dloebl/cgif/tar.gz/v0.5.4",
+      "file": "cgif-0.5.4.tar.gz",
+      "size": 40028,
+      "sha256": "83a70a15bc2da41f081a44ebc58ee48e2e1d524a6d3fdb4a24064afa08d5ad4d"
+    },
+    {
+      "name": "libultrahdr-2.0.2",
+      "url": "https://codeload.github.com/google/libultrahdr/tar.gz/v2.0.2",
+      "file": "libultrahdr-2.0.2.tar.gz",
+      "size": 1518872,
+      "sha256": "aa8d193bb887c348c419780511dd03b374f4e07af8812b6d3f80c8537cf1ef2c"
+    },
+    {
+      "name": "libvips-8.18.7",
+      "url": "https://github.com/libvips/libvips/releases/download/v8.18.7/vips-8.18.7.tar.xz",
+      "file": "libvips-8.18.7.tar.xz",
+      "size": 25425084,
+      "sha256": "5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94"
+    },
+    {
+      "name": "sharp-libvips-1.3.4",
+      "url": "https://codeload.github.com/lovell/sharp-libvips/tar.gz/ebb95f8add54eee8bed840e3fb587e4cbec857d7",
+      "file": "sharp-libvips-1.3.4.tar.gz",
+      "size": 24490,
+      "sha256": "65fdb633c2d97626352a3771b7a0ce30b6a89af03d2a1238491c8b068e6b8dad"
+    },
+    {
+      "name": "sharp-0.35.5",
+      "url": "https://codeload.github.com/lovell/sharp/tar.gz/v0.35.5",
+      "file": "sharp-0.35.5.tar.gz",
+      "size": 41792658,
+      "sha256": "5c609162a873c7d67c903f5dab39351642eedfc967f090c85e48cb6b8dd395c1"
+    },
+    {
+      "name": "wasm-vips-dca91909",
+      "url": "https://codeload.github.com/kleisauke/wasm-vips/tar.gz/dca91909178800875b575eb896d1fe4ed0a27931",
+      "file": "wasm-vips-dca91909.tar.gz",
+      "size": 7715177,
+      "sha256": "37e18bb8d1a7469587a645d1418bfb7f9b9590516f8e04e629a7ea3ec748cac5"
+    },
+    {
+      "name": "resvg-0.48.1",
+      "url": "https://codeload.github.com/linebender/resvg/tar.gz/v0.48.1",
+      "file": "resvg-0.48.1.tar.gz",
+      "size": 8763695,
+      "sha256": "40dafea6b4b9d01e9d28b6d49f1e912daf3e9055676ad9179a5a2db6e7386945"
+    },
+    {
+      "name": "gvdb-2b42fc75",
+      "url": "https://gitlab.gnome.org/GNOME/gvdb/-/archive/2b42fc75f09dbe1cd1057580b5782b08f2dcb400/gvdb-2b42fc75f09dbe1cd1057580b5782b08f2dcb400.tar.gz",
+      "file": "gvdb-2b42fc75.tar.gz",
+      "size": 24716,
+      "sha256": "069a00aa1fc893f18423602f4e095583be5a220429f6e8a58d70511490b4b019"
+    },
+    {
+      "name": "glib-without-gregex",
+      "url": "https://gist.githubusercontent.com/kleisauke/284d685efa00908da99ea6afbaaf39ae/raw/bdad5489a61c217850631571caf57f5db6ea8b2c/glib-without-gregex.patch",
+      "file": "glib-without-gregex.txt",
+      "size": 7759,
+      "sha256": "b1f2930a11292e529de137c7eb723850e0cc0969b1a2b0358196389312acd272"
+    },
+    {
+      "name": "mozjpeg-saturating-arithmetic",
+      "url": "https://github.com/mozilla/mozjpeg/commit/f90668e0e4fb79c81e1f24a0ccc0e2090af761bf.patch",
+      "file": "mozjpeg-saturating-arithmetic.txt",
+      "size": 8103,
+      "sha256": "a65f87cadf3a6052e44d6314c906f6e2891352f82646b8a6f0b8fcf2c1891e7c"
+    },
+    {
+      "name": "librsvg-memory-limits",
+      "url": "https://github.com/GNOME/librsvg/commit/9106011db93d701728ac2c9da50c9ab2c1bb5dc6.patch",
+      "file": "librsvg-memory-limits.txt",
+      "size": 5111,
+      "sha256": "8b841d2ec8feb964fa76859075e0e0c41b69136ba143cf0d26469d9bebc19231"
+    },
+    {
+      "name": "libultrahdr-platform",
+      "url": "https://patch-diff.githubusercontent.com/raw/google/libultrahdr/pull/383.patch",
+      "file": "libultrahdr-platform.txt",
+      "size": 7567,
+      "sha256": "57658db2a11ae964755e513b01db21bcfa408c350b11b3a6ef9bc8576fb749ba"
+    },
+    {
+      "name": "libvips-cpp-soversion",
+      "url": "https://gist.githubusercontent.com/lovell/313a6901e9db1bf285f2a1f1180499e4/raw/3988223c7dfa4d22745d9392034b0117abef1446/libvips-cpp-soversion.patch",
+      "file": "libvips-cpp-soversion.txt",
+      "size": 514,
+      "sha256": "256b7d6f8c973bb53b20cff5171c7117d6b35d3aa4e72d22cb906f4fe1e2c890"
+    },
+    {
+      "name": "LGPL-3.0-with-GPL",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/LGPL-3.0-only.txt",
+      "file": "LGPL-3.0-with-GPL.txt",
+      "size": 42098,
+      "sha256": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1"
+    },
+    {
+      "name": "@resvg/resvg-wasm@2.4.1",
+      "url": "https://registry.npmjs.org/@resvg/resvg-wasm/-/resvg-wasm-2.4.1.tgz",
+      "file": "resvg-resvg-wasm-2.4.1.tgz",
+      "size": 534767,
+      "sha256": "eda07f59e3259b8577957f8a7c1683a97afcf85a064946d3542556a0516c87a6"
+    },
+    {
+      "name": "@shuding/opentype.js@1.4.0-beta.0",
+      "url": "https://registry.npmjs.org/@shuding/opentype.js/-/opentype.js-1.4.0-beta.0.tgz",
+      "file": "shuding-opentype.js-1.4.0-beta.0.tgz",
+      "size": 561497,
+      "sha256": "fad72b1affa55dbe6d77826324eff1abd9b7e925a0fd54f1ebe95623d72656d5"
+    },
+    {
+      "name": "base64-js@0.0.8",
+      "url": "https://registry.npmjs.org/base64-js/-/base64-js-0.0.8.tgz",
+      "file": "base64-js-0.0.8.tgz",
+      "size": 3812,
+      "sha256": "441ef6db48ce61bfece3ed439d294febca4308eaaf7eff9de0683f62ffc7f3c0"
+    },
+    {
+      "name": "camelize@1.0.1",
+      "url": "https://registry.npmjs.org/camelize/-/camelize-1.0.1.tgz",
+      "file": "camelize-1.0.1.tgz",
+      "size": 5153,
+      "sha256": "4d9f05d23c6c48aef7716c00f6e67eb0aeec3cc28d43705e0de2e662ce3f627e"
+    },
+    {
+      "name": "color-name@1.1.4",
+      "url": "https://registry.npmjs.org/color-name/-/color-name-1.1.4.tgz",
+      "file": "color-name-1.1.4.tgz",
+      "size": 2868,
+      "sha256": "507b7c4461e8eb941355af9a59e9a7e02cd0e7c6176b48d1809766344f3f1708"
+    },
+    {
+      "name": "css-background-parser@0.1.0",
+      "url": "https://registry.npmjs.org/css-background-parser/-/css-background-parser-0.1.0.tgz",
+      "file": "css-background-parser-0.1.0.tgz",
+      "size": 4281,
+      "sha256": "8efe0cbaca7cfc8ac8aa20f711e622e163488fa2082f14fe3bdd73adf0f2fb58"
+    },
+    {
+      "name": "css-box-shadow@1.0.0-3",
+      "url": "https://registry.npmjs.org/css-box-shadow/-/css-box-shadow-1.0.0-3.tgz",
+      "file": "css-box-shadow-1.0.0-3.tgz",
+      "size": 1916,
+      "sha256": "a046d78ca70b6dc0e999810d1c805af39812e473991a477c104d9c6ed206ea49"
+    },
+    {
+      "name": "css-color-keywords@1.0.0",
+      "url": "https://registry.npmjs.org/css-color-keywords/-/css-color-keywords-1.0.0.tgz",
+      "file": "css-color-keywords-1.0.0.tgz",
+      "size": 2966,
+      "sha256": "fca3ea12c1a0b1d41d70764879601b9c971e8e44908ed13456723f6b5b118825"
+    },
+    {
+      "name": "css-gradient-parser@0.0.17",
+      "url": "https://registry.npmjs.org/css-gradient-parser/-/css-gradient-parser-0.0.17.tgz",
+      "file": "css-gradient-parser-0.0.17.tgz",
+      "size": 9055,
+      "sha256": "e2f05363821b8e5173b7f1f7903351b08de0a089621f4671dfc6d001dcd05ba3"
+    },
+    {
+      "name": "css-to-react-native@3.2.0",
+      "url": "https://registry.npmjs.org/css-to-react-native/-/css-to-react-native-3.2.0.tgz",
+      "file": "css-to-react-native-3.2.0.tgz",
+      "size": 19310,
+      "sha256": "97a005edb15e468a52d7f8b5a9d74c6a516ae0de249598965e55420cdf65b76c"
+    },
+    {
+      "name": "cssesc@3.0.0",
+      "url": "https://registry.npmjs.org/cssesc/-/cssesc-3.0.0.tgz",
+      "file": "cssesc-3.0.0.tgz",
+      "size": 6495,
+      "sha256": "31a59523b764560845e79191632d9967d6f83514cc4c97394b0810287c101743"
+    },
+    {
+      "name": "emoji-regex-xs@2.0.1",
+      "url": "https://registry.npmjs.org/emoji-regex-xs/-/emoji-regex-xs-2.0.1.tgz",
+      "file": "emoji-regex-xs-2.0.1.tgz",
+      "size": 4506,
+      "sha256": "02ba9910c753c3591c7c5088db01e5db4c441155e9c1a1f1d90cdcf452a177b2"
+    },
+    {
+      "name": "escape-html@1.0.3",
+      "url": "https://registry.npmjs.org/escape-html/-/escape-html-1.0.3.tgz",
+      "file": "escape-html-1.0.3.tgz",
+      "size": 1917,
+      "sha256": "a101155c3cbdfb1e4f98f2f83c8b5e392db6accfa606df0eba8b87a5762b0366"
+    },
+    {
+      "name": "fflate@0.7.3",
+      "url": "https://registry.npmjs.org/fflate/-/fflate-0.7.3.tgz",
+      "file": "fflate-0.7.3.tgz",
+      "size": 131683,
+      "sha256": "10c8fb3d872af872fd1d6fe2ba6499df79028239f8f8ba681446edabf8e517ae"
+    },
+    {
+      "name": "hex-rgb@4.3.0",
+      "url": "https://registry.npmjs.org/hex-rgb/-/hex-rgb-4.3.0.tgz",
+      "file": "hex-rgb-4.3.0.tgz",
+      "size": 2608,
+      "sha256": "648b8a5595ea3ba8517a82f90a0a9c038faaf5b0d0eac689c7805de91651377c"
+    },
+    {
+      "name": "linebreak@1.1.0",
+      "url": "https://registry.npmjs.org/linebreak/-/linebreak-1.1.0.tgz",
+      "file": "linebreak-1.1.0.tgz",
+      "size": 25906,
+      "sha256": "3828486cc52edbedd8c36a3db68ccaa93164d8af19af6c2b12e22ce6e2755fd6"
+    },
+    {
+      "name": "parse-css-color@0.2.1",
+      "url": "https://registry.npmjs.org/parse-css-color/-/parse-css-color-0.2.1.tgz",
+      "file": "parse-css-color-0.2.1.tgz",
+      "size": 7638,
+      "sha256": "b79118c29bdeefea91f9bfd60b0b2779a029c33e797250ed72a623a1918aa0ef"
+    },
+    {
+      "name": "postcss-selector-parser@6.0.10",
+      "url": "https://registry.npmjs.org/postcss-selector-parser/-/postcss-selector-parser-6.0.10.tgz",
+      "file": "postcss-selector-parser-6.0.10.tgz",
+      "size": 42276,
+      "sha256": "f6520bf5428cb673de03644374e8bb18c0cabe3cdbb05fe9b791864b49fd6104"
+    },
+    {
+      "name": "postcss-value-parser@4.2.0",
+      "url": "https://registry.npmjs.org/postcss-value-parser/-/postcss-value-parser-4.2.0.tgz",
+      "file": "postcss-value-parser-4.2.0.tgz",
+      "size": 7997,
+      "sha256": "3de5372cf95b66a344b258a046b1b298b20ecaf187637f4d59f50017836a90a7"
+    },
+    {
+      "name": "satori@0.29.0",
+      "url": "https://registry.npmjs.org/satori/-/satori-0.29.0.tgz",
+      "file": "satori-0.29.0.tgz",
+      "size": 1473009,
+      "sha256": "10f581742936aac6d1fce884524bc4be5ed03883143af9f49322e74d491cf0b3"
+    },
+    {
+      "name": "tiny-inflate@1.0.3",
+      "url": "https://registry.npmjs.org/tiny-inflate/-/tiny-inflate-1.0.3.tgz",
+      "file": "tiny-inflate-1.0.3.tgz",
+      "size": 15562,
+      "sha256": "73932b339424e5ffaeaf043e6481229cab407ee277b2a01fa23938dfad6a8f4e"
+    },
+    {
+      "name": "unicode-trie@2.0.0",
+      "url": "https://registry.npmjs.org/unicode-trie/-/unicode-trie-2.0.0.tgz",
+      "file": "unicode-trie-2.0.0.tgz",
+      "size": 12320,
+      "sha256": "7db9750429590d5ec42bd544b5ee7b69e6b1f39beafec1d8e5c1635096deceb5"
+    },
+    {
+      "name": "yoga-layout@3.2.1",
+      "url": "https://registry.npmjs.org/yoga-layout/-/yoga-layout-3.2.1.tgz",
+      "file": "yoga-layout-3.2.1.tgz",
+      "size": 71870,
+      "sha256": "48bc77618a736a752ba6a3f838862e547c38e0b22be9f5dc030ac4c4557e7fff"
+    },
+    {
+      "name": "tailwindcss@3.1.8",
+      "url": "https://registry.npmjs.org/tailwindcss/-/tailwindcss-3.1.8.tgz",
+      "file": "tailwindcss-3.1.8.tgz",
+      "size": 676782,
+      "sha256": "34a84d42a087ad8cbd702d1409f81873c95574ce317001193dcc2c470617b482"
+    },
+    {
+      "name": "twrnc@3.4.0",
+      "url": "https://registry.npmjs.org/twrnc/-/twrnc-3.4.0.tgz",
+      "file": "twrnc-3.4.0.tgz",
+      "size": 28698,
+      "sha256": "b21062c983cef7f6da865fbfb82fc3c621f2c8c6d71e7e8a245bc10309de27be"
+    },
+    {
+      "name": "yoga-3.2.1",
+      "url": "https://codeload.github.com/facebook/yoga/tar.gz/v3.2.1",
+      "file": "yoga-3.2.1.tar.gz",
+      "size": 2172950,
+      "sha256": "86b399ac31fd820d8ffa823c3fae31bb690b6fc45301b2a8a966c09b5a088b55"
+    },
+    {
+      "name": "resvg-js-2.4.1",
+      "url": "https://codeload.github.com/yisibl/resvg-js/tar.gz/v2.4.1",
+      "file": "resvg-js-2.4.1.tar.gz",
+      "size": 17055161,
+      "sha256": "8f2b2f9015d216113542d8e0995933a086a4b0ea468b8cd732855560c47f877c"
+    },
+    {
+      "name": "OFL-1.1",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/OFL-1.1.txt",
+      "file": "OFL-1.1.txt",
+      "size": 4016,
+      "sha256": "8eea8287e5876b539670cadb82e99f9a7afddec6f6730811be1daf25d2e9bcfd"
+    },
+    {
+      "name": "twrnc-496e7f52",
+      "url": "https://codeload.github.com/jaredh159/tailwind-react-native-classnames/tar.gz/496e7f525a2a5d4da52112ce70c90ae4d1a1ce05",
+      "file": "twrnc-496e7f52.tar.gz",
+      "size": 254902,
+      "sha256": "ba141aacb3810d12cc19a830666a1da6e01689c90ae2966b27c382b7bc19ba44"
+    },
+    {
+      "name": "css-box-shadow-6fc6c371",
+      "url": "https://codeload.github.com/jxnblk/css-box-shadow/tar.gz/6fc6c3716752879fa683f7925dbc51cf2c7930ee",
+      "file": "css-box-shadow-6fc6c371.tar.gz",
+      "size": 21215,
+      "sha256": "3b304e18db635aee59ec012b36376e66a9edd80eb1ab854ac1f7d9b6bc9949df"
+    },
+    {
+      "name": "MIT",
+      "url": "https://raw.githubusercontent.com/spdx/license-list-data/main/text/MIT.txt",
+      "file": "MIT.txt",
+      "size": 1078,
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+    },
+    {
+      "name": "@vercel/og@1.0.1 (includes complete source maps)",
+      "url": "https://registry.npmjs.org/@vercel/og/-/og-1.0.1.tgz",
+      "file": "vercel-og-1.0.1.tgz",
+      "size": 1864190,
+      "sha256": "c7f0946ae4b90f4a38615f69ceacfb5990e865c847b96475752b100b93e4e27f"
+    }
+  ]
+}
