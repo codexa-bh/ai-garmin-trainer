@@ -523,6 +523,7 @@ it("binds the finite progressive response sequence to actual production hook obs
         state: "fresh",
         reason: null,
         enabled: true,
+        coverageLost: false,
         expected: { revision: 3, privacy: 0, control: 1, manual: 0 },
         stored: { version: 2, text: "" },
         preferences: [],

@@ -154,8 +154,20 @@ memory is included on supported configured routes, not clipped to a second cap. 
 a pin is not a completed-answer consumption observation. Compatibility Refresh remains
 explicit/busy/CAS-guarded, not routine UI maintenance.
 
-History/source privacy invalidation conservatively empties the **whole generated
-summary** and revokes captured use/export. It does not delete independent preferences.
+Ordinary chat/message deletion is classified separately (schema27): it advances
+history/source freshness (segments, turn source versions, admitted routine/import/rebuild
+work, staged import/rebuild review) but **not** published-memory authority, so the saved
+generated summary, preferences, frontier and pins of surviving chats remain usable.
+Deletion is detected row-locally in SQLite (message delete trigger and the lifecycle's
+own `deleting_conversation`-scoped semantic cleanup), so it survives rollback/restart
+without a process flag. This deliberately accepts retained deleted-source influence;
+Clear saved memory remains the removal action. Bulk Chat/Profile reset and any other
+source edit/derived-memory change remain genuine revocations.
+
+Genuine history/source privacy invalidation conservatively empties the **whole generated
+summary** and revokes captured use/export. When it erases nonempty text it also sets a
+durable `coverageLost` status: later new-only publications, Retry and restart keep it;
+Clear or a completed reviewed Update from chat history settles it; a manual edit does not. It does not delete independent preferences.
 No precise per-source subtraction or stale published fallback is claimed. Separate
 preferences can still be used after generated invalidation. Control/preference changes
 invalidate captured authority; actual source deletion also revokes affected in-flight
@@ -168,6 +180,22 @@ publication independently reject changed captured Profile values, without a glob
 privacy cascade. Actual source deletion/edit, Clear/Forget/Off and preference controls
 retain their separate revocation authority. Temporal qualifications live in the summary prose;
 there is no hidden item-expiry maintenance engine.
+
+### Local debug revisions
+
+`summary_debug_revision` keeps at most the 50 newest committed generated-memory
+revisions (revision/parent, UTC ms time, kind `routine|import|rebuild|densify|manual-edit|preference-change`,
+captured model or null, memory/control generation and a typed source domain:
+completion-event range, import-selection count, reviewed-history count or none). Rows are
+written in the committing transaction only; failed, stale, preview and staged rebuild
+candidates are not recorded, and idempotent re-settlement does not duplicate them.
+Preference text is never archived. `summary_debug_event` keeps at most 50 metadata-only
+`source-deleted`/`memory-revoked` events. Source deletion/update and a direct summary
+save purge all earlier payloads (the save keeps only its own new text); Clear removes
+all rows and events; Off preserves them. Nothing reads these tables for chat, pins,
+generation, import, rebuild or status: they are for explicit local SQLite debugging.
+Purging old payloads does not erase influence retained in the active summary; physical
+SQLite pages, backups and provider logs are outside this guarantee.
 
 Content inspection returns one `stored` generated value and separate `preferences`,
 not generated cards/manual-ID/source-link projections. The compatibility metadata
@@ -285,6 +313,17 @@ local next-turn planner/synthesis composition evidence. Do not substitute a part
 first20, source deletion, synthetic output or transport-only result.
 
 ## Compatibility and validation
+
+Schema27 is additive: history control gains `memory_generation` (initialised to the
+existing privacy generation), `deletion_generation` and a transient
+`deleting_conversation`; summary control gains `coverage_lost` (0); two empty debug
+tables are created; four triggers are re-created on the new authority column. No rows are
+transformed, no past revisions or loss evidence are invented, and already erased or
+recent-only memory stays as stored (this is not recovery). Authored populated26→27
+rehearsal preserves summary/preferences/originals/frontier/accounting with integrity/FK
+and an idempotent reopen. Schema26 readers refuse27; startup/Use existing never migrate.
+Primary activation and back-sync are a separately authorized, backed-up exact-target
+`npm run db:migrate` step, not part of source delivery; use a forward fix, not downgrade.
 
 Schema25 drops only four obsolete erasure triggers and transforms no stored rows.
 Authored populated24→25 fixtures preserve every table, valid summary/preferences,

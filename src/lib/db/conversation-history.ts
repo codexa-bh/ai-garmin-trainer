@@ -164,10 +164,42 @@ function read(admission: ConversationAdmission): ConversationReplay {
   })();
 }
 
+/** Genuine revocation: history freshness and published-memory authority. */
 export function invalidateConversationHistory(): void {
   getDatabase()
     .prepare(
       "update conversation_history_control set privacy_generation=privacy_generation+1 where id=1",
+    )
+    .run();
+}
+
+/**
+ * Ordinary chat deletion inside the caller's transaction: history/source
+ * freshness is invalidated, but published generated memory and preferences
+ * stay usable (approved deletion-only exception). The deletion marker scopes
+ * the conversation's own derived cleanup and is cleared by `endConversationDeletion`.
+ */
+export function beginConversationDeletion(conversationId: string): void {
+  const db = getDatabase();
+  db.prepare(
+    "update conversation_history_control set deleting_conversation=? where id=1",
+  ).run(conversationId);
+  // An absent target changes no source and needs no invalidation at all.
+  if (
+    db
+      .prepare(
+        "select 1 from conversation where id=? union all select 1 from message where conversation_id=? limit 1",
+      )
+      .get(conversationId, conversationId)
+  )
+    db.prepare(
+      "update conversation_history_control set privacy_generation=privacy_generation+1,deletion_generation=deletion_generation+1 where id=1",
+    ).run();
+}
+export function endConversationDeletion(): void {
+  getDatabase()
+    .prepare(
+      "update conversation_history_control set deleting_conversation=null where id=1",
     )
     .run();
 }

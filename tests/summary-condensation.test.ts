@@ -224,12 +224,12 @@ it.each(["abort", "configuration", "manual", "source", "lease"])(
     await engine(generate, () => current).tick(signal.signal);
     expect(generate).toHaveBeenCalledTimes(1);
     expect(attempts()).toHaveLength(1);
+    // Ordinary source deletion keeps the prior publication (approved
+    // deletion-only exception) while still refusing the late candidate.
     expect(storage.version().revision).toBe(
-      priorRevision + (mode === "manual" || mode === "source" ? 1 : 0),
+      priorRevision + (mode === "manual" ? 1 : 0),
     );
-    expect(storage.inspect().text).toBe(
-      mode === "source" ? "" : "Previous valid publication.",
-    );
+    expect(storage.inspect().text).toBe("Previous valid publication.");
   },
 );
 it("preserves unknown effect accounting after cancel and rejects its late result", async () => {

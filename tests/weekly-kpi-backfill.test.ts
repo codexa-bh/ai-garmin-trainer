@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { migrateDatabase } from "../src/lib/db/migrations";
+import { removeDeletionContinuityFixtureSchema } from "./conversation-migration-fixture";
 import { acquireDatabaseWriter } from "../src/lib/db/writer-ownership";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
 import { backfillWeeklyKpis } from "../src/lib/weekly/backfill";
@@ -119,6 +120,7 @@ it("explicit migration refuses live ownership and creates a verified online back
   const path = join(root, "synthetic.sqlite");
   const initial = new Database(path);
   migrateDatabase(initial);
+  removeDeletionContinuityFixtureSchema(initial);
   initial.exec(
     "drop table weekly_kpi; drop table weekly_kpi_track; update app_metadata set value='25' where key='schema_version'",
   );
@@ -168,7 +170,7 @@ it("explicit migration refuses live ownership and creates a verified online back
     backupPath: string;
     schemaVersionAfter: number;
   };
-  expect(output.schemaVersionAfter).toBe(26);
+  expect(output.schemaVersionAfter).toBe(27);
   expect(readdirSync(join(root, "backups"))).toHaveLength(1);
   const backup = new Database(output.backupPath, { readonly: true });
   expect(

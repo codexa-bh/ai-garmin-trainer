@@ -15,7 +15,10 @@ import {
   type SummaryInspection,
 } from "@/app/dashboard/use-memory";
 import { MemoryContent } from "@/app/dashboard/memory-content";
-import { HistoryReview } from "@/app/dashboard/memory-presentation";
+import {
+  HistoryReview,
+  memoryStatus,
+} from "@/app/dashboard/memory-presentation";
 import type { Status } from "@/app/dashboard/contracts";
 function snapshot(conversationId = "A"): SummaryInspection {
   return {
@@ -30,6 +33,7 @@ function snapshot(conversationId = "A"): SummaryInspection {
     cap: 6000,
     publishedAt: 1,
     enabled: true,
+    coverageLost: false,
     model: "gpt-6-luna",
     usedByChat: false,
     attemptsToday: 0,
@@ -245,6 +249,29 @@ describe("generated summary disclosure", () => {
     await mountMemory(value);
     expect(screen.queryByRole("button", { name: "Show summary" })).toBeNull();
     expect(screen.queryByText(value.stored.text)).toBeNull();
+  });
+});
+
+describe("deletion continuity and coverage status copy", () => {
+  it("distinguishes durable lost history coverage from pending updates", () => {
+    const value = {
+      ...snapshot(),
+      stored: { version: 2 as const, text: "Kept" },
+    };
+    expect(memoryStatus(value)).toBe("Saved memory available");
+    expect(memoryStatus({ ...value, coverageLost: true, pending: 3 })).toBe(
+      "Earlier history is no longer covered after a privacy change. Use Update from chat history to review it.",
+    );
+    expect(
+      memoryStatus({
+        ...value,
+        coverageLost: true,
+        reason: "summary_invalidated",
+      }),
+    ).toMatch(/erased by a privacy change.*do not restore/);
+    expect(memoryStatus({ ...value, pending: 3 })).toBe(
+      "Recent conversation updates pending",
+    );
   });
 });
 

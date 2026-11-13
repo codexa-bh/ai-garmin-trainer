@@ -143,6 +143,7 @@ it("preserves migration data, creates no history, is idempotent and detects week
     "24:whole_generated_summary",
     "25:memory_freshness_without_erasure",
     "26:structured_weekly_kpis",
+    "27:memory_survives_source_deletion",
   ]);
   expect(
     db.prepare("select count(*) as count from conversation_completion").get(),

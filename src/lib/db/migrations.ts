@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 
-export const LATEST_SCHEMA_VERSION = 26;
+export const LATEST_SCHEMA_VERSION = 27;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -402,6 +402,66 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     statements: [
       `create table weekly_kpi (week_start text primary key, state_json text not null check(json_valid(state_json)))`,
       `create table weekly_kpi_track (concept_id text not null, track_key text not null, signature text not null, primary key(concept_id,track_key))`,
+    ],
+  },
+  {
+    version: 27,
+    name: "memory_survives_source_deletion",
+    statements: [
+      // History/source freshness (privacy_generation) still advances for every
+      // source change. Authority to use published generated memory is separate:
+      // ordinary deletion is classified row-locally and never erases it.
+      `alter table conversation_history_control add column memory_generation integer not null default 0`,
+      `alter table conversation_history_control add column deletion_generation integer not null default 0`,
+      `alter table conversation_history_control add column deleting_conversation text`,
+      `update conversation_history_control set memory_generation=privacy_generation`,
+      `alter table summary_control add column coverage_lost integer not null default 0`,
+      // Bounded local debugging only: never read by chat, generation, import or rebuild.
+      `create table summary_debug_revision(revision integer primary key,parent_revision integer not null,recorded_at integer not null,kind text not null,model text,memory_generation integer not null,control_generation integer not null,source_domain text not null,source_first integer,source_last integer,source_count integer not null,payload text,purged_at integer)`,
+      `create table summary_debug_event(id integer primary key autoincrement,recorded_at integer not null,kind text not null,revision integer not null)`,
+      `drop trigger conversation_message_delete`,
+      `drop trigger conversation_memory_edit`,
+      `drop trigger summary_privacy`,
+      `drop trigger summary_pin_privacy`,
+      `create trigger conversation_message_delete after delete on message begin
+        update conversation_turn set source_version=source_version+1,status='aborted' where user_id=old.id or assistant_id=old.id;
+        update conversation_history_control set privacy_generation=privacy_generation+1,deletion_generation=deletion_generation+1 where id=1;
+       end`,
+      // Only the conversation lifecycle's own derived cleanup is deletion; any
+      // other semantic-memory edit/removal remains a genuine revocation.
+      `create trigger conversation_memory_edit after update of text,status on semantic_memory when old.text<>new.text or old.status<>new.status begin
+        update conversation_history_control set privacy_generation=privacy_generation+1,
+          deletion_generation=deletion_generation+coalesce(old.text=new.text and new.status='deleted' and new.kind='conversation' and new.source_conversation_id=deleting_conversation,0)
+          where id=1;
+       end`,
+      `create trigger conversation_memory_revocation after update of privacy_generation on conversation_history_control when new.privacy_generation<>old.privacy_generation and new.deletion_generation=old.deletion_generation begin
+        update conversation_history_control set memory_generation=memory_generation+1 where id=1;
+       end`,
+      `create trigger summary_privacy after update of memory_generation on conversation_history_control begin
+        update summary_control set coverage_lost=max(coverage_lost,(select case when json_valid(payload) then coalesce(json_extract(payload,'$.text'),'')<>'' else 1 end from summary_state where id=1)),generation=generation+1,job_id=null,lease_until=0,reason='summary_invalidated' where id=1;
+        update summary_state set payload='{"version":2,"text":""}',checksum='',published_at=null,revision=revision+1,privacy_generation=new.memory_generation where id=1;
+        update summary_attempt set outcome='invalidated' where outcome='admitted';
+        update summary_debug_revision set payload=null,purged_at=cast((julianday('now')-2440587.5)*86400000 as integer) where payload is not null;
+        insert into summary_debug_event(recorded_at,kind,revision) select cast((julianday('now')-2440587.5)*86400000 as integer),'memory-revoked',revision from summary_state where id=1;
+        delete from summary_debug_event where id<=(select id from summary_debug_event order by id desc limit 1 offset 50);
+       end`,
+      `create trigger summary_pin_privacy after update of memory_generation on conversation_history_control begin
+        update conversation_summary_pin set payload='null',seal='',reason='invalidated';
+       end`,
+      // Deletion keeps active memory but conservatively purges prior debug text.
+      // Repeated per-row deletion at one revision coalesces into one event.
+      `create trigger summary_source_deletion after update of deletion_generation on conversation_history_control when new.deletion_generation<>old.deletion_generation begin
+        update summary_debug_revision set payload=null,purged_at=cast((julianday('now')-2440587.5)*86400000 as integer) where payload is not null;
+        insert into summary_debug_event(recorded_at,kind,revision) select cast((julianday('now')-2440587.5)*86400000 as integer),'source-deleted',s.revision from summary_state s where s.id=1
+          and not exists(select 1 from summary_debug_event e where e.id=(select max(id) from summary_debug_event) and e.kind='source-deleted' and e.revision=s.revision);
+        delete from summary_debug_event where id<=(select id from summary_debug_event order by id desc limit 1 offset 50);
+        -- Source-dependent routine/import/rebuild work cannot publish a candidate
+        -- computed from deleted sources; summary-only Densify is unaffected.
+        update summary_attempt set outcome='invalidated' where outcome='admitted' and substr(job_id,1,8)<>'densify_';
+        update summary_control set job_id=null,lease_until=0 where id=1 and job_id is not null and substr(job_id,1,8)<>'densify_';
+        update summary_import set state='review-required' where state in ('active','paused');
+        update summary_rebuild set state='invalidated',reason='summary_rebuild_source_changed',candidate_json='{"version":2,"text":""}',candidate_checksum='' where state='active';
+       end`,
     ],
   },
 ];
@@ -820,6 +880,8 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "summary_import",
     "summary_import_disposition",
     "summary_rebuild",
+    "summary_debug_revision",
+    "summary_debug_event",
   ];
   return tables.some((table) => {
     if (!hasTable(db, table)) return false;

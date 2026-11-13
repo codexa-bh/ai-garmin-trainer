@@ -355,7 +355,7 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
       referent: null,
     });
   });
-  it("keeps old privacy-valid summary on outage, but source deletion invalidates every descendant", () => {
+  it("keeps old privacy-valid summary on outage and across source deletion, refusing only the stale descendant", () => {
     complete();
     const batch = ready();
     expect(storage.publish(batch, candidate(batch), now)).toBe(true);
@@ -366,7 +366,8 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     expect(storage.status(now).state).toBe("stale");
     expect(storage.read().text).toContain("because of time");
     deleteConversation("A");
-    expect(storage.read().text).toBe("");
+    expect(storage.read().text).toContain("because of time");
+    expect(storage.status(now).coverageLost).toBe(false);
     expect(storage.publish(next, candidate(next), now)).toBe(false);
   });
   it("generation seam preserves immutable old pins on publication but rejects correction/privacy/Off/manual authority changes", () => {
@@ -385,7 +386,12 @@ describe("real SQLite incremental coverage, leases, atomicity and control", () =
     ).run();
     expect(storage.isGenerationCurrent(snapshot.stamp)).toBe(false);
     const current = storage.revision()!;
+    // Ordinary deletion keeps memory-use authority; a genuine source edit revokes it.
     deleteConversation("A");
+    expect(storage.isGenerationCurrent(current.stamp)).toBe(true);
+    db.prepare(
+      "update message set content='Edited source' where conversation_id='B'",
+    ).run();
     expect(storage.isGenerationCurrent(current.stamp)).toBe(false);
     expect(storage.revision()).toBeNull();
   });

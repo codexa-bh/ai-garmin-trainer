@@ -17,7 +17,8 @@ export function memoryStatus(memory: SummaryInspection) {
     summary_impossible_capacity: "Memory could not fit this request.",
     summary_correction_pending:
       "A conversation correction is waiting to be processed.",
-    summary_invalidated: "Saved context changed; new updates may be pending.",
+    summary_invalidated:
+      "Saved memory was erased by a privacy change. New updates do not restore earlier history; use Update from chat history.",
     summary_configuration_changed:
       "Settings changed during an update. Review again.",
     summary_import_review_required:
@@ -30,6 +31,8 @@ export function memoryStatus(memory: SummaryInspection) {
       reasons[memory.reason] ??
       "Memory needs attention. Check saved memory before trying again."
     );
+  if (memory.coverageLost)
+    return "Earlier history is no longer covered after a privacy change. Use Update from chat history to review it.";
   if (memory.pending) return "Recent conversation updates pending";
   return memory.state === "never-produced"
     ? "No automatic memory saved yet"

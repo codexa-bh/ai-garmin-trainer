@@ -53,8 +53,10 @@ def status(run, action=None):
         if response.status != 200 or len(raw) > 4096:
             raise ValueError('Summary status/control refused or output exceeded bound')
         value = json.loads(raw)
-        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd', 'unpricedAttempts', 'priceBasis', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
+        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'coverageLost', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd', 'unpricedAttempts', 'priceBasis', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
             raise ValueError('Unknown summary telemetry; no raw content accepted')
+        if type(value['coverageLost']) is not bool:
+            raise ValueError('Unknown summary coverage status')
         if type(value['unpricedAttempts']) is not int or value['unpricedAttempts'] < 0:
             raise ValueError('Invalid unpriced attempt count')
         if value['priceBasis'] != PRICE_BASIS or any(type(value[key]) not in (int, float) or not math.isfinite(value[key]) or value[key] < 0 for key in ('reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd')):

@@ -87,9 +87,17 @@ Trainer **Memory** shows:
 
 There are no generated cards, model-managed IDs, Source & details or per-fact Forget
 claims. Without provenance the app cannot surgically subtract one source's influence.
-Relevant source edits/deletions invalidate the **whole generated summary**, revoke
-unsafe captured use/export and offer normal remaining-history regeneration. Existing
-historical Forget suppressions and known Clear/no-save restrictions remain enforced.
+**Deleting chats or messages does not clear saved memory** (schema27, approved
+deletion-only exception): the generated summary, preferences, processed frontier and
+use in surviving/new chats stay intact, so memory may keep what it learned from deleted
+chats. Use Clear saved memory to remove it. Deleted originals are never reselected,
+exported or replayed, and a pending update computed from them is refused. Other
+relevant source edits still invalidate the **whole generated summary**, revoke unsafe
+captured use/export and show a durable "earlier history no longer covered" status until
+Clear or a completed Update from chat history; new-only updates do not clear it.
+Existing historical Forget suppressions and known Clear/no-save restrictions remain
+enforced. Up to 50 recent generated-memory revisions are kept locally for debugging
+only (see [cross-chat summary](cross-chat-summary.md#local-debug-revisions)).
 Removing a preference is not deleting original history or erasing similar generated
 meaning everywhere. No paid rebuild starts on panel open, reads or navigation.
 

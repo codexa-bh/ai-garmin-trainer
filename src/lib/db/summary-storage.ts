@@ -45,6 +45,7 @@ type State = {
 };
 type Control = {
   enabled: number;
+  coverage_lost: number;
   configured_enabled: number;
   model: string;
   cap: number;
@@ -98,7 +99,7 @@ function currentValue(row: State, cap: number): SummaryValue {
   const privacy = (
     getDatabase()
       .prepare(
-        "select privacy_generation as n from conversation_history_control where id=1",
+        "select memory_generation as n from conversation_history_control where id=1",
       )
       .get() as { n: number }
   ).n;
@@ -299,6 +300,80 @@ function writeValue(value: SummaryValue, now: number): void {
     )
     .run(next.revision, next.payload, hash(next), now);
 }
+// Bounded local debugging history: never an input to chat, generation, import
+// or rebuild. Rows are written only inside the committing writer transaction.
+const DEBUG_REVISIONS = 50;
+type DebugRecord = {
+  kind:
+    | "routine"
+    | "import"
+    | "rebuild"
+    | "densify"
+    | "manual-edit"
+    | "preference-change";
+  model: string | null;
+  domain:
+    "completion-events" | "import-selection" | "reviewed-history" | "none";
+  first?: number | null;
+  last?: number | null;
+  count: number;
+  /** Committed generated text; null when this revision did not change it. */
+  text: string | null;
+};
+function recordDebugRevision(
+  parent: number,
+  now: number,
+  record: DebugRecord,
+): void {
+  const db = getDatabase(),
+    s = state(),
+    c = control();
+  const memory = (
+    db
+      .prepare(
+        "select memory_generation as n from conversation_history_control where id=1",
+      )
+      .get() as { n: number }
+  ).n;
+  db.prepare(
+    "insert into summary_debug_revision(revision,parent_revision,recorded_at,kind,model,memory_generation,control_generation,source_domain,source_first,source_last,source_count,payload) values(?,?,?,?,?,?,?,?,?,?,?,?)",
+  ).run(
+    s.revision,
+    parent,
+    now,
+    record.kind,
+    record.model || null,
+    memory,
+    c.generation,
+    record.domain,
+    record.first ?? null,
+    record.last ?? null,
+    record.count,
+    record.text,
+  );
+  db.prepare(
+    "delete from summary_debug_revision where revision<=(select revision from summary_debug_revision order by revision desc limit 1 offset ?)",
+  ).run(DEBUG_REVISIONS);
+}
+function purgeDebugPayloads(now: number): void {
+  getDatabase()
+    .prepare(
+      "update summary_debug_revision set payload=null,purged_at=? where payload is not null",
+    )
+    .run(now);
+}
+/** Preference text is never archived; generated text is unchanged. */
+function writePreferenceRevision(now: number): void {
+  const parent = state().revision;
+  writeValue(currentValue(state(), control().cap), now);
+  recordDebugRevision(parent, now, {
+    kind: "preference-change",
+    model: null,
+    domain: "none",
+    count: 0,
+    text: null,
+  });
+}
 function invalidateManualJobs(now: number): void {
   getDatabase()
     .prepare(
@@ -455,6 +530,13 @@ export const summaryDensifyStorage: DensifyStorage = {
         throw new Error("summary_densify_unavailable");
       preferences();
       writeValue(value, now);
+      recordDebugRevision(batch.revision, now, {
+        kind: "densify",
+        model: batch.manualModel ?? null,
+        domain: "none",
+        count: 0,
+        text: value.text,
+      });
       getDatabase()
         .prepare(
           "update summary_attempt set outcome='densify_accepted' where job_id=?",
@@ -486,7 +568,17 @@ export const summaryStorage: SummaryStorage = {
       const value: SummaryValue = { version: 2, text: scalarText(text) };
       if (!validSummaryValue(value)) throw new Error("summary_invalid_text");
       invalidateManualJobs(now);
+      const parent = state().revision;
       writeValue(value, now);
+      // A direct replacement keeps only its own new committed text.
+      purgeDebugPayloads(now);
+      recordDebugRevision(parent, now, {
+        kind: "manual-edit",
+        model: null,
+        domain: "none",
+        count: 0,
+        text: value.text,
+      });
     })();
   },
   edit(expected, id, text, now) {
@@ -503,7 +595,7 @@ export const summaryStorage: SummaryStorage = {
         )
         .run(id ?? `manual_${randomUUID()}`, text);
       invalidateManualJobs(now);
-      writeValue(currentValue(state(), control().cap), now);
+      writePreferenceRevision(now);
     })();
   },
   forget(expected, id, now) {
@@ -515,7 +607,7 @@ export const summaryStorage: SummaryStorage = {
         .prepare("delete from summary_preference where id=?")
         .run(id);
       invalidateManualJobs(now);
-      writeValue(currentValue(state(), control().cap), now);
+      writePreferenceRevision(now);
     })();
   },
   revision() {
@@ -622,6 +714,7 @@ export const summaryStorage: SummaryStorage = {
       cap: c.cap,
       publishedAt: s.published_at,
       enabled: Boolean(c.enabled),
+      coverageLost: c.coverage_lost === 1,
       model: c.model,
       usedByChat: false,
       attemptsToday: budget.attempts,
@@ -871,6 +964,47 @@ export const summaryStorage: SummaryStorage = {
       db.prepare(
         "update summary_state set revision=?,frontier=?,payload=?,checksum=?,published_at=? where id=1",
       ).run(next.revision, next.frontier, payload, hash(next), now);
+      const model = control().model;
+      recordDebugRevision(
+        batch.revision,
+        now,
+        batch.rebuild
+          ? {
+              kind: "rebuild",
+              model,
+              domain: "reviewed-history",
+              count: (
+                db
+                  .prepare(
+                    "select position as n from summary_rebuild where id=?",
+                  )
+                  .get(batch.rebuild.id) as { n: number }
+              ).n,
+              text: value.text,
+            }
+          : batch.import
+            ? {
+                kind: "import",
+                model,
+                domain: "import-selection",
+                count: candidate.dispositions.length,
+                text: value.text,
+              }
+            : {
+                kind: "routine",
+                model,
+                domain: "completion-events",
+                first: batch.sources[0]?.eventSeq ?? null,
+                last: batch.upper,
+                count: batch.sources.length,
+                text: value.text,
+              },
+      );
+      // Only a completed explicit reviewed history update settles known loss.
+      if (batch.rebuild)
+        db.prepare(
+          "update summary_control set coverage_lost=0 where id=1",
+        ).run();
       db.prepare(
         "update summary_attempt set outcome='committed',finished_at=?,policy_identity=?,upper_event=?,source_ids_json=? where job_id in (?,?) and outcome='admitted'",
       ).run(
@@ -966,6 +1100,11 @@ export const summaryStorage: SummaryStorage = {
         db.prepare("delete from summary_suppression").run();
         db.prepare("delete from summary_manual").run();
         db.prepare("delete from summary_preference").run();
+        db.prepare(
+          "update summary_control set coverage_lost=0 where id=1",
+        ).run();
+        db.prepare("delete from summary_debug_revision").run();
+        db.prepare("delete from summary_debug_event").run();
       }
       db.prepare(
         "update summary_attempt set outcome='interrupted',finished_at=? where outcome='admitted'",
