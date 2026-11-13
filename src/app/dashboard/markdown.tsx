@@ -137,7 +137,12 @@ export function AssistantContent({ content }: { content: string }) {
   const blocks: ReactNode[] = [];
   const lines = content.split(/\r?\n/);
   let paragraph: string[] = [];
-  let list: Array<{ ordered: boolean; text: string }> = [];
+  // A list stays open across blank lines; any other block flushes it.
+  let list: {
+    ordered: boolean;
+    start: number;
+    items: string[];
+  } | null = null;
   let codeLines: string[] | null = null;
 
   function flushParagraph() {
@@ -152,20 +157,22 @@ export function AssistantContent({ content }: { content: string }) {
   }
 
   function flushList() {
-    if (!list.length) return;
-    const ordered = list[0].ordered;
-    const items = list;
+    if (!list) return;
+    const { ordered, start, items } = list;
     const ListTag = ordered ? "ol" : "ul";
     blocks.push(
-      <ListTag key={`l-${blocks.length}`}>
-        {items.map((item, index) => (
+      <ListTag
+        key={`l-${blocks.length}`}
+        start={ordered && start !== 1 ? start : undefined}
+      >
+        {items.map((text, index) => (
           <li key={index}>
-            {renderInlineMarkdown(item.text, `li-${blocks.length}-${index}`)}
+            {renderInlineMarkdown(text, `li-${blocks.length}-${index}`)}
           </li>
         ))}
       </ListTag>,
     );
-    list = [];
+    list = null;
   }
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -191,7 +198,6 @@ export function AssistantContent({ content }: { content: string }) {
     }
     if (!line.trim()) {
       flushParagraph();
-      flushList();
       continue;
     }
     const tableBlock = parseMarkdownTableBlock(lines, lineIndex);
@@ -220,7 +226,10 @@ export function AssistantContent({ content }: { content: string }) {
     const listItem = line.match(/^\s*(?:([-*])|(\d+)\.)\s+(.+)$/);
     if (listItem) {
       flushParagraph();
-      list.push({ ordered: Boolean(listItem[2]), text: listItem[3] });
+      const ordered = Boolean(listItem[2]);
+      if (list && list.ordered !== ordered) flushList();
+      list ??= { ordered, start: ordered ? Number(listItem[2]) : 1, items: [] };
+      list.items.push(listItem[3]);
       continue;
     }
     flushList();
