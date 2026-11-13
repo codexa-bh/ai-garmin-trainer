@@ -117,20 +117,6 @@ async function chatgptFixture() {
               },
             ],
           },
-          {
-            id: "registration_22222222-2222-4222-8222-222222222222",
-            epoch: 1,
-            label: "synthetic@example.invalid · 2",
-            state: "connected",
-            planEnabled: true,
-            disclosed: true,
-            models: [
-              {
-                slug: "synthetic/chatgpt:two",
-                displayName: "Authored model two",
-              },
-            ],
-          },
         ]
       : original(command, args),
   );
@@ -234,7 +220,7 @@ it.each(["option", "status", "unknown-child", "overflow"])(
     if (fault === "unknown-child") root.append(document.createElement("p"));
     if (fault === "overflow")
       vi.spyOn(
-        document.getElementById("chatgpt-connect")!,
+        document.getElementById("chatgpt-switch")!,
         "getBoundingClientRect",
       ).mockReturnValue(new DOMRect(-1, 24, 300, 45));
     const before = root.style.cssText;

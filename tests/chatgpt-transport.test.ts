@@ -9,7 +9,7 @@ import {
   createConversationCompactionGeneration,
 } from "../src/lib/ai/provider-generation";
 import { chatgptText } from "../src/lib/ai/chatgpt-generation";
-import { Output } from "ai";
+import { Output, TypeValidationError } from "ai";
 import { z } from "zod";
 
 it("retains only bounded safe request correlation, never raw diagnostic content", () => {
@@ -358,6 +358,53 @@ it("completed inference without counters preserves unknown usage, not invented z
   });
   expect(result.text).toBe(answer);
   expect(result.tokenUsage).toBeUndefined();
+});
+it("classifies locked-SDK schema rejection without retaining provider output", async () => {
+  const { model, network } = setup();
+  const failed = {
+    ...model,
+    doStream: async () => {
+      throw new TypeValidationError({
+        value: "private-provider-output",
+        cause: Error("private-detail"),
+      });
+    },
+  };
+  await expect(
+    createTrainerGeneration(failed)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
+    }),
+  ).rejects.toMatchObject({ code: "response_decoding_failed" });
+  expect(network).not.toHaveBeenCalled();
+});
+it("still rejects a malformed delta that would otherwise lose SDK text", async () => {
+  const values = events();
+  Object.assign(values[2], { delta: 42 });
+  const { model, network } = setup(values);
+  await expect(
+    createTrainerGeneration(model)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
+    }),
+  ).rejects.toMatchObject({ code: "incomplete_sdk_decoding" });
+  expect(network).toHaveBeenCalledTimes(1);
+});
+it("classifies native credential refusal before a provider request without leaking detail", async () => {
+  const network = vi.fn();
+  const model = chatgptModel(admission, undefined, network, async () => {
+    throw Error("private-native-detail");
+  });
+  await expect(
+    createTrainerGeneration(model)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
+    }),
+  ).rejects.toMatchObject({ code: "connection_unavailable" });
+  expect(network).not.toHaveBeenCalled();
 });
 it("sanitizes nonstandard admission errors and never echoes private detail", async () => {
   const transport = chatgptFetch(

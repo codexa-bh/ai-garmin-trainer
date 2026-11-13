@@ -53,7 +53,12 @@ const bounded = (value: unknown, max: number): value is string =>
 export function validateChatgptConnections(
   input: unknown,
 ): ChatgptConnection[] {
-  if (!Array.isArray(input) || input.length > 16)
+  if (
+    !Array.isArray(input) ||
+    input.length > 16 ||
+    (input.length > 1 &&
+      input.some((value) => !object(value) || value.state !== "unavailable"))
+  )
     throw new Error("chatgpt_metadata_invalid");
   const ids = new Set();
   return input.map((value: unknown) => {

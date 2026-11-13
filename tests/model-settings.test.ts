@@ -7,6 +7,7 @@ import type { ModelConfiguration } from "@/lib/model-settings/contracts";
 import { decodeChoice, priorChoice } from "@/lib/model-settings/policy";
 import {
   subscriptionEntryLabel,
+  validateChatgptConnections,
   type ChatgptConnection,
 } from "@/lib/model-settings/chatgpt-metadata";
 import { getOptionalEnv, hasConfiguredSecret } from "@/lib/env";
@@ -125,6 +126,34 @@ it("keeps subscription labels compact for a sole connection without losing multi
     "ChatGPT plan / gpt-6-luna",
   );
   expect(entry.registrationId).toBe(connection.id);
+});
+it("rejects multiple live subscription connections but admits unavailable legacy reconciliation metadata", () => {
+  const first = {
+    id: "registration_11111111-1111-4111-8111-111111111111",
+    epoch: 1,
+    label: "authored",
+    state: "connected",
+    planEnabled: true,
+    disclosed: true,
+    models: [],
+  };
+  const second = {
+    ...first,
+    id: "registration_22222222-2222-4222-8222-222222222222",
+  };
+  expect(validateChatgptConnections([first])).toHaveLength(1);
+  expect(() => validateChatgptConnections([first, second])).toThrow(
+    "chatgpt_metadata_invalid",
+  );
+  expect(
+    validateChatgptConnections(
+      [first, second].map((r) => ({
+        ...r,
+        state: "unavailable",
+        planEnabled: false,
+      })),
+    ),
+  ).toHaveLength(2);
 });
 it("does not provider-only map a custom or ambiguous legacy identity", () => {
   const c = config();

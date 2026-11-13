@@ -295,12 +295,17 @@ export function chatgptFetch(
       signal.throwIfAborted();
       assertCurrent();
     };
-    const { accessToken } = await credential(
-      "credential",
-      admission.registrationId,
-      admission.epoch,
-      signal,
-    );
+    let accessToken: string | undefined;
+    try {
+      ({ accessToken } = await credential(
+        "credential",
+        admission.registrationId,
+        admission.epoch,
+        signal,
+      ));
+    } catch {
+      throw new ChatgptRequestError("connection_unavailable");
+    }
     current();
     // Disconnect/reconnect must cancel even a response whose remote socket is idle.
     const timer = setInterval(() => {

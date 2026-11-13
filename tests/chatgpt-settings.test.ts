@@ -106,6 +106,12 @@ beforeEach(async () => {
         message: "Connected; catalog requires Save",
       };
     }
+    if (command === "chatgpt_action" && args.action === "activate") {
+      connections = connections.filter(
+        (item) => item.id === args.registrationId,
+      );
+      return "Active connection selected";
+    }
     if (command === "chatgpt_action" && args.action === "disclose") {
       connections = [{ ...connection, epoch: 2, disclosed: true }];
       return "Acknowledged";
@@ -143,6 +149,8 @@ it("reuses a sole saved account without signing in or auto-selecting models; pro
   );
   expect(byId("catalog-openai-heading").textContent).toBe("OpenAI API key");
   expect(byId<HTMLSelectElement>("chatgpt-account").value).toBe(id);
+  expect(byId("chatgpt-account").closest("label")?.hidden).toBe(true);
+  expect(byId("chatgpt-switch").hidden).toBe(false);
   expect(byId("chatgpt-connect").hidden).toBe(true);
   expect(choices().map((input) => input.checked)).toEqual([false, false]);
   expect(choices()[0].closest("label")?.textContent).toBe("Account model");
@@ -169,7 +177,10 @@ it("requires explicit choice among multiple saved registrations and preserves sa
   ).toEqual(["synthetic@example.invalid · 1", "synthetic@example.invalid · 2"]);
   expect(choices()).toHaveLength(0);
   selectAccount();
-  expect(choices()).toHaveLength(2);
+  expect(choices()).toHaveLength(0);
+  fireEvent.click(byId("chatgpt-activate"));
+  await waitFor(() => expect(choices()).toHaveLength(2));
+  expect(byId("chatgpt-account").closest("label")?.hidden).toBe(true);
 });
 it("adds several explicit models once in provider order, preserving registration and independent summary choice until Save", async () => {
   choose("second-model");
@@ -326,34 +337,92 @@ it("select-all and clear use actual checkboxes and cannot add the same pair twic
   ]);
   expect(choices().every((input) => input.disabled)).toBe(true);
 });
-it("account changes clear selections, never leak models and keep equal model IDs separately account-bound", async () => {
-  connections.push({
-    ...connection,
-    id: otherId,
-    models: [{ slug: "exact-model", displayName: "Other account model" }],
-  });
-  await reload();
-  selectAccount();
-  choose("second-model");
-  selectAccount(otherId);
-  expect(choices().map((input) => input.value)).toEqual(["exact-model"]);
-  expect(choices().every((input) => !input.checked)).toBe(true);
+it("switching the sole connection clears only account model selections and never rebinds saved catalog identities", async () => {
   choose("exact-model");
   add();
-  selectAccount();
-  expect(choices().every((input) => !input.checked && !input.disabled)).toBe(
-    true,
+  fireEvent.submit(byId("settings"));
+  await waitFor(() => expect(savedEntries).toHaveLength(1));
+  await waitFor(() =>
+    expect(byId<HTMLButtonElement>("chatgpt-switch").disabled).toBe(false),
   );
+  const prior = structuredClone(savedEntries[0]);
+  choose("second-model");
+  invoke.mockImplementationOnce(async (command) => {
+    expect(command).toBe("chatgpt_connect");
+    connections = [
+      {
+        ...connection,
+        id: otherId,
+        models: [{ slug: "exact-model", displayName: "Other account model" }],
+      },
+    ];
+    return {
+      registrationId: otherId,
+      message: "Replacement active; old records preserved",
+    };
+  });
+  fireEvent.click(byId("chatgpt-switch"));
+  await waitFor(() =>
+    expect(byId<HTMLSelectElement>("chatgpt-account").value).toBe(otherId),
+  );
+  expect(byId("chatgpt-account").closest("label")?.hidden).toBe(true);
+  expect(choices().map((input) => input.value)).toEqual(["exact-model"]);
+  expect(choices().every((input) => !input.checked)).toBe(true);
+  expect(savedEntries).toEqual([prior]);
   choose("exact-model");
   add();
   fireEvent.submit(byId("settings"));
   await waitFor(() => expect(savedEntries).toHaveLength(2));
+  expect(savedEntries[0]).toEqual(prior);
   expect(
     savedEntries.map((entry) => [entry.registrationId, entry.modelId]),
   ).toEqual([
-    [otherId, "exact-model"],
     [id, "exact-model"],
+    [otherId, "exact-model"],
   ]);
+  expect(byId<HTMLSelectElement>("SUMMARY_MODEL").value).toBe("unselected");
+});
+it("reconnect keeps the explicit current registration target instead of creating or silently switching an account", async () => {
+  connections = [
+    { ...connection, state: "reconnect-required", planEnabled: false },
+  ];
+  await reload();
+  expect(byId("chatgpt-account").closest("label")?.hidden).toBe(true);
+  expect(byId("chatgpt-connect").hidden).toBe(false);
+  expect(byId("chatgpt-connect").textContent?.trim()).toBe(
+    "Continue with ChatGPT",
+  );
+  expect(byId("chatgpt-connect").querySelector("img")).not.toBeNull();
+  fireEvent.click(byId("chatgpt-connect"));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(
+      "chatgpt_connect",
+      expect.objectContaining({ registrationId: id }),
+    ),
+  );
+  await waitFor(() =>
+    expect(byId<HTMLButtonElement>("chatgpt-switch").disabled).toBe(false),
+  );
+  expect(byId<HTMLSelectElement>("chatgpt-account").value).toBe(id);
+  expect(savedEntries).toEqual([]);
+});
+it("cancelled or failed Switch account leaves the old connection and saved catalog intact", async () => {
+  const before = structuredClone(connections);
+  invoke.mockImplementationOnce(async () => {
+    throw "Sign-in cancelled; previous connection unchanged";
+  });
+  fireEvent.click(byId("chatgpt-switch"));
+  await waitFor(() =>
+    expect(byId("chatgpt-status").textContent).toContain(
+      "previous connection unchanged",
+    ),
+  );
+  expect(connections).toEqual(before);
+  expect(byId<HTMLSelectElement>("chatgpt-account").value).toBe(id);
+  expect(savedEntries).toEqual([]);
+  expect(
+    invoke.mock.calls.some(([command]) => command === "save_settings"),
+  ).toBe(false);
 });
 it("over-capacity selection adds nothing rather than partially filling the catalog", async () => {
   savedEntries = Array.from({ length: 31 }, (_, n) => ({
@@ -411,14 +480,13 @@ it("refresh clears removed models without selecting replacements or losing still
   expect(choices()[0].value).toBe("second-model");
   expect(choices()[0].checked).toBe(true);
 });
-it("explicit Connect another account stays deliberate while native reused outcome selects an existing unchanged registration", async () => {
-  selectAccount("");
-  expect(byId("chatgpt-connect").hidden).toBe(false);
+it("explicit Switch account keeps the old connection while native reused outcome selects an existing unchanged registration", async () => {
+  expect(byId("chatgpt-switch").hidden).toBe(false);
   invoke.mockImplementationOnce(async () => ({
     registrationId: id,
     message: "Existing registration reused; credentials unchanged",
   }));
-  fireEvent.click(byId("chatgpt-connect"));
+  fireEvent.click(byId("chatgpt-switch"));
   await waitFor(() =>
     expect(byId("chatgpt-status").textContent).toContain(
       "Existing registration reused",
@@ -434,8 +502,7 @@ it("explicit Connect another account stays deliberate while native reused outcom
   expect(connections).toHaveLength(1);
 });
 it("shows first-success plan disclosure once with acknowledgment and focus returned to a visible control", async () => {
-  selectAccount("");
-  fireEvent.click(byId("chatgpt-connect"));
+  fireEvent.click(byId("chatgpt-switch"));
   await waitFor(() =>
     expect(byId<HTMLDialogElement>("chatgpt-welcome").open).toBe(true),
   );
@@ -484,8 +551,7 @@ it("a closed Settings window cannot show a late sign-in or select a late reused 
         finish = resolve;
       }),
   );
-  selectAccount("");
-  fireEvent.click(byId("chatgpt-connect"));
+  fireEvent.click(byId("chatgpt-switch"));
   await waitFor(() => expect(byId("chatgpt-cancel").hidden).toBe(false));
   listeners["desktop-settings-closed"]();
   finish({ registrationId: id, message: "Late result" });

@@ -1,8 +1,34 @@
-import { streamText, type LanguageModelUsage } from "ai";
+import {
+  streamText,
+  APICallError,
+  TypeValidationError,
+  JSONParseError,
+  type LanguageModelUsage,
+} from "ai";
 import { trainerToolDefinitions } from "./provider-tool-definitions";
 import { CHATGPT_NAMESPACE, ChatgptRequestError } from "./chatgpt-transport";
 import type { TrainerGenerationRequest } from "./orchestration-ports";
 
+function generationFailure(error: unknown): ChatgptRequestError {
+  let current = error;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (current instanceof ChatgptRequestError) return current;
+    if (
+      TypeValidationError.isInstance(current) ||
+      JSONParseError.isInstance(current)
+    )
+      return new ChatgptRequestError("response_decoding_failed");
+    if (!APICallError.isInstance(current)) break;
+    if (current.cause) current = current.cause;
+    else
+      return new ChatgptRequestError(
+        Number.isInteger(current.statusCode)
+          ? `http_${current.statusCode}`
+          : "provider_transport_failed",
+      );
+  }
+  return new ChatgptRequestError("generation_failed");
+}
 /** The locked SDK supports namespaces, but only this route opts into them. */
 const tools = Object.fromEntries(
   Object.entries(trainerToolDefinitions).map(([name, definition]) => [
@@ -41,10 +67,7 @@ export async function chatgptText(options: Record<string, unknown>): Promise<{
   } as unknown as Parameters<typeof streamText>[0]);
   // Explicit consumption surfaces stream errors, not just HTTP200/first text/EOF.
   for await (const event of result.fullStream) {
-    if (event.type === "error")
-      throw event.error instanceof ChatgptRequestError
-        ? event.error
-        : new ChatgptRequestError("generation_failed");
+    if (event.type === "error") throw generationFailure(event.error);
   }
   const calls = await result.toolCalls;
   const ids = new Set();

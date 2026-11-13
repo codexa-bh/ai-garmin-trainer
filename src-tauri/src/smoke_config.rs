@@ -405,7 +405,11 @@ mod tests {
             let marker = root.join("chatgpt-presentation.json");
             write(&marker,serde_json::json!({"version":1,"runId":id}).to_string().as_bytes());
             let metadata = crate::setup_smoke::chatgpt_metadata(&config).unwrap().unwrap();
-            assert_eq!(metadata.as_array().unwrap().len(),2);
+            assert_eq!(metadata.as_array().unwrap().len(),1);
+            assert_eq!(metadata[0]["id"],"registration_11111111-1111-4111-8111-111111111111");
+            assert_eq!(metadata[0]["state"],"connected");
+            assert_eq!(metadata[0]["planEnabled"],true);
+            assert_eq!(metadata[0]["models"].as_array().unwrap().len(),2);
             for forbidden in ["accessToken","refreshToken","idToken","clientId","subject"] { assert!(!metadata.to_string().contains(forbidden)); }
             let subscription: crate::chat_catalog::Catalog = serde_json::from_value(serde_json::json!({"version":1,"defaultEntryId":null,"entries":[{"id":"entry_fixture","provider":"chatgpt","registrationId":"registration_11111111-1111-4111-8111-111111111111","modelId":"synthetic/chatgpt:one"}]})).unwrap();
             assert!(!config.accepts_catalog(&subscription,&std::collections::BTreeMap::new()));

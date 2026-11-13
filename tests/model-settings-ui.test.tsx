@@ -330,7 +330,7 @@ it("loads production mixed-auth DTOs and persists explicit route/account through
       ollama: false,
       openrouter: false,
     },
-    availableSubscriptionEntries: ["entry_plan", "entry_other"],
+    availableSubscriptionEntries: ["entry_plan"],
     subscriptionLabels: {
       entry_plan: "ChatGPT plan · account 1 / Exact/Model:Tag",
       entry_other: "ChatGPT plan · account 2 / Exact/Model:Tag",
@@ -363,7 +363,13 @@ it("loads production mixed-auth DTOs and persists explicit route/account through
   });
   const select = () => screen.getByRole("combobox") as HTMLSelectElement;
   expect(select().value).toBe("");
-  for (const id of ["entry_api", "entry_other", "entry_plan"]) {
+  expect(
+    screen.queryByRole("option", {
+      name: configuration.subscriptionLabels.entry_other,
+    }),
+  ).toBeNull();
+  expect(() => app.save({ modelId: "entry_other" })).toThrow(/ineligible/);
+  for (const id of ["entry_api", "entry_plan"]) {
     fireEvent.change(select(), { target: { value: id } });
     await waitFor(() => expect(select().value).toBe(id));
     expect(app.selection().id).toBe(id);
@@ -388,11 +394,7 @@ it("loads production mixed-auth DTOs and persists explicit route/account through
     fetcher.mock.calls
       .filter(([, init]) => init?.method === "PATCH")
       .map(([, init]) => init?.body),
-  ).toEqual([
-    '{"modelId":"entry_api"}',
-    '{"modelId":"entry_other"}',
-    '{"modelId":"entry_plan"}',
-  ]);
+  ).toEqual(['{"modelId":"entry_api"}', '{"modelId":"entry_plan"}']);
 });
 it.each(["subscription-only", "unavailable-subscription"])(
   "accepts valid %s DTO without erasing independent routes",

@@ -68,7 +68,11 @@ pub fn png(window: &WebviewWindow) -> Result<Vec<u8>, String> {
         // WebKit copies the completion block for its asynchronous snapshot.
         unsafe {
             let view = webview.inner().cast::<AnyObject>();
-            // Flush the current masked document, not a cached prior-view/resize frame.
+            // Invalidate/display this owned non-key view before asking WebKit
+            // for post-update pixels; layout acknowledgment alone can leave an
+            // old scroll/visibility frame. No activation or screen API is used.
+            let _: () = msg_send![view, setNeedsDisplay: true];
+            let _: () = msg_send![view, displayIfNeeded];
             let configuration: *mut AnyObject = msg_send![class!(WKSnapshotConfiguration), new];
             let _: () = msg_send![configuration, setAfterScreenUpdates: true];
             let _: () = msg_send![view, takeSnapshotWithConfiguration: configuration, completionHandler: &*completion];
