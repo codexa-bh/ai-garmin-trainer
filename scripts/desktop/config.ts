@@ -62,6 +62,10 @@ export function adoptConfiguration(snapshot: unknown): {
   // Native sends a bounded private frame, never an env filename. No dotenv
   // loader is invoked; private state cannot depend on cwd or adjacent files.
   Object.assign(process.env, activationEnvironment(snapshot));
+  // GUI launches may inherit umask022. Keep backend and connector/FIT-created
+  // files private from creation (GHSA-wjhr-76vg-2hvc), not only after chmod.
+  // This owned child-process policy never changes permissions of existing files.
+  process.umask(0o077);
   const env = getOptionalEnv();
   const reviewedArgs =
     JSON.stringify(garminMcpArgs(env.GARMIN_MCP_ARGS)) ===

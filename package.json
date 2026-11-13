@@ -1,6 +1,6 @@
 {
   "name": "ai-garmin-trainer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "scripts": {
     "release": "python3 scripts/desktop/release.py",
     "release:check": "python3 scripts/desktop/release.py check",
