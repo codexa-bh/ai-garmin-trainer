@@ -9,7 +9,7 @@ import {
   createConversationCompactionGeneration,
 } from "../src/lib/ai/provider-generation";
 import { chatgptText } from "../src/lib/ai/chatgpt-generation";
-import { Output } from "ai";
+import { Output, TypeValidationError } from "ai";
 import { z } from "zod";
 
 it("retains only bounded safe request correlation, never raw diagnostic content", () => {
@@ -109,18 +109,27 @@ function sse(values: unknown[]) {
     { headers: { "content-type": "text/event-stream" } },
   );
 }
-function setup(values = events()) {
+function setup(values = events(), declaredMedia = true) {
   const credential = vi.fn(async (_operation: string) => ({
     accessToken: "authored-private-token",
   }));
-  const network = vi.fn(async () => sse(values));
+  const network = vi.fn(async () => {
+    const response = sse(values);
+    if (!declaredMedia) response.headers.delete("content-type");
+    return response;
+  });
   const model = chatgptModel(admission, undefined, network, credential);
   return { model, network, credential };
 }
-it.each(["planner", "final_synthesis"] as const)(
-  "actual locked-SDK %s wire uses private account bearer, streaming/developer/history and no forbidden presets",
-  async (purpose) => {
-    const { model, network, credential } = setup();
+it.each([
+  ["planner", true],
+  ["planner", false],
+  ["final_synthesis", true],
+  ["final_synthesis", false],
+] as const)(
+  "actual locked-SDK %s wire, declared media=%s, requires complete validated SSE/SDK receipt",
+  async (purpose, declaredMedia) => {
+    const { model, network, credential } = setup(events(), declaredMedia);
     const result = await createTrainerGeneration(model)({
       purpose,
       system: { policy: "Trusted server policy", context: "Fresh grounding" },
@@ -141,6 +150,8 @@ it.each(["planner", "final_synthesis"] as const)(
       RequestInit,
     ];
     expect(url).toBe("https://api.openai.com/v1/responses");
+    expect(new Headers(init.headers).get("accept")).toBe("text/event-stream");
+    expect(init.cache).toBe("no-store");
     expect(new Headers(init.headers).get("Authorization")).toBe(
       "Bearer authored-private-token",
     );
@@ -243,12 +254,19 @@ it("namespaced tool response and exact call/result continuation remain paired", 
   );
   expect(network).toHaveBeenCalledTimes(1);
 });
-it.each(["response.failed", "response.incomplete", "eof"])(
-  "%s after text is not successful and never retried",
-  async (ending) => {
+it.each([
+  ["response.failed", true],
+  ["response.failed", false],
+  ["response.incomplete", true],
+  ["response.incomplete", false],
+  ["eof", true],
+  ["eof", false],
+] as const)(
+  "%s with declared media=%s is not successful and never retried",
+  async (ending, declaredMedia) => {
     const values = events(answer, false, ending);
     if (ending === "eof") values.pop();
-    const { model, network } = setup(values);
+    const { model, network } = setup(values, declaredMedia);
     await expect(
       createTrainerGeneration(model)({
         purpose: "planner",
@@ -260,40 +278,56 @@ it.each(["response.failed", "response.incomplete", "eof"])(
   },
 );
 it.each([
-  "wrong-namespace",
-  "unknown-tool",
-  "duplicate-call",
-  "malformed-arguments",
-])("rejects %s before app tool dispatch", async (kind) => {
-  const values = events("", true);
-  const terminal = values.at(-1)!.response as {
-    output: Record<string, unknown>[];
-  };
-  if (kind === "wrong-namespace") terminal.output[0].namespace = "foreign";
-  if (kind === "unknown-tool")
-    terminal.output[0].name = "runUnrestrictedCommand";
-  if (kind === "duplicate-call")
-    terminal.output.push({ ...terminal.output[0] });
-  if (kind === "malformed-arguments") terminal.output[0].arguments = "{";
-  const { model } = setup(values);
-  await expect(
-    createTrainerGeneration(model)({
-      purpose: "planner",
-      system: "Policy",
-      prompt: "Question",
-    }),
-  ).rejects.toThrow();
-});
-it.each(["summary", "maintenance", "title", "compaction"])(
-  "%s uses completed structured streaming without API-key/counting or incompatible parameters",
-  async (purpose) => {
+  ["wrong-namespace", true],
+  ["wrong-namespace", false],
+  ["unknown-tool", true],
+  ["unknown-tool", false],
+  ["duplicate-call", true],
+  ["duplicate-call", false],
+  ["malformed-arguments", true],
+  ["malformed-arguments", false],
+] as const)(
+  "rejects %s with declared media=%s before app tool dispatch",
+  async (kind, declaredMedia) => {
+    const values = events("", true);
+    const terminal = values.at(-1)!.response as {
+      output: Record<string, unknown>[];
+    };
+    if (kind === "wrong-namespace") terminal.output[0].namespace = "foreign";
+    if (kind === "unknown-tool")
+      terminal.output[0].name = "runUnrestrictedCommand";
+    if (kind === "duplicate-call")
+      terminal.output.push({ ...terminal.output[0] });
+    if (kind === "malformed-arguments") terminal.output[0].arguments = "{";
+    const { model } = setup(values, declaredMedia);
+    await expect(
+      createTrainerGeneration(model)({
+        purpose: "planner",
+        system: "Policy",
+        prompt: "Question",
+      }),
+    ).rejects.toThrow();
+  },
+);
+it.each([
+  ["summary", true],
+  ["summary", false],
+  ["maintenance", true],
+  ["maintenance", false],
+  ["title", true],
+  ["title", false],
+  ["compaction", true],
+  ["compaction", false],
+] as const)(
+  "%s with declared media=%s requires completed structured streaming without API-key/counting",
+  async (purpose, declaredMedia) => {
     const text =
       purpose === "title"
         ? '{"title":"Recovery"}'
         : purpose === "maintenance"
           ? '{"summary":"Recovery","exclude":[]}'
           : '{"summary":"Recovery"}';
-    const { model, network } = setup(events(text));
+    const { model, network } = setup(events(text), declaredMedia);
     if (purpose === "compaction")
       expect(
         await createConversationCompactionGeneration(model).generate(
@@ -359,6 +393,115 @@ it("completed inference without counters preserves unknown usage, not invented z
   expect(result.text).toBe(answer);
   expect(result.tokenUsage).toBeUndefined();
 });
+it("classifies locked-SDK schema rejection without retaining provider output", async () => {
+  const { model, network } = setup();
+  const failed = {
+    ...model,
+    doStream: async () => {
+      throw new TypeValidationError({
+        value: "private-provider-output",
+        cause: Error("private-detail"),
+      });
+    },
+  };
+  await expect(
+    createTrainerGeneration(failed)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
+    }),
+  ).rejects.toMatchObject({ code: "response_decoding_failed" });
+  expect(network).not.toHaveBeenCalled();
+});
+it("still rejects a malformed delta that would otherwise lose SDK text", async () => {
+  const values = events();
+  Object.assign(values[2], { delta: 42 });
+  const { model, network } = setup(values);
+  await expect(
+    createTrainerGeneration(model)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
+    }),
+  ).rejects.toMatchObject({ code: "incomplete_sdk_decoding" });
+  expect(network).toHaveBeenCalledTimes(1);
+});
+it("classifies native credential refusal before a provider request without leaking detail", async () => {
+  const network = vi.fn();
+  const model = chatgptModel(admission, undefined, network, async () => {
+    throw Error("private-native-detail");
+  });
+  await expect(
+    createTrainerGeneration(model)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
+    }),
+  ).rejects.toMatchObject({ code: "connection_unavailable" });
+  expect(network).not.toHaveBeenCalled();
+});
+it.each([
+  [
+    { object: "response", status: "completed", output: "PRIVATE DETAIL" },
+    "json_completed",
+  ],
+  [{ object: "response", status: "in_progress" }, "json_incomplete"],
+  [{ error: { message: "PRIVATE DETAIL" } }, "json_error"],
+  [{ unexpected: "PRIVATE DETAIL" }, "json_other"],
+] as const)(
+  "non-stream response keeps only a closed shape category, never accepts JSON as stream success: %s",
+  async (body, kind) => {
+    const transport = chatgptFetch(
+      admission,
+      undefined,
+      async () => Response.json(body),
+      async () => ({ accessToken: "authored-private-token" }),
+    );
+    const error = await transport("https://api.openai.com/v1/responses", {
+      method: "POST",
+      body: JSON.stringify({
+        model: admission.model,
+        store: false,
+        stream: true,
+        input: [],
+      }),
+    }).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(ChatgptRequestError);
+    expect((error as ChatgptRequestError).code).toBe(
+      `unsupported_response_200_${kind}`,
+    );
+    expect(String(error)).not.toContain("PRIVATE");
+  },
+);
+it.each([
+  ["", "missing_completion"],
+  ["data: PRIVATE DETAIL\n\n", "malformed_stream"],
+  ['{"object":"response","status":"completed"}', "missing_completion"],
+] as const)(
+  "absent media type still refuses empty, malformed and JSON-as-stream bodies without private echo: %s",
+  async (body, kind) => {
+    const transport = chatgptFetch(
+      admission,
+      undefined,
+      async () => new Response(new TextEncoder().encode(body)),
+      async () => ({ accessToken: "authored-private-token" }),
+    );
+    const error = await transport("https://api.openai.com/v1/responses", {
+      method: "POST",
+      body: JSON.stringify({
+        model: admission.model,
+        store: false,
+        stream: true,
+        input: [],
+      }),
+    })
+      .then((response) => response.text())
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(ChatgptRequestError);
+    expect((error as ChatgptRequestError).code).toBe(kind);
+    expect(String(error)).not.toContain("PRIVATE");
+  },
+);
 it("sanitizes nonstandard admission errors and never echoes private detail", async () => {
   const transport = chatgptFetch(
     admission,

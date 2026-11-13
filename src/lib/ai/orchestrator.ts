@@ -626,10 +626,9 @@ async function orchestrateTurn(
       }
       return finish(
         {
-          text:
-            input.debug?.provider === "openrouter"
-              ? `${providerFailureMessage("openrouter", error)} No Garmin tool was executed.`
-              : "I could not get a valid response from the configured model. No Garmin tool was executed.",
+          text: ["openrouter", "chatgpt"].includes(input.debug?.provider ?? "")
+            ? `${providerFailureMessage(input.debug?.provider, error)} No Garmin tool was executed.`
+            : "I could not get a valid response from the configured model. No Garmin tool was executed.",
           grounding: null,
           toolSteps: [],
           providerCalls,

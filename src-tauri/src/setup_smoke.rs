@@ -109,8 +109,7 @@ pub fn chatgpt_metadata(config: &Config) -> Result<Option<Value>, String> {
     let bytes = crate::private_store::read(&path).map_err(str::to_owned)?;
     chatgpt_marker(&bytes,&config.run_id)?;
     Ok(Some(json!([
-        {"id":"registration_11111111-1111-4111-8111-111111111111","epoch":1,"label":"synthetic@example.invalid · 1","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:one","displayName":"Authored model one"},{"slug":"synthetic/chatgpt:three","displayName":"Authored model three"}]},
-        {"id":"registration_22222222-2222-4222-8222-222222222222","epoch":1,"label":"synthetic@example.invalid · 2","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:two","displayName":"Authored model two"}]}
+        {"id":"registration_11111111-1111-4111-8111-111111111111","epoch":1,"label":"synthetic@example.invalid · 1","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:one","displayName":"Authored model one"},{"slug":"synthetic/chatgpt:three","displayName":"Authored model three"}]}
     ])))
 }
 struct Document {

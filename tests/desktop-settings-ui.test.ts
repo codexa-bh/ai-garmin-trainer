@@ -669,7 +669,7 @@ describe("trusted local desktop settings UI", () => {
     ).toEqual(["chatgpt-account"]);
     expect(
       document.querySelector("#chatgpt-model-picker legend")?.textContent,
-    ).toBe("Available models");
+    ).toBe("Models to add");
     expect(document.querySelector("#chatgpt-model")?.tagName).toBe("DIV");
     const key = input("OPENAI_API_KEY");
     fireEvent.input(key, { target: { value: "synthetic-draft" } });

@@ -5,6 +5,11 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createModelSettings } from "@/lib/model-settings/application";
 import type { ModelConfiguration } from "@/lib/model-settings/contracts";
 import { decodeChoice, priorChoice } from "@/lib/model-settings/policy";
+import {
+  subscriptionEntryLabel,
+  validateChatgptConnections,
+  type ChatgptConnection,
+} from "@/lib/model-settings/chatgpt-metadata";
 import { getOptionalEnv, hasConfiguredSecret } from "@/lib/env";
 const config = (): ModelConfiguration => ({
   catalog: {
@@ -77,6 +82,78 @@ it.each([
   expect(JSON.stringify(first)).not.toMatch(
     /private-corrupt|unknown-private|defaultEntryId|effective|source/,
   );
+});
+it("keeps subscription labels compact for a sole connection without losing multi-account distinction or exact model fallback", () => {
+  const connection: ChatgptConnection = {
+    id: "registration_11111111-1111-4111-8111-111111111111",
+    epoch: 1,
+    label: "private-label",
+    state: "connected",
+    planEnabled: true,
+    disclosed: true,
+    models: [{ slug: "gpt-6-luna", displayName: "GPT-6-Luna" }],
+  };
+  const entry = {
+    id: "entry_plan",
+    provider: "chatgpt" as const,
+    registrationId: connection.id,
+    modelId: "gpt-6-luna",
+  };
+  expect(subscriptionEntryLabel(entry, [connection])).toBe(
+    "ChatGPT plan / GPT-6-Luna",
+  );
+  const other = {
+    ...connection,
+    id: "registration_22222222-2222-4222-8222-222222222222",
+  };
+  expect(subscriptionEntryLabel(entry, [connection, other])).toBe(
+    "ChatGPT plan 1 / GPT-6-Luna",
+  );
+  expect(
+    subscriptionEntryLabel({ ...entry, registrationId: other.id }, [
+      connection,
+      other,
+    ]),
+  ).toBe("ChatGPT plan 2 / GPT-6-Luna");
+  expect(subscriptionEntryLabel(entry, [])).toBe(
+    "ChatGPT plan · unavailable account / gpt-6-luna",
+  );
+  connection.models.push({
+    slug: "different-model",
+    displayName: "GPT-6-Luna",
+  });
+  expect(subscriptionEntryLabel(entry, [connection])).toBe(
+    "ChatGPT plan / gpt-6-luna",
+  );
+  expect(entry.registrationId).toBe(connection.id);
+});
+it("rejects multiple live subscription connections but admits unavailable legacy reconciliation metadata", () => {
+  const first = {
+    id: "registration_11111111-1111-4111-8111-111111111111",
+    epoch: 1,
+    label: "authored",
+    state: "connected",
+    planEnabled: true,
+    disclosed: true,
+    models: [],
+  };
+  const second = {
+    ...first,
+    id: "registration_22222222-2222-4222-8222-222222222222",
+  };
+  expect(validateChatgptConnections([first])).toHaveLength(1);
+  expect(() => validateChatgptConnections([first, second])).toThrow(
+    "chatgpt_metadata_invalid",
+  );
+  expect(
+    validateChatgptConnections(
+      [first, second].map((r) => ({
+        ...r,
+        state: "unavailable",
+        planEnabled: false,
+      })),
+    ),
+  ).toHaveLength(2);
 });
 it("does not provider-only map a custom or ambiguous legacy identity", () => {
   const c = config();
@@ -273,6 +350,109 @@ it("persists current choice on reopen, isolates DBs and preserves original prefe
       )!,
     ).status,
   ).toBe("unselected");
+  (await import("@/lib/db/connection")).getDatabase().close();
+});
+it("serves mixed-auth identity and preserves original authority across DB reopen, eligibility changes and invalid configuration", async () => {
+  const root = mkdtempSync(join(tmpdir(), "trainer-mixed-choice-"));
+  const registrationId = "registration_11111111-1111-4111-8111-111111111111";
+  const catalog = {
+    version: 1,
+    defaultEntryId: null,
+    entries: [
+      { id: "entry_api", provider: "openai", modelId: "Exact/Model:Tag" },
+      {
+        id: "entry_plan",
+        provider: "chatgpt",
+        modelId: "Exact/Model:Tag",
+        registrationId,
+      },
+    ],
+  };
+  const connection = {
+    id: registrationId,
+    epoch: 1,
+    label: "private-authored-account",
+    state: "connected",
+    planEnabled: true,
+    disclosed: true,
+    models: [{ slug: "Exact/Model:Tag", displayName: "Exact/Model:Tag" }],
+  };
+  vi.stubEnv("DATABASE_PATH", join(root, "mixed.sqlite"));
+  vi.stubEnv("OPENAI_API_KEY", "sentinel-private-secret");
+  vi.stubEnv("CHAT_MODEL_CATALOG", JSON.stringify(catalog));
+  vi.stubEnv("CHATGPT_CONNECTIONS", JSON.stringify([connection]));
+  vi.stubEnv(
+    "CHAT_SELECTION_COMPATIBILITY",
+    JSON.stringify({ ...catalog, defaultEntryId: "entry_plan" }),
+  );
+  const network = vi.spyOn(globalThis, "fetch");
+  let repo = await import("@/lib/db/repository");
+  repo.setAppMetadata("ai.chat_model", "original-private-unresolved");
+  repo.setAppMetadata("ai.chat_model.v2", "");
+  let route = await import("@/app/api/model-settings/route");
+  const read = route.GET();
+  expect(read.status).toBe(200);
+  expect(read.headers.get("Cache-Control")).toBe("no-store");
+  expect(await read.json()).toMatchObject({
+    selected: "entry_plan",
+    available: true,
+    options: [
+      { id: "entry_api", available: true },
+      { id: "entry_plan", registrationId, available: true },
+    ],
+  });
+  const originalChoice = repo.getAppMetadata("ai.chat_model.choice");
+  (await import("@/lib/db/connection")).getDatabase().close();
+  vi.resetModules();
+  repo = await import("@/lib/db/repository");
+  route = await import("@/app/api/model-settings/route");
+  expect(await route.GET().json()).toMatchObject({
+    selected: "entry_plan",
+    available: true,
+  });
+  for (const unavailable of [
+    { ...connection, models: [] },
+    { ...connection, state: "disconnected", planEnabled: false },
+    { ...connection, state: "identity-only", planEnabled: false },
+    { ...connection, planEnabled: false },
+  ]) {
+    vi.stubEnv("CHATGPT_CONNECTIONS", JSON.stringify([unavailable]));
+    const body = await route.GET().json();
+    expect(body).toMatchObject({
+      selected: "entry_plan",
+      available: false,
+      options: [
+        { id: "entry_api", available: true },
+        { id: "entry_plan", registrationId, available: false },
+      ],
+    });
+    expect(repo.getAppMetadata("ai.chat_model.choice")).toBe(originalChoice);
+  }
+  vi.stubEnv("CHATGPT_CONNECTIONS", "invalid-private-metadata");
+  const failed = route.GET();
+  expect(failed.status).toBe(503);
+  expect(await failed.text()).not.toContain("invalid-private-metadata");
+  expect(repo.getAppMetadata("ai.chat_model.choice")).toBe(originalChoice);
+  vi.stubEnv("CHATGPT_CONNECTIONS", JSON.stringify([connection]));
+  const patch = await route.PATCH(
+    new Request("http://localhost/api/model-settings", {
+      method: "PATCH",
+      body: '{"modelId":"entry_api"}',
+    }),
+  );
+  expect(patch.status).toBe(200);
+  expect(await patch.json()).toMatchObject({
+    selected: "entry_api",
+    available: true,
+  });
+  expect(repo.getAppMetadata("ai.chat_model")).toBe(
+    "original-private-unresolved",
+  );
+  expect(repo.getAppMetadata("ai.chat_model.v2")).toBe("");
+  expect(JSON.stringify(await route.GET().json())).not.toMatch(
+    /private-authored-account|sentinel-private-secret|original-private|accessToken|refreshToken/,
+  );
+  expect(network).not.toHaveBeenCalled();
   (await import("@/lib/db/connection")).getDatabase().close();
 });
 it("keeps route errors safe and noncacheable including unknown write outcome", async () => {

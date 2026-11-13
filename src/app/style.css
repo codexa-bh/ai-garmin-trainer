@@ -2073,7 +2073,7 @@ p {
 
 .chat-model-control select {
   width: auto;
-  max-width: min(220px, 100%);
+  max-width: min(320px, 100%);
   min-width: 0;
   height: 32px;
   padding: 4px 8px;

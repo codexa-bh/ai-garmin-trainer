@@ -3,6 +3,15 @@ export function providerFailureMessage(
   provider: string | undefined,
   error: unknown,
 ): string {
+  if (provider === "chatgpt") {
+    const category =
+      error instanceof Error
+        ? /^ChatGPT plan request unavailable \(([a-z][a-z0-9_]{0,95})\)\./.exec(
+            error.message,
+          )?.[1]
+        : undefined;
+    return `ChatGPT plan request unavailable${category ? ` (${category})` : ""}. Check the connection or model in native Settings; no paid fallback.`;
+  }
   if (provider !== "openrouter")
     return error instanceof Error ? error.message : "provider_exception";
 

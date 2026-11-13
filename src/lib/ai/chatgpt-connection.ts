@@ -1,4 +1,6 @@
 // Private native-to-owned-backend capability. Never exported by a client DTO.
+import { request } from "node:http";
+import { Readable } from "node:stream";
 import { applyChatgptConnections } from "../env";
 import { containsControlCharacters } from "../model-settings/catalog";
 import {
@@ -71,34 +73,82 @@ export function chatgptConnection(
       connection.models.some((m) => m.slug === model),
   );
 }
+function nativeBrokerRequest(
+  descriptor: Descriptor,
+  body: string,
+  signal: AbortSignal,
+): Promise<Response> {
+  // Browser Fetch injects Sec-Fetch-Mode even in Node. Keep the native
+  // browser-header denial; this fixed private wire is not browser traffic.
+  return new Promise((resolve, reject) => {
+    const refuse = () => reject(new Error("chatgpt_connection_unavailable"));
+    const pending = request(
+      {
+        hostname: "127.0.0.1",
+        port: descriptor.port,
+        path: "/credential",
+        method: "POST",
+        agent: false,
+        signal,
+        headers: {
+          "x-chatgpt-owner": descriptor.capability,
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        },
+      },
+      (response) => {
+        if (response.statusCode !== 200 && response.statusCode !== 409) {
+          response.destroy();
+          refuse();
+          return;
+        }
+        try {
+          resolve(
+            new Response(
+              Readable.toWeb(response) as ReadableStream<Uint8Array>,
+              {
+                status: response.statusCode,
+              },
+            ),
+          );
+        } catch {
+          response.destroy();
+          refuse();
+        }
+      },
+    );
+    pending.once("error", refuse);
+    pending.end(body);
+  });
+}
 export async function nativeChatgptCredential(
   operation: "credential" | "current",
   registrationId: string,
   epoch: number,
   signal: AbortSignal,
-  transport: typeof fetch = fetch,
+  transport?: typeof fetch,
 ): Promise<{ accessToken?: string }> {
   const descriptor = cell().descriptor;
   if (!descriptor) throw new Error("chatgpt_connection_unavailable");
   const body = JSON.stringify({ operation, registrationId, epoch });
   let response: Response;
   try {
-    response = await transport(
-      `http://127.0.0.1:${descriptor.port}/credential`,
-      {
-        method: "POST",
-        redirect: "error",
-        headers: {
-          "x-chatgpt-owner": descriptor.capability,
-          "content-type": "application/json",
-        },
-        body,
-        signal: AbortSignal.any([
-          signal,
-          AbortSignal.timeout(operation === "credential" ? 55000 : 5000),
-        ]),
-      },
-    );
+    const deadline = AbortSignal.any([
+      signal,
+      AbortSignal.timeout(operation === "credential" ? 55000 : 5000),
+    ]);
+    response = await (transport
+      ? transport(`http://127.0.0.1:${descriptor.port}/credential`, {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            "x-chatgpt-owner": descriptor.capability,
+            "content-type": "application/json",
+          },
+          body,
+          signal: deadline,
+        })
+      : nativeBrokerRequest(descriptor, body, deadline));
   } catch {
     throw new Error("chatgpt_connection_unavailable");
   }

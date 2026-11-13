@@ -20,7 +20,13 @@ export function subscriptionEntryLabel(
     ).length === 1
       ? model.displayName
       : entry.modelId;
-  return `ChatGPT plan · ${index < 0 ? "unavailable account" : `account ${index + 1}`} / ${name}`;
+  const account =
+    index < 0
+      ? " · unavailable account"
+      : connections.length > 1
+        ? ` ${index + 1}`
+        : "";
+  return `ChatGPT plan${account} / ${name}`;
 }
 /** Secret-free native projection; pure validation, no authentication capability. */
 export type ChatgptConnection = {
@@ -47,7 +53,12 @@ const bounded = (value: unknown, max: number): value is string =>
 export function validateChatgptConnections(
   input: unknown,
 ): ChatgptConnection[] {
-  if (!Array.isArray(input) || input.length > 16)
+  if (
+    !Array.isArray(input) ||
+    input.length > 16 ||
+    (input.length > 1 &&
+      input.some((value) => !object(value) || value.state !== "unavailable"))
+  )
     throw new Error("chatgpt_metadata_invalid");
   const ids = new Set();
   return input.map((value: unknown) => {

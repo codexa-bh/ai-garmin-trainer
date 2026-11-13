@@ -30,6 +30,25 @@ import { summaryImportInspection } from "../src/lib/db/summary-import";
 import type { SummaryRebuildInspection } from "../src/lib/memory/summary-controls";
 let db: Database.Database;
 vi.mock("../src/lib/db/connection", () => ({ getDatabase: () => db }));
+// This suite deliberately models native responses and provider streams. Actual
+// Node/native HTTP framing and browser-header denial live in native-wire tests.
+vi.mock("../src/lib/ai/chatgpt-connection", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/lib/ai/chatgpt-connection")>();
+  return {
+    ...actual,
+    nativeChatgptCredential: (
+      ...args: Parameters<typeof actual.nativeChatgptCredential>
+    ) =>
+      actual.nativeChatgptCredential(
+        args[0],
+        args[1],
+        args[2],
+        args[3],
+        args[4] ?? fetch,
+      ),
+  };
+});
 const owner = process as typeof process & {
   __trainerLiveConfigurationV1?: unknown;
   __trainerSummaryLifetimeV1?: unknown;

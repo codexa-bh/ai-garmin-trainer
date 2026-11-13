@@ -127,7 +127,7 @@ async fn chatgpt_connect(app: tauri::AppHandle, window: tauri::WebviewWindow, re
         let message = if runtime.chatgpt_context.load(Ordering::SeqCst) != reserved || runtime.quitting.load(Ordering::SeqCst) {
             "Connection outcome settled after Settings closed. Reopen to inspect saved state.".into()
         } else if result.reused {
-            "This account is already saved; its existing registration is selected. Existing credentials and permissions are unchanged.".into()
+            format!("This account is now active. Existing credentials and permissions were preserved. {}", apply_chatgpt_connections(&app, &owner))
         } else {
             apply_chatgpt_connections(&app, &owner)
         };
@@ -151,11 +151,15 @@ async fn chatgpt_action(app: tauri::AppHandle, window: tauri::WebviewWindow, act
             std::process::Command::new("/usr/bin/open").arg("https://chatgpt.com/settings/usage").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().map_err(|_| "Usage settings could not open.".to_string())?;
             return Ok("Opened ChatGPT usage settings.".into());
         }
-        if !["models","disclose","disconnect"].contains(&action.as_str()) { return Err("Unsupported ChatGPT action.".into()); }
+        if !["models","disclose","disconnect","activate"].contains(&action.as_str()) { return Err("Unsupported ChatGPT action.".into()); }
         let owner = chatgpt_owner(&app).map_err(str::to_owned)?;
         let scope = Some((&*runtime.chatgpt_context,context));
         let id = registration_id.ok_or("Choose a saved ChatGPT registration.")?;
         match action.as_str() {
+            "activate" => {
+                owner.activate(&id,scope).map_err(str::to_owned)?;
+                return Ok(format!("Active connection selected; other records are retained privately for recovery. {}", apply_chatgpt_connections(&app, &owner)));
+            }
             "models" => owner.discover_models(&id,scope).map_err(str::to_owned)?,
             "disclose" => owner.disclose(&id,scope).map_err(str::to_owned)?,
             "disconnect" => {

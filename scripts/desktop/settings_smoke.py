@@ -285,7 +285,7 @@ def chatgpt_presentation(run, captures):
         captures.append({'scenario': 'chatgpt-unselected-' + size.lower(), **run.command({'type': 'settings', 'action': 'captureChatgpt' + size})})
     exercised = run.command({'type': 'settings', 'action': 'chatgptExercise'})
     if not exercised['chatgptReady'] or not exercised['chatgptExercised'] or not exercised['privateActionsDenied']:
-        raise ValueError('ChatGPT account/model isolation or draft exercise failed')
+        raise ValueError('ChatGPT single-connection or draft exercise failed')
     for size in ['Wide', 'Narrow']:
         captures.append({'scenario': 'chatgpt-authored-account-draft-' + size.lower(), **run.command({'type': 'settings', 'action': 'captureChatgpt' + size})})
     captures.append({'scenario': 'chatgpt-authored-batch-rows-narrow', **run.command({'type': 'settings', 'action': 'captureChatgptRowsNarrow'})})
@@ -294,7 +294,7 @@ def chatgpt_presentation(run, captures):
     after = run.http('/identity')
     if any(before[key] != after[key] for key in ['pid', 'origin', 'database']):
         raise ValueError('ChatGPT presentation switched a backend or database')
-    return {'fictionalMetadataOnly': True, 'accountModelIsolation': True, 'noFirstModelSelection': True, 'draftResetWithoutSave': True, 'batchAddition': True, 'duplicatePairsDisabled': True, 'privateActionsDenied': True, 'activeBackendUnchanged': True}
+    return {'fictionalMetadataOnly': True, 'singleActiveConnection': True, 'duplicateChoicesHidden': True, 'noFirstModelSelection': True, 'draftResetWithoutSave': True, 'batchAddition': True, 'duplicatePairsDisabled': True, 'privateActionsDenied': True, 'activeBackendUnchanged': True}
 
 
 @resources.invocation

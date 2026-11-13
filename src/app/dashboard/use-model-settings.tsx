@@ -47,12 +47,15 @@ async function readSettings(
   validateChatCatalog({
     version: 1,
     defaultEntryId: null,
-    entries: value.options.map(({ id, provider, modelId, displayName }) => ({
-      id,
-      provider,
-      modelId,
-      ...(displayName !== undefined ? { displayName } : {}),
-    })),
+    entries: value.options.map(
+      ({ id, provider, modelId, displayName, registrationId }) => ({
+        id,
+        provider,
+        modelId,
+        ...(displayName !== undefined ? { displayName } : {}),
+        ...(registrationId !== undefined ? { registrationId } : {}),
+      }),
+    ),
   });
   if (
     value.available !==
