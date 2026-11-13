@@ -1,6 +1,20 @@
 # macOS ARM64 release runbook
 
-**0.1.1 is prepared, not yet a published download.** The initial release is selected as v0.1.1, stable (prerelease=no), Latest=yes, subject to final source/artifact and residual-security approval. Source builds remain supported. Only macOS Apple Silicon is targeted; the declared minimum macOS 12.0 is not minimum-OS certification. There is no updater, installer hook, service, login item or background release worker.
+**[0.1.1 is published](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.1)** as the initial stable macOS ARM64 release (prerelease=no, Latest=yes at publication). Exact source/artifacts and residual risks received release-specific operator approval; that approval does not extend to another cut. Source builds remain supported. Only macOS Apple Silicon is targeted; the declared minimum macOS 12.0 is not minimum-OS certification. There is no updater, installer hook, service, login item or background release worker.
+
+## Published 0.1.1
+
+Published on 2026-11-13 at [v0.1.1](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.1). Anonymous release/Latest pages and complete downloads were verified. The immutable selected source is [`60ba04ecc9b7c26f483f17d87c69a621f77ad9f4`](https://github.com/codexa-bh/ai-garmin-trainer/tree/60ba04ecc9b7c26f483f17d87c69a621f77ad9f4).
+
+| Asset                                                                                                                                                              |     Bytes | SHA-256                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------: | ------------------------------------------------------------------ |
+| [Garmin-Trainer-0.1.1-macos-arm64.dmg](https://github.com/codexa-bh/ai-garmin-trainer/releases/download/v0.1.1/Garmin-Trainer-0.1.1-macos-arm64.dmg)               | 394339362 | `a40de4da1642c5c1cca5a4f6c1cffd93b6df9c6ae0de8a570a215a368969c5db` |
+| [Garmin-Trainer-0.1.1-macos-arm64.dmg.sha256](https://github.com/codexa-bh/ai-garmin-trainer/releases/download/v0.1.1/Garmin-Trainer-0.1.1-macos-arm64.dmg.sha256) |       103 | `6628e486c2cb599e9c5129702f5c92b9c46233fc0721813b42b238507e581641` |
+| [release.json](https://github.com/codexa-bh/ai-garmin-trainer/releases/download/v0.1.1/release.json)                                                               |      1001 | `e9cfea93ce2f93ea55cd70dd5266792bc9c994970811291461a3f6c5c84ae813` |
+
+This DMG passed final-payload verification, 108 locked native tests, full isolated two-instance authored-synthetic ordinary smoke and separate exclusion/denial coverage; all 12 required masked captures were inspected. It is **unsigned/linker-ad-hoc and not notarized**, with no verified publisher. Dependency findings, source-reconstruction limits and untested clean-machine/minimum-OS/Gatekeeper/real-service cases remain as disclosed in its approved notes; this is not security, legal or integration clearance.
+
+The approved source notes/public body retain `Status: prepared` as the historical metadata contract, not a statement of live GitHub visibility. They and all three assets remain unchanged. Later `main` updates, including the draft-observation helper correction, are not part of the binary's source identity. Downloading does not authorize installation, database migration or replacement of an existing app.
 
 ## Version and notes
 
@@ -52,7 +66,7 @@ Only exact owned mounts are detached, never forced. Mount intent/observations ar
 
 ## Exact-source release and GitHub operations
 
-These commands are **not authorized by tooling delivery or prepared notes**. T0323 selects 0.1.1 stable/Latest, but exact-source/artifact and residual-security approval is still required **before tag, draft, upload or publication**. Retain task/PR/protection and human gates. Review all [redistribution conditions and packaged source material](redistribution.md) before binary publication. No tag-push workflow publishes anything.
+These commands are **not authorized by tooling delivery or prepared notes**. Every cut needs current exact-source/artifact and residual-security approval **before tag, draft, upload or publication**. The published 0.1.1 record above describes that delivered cut, not permission for future effects. Retain task/PR/protection and human gates. Review all [redistribution conditions and packaged source material](redistribution.md) before binary publication. No tag-push workflow publishes anything.
 
 Fetch main, record a full 40-character reviewed merged SHA, and create/verify the clean canonical release task worktree at exactly that SHA. `origin/main` must contain it; a later main tip alone never substitutes another release commit. Inspect incoming/local/dependency/toolchain impact, run the required tests/native/artifact smoke, and preserve evidence. The helper refuses a different HEAD, remote, untracked/deleted/dirty inputs or unprepared notes. It checks source again before each remote effect, after build and after remote work. Future release builds also perform a read-only GitHub preflight: conflicting tags or any existing release/draft refuse building; reconcile and reuse the already selected artifact instead of rebuilding during recovery.
 
@@ -71,6 +85,8 @@ npm run release -- draft --repository "$REPO" --commit "$COMMIT" --version "$VER
 ```
 
 After actual scoped release approval, add `--execute` to **draft** only. It creates an immutable lightweight `v<version>` ref at the verified SHA, then a draft, then uploads the exact selected DMG, checksum and compact `release.json`. It observes exact state after each effect. Existing exact partial state may be explicitly resumed after read-only reconciliation; conflicting/annotated tags, duplicate/extra/incomplete/different assets, changed body/channel or unknown/provider failures refuse. No force push, tag move, asset clobber, replacement/deletion, rebuild or permission automation exists.
+
+GitHub may return 404 from release-by-tag for an existing authorized draft. The helper then reads a bounded complete release list and the unique exact-tag draft's ID; absence, ambiguity, truncation, changed ID, contradictory published state or transport refusal never grants creation/retry authority. Both build preflight and release observation use this route, so hidden drafts still prevent rebuilding and can be explicitly reconciled without duplicate creation.
 
 **Publication is separate**: repeat the same inputs with `publish` and independently approved `--execute`, selecting `--prerelease yes|no` and `--latest yes|no` explicitly. A prerelease version requires prerelease=yes and latest=no. Stable versions require prerelease=no; choosing latest is still explicit. Publication verifies tag target, draft/body/warnings, complete exact asset set, each size/digest (bounded download/hash fallback when provider digest is absent), and unchanged local bytes before PATCH. Matching already-published state is only an observation, never republished. The checksum is integrity evidence, not authentication of the publisher.
 
