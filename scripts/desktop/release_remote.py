@@ -6,10 +6,12 @@ are unknown effects, recorded before returning control for read-only reconciliat
 import hashlib
 import json
 import subprocess
+import time
 from urllib.parse import quote
 
 from release_artifact import digest, regular
 from release_metadata import REPOSITORY
+from release_timing import stage, utc
 
 
 class GitHub:
@@ -17,7 +19,8 @@ class GitHub:
         self.journal = journal
 
     def note(self, value):
-        self.journal.write(json.dumps(value, sort_keys=True) + '\n')
+        # UTC stamps correlate with timing evidence; they are not provider settlement times.
+        self.journal.write(json.dumps({**value, 'at': utc()}, sort_keys=True) + '\n')
         self.journal.flush()
         import os
         os.fsync(self.journal.fileno())
@@ -31,6 +34,7 @@ class GitHub:
             args += ['--input', '-']
         if asset:
             args += ['--header', 'Content-Type: application/octet-stream', '--input', str(asset)]
+        started = time.monotonic()
         try:
             result = subprocess.run(args, input=json.dumps(data).encode() if data is not None else None,
                                     capture_output=True, timeout=180)
@@ -40,18 +44,23 @@ class GitHub:
                 raise RuntimeError('GitHub request refused/unavailable; inspect exact read-only status, never retry blindly')
             value = json.loads(result.stdout)
         except BaseException:
-            self.note({'effect': method + ' ' + endpoint, 'outcome': 'failed or unknown; original request not retried'})
+            self.note({'effect': method + ' ' + endpoint, 'outcome': 'failed or unknown; original request not retried',
+                       'elapsedSeconds': round(time.monotonic() - started, 3)})
             raise
-        self.note({'effect': method + ' ' + endpoint, 'outcome': 'observed', 'id': value.get('id') if isinstance(value, dict) else None})
+        self.note({'effect': method + ' ' + endpoint, 'outcome': 'observed', 'id': value.get('id') if isinstance(value, dict) else None,
+                   'elapsedSeconds': round(time.monotonic() - started, 3)})
         return value
 
     def download_hash(self, endpoint, expected_size):
         # Bounded streamed download: no second bulk artifact or unbounded communicate().
-        import os
-        import select
-        import time
         if type(expected_size) is not int or not 0 < expected_size <= 2 * 1024 * 1024 * 1024:
             raise ValueError('Remote asset size is outside supported bounds')
+        with stage('remote-asset-download-hash'):
+            return self._download_hash(endpoint, expected_size)
+
+    def _download_hash(self, endpoint, expected_size):
+        import os
+        import select
         child = subprocess.Popen(['gh', 'api', endpoint, '--header', 'Accept: application/octet-stream'],
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         value, count = hashlib.sha256(), 0
@@ -145,6 +154,24 @@ class Release:
         self.body = release_body(record, notes)
         self.prefix = 'repos/' + REPOSITORY
         self.tag = record['tag']
+
+    def selected_tuple(self):
+        """The exact inputs this invocation requalified, restated for human review.
+
+        Derived in memory on every call; never stored, imported, or treated as
+        approval, currency or a cached eligibility by any consumer.
+        """
+        record = self.record
+        return {'repository': record['repository'], 'version': record['version'], 'tag': self.tag,
+                'commit': record['commit'], 'notesSha256': record['notesSha256'],
+                'bodySha256': hashlib.sha256(self.body.encode()).hexdigest(),
+                'prerelease': self.prerelease, 'latest': self.latest,
+                'originalSource': record['originalSource'], 'buildSource': record['buildSource'],
+                'buildContext': record['buildContext'], 'inventory': record['inventory'],
+                'payloadIdentity': record['payloadIdentity'],
+                'assets': [{'name': name, 'size': asset['size'], 'sha256': asset['sha256']}
+                           for name, asset in sorted(self.assets.items())],
+                'approval': 'none recorded here; requires genuine release-specific operator consent'}
 
     def mutate(self, endpoint, method, data=None, *, asset=None):
         if self.before_effect:
