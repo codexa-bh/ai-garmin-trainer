@@ -17,6 +17,7 @@ class Vendor:
     verification = True
     unsupported = False
     calls = []
+    created_modes = []
 
     def __init__(self, **kwargs):
         self.credentials = bool(kwargs.get("email"))
@@ -44,7 +45,10 @@ class Vendor:
         return None, None
 
     def dump(self, path):
-        (Path(path) / "garmin_tokens.json").write_text('{"test":"sentinel-token"}')
+        token = Path(path) / "garmin_tokens.json"
+        token.write_text('{"test":"sentinel-token"}')
+        # Observe creation, before the adapter's later chmod: GHSA-wjhr-76vg-2hvc.
+        self.created_modes.append(token.stat().st_mode & 0o777)
 
     def get_full_name(self):
         return "private-profile" if self.verification else ""
@@ -53,6 +57,7 @@ class Vendor:
 class AuthTests(unittest.TestCase):
     def setUp(self):
         Vendor.calls = []
+        Vendor.created_modes = []
         Vendor.needs_mfa = Vendor.unsupported = False
         Vendor.verification = True
 
@@ -67,6 +72,8 @@ class AuthTests(unittest.TestCase):
             self.run_auth(root, events)
             self.assertEqual(events, ["verifying", "verified"])
             self.assertEqual(Vendor.calls, ["credential-login", "token-verification"])
+            self.assertEqual(Vendor.created_modes, [0o600])
+            self.assertEqual(Path(root).stat().st_mode & 0o777, 0o700)
             for name in ["garmin_tokens.json", "garmin_tokens.base64"]:
                 self.assertEqual((Path(root) / name).stat().st_mode & 0o777, 0o600)
             self.assertNotIn("sentinel", json.dumps(events))

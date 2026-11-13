@@ -1,12 +1,12 @@
-# macOS ARM64 release foundation
+# macOS ARM64 release runbook
 
-This is **tooling, not an available download or a release announcement**. Source builds remain supported. No first release/version/channel has been selected. Only macOS Apple Silicon is targeted; the declared minimum macOS 12.0 is not minimum-OS certification. There is no updater, installer hook, service, login item or background release worker.
+**0.1.1 is prepared, not yet a published download.** The initial release is selected as v0.1.1, stable (prerelease=no), Latest=yes, subject to final source/artifact and residual-security approval. Source builds remain supported. Only macOS Apple Silicon is targeted; the declared minimum macOS 12.0 is not minimum-OS certification. There is no updater, installer hook, service, login item or background release worker.
 
 ## Version and notes
 
-`package.json` → `version` is canonical. `npm run release:check` checks the root npm lock/version, root crate Cargo manifest/lock, Tauri version and `release-notes/<version>.md`. Numeric version remains **0.1.0**; its notes are explicitly unreleased. No dependency versions are changed by metadata preparation.
+`package.json` → `version` is canonical. `npm run release:check` checks the root npm lock/version, root crate Cargo manifest/lock, Tauri version and `release-notes/<version>.md`. The selected numeric version is **0.1.1** with `Status: prepared` notes; 0.1.0 remains unreleased foundation history, not an earlier download. No dependency versions are changed by metadata preparation.
 
-Future metadata preparation is local, requires clean source and produces an ordinary reviewable PR diff, not a release:
+Metadata preparation is local, requires clean source and produces an ordinary reviewable PR diff, not a release:
 
 ```bash
 npm run release -- prepare --version "$VERSION" --notes "$REVIEWED_BODY"
@@ -15,7 +15,7 @@ npm run release -- prepare --version "$VERSION" --notes "$REVIEWED_BODY" --execu
 npm run release:check
 ```
 
-Use an unused SemVer (optional explicit prerelease; no build metadata), never a tag or path as the version. The helper preserves the old version's notes and adds signing/upgrade/rights warnings. Review all generated changes, then deliver/merge through the normal feature PR route. `Status: prepared` means notes prepared, not published or approved. Do not execute a real cut while implementing/testing this foundation; use temporary fixture repositories.
+Use an unused SemVer (optional explicit prerelease; no build metadata), never a tag or path as the version. The helper preserves the old version's notes and adds signing/upgrade/rights warnings. Review all generated changes, then deliver/merge through the normal feature PR route. `Status: prepared` means notes prepared, not published or approved. Tests use temporary fixture repositories. Real preparation/publication belongs only to its explicitly scoped release task.
 
 ## Build versus downloaded runtime
 
@@ -50,9 +50,9 @@ The optional ordinary `--release-record` is a finite handoff, not imported-artif
 
 Only exact owned mounts are detached, never forced. Mount intent/observations are saved beside the verification allocation. Failure/timeout/cancellation retains artifacts and unknown effects; inspect those exact mounts/receipts before separately choosing recovery. Never blindly repeat create/attach/upload or delete an ambiguous mount/output. No output is overwritten. Preserve the original failure and useful compact diagnostics in evidence before expiry.
 
-## Future exact-source release and GitHub operations
+## Exact-source release and GitHub operations
 
-These commands are **not authorized by tooling delivery**. A future release task must select version/channel, approve binary publication/rights/readiness and the exact reviewed merged commit; retain task/PR/protection and human gates. Resolve every [redistribution gate](redistribution.md) before binary publication. No tag-push workflow publishes anything.
+These commands are **not authorized by tooling delivery or prepared notes**. T0323 selects 0.1.1 stable/Latest, but exact-source/artifact and residual-security approval is still required **before tag, draft, upload or publication**. Retain task/PR/protection and human gates. Review all [redistribution conditions and packaged source material](redistribution.md) before binary publication. No tag-push workflow publishes anything.
 
 Fetch main, record a full 40-character reviewed merged SHA, and create/verify the clean canonical release task worktree at exactly that SHA. `origin/main` must contain it; a later main tip alone never substitutes another release commit. Inspect incoming/local/dependency/toolchain impact, run the required tests/native/artifact smoke, and preserve evidence. The helper refuses a different HEAD, remote, untracked/deleted/dirty inputs or unprepared notes. It checks source again before each remote effect, after build and after remote work. Future release builds also perform a read-only GitHub preflight: conflicting tags or any existing release/draft refuse building; reconcile and reuse the already selected artifact instead of rebuilding during recovery.
 
@@ -64,10 +64,10 @@ npm run release -- build --repository "$REPO" --commit "$COMMIT" --version "$VER
 # Package/verify/smoke the resulting ordinary producer using the local commands above.
 # Store RECORD/DMG/checksum unchanged. Build is never repeated by draft/publish.
 npm run release -- status --repository "$REPO" --commit "$COMMIT" --version "$VERSION" \
-  --scratch "$SCRATCH" --bundle "$BUNDLE" --record "$RECORD" --prerelease no --latest no
+  --scratch "$SCRATCH" --bundle "$BUNDLE" --record "$RECORD" --prerelease no --latest yes
 # Plan only: even draft/publish omit all mutations unless --execute is supplied.
 npm run release -- draft --repository "$REPO" --commit "$COMMIT" --version "$VERSION" \
-  --scratch "$SCRATCH" --bundle "$BUNDLE" --record "$RECORD" --prerelease no --latest no
+  --scratch "$SCRATCH" --bundle "$BUNDLE" --record "$RECORD" --prerelease no --latest yes
 ```
 
 After actual scoped release approval, add `--execute` to **draft** only. It creates an immutable lightweight `v<version>` ref at the verified SHA, then a draft, then uploads the exact selected DMG, checksum and compact `release.json`. It observes exact state after each effect. Existing exact partial state may be explicitly resumed after read-only reconciliation; conflicting/annotated tags, duplicate/extra/incomplete/different assets, changed body/channel or unknown/provider failures refuse. No force push, tag move, asset clobber, replacement/deletion, rebuild or permission automation exists.

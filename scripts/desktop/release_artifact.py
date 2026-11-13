@@ -125,14 +125,17 @@ def payload_checks(app, version):
         path = root / name
         if not path.is_relative_to(root) or '..' in Path(name).parts or digest(path) != entry['sha256']:
             raise ValueError('Resource provenance mismatch')
-    for name in ['NODE-LICENSE.txt', 'THIRD-PARTY-NOTICES.txt', 'REDISTRIBUTION-REVIEW.txt', 'runtime/runtime.cjs',
-                 'runtime/scripts/garmin_auth.py', 'runtime/scripts/garmin_auth.py.lock']:
+    for name in ['NODE-LICENSE.txt', 'THIRD-PARTY-NOTICES.txt', 'REDISTRIBUTION-REVIEW.txt',
+                 'redistribution/index.json', 'redistribution/NOTICES.txt', 'redistribution/sources/native-crates.tar.gz',
+                 'runtime/runtime.cjs', 'runtime/scripts/garmin_auth.py', 'runtime/scripts/garmin_auth.py.lock']:
         if regular(root / name).st_size == 0:
             raise ValueError('Required payload resource/notice missing')
     sqlite = list(root.glob('runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node'))
     if len(sqlite) != 1:
         raise ValueError('Required native SQLite missing')
-    binaries = [app / 'Contents/MacOS/garmin-trainer-desktop', root / 'node', sqlite[0]]
+    binaries = [app / 'Contents/MacOS/garmin-trainer-desktop', root / 'node', sqlite[0],
+                root / 'runtime/node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64-0.35.5.node',
+                root / 'runtime/node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib']
     for binary in binaries:
         if run(['/usr/bin/lipo', '-archs', binary]).stdout.strip() != b'arm64':
             raise ValueError('Payload must contain ARM64-only native binaries')
