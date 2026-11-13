@@ -1513,6 +1513,8 @@
       "Decision · User-stated",
       "Nothing saved here yet. Add something you want your trainer to remember, or update from past conversations below.",
       "On · Add the provider key in Settings to process memory.",
+      "On · Saved memory was erased by a privacy change. New updates do not restore earlier history; use Update from chat history.",
+      "Earlier history is no longer covered after a privacy change. Use Update from chat history to review it.",
       "Off · Saved items retained",
       "On · No saved memories",
       "Includes your own saved text.",

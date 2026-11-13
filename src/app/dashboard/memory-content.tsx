@@ -10,6 +10,7 @@ import {
   HistoryProgress,
   HistoryReview,
   memoryStatus,
+  memoryCoverageNote,
 } from "./memory-presentation";
 
 type View = "overview" | "history" | "manage";
@@ -317,6 +318,11 @@ export function MemoryContent({
                       {memory.enabled ? "Turn Off" : "Turn On"}
                     </button>
                   </div>
+                  {memoryCoverageNote(memory) && (
+                    <p className="helper-text" role="status">
+                      {memoryCoverageNote(memory)}
+                    </p>
+                  )}
                   <section
                     aria-label="Generated summary"
                     data-memory-id="summary"

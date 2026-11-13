@@ -31,8 +31,6 @@ export function memoryStatus(memory: SummaryInspection) {
       reasons[memory.reason] ??
       "Memory needs attention. Check saved memory before trying again."
     );
-  if (memory.coverageLost)
-    return "Earlier history is no longer covered after a privacy change. Use Update from chat history to review it.";
   if (memory.pending) return "Recent conversation updates pending";
   return memory.state === "never-produced"
     ? "No automatic memory saved yet"
@@ -41,6 +39,15 @@ export function memoryStatus(memory: SummaryInspection) {
         ? "Saved memory available"
         : "No saved memories"
       : "Saved memory unavailable · check again";
+}
+
+/** Durable lost-coverage fact, shown independently of transient reasons. */
+export function memoryCoverageNote(memory: SummaryInspection) {
+  return memory.enabled &&
+    memory.coverageLost &&
+    memory.reason !== "summary_invalidated"
+    ? "Earlier history is no longer covered after a privacy change. Use Update from chat history to review it."
+    : null;
 }
 
 export function canRetrySummary(memory: SummaryInspection) {
