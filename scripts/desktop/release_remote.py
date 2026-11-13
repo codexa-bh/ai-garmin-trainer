@@ -78,12 +78,39 @@ class GitHub:
             child.stdout.close()
 
 
+def release_for_tag(github, prefix, tag):
+    release = github.api(prefix + '/releases/tags/' + quote(tag, safe=''))
+    if release is not None:
+        if not isinstance(release, dict):
+            raise ValueError('Remote release observation malformed')
+        return release
+    # GitHub can omit drafts from the by-tag endpoint even for their author.
+    # A complete bounded list establishes absence or one exact draft; read its ID
+    # again rather than mistaking a 404 for permission to create another release.
+    listing = github.api(prefix + '/releases?per_page=100')
+    if not isinstance(listing, list) or len(listing) >= 100 or any(not isinstance(item, dict) for item in listing):
+        raise ValueError('Remote release set unavailable or unbounded')
+    matches = [item for item in listing if item.get('tag_name') == tag]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError('Ambiguous remote release tag; reconcile without creation')
+    candidate = matches[0]
+    identifier = candidate.get('id')
+    if candidate.get('draft') is not True or type(identifier) is not int or identifier <= 0:
+        raise ValueError('Remote by-tag/list conflict; reconcile without creation')
+    draft = github.api(prefix + '/releases/' + str(identifier))
+    if not isinstance(draft, dict) or type(draft.get('id')) is not int or draft.get('id') != identifier or draft.get('tag_name') != tag or draft.get('draft') is not True:
+        raise ValueError('Draft observation changed/unavailable; reconcile without creation')
+    return draft
+
+
 def build_preflight(github, commit, version):
     prefix = 'repos/' + REPOSITORY
     tag = github.api(prefix + '/git/ref/tags/' + quote('v' + version, safe=''))
     if tag is not None and (tag.get('object', {}).get('type') != 'commit' or tag['object'].get('sha') != commit):
         raise ValueError('Remote tag conflicts with selected build source')
-    release = github.api(prefix + '/releases/tags/' + quote('v' + version, safe=''))
+    release = release_for_tag(github, prefix, 'v' + version)
     if release is not None:
         raise ValueError('Existing release/draft: reconcile and reuse its selected artifact, never rebuild during release recovery')
 
@@ -132,7 +159,7 @@ class Release:
         # Helpers create lightweight immutable refs. Unknown/annotated tags refuse rather than guessing.
         if tag is not None and (tag.get('object', {}).get('type') != 'commit' or tag['object'].get('sha') != self.record['commit']):
             raise ValueError('Remote tag conflicts; never move/delete it')
-        release = self.gh.api(self.prefix + '/releases/tags/' + quote(self.tag, safe=''))
+        release = release_for_tag(self.gh, self.prefix, self.tag)
         if release is not None:
             if tag is None or release.get('tag_name') != self.tag or release.get('name') != 'Garmin Trainer ' + self.record['version'] or release.get('body') != self.body or release.get('prerelease') != self.prerelease:
                 raise ValueError('Remote release identity/body/channel conflict')

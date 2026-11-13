@@ -9,11 +9,11 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import release_artifact as artifact
 import release_metadata as metadata
-from release_remote import GitHub, Release, assets_for, build_preflight
+from release_remote import GitHub, Release, assets_for, build_preflight, release_for_tag
 from release_smoke import REQUIRED
 
 
@@ -297,6 +297,7 @@ class FakeGitHub:
         self.tag = self.release = None
         self.assets = []
         self.effects = []
+        self.reads = []
         self.fail_after = None
         self.bad_digest = False
         self.fallbacks = 0
@@ -307,13 +308,20 @@ class FakeGitHub:
 
     def api(self, endpoint, method='GET', data=None, *, asset=None):
         if method == 'GET':
+            self.reads.append(endpoint)
             if '/git/ref/' in endpoint:
                 return copy.deepcopy(self.tag)
             if endpoint.endswith('/releases/latest'):
                 return copy.deepcopy(self.release)
             if '/assets?' in endpoint:
                 return copy.deepcopy(self.assets)
-            return copy.deepcopy(self.release)
+            if endpoint.endswith('/releases?per_page=100'):
+                return [copy.deepcopy(self.release)] if self.release else []
+            if '/releases/tags/' in endpoint:
+                return None if self.release and self.release.get('draft') else copy.deepcopy(self.release)
+            if self.release and endpoint.endswith('/releases/' + str(self.release['id'])):
+                return copy.deepcopy(self.release)
+            raise AssertionError('Unexpected read endpoint: ' + endpoint)
         self.effects.append((endpoint, method))
         if '/git/refs' in endpoint:
             self.tag = {'object': {'type': 'commit', 'sha': data['sha']}}
@@ -360,6 +368,57 @@ class RemoteTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'never rebuild'):
             build_preflight(self.gh, self.record['commit'], self.record['version'])
         self.assertEqual(len(self.gh.effects), 5)
+        self.assertIn('repos/' + metadata.REPOSITORY + '/releases/42', self.gh.reads)
+
+    def test_hidden_draft_by_id_resumes_without_another_creation(self):
+        self.operation.act('draft', execute=True)
+        self.assertIsNone(self.gh.api(self.operation.prefix + '/releases/tags/' + self.record['tag']))
+        self.operation.act('draft', execute=True)
+        self.assertEqual(len(self.gh.effects), 5)
+        self.assertEqual(self.operation.act('status')['release']['id'], 42)
+        self.assertIn(self.operation.prefix + '/releases?per_page=100', self.gh.reads)
+        self.assertIn(self.operation.prefix + '/releases/42', self.gh.reads)
+
+    def test_release_lookup_refuses_ambiguous_unbounded_or_conflicting_lists(self):
+        draft = {'id': 42, 'tag_name': self.record['tag'], 'draft': True}
+        for listing in [None, {}, [None], [draft] * 100, [draft, draft],
+                        [{**draft, 'draft': False}], [{**draft, 'id': True}], [{**draft, 'id': 0}],
+                        [{**draft, 'id': '../other'}]]:
+            with self.subTest(listing=listing):
+                github = Mock()
+                github.api.side_effect = [None, listing]
+                with self.assertRaises(ValueError):
+                    release_for_tag(github, self.operation.prefix, self.record['tag'])
+                self.assertEqual(github.api.call_count, 2)
+
+    def test_release_lookup_refuses_changed_or_unavailable_exact_draft(self):
+        draft = {'id': 42, 'tag_name': self.record['tag'], 'draft': True}
+        for observed in [None, {**draft, 'id': 43}, {**draft, 'tag_name': 'other'}, {**draft, 'draft': False}]:
+            github = Mock()
+            github.api.side_effect = [None, [draft], observed]
+            with self.subTest(observed=observed), self.assertRaisesRegex(ValueError, 'changed/unavailable'):
+                release_for_tag(github, self.operation.prefix, self.record['tag'])
+            self.assertEqual(github.api.call_args.args[0], self.operation.prefix + '/releases/42')
+        github = Mock()
+        github.api.side_effect = [None, [{**draft, 'id': 1}], {**draft, 'id': True}]
+        with self.assertRaisesRegex(ValueError, 'changed/unavailable'):
+            release_for_tag(github, self.operation.prefix, self.record['tag'])
+
+    def test_release_lookup_never_masks_transport_refusal_and_keeps_published_route(self):
+        github = Mock()
+        github.api.side_effect = RuntimeError('provider refused')
+        with self.assertRaisesRegex(RuntimeError, 'provider refused'):
+            release_for_tag(github, self.operation.prefix, self.record['tag'])
+        self.assertEqual(github.api.call_count, 1)
+        github = Mock()
+        github.api.return_value = {'id': 42, 'draft': False}
+        self.assertEqual(release_for_tag(github, self.operation.prefix, self.record['tag'])['id'], 42)
+        self.assertEqual(github.api.call_count, 1)
+        github = Mock()
+        github.api.return_value = []
+        with self.assertRaisesRegex(ValueError, 'malformed'):
+            release_for_tag(github, self.operation.prefix, self.record['tag'])
+        self.assertEqual(github.api.call_count, 1)
 
     def test_default_dry_runs_and_status_have_zero_mutations(self):
         for action in ['status', 'draft', 'publish']:

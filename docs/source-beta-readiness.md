@@ -1,6 +1,6 @@
 # Source-beta readiness foundation
 
-This repository supports one product: the advanced-user locally source-built macOS ARM64 Tauri app. Standalone browser support is retired. See [desktop build/adoption/recovery](desktop.md). The [ARM64 release runbook](release.md) prepares the selected initial 0.1.1 stable/Latest binary; it is not yet a published download, distributed installer, clean-machine certification, beta invitation, provider application, deployment or commercial implementation. Publication retains [redistribution conditions and exact approval gates](redistribution.md). Downloaded-app existing-DB upgrades still need matching source CLI/dependencies, verified backups and explicit stopped-target approval.
+This repository supports one product: the advanced-user local macOS ARM64 Tauri app, from source or the published binary. Standalone browser support is retired. See [desktop build/adoption/recovery](desktop.md). The initial [0.1.1 stable/Latest ARM64 binary](release.md#published-011) is published. This unsigned/non-notarized manual download is not an installer, clean-machine certification, beta invitation, provider application or commercial implementation. Publication retains [redistribution conditions and exact approval gates](redistribution.md). Downloaded-app existing-DB upgrades still need matching source CLI/dependencies, verified backups and explicit stopped-target approval.
 
 ## Supported boundary
 
