@@ -192,6 +192,8 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
     "summary_control",
     "summary_state",
     "summary_original_boundary",
+    // Bounded deletion metadata only; debug revision text must stay empty.
+    "summary_debug_event",
     ...(route === "synthetic" ? ["conversation", "message"] : []),
   ]);
   const tables = db
@@ -238,14 +240,15 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
   }
   const controls = db
     .prepare(
-      "select id,privacy_generation as generation from conversation_history_control",
+      "select id,memory_generation as generation,deleting_conversation as deleting from conversation_history_control",
     )
-    .all() as { id: number; generation: number }[];
+    .all() as { id: number; generation: number; deleting: string | null }[];
   if (
     controls.length !== 1 ||
     controls[0]!.id !== 1 ||
     !Number.isSafeInteger(controls[0]!.generation) ||
-    controls[0]!.generation < 0
+    controls[0]!.generation < 0 ||
+    controls[0]!.deleting !== null
   )
     throw new Error("Smoke conversation control refused.");
   if (
@@ -310,6 +313,7 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
             failures: 0,
             reason: controls[0]!.generation ? "summary_invalidated" : null,
             day: "",
+            coverage_lost: 0,
           } as Record<string, unknown>
         )[key],
     )

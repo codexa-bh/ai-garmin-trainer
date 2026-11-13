@@ -522,7 +522,7 @@ export function useChatFeature({
     const label = title.trim() || "this chat";
     if (
       !window.confirm(
-        `Delete local conversation "${label}" and its messages? Garmin data, Profile, and saved memories stay unchanged.`,
+        `Delete local conversation "${label}" and its messages? Garmin data, Profile, and saved memories stay unchanged; memory may keep what it learned from this chat. Use Clear saved memory to remove that.`,
       )
     )
       return;

@@ -2,8 +2,54 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { SCHEMA_MIGRATIONS } from "@/lib/db/migrations";
 
+/** Reconstruct exactly schema26 on an exclusive authored fixture: restore the
+ * shared deletion/revocation triggers and remove schema27 additions. */
+export function removeDeletionContinuityFixtureSchema(
+  db: Database.Database,
+): void {
+  if (
+    !db
+      .prepare("select 1 from sqlite_master where name='summary_debug_event'")
+      .get()
+  )
+    return;
+  const earlier = (version: number, trigger: string) =>
+    SCHEMA_MIGRATIONS.find((m) => m.version === version)!.statements.find(
+      (statement) => statement.startsWith(`create trigger ${trigger} `),
+    )!;
+  db.transaction(() => {
+    for (const name of [
+      "conversation_message_delete",
+      "conversation_memory_edit",
+      "conversation_memory_revocation",
+      "summary_privacy",
+      "summary_pin_privacy",
+      "summary_source_deletion",
+    ])
+      db.exec(`drop trigger ${name}`);
+    db.exec(earlier(18, "conversation_message_delete"));
+    db.exec(earlier(18, "conversation_memory_edit"));
+    db.exec(earlier(24, "summary_privacy"));
+    db.exec(earlier(20, "summary_pin_privacy"));
+    db.exec(
+      "drop table summary_debug_revision; drop table summary_debug_event",
+    );
+    for (const column of [
+      "memory_generation",
+      "deletion_generation",
+      "deleting_conversation",
+    ])
+      db.exec(`alter table conversation_history_control drop column ${column}`);
+    db.exec("alter table summary_control drop column coverage_lost");
+    db.prepare(
+      "update app_metadata set value='26' where key='schema_version'",
+    ).run();
+  })();
+}
+
 /** Authored fixture reconstruction only, never a product downgrade or actual-data operation. */
 function removeWholeSummaryFixtureSchema(db: Database.Database): void {
+  removeDeletionContinuityFixtureSchema(db);
   // Schema26 is independent of H/S but must be removed before relabelling an
   // exclusively authored current fixture as an earlier schema.
   db.exec(

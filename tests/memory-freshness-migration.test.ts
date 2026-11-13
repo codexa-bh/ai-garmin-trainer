@@ -13,6 +13,7 @@ import {
 import { readSummaryPin } from "@/lib/db/conversation-summary-pin";
 import { createSummaryEngine } from "@/lib/memory/summary-application";
 import { compactConversation } from "@/lib/chat/conversation-compaction";
+import { removeDeletionContinuityFixtureSchema } from "./conversation-migration-fixture";
 
 let db: Database.Database;
 let now: number;
@@ -78,6 +79,7 @@ it("preserves every populated authored schema24 table through25, changes effecti
     insert into daily_health(date,steps) values('2026-11-01',1234);
     insert into training_plan values('default','Authored plan','Example /Users/example/plan.md',1,1);
     insert into conversation_title_spend values('historical','2026-11-01',0.25,'{"input":10}');`);
+  removeDeletionContinuityFixtureSchema(db);
   // Schema25 has no added tables/columns or data transformations. Restore exactly
   // the four removed historical trigger definitions to author effective schema24.
   for (const migration of SCHEMA_MIGRATIONS.filter(
@@ -102,14 +104,33 @@ it("preserves every populated authored schema24 table through25, changes effecti
   const before = tables();
   expect(migrateDatabase(db)).toMatchObject({
     fromVersion: 24,
-    toVersion: 26,
+    toVersion: 27,
     applied: [
       "25:memory_freshness_without_erasure",
       "26:structured_weekly_kpis",
+      "27:memory_survives_source_deletion",
     ],
     integrity: "ok",
   });
-  const preserved = { ...before, weekly_kpi: [], weekly_kpi_track: [] };
+  // Schema27 only adds zero/null deletion-continuity columns and empty debug tables.
+  const preserved = {
+    ...before,
+    weekly_kpi: [],
+    weekly_kpi_track: [],
+    summary_debug_revision: [],
+    summary_debug_event: [],
+    conversation_history_control: (
+      before.conversation_history_control as Record<string, unknown>[]
+    ).map((row) => ({
+      ...row,
+      memory_generation: row.privacy_generation,
+      deletion_generation: 0,
+      deleting_conversation: null,
+    })),
+    summary_control: (before.summary_control as Record<string, unknown>[]).map(
+      (row) => ({ ...row, coverage_lost: 0 }),
+    ),
+  };
   expect(tables()).toEqual(preserved);
   expect(
     db

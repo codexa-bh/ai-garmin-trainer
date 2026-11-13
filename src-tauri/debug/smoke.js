@@ -482,6 +482,7 @@
       cap: 6000,
       publishedAt: null,
       enabled: !off,
+      coverageLost: false,
       model: "gpt-6-luna",
       usedByChat: false,
       attemptsToday: 1,
@@ -1512,6 +1513,8 @@
       "Decision · User-stated",
       "Nothing saved here yet. Add something you want your trainer to remember, or update from past conversations below.",
       "On · Add the provider key in Settings to process memory.",
+      "On · Saved memory was erased by a privacy change. New updates do not restore earlier history; use Update from chat history.",
+      "Earlier history is no longer covered after a privacy change. Use Update from chat history to review it.",
       "Off · Saved items retained",
       "On · No saved memories",
       "Includes your own saved text.",
@@ -2126,7 +2129,7 @@
         const row = conversationRow(slot);
         if (conversationMenu?.slot !== slot || conversationMenu.row !== row)
           throw Error("Matching synthetic delete menu required");
-        const expected = `Delete local conversation "${conversationTitle(slot)}" and its messages? Garmin data, Profile, and saved memories stay unchanged.`;
+        const expected = `Delete local conversation "${conversationTitle(slot)}" and its messages? Garmin data, Profile, and saved memories stay unchanged; memory may keep what it learned from this chat. Use Clear saved memory to remove that.`;
         const view = row.ownerDocument.defaultView;
         const original = view.confirm;
         try {
