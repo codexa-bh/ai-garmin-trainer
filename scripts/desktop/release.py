@@ -11,6 +11,7 @@ import uuid
 from ordinary_identity import build_ordinary, ordinary_preparation, source_snapshot, document
 from release_artifact import package, transported
 from release_metadata import REPOSITORY, check, exact_source, prepare, version_value
+import release_timing as timing
 import smoke_resources as resources
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +33,12 @@ def main():
     parser.add_argument('--execute', action='store_true', help='Explicit effect intent, not release authorization')
     args = parser.parse_args()
     os.umask(0o077)
+    # Timing is private observation for scratch-backed actions; it selects, approves and retries nothing.
+    with timing.recording(args.action, version=args.version, commit=args.commit):
+        run(parser, args)
+
+
+def run(parser, args):
     version, notes = check(ROOT, None if args.action == 'prepare' else args.version)
     if args.action == 'check':
         print(json.dumps({'version': version, 'status': 'consistent; no release effects'}))
@@ -58,8 +65,10 @@ def main():
                     parser.error('release build requires --scratch for read-only remote preflight evidence')
                 from release_remote import GitHub, build_preflight
                 scratch = resources.configure(args.scratch)
+                timing.attach(scratch)
                 journal = scratch / ('release-build-preflight-' + str(uuid.uuid4()) + '.jsonl')
-                with journal.open('x') as stream:
+                timing.reference('remote-preflight-journal', journal.name)
+                with journal.open('x') as stream, timing.stage('remote-preflight'):
                     build_preflight(GitHub(stream), args.commit, args.version)
                 exact_source(ROOT, args.commit, args.repository)
                 build_ordinary(ROOT)
@@ -72,16 +81,19 @@ def main():
     if args.scratch is None or args.bundle is None:
         parser.error('artifact actions require --scratch and original --bundle')
     scratch = resources.configure(args.scratch)
+    timing.attach(scratch)
     bundle = args.bundle
     source = source_snapshot(ROOT)['source']
     with ordinary_preparation(ROOT, bundle, source, scratch) as (verified, inventory):
         if args.action == 'package':
             record = package(ROOT, bundle, source, verified, inventory, scratch)
+            timing.correlate(dmgSha256=document(record)['artifact']['sha256'])
             print(json.dumps({'record': str(record), 'artifact': document(record)['artifact'], 'localOnly': True}))
             return
         if args.record is None:
             parser.error('verification/remote actions require --record')
         with transported(ROOT, bundle, source, verified, inventory, args.record, scratch) as (_, verify_current, record):
+            timing.correlate(commit=record['commit'], version=record['version'], dmgSha256=record['artifact']['sha256'])
             if args.action == 'verify':
                 print(json.dumps({'verified': record, 'launched': False}))
                 return
@@ -94,6 +106,7 @@ def main():
             from release_remote import GitHub, Release, assets_for
             journal = scratch / ('release-remote-' + str(uuid.uuid4()) + '.jsonl')
             print(json.dumps({'journal': str(journal)}), flush=True)
+            timing.reference('remote-journal', journal.name)
             def before_effect():
                 verify_current()
                 exact_source(ROOT, args.commit, args.repository)
@@ -101,9 +114,12 @@ def main():
                 operation = Release(GitHub(stream), record, notes, assets_for(args.record, record),
                                     args.prerelease == 'yes', args.latest == 'yes', before_effect=before_effect)
                 verify_current()
-                result = operation.act(args.action, execute=args.execute)
+                with timing.stage('remote-' + args.action):
+                    result = operation.act(args.action, execute=args.execute)
                 verify_current()
                 exact_source(ROOT, args.commit, args.repository)
+            # Restates inputs this invocation just requalified, for the human approval handoff.
+            print(json.dumps({'selectedTuple': operation.selected_tuple()}))
             print(json.dumps(result))
 
 

@@ -13,6 +13,7 @@ import subprocess
 import time
 import uuid
 
+from release_timing import stage
 from smoke_build import build_inputs, digest_file, preparation_lock
 
 VERSION = 2
@@ -160,8 +161,9 @@ def ordinary_preparation(repo, bundle, source, scratch):
     started = time.monotonic()
     with preparation_lock(preparation_directory(repo)):
         try:
-            inventory = audit(bundle)
-            verified = verify_ordinary(repo, bundle, source, inventory)
+            with stage('producer-verification'):
+                inventory = audit(bundle)
+                verified = verify_ordinary(repo, bundle, source, inventory)
             decision.update({'decision': 'hit', 'reason': 'verified build inputs, context and complete inventories',
                              'artifactBuildSource': verified['current']['buildSource'], 'currentSource': source,
                              'artifactOriginalSource': verified['provenance']['sourceFingerprint'],
@@ -169,7 +171,8 @@ def ordinary_preparation(repo, bundle, source, scratch):
             decision['freshScenarioOutcome'] = 'incomplete'
             yield verified, inventory
             # A scenario pass never bypasses current-context/original-artifact preservation.
-            verify_ordinary(repo, bundle, source, inventory)
+            with stage('producer-preservation'):
+                verify_ordinary(repo, bundle, source, inventory)
             decision['freshScenarioOutcome'] = 'completed; consult scenario receipt for assertions'
         except BaseException as error:
             # A fresh failed oracle on a verified hit is not a cache miss or an old pass.
@@ -191,16 +194,21 @@ def build_ordinary(repo):
     """Full desktop:build semantics, under the same worktree lock as ordinary reuse."""
     from release_smoke import audit
     with preparation_lock(preparation_directory(repo)):
-        before = source_snapshot(repo)
-        captured_context = context_identity(repo, before)
+        with stage('build-input-identity'):
+            before = source_snapshot(repo)
+            captured_context = context_identity(repo, before)
         context = captured_context['key']
-        run_build(['npm', 'run', 'desktop:resources'], cwd=repo)
-        run_build([str(repo / 'node_modules/.bin/tauri'), 'build', '--target', 'aarch64-apple-darwin',
-                   '--bundles', 'app', '--no-sign', '--no-binary-patching', '--ci'], cwd=repo)
+        with stage('build-resources'):
+            run_build(['npm', 'run', 'desktop:resources'], cwd=repo)
+        with stage('build-native'):
+            run_build([str(repo / 'node_modules/.bin/tauri'), 'build', '--target', 'aarch64-apple-darwin',
+                       '--bundles', 'app', '--no-sign', '--no-binary-patching', '--ci'], cwd=repo)
         bundle = repo / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
-        value = provenance(bundle)
-        inventory = audit(bundle)
-        if source_snapshot(repo) != before or context_key(repo, before) != context or value['sourceFingerprint'] != before['source'] or value['buildSourceFingerprint'] != before['buildSource'] or value['buildContext'] != context:
+        with stage('build-output-identity'):
+            value = provenance(bundle)
+            inventory = audit(bundle)
+            unchanged = source_snapshot(repo) == before and context_key(repo, before) == context
+        if not unchanged or value['sourceFingerprint'] != before['source'] or value['buildSourceFingerprint'] != before['buildSource'] or value['buildContext'] != context:
             # Component hashes aid bounded diagnosis without recording env values/keys.
             print(json.dumps({'ordinaryBuildRefused': True, 'before': captured_context,
                               'after': context_identity(repo, source_snapshot(repo)),

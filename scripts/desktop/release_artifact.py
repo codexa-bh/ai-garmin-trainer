@@ -14,6 +14,7 @@ import uuid
 from ordinary_identity import document, inventory_hash, provenance, verify_ordinary
 from release_metadata import REPOSITORY, check, git
 from release_smoke import audit
+from release_timing import stage
 import smoke_resources as resources
 
 APP_NAME = 'Garmin Trainer.app'
@@ -163,8 +164,9 @@ def mounted(dmg, workspace):
     save()
     try:
         # -plist retains an exact mount observation; an unknown attach outcome is not retried.
-        result = run(['/usr/bin/hdiutil', 'attach', '-readonly', '-nobrowse', '-noautoopen',
-                      '-mountpoint', mount, '-plist', dmg])
+        with stage('image-attach'):
+            result = run(['/usr/bin/hdiutil', 'attach', '-readonly', '-nobrowse', '-noautoopen',
+                          '-mountpoint', mount, '-plist', dmg])
         attached = True
         observation['attach'] = 'observed'
         save()
@@ -180,7 +182,8 @@ def mounted(dmg, workspace):
             observation['detach'] = 'requested; effect unknown'
             save()
             try:
-                run(['/usr/bin/hdiutil', 'detach', mount], timeout=60)
+                with stage('image-detach'):
+                    run(['/usr/bin/hdiutil', 'detach', mount], timeout=60)
                 observation['detach'] = 'observed'
                 save()
             except BaseException:
@@ -205,19 +208,22 @@ def record_for(repo, bundle, dmg, version, notes, verified, identity):
 def verify_image(repo, bundle, source, verified, inventory, dmg, workspace, record=None):
     verify_ordinary(repo, bundle, source, inventory)
     version, notes = check(repo)
-    before = digest(dmg)
-    run(['/usr/bin/hdiutil', 'verify', dmg])
-    original = payload_checks(bundle, version)
+    with stage('image-digest-and-verify'):
+        before = digest(dmg)
+        run(['/usr/bin/hdiutil', 'verify', dmg])
+    with stage('producer-payload-identity'):
+        original = payload_checks(bundle, version)
     try:
         with mounted(dmg, workspace) as payload:
-            if payload_checks(payload, version) != original:
-                raise ValueError('Final DMG payload differs from original bytes/modes/xattrs')
+            with stage('image-payload-compare'):
+                if payload_checks(payload, version) != original:
+                    raise ValueError('Final DMG payload differs from original bytes/modes/xattrs')
             observed = record_for(repo, bundle, dmg, version, notes, verified, original)
             if record is not None and record != observed:
                 raise ValueError('Release record is stale, malformed or contradictory')
             yield payload, observed
     finally:
-        with resources.preserve_failure():
+        with resources.preserve_failure(), stage('image-settlement'):
             if digest(dmg) != before:
                 raise ValueError('Final DMG changed during verification')
             verify_ordinary(repo, bundle, source, inventory)
@@ -232,20 +238,22 @@ def package(repo, bundle, source, verified, inventory, scratch):
     version, _ = check(repo)
     workspace = resources.run_directory(scratch / ('release-' + str(uuid.uuid4())))
     resources.retain('Local release artifact and staging retained for inspection; no installation or immediate disposal')
-    stage = workspace / 'staging'
-    stage.mkdir(mode=0o700)
-    verify_ordinary(repo, bundle, source, inventory)
-    identity = payload_checks(bundle, version)
-    # ditto preserves macOS modes/xattrs without changing the legitimate producer.
-    run(['/usr/bin/ditto', '--rsrc', '--extattr', bundle, stage / APP_NAME])
-    if payload_checks(stage / APP_NAME, version) != identity:
-        raise ValueError('Staging did not preserve payload metadata')
+    staging = workspace / 'staging'
+    staging.mkdir(mode=0o700)
+    with stage('package-staging'):
+        verify_ordinary(repo, bundle, source, inventory)
+        identity = payload_checks(bundle, version)
+        # ditto preserves macOS modes/xattrs without changing the legitimate producer.
+        run(['/usr/bin/ditto', '--rsrc', '--extattr', bundle, staging / APP_NAME])
+        if payload_checks(staging / APP_NAME, version) != identity:
+            raise ValueError('Staging did not preserve payload metadata')
     dmg = workspace / ('Garmin-Trainer-' + version + '-macos-arm64.dmg')
     if os.path.lexists(dmg):
         raise ValueError('Artifact output exists; never overwrite')
     # No -ov; exclusive workspace pins output namespace, no privileged destination.
-    run(['/usr/bin/hdiutil', 'create', '-format', 'UDZO', '-fs', 'HFS+', '-volname',
-         'Garmin Trainer ' + version, '-srcfolder', stage, dmg], timeout=300)
+    with stage('package-image-create'):
+        run(['/usr/bin/hdiutil', 'create', '-format', 'UDZO', '-fs', 'HFS+', '-volname',
+             'Garmin Trainer ' + version, '-srcfolder', staging, dmg], timeout=300)
     with verified_image(repo, bundle, source, verified, inventory, dmg, workspace) as (_, record):
         pass
     with (workspace / 'release.json').open('x') as stream:
@@ -267,11 +275,12 @@ def transported(repo, bundle, source, verified, inventory, record_path, scratch)
     workspace = resources.run_directory(scratch / ('release-verify-' + str(uuid.uuid4())))
     with verified_image(repo, bundle, source, verified, inventory, dmg, workspace, record) as (payload, observed):
         def verify_current():
-            verify_ordinary(repo, bundle, source, inventory)
-            if document(record_path) != record or digest(dmg) != record['artifact']['sha256']:
-                raise ValueError('Transport record/image changed')
-            if tree_identity(payload) != tree_identity(bundle):
-                raise ValueError('Transported payload changed; never fall back to producer')
+            with stage('transport-recheck'):
+                verify_ordinary(repo, bundle, source, inventory)
+                if document(record_path) != record or digest(dmg) != record['artifact']['sha256']:
+                    raise ValueError('Transport record/image changed')
+                if tree_identity(payload) != tree_identity(bundle):
+                    raise ValueError('Transported payload changed; never fall back to producer')
         verify_current()
         try:
             yield payload, verify_current, observed

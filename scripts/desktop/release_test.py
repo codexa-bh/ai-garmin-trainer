@@ -1,6 +1,8 @@
 """Cheap deterministic boundaries; actual macOS DMG/native evidence is separate."""
 import contextlib
 import copy
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -15,6 +17,7 @@ import release_artifact as artifact
 import release_metadata as metadata
 from release_remote import GitHub, Release, assets_for, build_preflight, release_for_tag
 from release_smoke import REQUIRED
+import release_timing as timing
 
 
 class MetadataTests(unittest.TestCase):
@@ -47,6 +50,18 @@ class MetadataTests(unittest.TestCase):
         self.assertIn('name = "dependency"\nversion = "0.1.0"', (self.root / 'src-tauri/Cargo.lock').read_text())
         with self.assertRaises(ValueError):
             metadata.prepare(self.root, '0.2.0-rc.1', 'no overwrite')
+
+    def test_prepare_changes_only_the_tauri_version_token_and_refuses_ambiguity(self):
+        tauri = self.root / 'src-tauri/tauri.conf.json'
+        authored = '{\n  "version": "0.1.0",\n  "title": "Trainer \u2014 Settings",\n  "bundle": { "macOS": { "minimumSystemVersion": "12.0" } }\n}\n'
+        tauri.write_text(authored)
+        metadata.prepare(self.root, '0.1.1', 'Reviewed synthetic future changes')
+        self.assertEqual(tauri.read_text(), authored.replace('"version": "0.1.0"', '"version": "0.1.1"'))
+        tauri.write_text('{"version": "0.1.1", "plugin": {"version": "0.1.1"}}')
+        with self.assertRaisesRegex(ValueError, 'Ambiguous Tauri'):
+            metadata.prepare(self.root, '0.1.2', 'Reviewed synthetic future changes')
+        self.assertFalse((self.root / 'release-notes/0.1.2.md').exists())
+        self.assertEqual(json.loads((self.root / 'package.json').read_text())['version'], '0.1.1')
 
     def test_malformed_versions_and_mirrors_refuse(self):
         for version in ['v1.2.3', '01.2.3', '1.2', '1.2.3+ambiguous', '../1.2.3', '1.2.3-01']:
@@ -516,6 +531,156 @@ class RemoteTests(unittest.TestCase):
             self.assertEqual(len(entries), 2)
             self.assertIn('unknown', entries[0]['outcome'])
             self.assertIn('unknown', entries[1]['outcome'])
+
+
+class TimingTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name).resolve()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def saved(self):
+        return json.loads(next(self.root.glob('release-timing-*.json')).read_text())
+
+    def test_records_nested_stage_identity_durations_and_references_without_thresholds(self):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            with timing.recording('verify', version='0.1.2', commit=None):
+                timing.attach(self.root)
+                timing.reference('remote-journal', 'release-remote-fixture.jsonl')
+                with timing.stage('outer'):
+                    with timing.stage('inner'):
+                        pass
+                timing.correlate(dmgSha256='a' * 64)
+        value = self.saved()
+        self.assertEqual([(entry['name'], entry['parent'], entry['outcome']) for entry in value['stages']],
+                         [('outer', None, 'completed'), ('inner', 'outer', 'completed')])
+        for entry in [value, *value['stages']]:
+            self.assertGreaterEqual(entry['elapsedSeconds'], 0)
+            self.assertTrue(entry['startedAt'].endswith('+00:00') and entry['endedAt'].endswith('+00:00'))
+        self.assertEqual(value['outcome'], 'completed')
+        self.assertEqual(value['correlation'], {'version': '0.1.2', 'dmgSha256': 'a' * 64})
+        self.assertEqual(value['references'], [{'kind': 'remote-journal', 'name': 'release-remote-fixture.jsonl'}])
+        self.assertNotIn('approved', json.dumps(value).replace('not approval', ''))
+        self.assertEqual(json.loads(output.getvalue())['outcome'], 'completed')
+        self.assertEqual(next(self.root.glob('release-timing-*.json')).stat().st_mode & 0o777, 0o600)
+        self.assertEqual(list(self.root.glob('*.partial')), [])
+
+    def test_failure_keeps_original_error_and_records_class_only(self):
+        secret = str(self.root / 'private-token-path')
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, 'private-token-path'):
+                with timing.recording('package'):
+                    timing.attach(self.root)
+                    with timing.stage('package-staging'):
+                        raise ValueError('owner refusal mentioning ' + secret)
+        value = self.saved()
+        self.assertEqual((value['outcome'], value['error']), ('failed or interrupted', 'ValueError'))
+        self.assertEqual((value['stages'][0]['outcome'], value['stages'][0]['error']), ('failed or interrupted', 'ValueError'))
+        self.assertIsNotNone(value['stages'][0]['elapsedSeconds'])
+        self.assertNotIn('private-token-path', json.dumps(value))
+        self.assertNotIn(str(self.root), json.dumps(value))
+
+    def test_interruption_and_hard_kill_state_are_incomplete_not_success_or_zero(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(KeyboardInterrupt):
+                with timing.recording('draft'):
+                    timing.attach(self.root)
+                    with timing.stage('remote-draft'):
+                        # What a hard kill here would leave behind on disk.
+                        during = self.saved()
+                        raise KeyboardInterrupt()
+        self.assertEqual((during['outcome'], during['elapsedSeconds'], during['endedAt']), ('incomplete', None, None))
+        self.assertEqual((during['stages'][0]['outcome'], during['stages'][0]['elapsedSeconds']), ('incomplete', None))
+        self.assertEqual(self.saved()['stages'][0]['error'], 'KeyboardInterrupt')
+
+    def test_unavailable_evidence_never_masks_or_changes_owner_outcome(self):
+        missing = self.root / 'absent'
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaisesRegex(RuntimeError, 'original owner failure'):
+                with timing.recording('verify'):
+                    timing.attach(missing)
+                    with timing.stage('image-attach'):
+                        raise RuntimeError('original owner failure')
+            with timing.recording('verify'):
+                timing.attach(self.root)
+                with patch.object(timing.os, 'replace', side_effect=OSError('disk')):
+                    with timing.stage('still-runs'):
+                        completed = True
+        self.assertTrue(completed)
+        self.assertEqual(output.getvalue(), '')
+        self.assertIn('unavailable', errors.getvalue())
+        self.assertNotIn(str(self.root), errors.getvalue())
+
+    def test_stage_and_attach_are_inert_outside_a_recorded_release_invocation(self):
+        with timing.stage('producer-verification'):
+            timing.attach(self.root)
+            timing.correlate(commit='c' * 40)
+            timing.reference('remote-journal', 'name')
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_no_scratch_actions_keep_output_and_write_no_timing(self):
+        import release
+        # main() deliberately tightens the process umask; keep that out of later tests.
+        self.addCleanup(os.umask, os.umask(0o022))
+        for arguments, expected in [(['release.py'], 'no release effects'), (['release.py', 'package'], 'local DMG only')]:
+            with patch('sys.argv', arguments), contextlib.redirect_stdout(io.StringIO()) as output:
+                release.main()
+            lines = output.getvalue().splitlines()
+            self.assertEqual(len(lines), 1)
+            self.assertIn(expected, lines[0])
+            self.assertNotIn('timing', lines[0])
+
+
+class HandoffTests(unittest.TestCase):
+    tearDown = RemoteTests.tearDown
+
+    def setUp(self):
+        RemoteTests.setUp(self)
+        # The identity fields a real packaged record carries beside the remote fixture's subset.
+        self.record.update({'notesSha256': hashlib.sha256(b'reviewed public notes').hexdigest(),
+                            **{name: character * 64 for name, character in [
+                                ('originalSource', 'b'), ('buildSource', 'c'), ('buildContext', 'd'),
+                                ('inventory', 'e'), ('payloadIdentity', 'f')]}})
+
+    def test_selected_tuple_binds_exact_source_body_channel_and_three_assets_without_approval(self):
+        value = self.operation.selected_tuple()
+        self.assertEqual((value['repository'], value['version'], value['tag'], value['commit']),
+                         (self.record['repository'], self.record['version'], self.record['tag'], self.record['commit']))
+        self.assertEqual(value['bodySha256'], hashlib.sha256(self.operation.body.encode()).hexdigest())
+        self.assertEqual(value['notesSha256'], self.record['notesSha256'])
+        self.assertEqual((value['prerelease'], value['latest']), (False, True))
+        self.assertEqual([(asset['name'], asset['size'], asset['sha256']) for asset in value['assets']],
+                         sorted((name, asset['size'], asset['sha256']) for name, asset in self.assets.items()))
+        self.assertEqual(len(value['assets']), 3)
+        self.assertIn('none recorded', value['approval'])
+        self.assertNotIn(str(self.root), json.dumps(value))
+        self.assertEqual(self.gh.effects, [])
+
+    def test_selected_tuple_changes_with_notes_or_channel_and_is_never_an_input(self):
+        other = Release(self.gh, self.record, 'different public notes', self.assets, False, False)
+        self.assertNotEqual(other.selected_tuple()['bodySha256'], self.operation.selected_tuple()['bodySha256'])
+        self.assertFalse(other.selected_tuple()['latest'])
+        # A stale summary cannot stand in for qualification: observation still decides.
+        self.operation.act('draft', execute=True)
+        self.gh.assets[0]['digest'] = 'sha256:' + '0' * 64
+        self.operation.selected_tuple()
+        with self.assertRaisesRegex(ValueError, 'digest differs'):
+            self.operation.act('publish', execute=True)
+
+    def test_journal_entries_carry_correlation_time_and_request_duration_only(self):
+        with tempfile.TemporaryFile(mode='w+') as journal:
+            github = GitHub(journal)
+            with patch('release_remote.subprocess.run', return_value=Mock(returncode=0, stdout=b'{"id": 7}', stderr=b'')):
+                github.api('repos/test/test/releases', 'POST', {'draft': True})
+            journal.seek(0)
+            entries = [json.loads(line) for line in journal]
+        self.assertEqual([entry['outcome'] for entry in entries], ['unknown until reconciled', 'observed'])
+        self.assertTrue(all(entry['at'].endswith('+00:00') for entry in entries))
+        self.assertNotIn('elapsedSeconds', entries[0])
+        self.assertGreaterEqual(entries[1]['elapsedSeconds'], 0)
+        self.assertEqual(set(entries[1]), {'at', 'effect', 'elapsedSeconds', 'id', 'outcome'})
 
 
 if __name__ == '__main__':

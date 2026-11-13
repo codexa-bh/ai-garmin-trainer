@@ -65,13 +65,20 @@ def prepare(root, version, body):
     if old == version or destination.exists() or destination.is_symlink() or not body.strip():
         raise ValueError('Select a new version and nonempty reviewed notes; no overwrite')
     changes = {}
-    for name in ('package.json', 'package-lock.json', 'src-tauri/tauri.conf.json'):
+    for name in ('package.json', 'package-lock.json'):
         path = root / name
         value = document(path)
         value['version'] = version
         if name == 'package-lock.json':
             value['packages']['']['version'] = version
         changes[path] = json.dumps(value, indent=2) + '\n'
+    # The Tauri file is hand-formatted with non-ASCII text: change only its one
+    # version token, then prove the parsed document differs in nothing else.
+    path = root / 'src-tauri/tauri.conf.json'
+    text, count = re.subn(r'("version": ")' + re.escape(old) + '"', lambda match: match[1] + version + '"', path.read_text())
+    if count != 1 or json.loads(text) != {**document(path), 'version': version}:
+        raise ValueError('Ambiguous Tauri metadata')
+    changes[path] = text
     for name, reader in [('src-tauri/Cargo.toml', cargo_version), ('src-tauri/Cargo.lock', lock_version)]:
         path = root / name
         text = path.read_text()
