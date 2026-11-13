@@ -1,5 +1,8 @@
 import { getDatabase } from "./connection";
-import { invalidateConversationHistory } from "./conversation-history";
+import {
+  beginConversationDeletion,
+  endConversationDeletion,
+} from "./conversation-history";
 import {
   DEFAULT_CONVERSATION_ID,
   safeConversationId,
@@ -9,7 +12,7 @@ export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
   const conversationId = safeConversationId(id);
   const db = getDatabase();
   const changes = db.transaction(() => {
-    invalidateConversationHistory();
+    beginConversationDeletion(conversationId);
     // Keep a small tombstone: clearing/deleting history must not re-admit titles.
     db.prepare(
       `insert into conversation_title_attempt (conversation_id) values (?)
@@ -21,12 +24,18 @@ export function deleteConversation(id = DEFAULT_CONVERSATION_ID): boolean {
     db.prepare("delete from message where conversation_id = ?").run(
       conversationId,
     );
+    // Retained memory stays global; do not keep a frozen copy for a removed chat.
+    db.prepare(
+      "delete from conversation_summary_pin where conversation_id = ?",
+    ).run(conversationId);
     db.prepare(
       "update semantic_memory set status = 'deleted', updated_at = ? where source_conversation_id = ? and kind = 'conversation'",
     ).run(Date.now(), conversationId);
-    return db
+    const deleted = db
       .prepare("delete from conversation where id = ?")
       .run(conversationId).changes;
+    endConversationDeletion();
+    return deleted;
   })();
   return changes > 0;
 }

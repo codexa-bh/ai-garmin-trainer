@@ -66,7 +66,7 @@ function row(title: string, selected = false) {
     remove.onclick = () => {
       if (
         item.ownerDocument.defaultView!.confirm(
-          `Delete local conversation "${label.textContent}" and its messages? Garmin data, Profile, and saved memories stay unchanged.`,
+          `Delete local conversation "${label.textContent}" and its messages? Garmin data, Profile, and saved memories stay unchanged; memory may keep what it learned from this chat. Use Clear saved memory to remove that.`,
         )
       ) {
         const active = choose.getAttribute("aria-current") === "true";

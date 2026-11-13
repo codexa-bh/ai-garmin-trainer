@@ -5099,6 +5099,7 @@ describe("TrainerDashboard memory and new chat", () => {
       cap: 6000,
       publishedAt: 1,
       enabled: true,
+      coverageLost: false,
       model: "gpt-6-luna",
       usedByChat: false,
       attemptsToday: 0,
@@ -5650,7 +5651,7 @@ describe("TrainerDashboard memory and new chat", () => {
     );
     expect(confirmMock).toHaveBeenCalledWith(
       expect.stringContaining(
-        "Garmin data, Profile, and saved memories stay unchanged",
+        "Garmin data, Profile, and saved memories stay unchanged; memory may keep what it learned from this chat. Use Clear saved memory to remove that.",
       ),
     );
   });

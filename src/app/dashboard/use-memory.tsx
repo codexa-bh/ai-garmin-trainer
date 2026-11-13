@@ -171,6 +171,7 @@ export function useMemoryFeature({
             "stale",
           ].includes(result.state) ||
           typeof result.enabled !== "boolean" ||
+          typeof result.coverageLost !== "boolean" ||
           (result.reason !== null && typeof result.reason !== "string") ||
           !result.expected ||
           !result.stored ||

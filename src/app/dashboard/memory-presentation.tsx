@@ -17,7 +17,8 @@ export function memoryStatus(memory: SummaryInspection) {
     summary_impossible_capacity: "Memory could not fit this request.",
     summary_correction_pending:
       "A conversation correction is waiting to be processed.",
-    summary_invalidated: "Saved context changed; new updates may be pending.",
+    summary_invalidated:
+      "Saved memory was erased by a privacy change. New updates do not restore earlier history; use Update from chat history.",
     summary_configuration_changed:
       "Settings changed during an update. Review again.",
     summary_import_review_required:
@@ -38,6 +39,15 @@ export function memoryStatus(memory: SummaryInspection) {
         ? "Saved memory available"
         : "No saved memories"
       : "Saved memory unavailable · check again";
+}
+
+/** Durable lost-coverage fact, shown independently of transient reasons. */
+export function memoryCoverageNote(memory: SummaryInspection) {
+  return memory.enabled &&
+    memory.coverageLost &&
+    memory.reason !== "summary_invalidated"
+    ? "Earlier history is no longer covered after a privacy change. Use Update from chat history to review it."
+    : null;
 }
 
 export function canRetrySummary(memory: SummaryInspection) {

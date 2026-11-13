@@ -15,7 +15,11 @@ import {
   type SummaryInspection,
 } from "@/app/dashboard/use-memory";
 import { MemoryContent } from "@/app/dashboard/memory-content";
-import { HistoryReview } from "@/app/dashboard/memory-presentation";
+import {
+  HistoryReview,
+  memoryCoverageNote,
+  memoryStatus,
+} from "@/app/dashboard/memory-presentation";
 import type { Status } from "@/app/dashboard/contracts";
 function snapshot(conversationId = "A"): SummaryInspection {
   return {
@@ -30,6 +34,7 @@ function snapshot(conversationId = "A"): SummaryInspection {
     cap: 6000,
     publishedAt: 1,
     enabled: true,
+    coverageLost: false,
     model: "gpt-6-luna",
     usedByChat: false,
     attemptsToday: 0,
@@ -245,6 +250,39 @@ describe("generated summary disclosure", () => {
     await mountMemory(value);
     expect(screen.queryByRole("button", { name: "Show summary" })).toBeNull();
     expect(screen.queryByText(value.stored.text)).toBeNull();
+  });
+});
+
+describe("deletion continuity and coverage status copy", () => {
+  it("shows durable lost coverage independently of transient reasons and pending updates", async () => {
+    const value = {
+      ...populated(),
+      coverageLost: true,
+      reason: "summary_missing_key",
+      pending: 3,
+      state: "stale" as const,
+    };
+    expect(memoryCoverageNote(value)).toBe(
+      "Earlier history is no longer covered after a privacy change. Use Update from chat history to review it.",
+    );
+    expect(memoryStatus(value)).toBe(
+      "Add the provider key in Settings to process memory.",
+    );
+    // The invalidation reason already states the erasure; no duplicate note.
+    expect(
+      memoryCoverageNote({ ...value, reason: "summary_invalidated" }),
+    ).toBeNull();
+    expect(memoryStatus({ ...value, reason: "summary_invalidated" })).toMatch(
+      /erased by a privacy change.*do not restore/,
+    );
+    expect(memoryCoverageNote({ ...value, enabled: false })).toBeNull();
+    expect(memoryCoverageNote({ ...value, coverageLost: false })).toBeNull();
+    await mountMemory(value);
+    expect(
+      screen
+        .getByText(/Earlier history is no longer covered/)
+        .getAttribute("role"),
+    ).toBe("status");
   });
 });
 

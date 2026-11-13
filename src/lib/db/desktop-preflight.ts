@@ -49,7 +49,16 @@ export function assertDesktopDatabase(path: string): void {
         ],
       ],
       ["activity_detail_attempt", ["garmin_id", "status"]],
-      ["conversation_history_control", ["id", "privacy_generation"]],
+      [
+        "conversation_history_control",
+        [
+          "id",
+          "privacy_generation",
+          "memory_generation",
+          "deletion_generation",
+          "deleting_conversation",
+        ],
+      ],
       [
         "conversation_turn",
         [
@@ -109,8 +118,24 @@ export function assertDesktopDatabase(path: string): void {
           "model",
           "cap",
           "retry_at",
+          "coverage_lost",
         ],
       ],
+      [
+        "summary_debug_revision",
+        [
+          "revision",
+          "parent_revision",
+          "recorded_at",
+          "kind",
+          "model",
+          "source_domain",
+          "source_count",
+          "payload",
+          "purged_at",
+        ],
+      ],
+      ["summary_debug_event", ["id", "recorded_at", "kind", "revision"]],
       ["summary_disposition", ["event_seq", "source_id", "reason", "revision"]],
       ["summary_item_disposition", ["item_id", "revision", "reason"]],
       [

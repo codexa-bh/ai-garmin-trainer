@@ -142,6 +142,9 @@ export type SummaryStatus = {
   cap: number;
   publishedAt: number | null;
   enabled: boolean;
+  /** Durable: a genuine revocation erased saved history coverage; new-only
+   * updates do not restore it. Cleared by Clear or a completed history update. */
+  coverageLost: boolean;
   model: string;
   usedByChat: false;
   attemptsToday: number;
