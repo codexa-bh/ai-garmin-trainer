@@ -2279,6 +2279,10 @@ h2 {
   padding-left: 1.35rem;
 }
 
+.assistant-content li + li {
+  margin-top: 6px;
+}
+
 .assistant-content a {
   color: #9be8ff;
 }
