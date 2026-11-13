@@ -39,6 +39,74 @@ const safeCode = (value: unknown): string =>
   typeof value === "string" && /^[a-z][a-z0-9_]{0,95}$/.test(value)
     ? value
     : "request_failed";
+async function unsupportedResponse(
+  response: Response,
+): Promise<ChatgptRequestError> {
+  const mime = response.headers
+    .get("content-type")
+    ?.split(";")[0]
+    .trim()
+    .toLowerCase();
+  let kind =
+    mime === "application/json"
+      ? "json"
+      : mime === "text/html"
+        ? "html"
+        : mime
+          ? "other"
+          : "missing_type";
+  const reader = response.body?.getReader();
+  let bytes = new Uint8Array();
+  if (reader) {
+    try {
+      if (kind === "json") {
+        let truncated = false;
+        for (;;) {
+          const part = await reader.read();
+          if (part.done) break;
+          if (bytes.length + part.value.length > 16384) {
+            truncated = true;
+            break;
+          }
+          const next = new Uint8Array(bytes.length + part.value.length);
+          next.set(bytes);
+          next.set(part.value, bytes.length);
+          bytes.fill(0);
+          bytes = next;
+        }
+        const text = new TextDecoder().decode(bytes);
+        if (truncated) kind = "bounded_body";
+        else if (!bytes.length)
+          kind = response.url ? "empty_body" : "empty_body_no_url";
+        else if (/^(?:data|event):/m.test(text)) kind = "sse_like";
+        const value: unknown =
+          truncated || !bytes.length || kind === "sse_like"
+            ? undefined
+            : JSON.parse(text);
+        if (record(value)) {
+          if (record(value.error)) kind = "json_error";
+          else if (value.object === "response")
+            kind =
+              value.status === "completed"
+                ? "json_completed"
+                : "json_incomplete";
+          else kind = "json_other";
+        }
+      }
+    } catch {
+      /* No raw body, keys or provider detail may enter diagnostics. */
+    } finally {
+      bytes.fill(0);
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+  }
+  if (!reader) kind = response.url ? "empty_body" : "empty_body_no_url";
+  return new ChatgptRequestError(
+    `unsupported_response_${response.status}_${kind}`,
+    response.status,
+  );
+}
 function validateCalls(output: unknown, names: Set<string>): void {
   if (!Array.isArray(output)) throw new ChatgptRequestError("malformed_stream");
   const calls = new Set<string>();
@@ -325,9 +393,11 @@ export function chatgptFetch(
       const response = await transport("https://api.openai.com/v1/responses", {
         method: "POST",
         redirect: "error",
+        cache: "no-store",
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "content-type": "application/json",
+          Accept: "text/event-stream",
         },
         body: init.body,
         signal,
@@ -365,11 +435,16 @@ export function chatgptFetch(
           response.headers.get("x-request-id")?.slice(0, 128),
         );
       }
-      if (
-        !response.body ||
-        !response.headers.get("content-type")?.includes("text/event-stream")
-      )
-        throw new ChatgptRequestError("unsupported_response");
+      const media = response.headers
+        .get("content-type")
+        ?.split(";")[0]
+        .trim()
+        .toLowerCase();
+      if (!response.body || (media && media !== "text/event-stream"))
+        throw await unsupportedResponse(response);
+      // Absent metadata is not proof of a non-stream body. Always require the
+      // SAME closed SSE/terminal/namespace validation and locked-SDK receipt;
+      // never accept JSON, EOF or merely SSE-looking prefixes as success.
       const reader = validatedStream(
         response,
         names,
@@ -407,9 +482,11 @@ export function chatgptFetch(
           await reader.cancel().catch(() => {});
         },
       });
+      const headers = new Headers(response.headers);
+      headers.set("content-type", "text/event-stream");
       return new Response(stream, {
         status: response.status,
-        headers: response.headers,
+        headers,
       });
     } catch (error) {
       stop();
