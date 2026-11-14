@@ -143,8 +143,7 @@ class PayloadTests(unittest.TestCase):
                      'redistribution/index.json', 'redistribution/NOTICES.txt', 'redistribution/sources/native-crates.tar.gz',
                      'runtime/runtime.cjs', 'runtime/scripts/garmin_auth.py', 'runtime/scripts/garmin_auth.py.lock',
                      'runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node',
-                     'runtime/node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64-0.35.5.node',
-                     'runtime/node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib', 'node']:
+                     'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm', 'node']:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'synthetic bundled input')
@@ -158,8 +157,20 @@ class PayloadTests(unittest.TestCase):
             self.assertTrue(artifact.payload_checks(self.app, '0.1.0'))
             with self.assertRaisesRegex(ValueError, 'version'):
                 artifact.payload_checks(self.app, '1.0.0')
+            for excluded, group in [
+                    ('@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib', '@img'),
+                    ('sharp/package.json', 'sharp'),
+                    ('next/dist/compiled/@vercel/og/resvg.wasm', 'next/dist/compiled/@vercel/og')]:
+                path = root / 'runtime/node_modules' / excluded
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'unwanted')
+                with self.subTest(excluded=excluded), self.assertRaisesRegex(ValueError, 'Excluded runtime'):
+                    artifact.payload_checks(self.app, '0.1.0')
+                shutil.rmtree(root / 'runtime/node_modules' / group)
+            self.assertTrue(artifact.payload_checks(self.app, '0.1.0'))
             for required in ['NODE-LICENSE.txt', 'redistribution/index.json', 'redistribution/NOTICES.txt',
-                             'redistribution/sources/native-crates.tar.gz']:
+                             'redistribution/sources/native-crates.tar.gz',
+                             'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm']:
                 path = root / required
                 original = path.read_bytes()
                 path.unlink()
@@ -277,6 +288,10 @@ class PayloadTests(unittest.TestCase):
             record = artifact.package(self.root, self.app, 'source', {}, {}, self.root)
             self.assertTrue(record.is_file())
             self.assertTrue(next(record.parent.glob('*.sha256')).is_file())
+            report = json.loads((record.parent / 'size-report.json').read_text())
+            self.assertEqual(report['dmgBytes'], len(b'final image'))
+            self.assertEqual(report['appBytes'], sum(p.stat().st_size for p in self.app.rglob('*') if p.is_file()))
+            self.assertEqual(set(report['groups']), {'node', 'runtime', 'next', 'redistribution'})
             self.assertEqual(run.call_count, 2)
             creation = run.call_args.args[0]
             self.assertEqual(creation[1], 'create')

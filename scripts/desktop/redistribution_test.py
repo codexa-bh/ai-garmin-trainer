@@ -65,36 +65,31 @@ class RedistributionTests(unittest.TestCase):
             ('package/docs/NOTICE.txt', 'actual attribution')])
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ['source.tgz'])
 
-    def test_embedded_og_requires_matching_assets_and_complete_source_bodies(self):
-        compiled = self.root / 'node_modules/next/dist/compiled/@vercel/og'
-        compiled.mkdir(parents=True)
-        source = self.root / 'og.tgz'
-        upstream_patch = self.root / 'upstream.patch'
-        upstream_patch.write_text(''.join(
-            '--- a/dist/' + name + '\n+++ b/dist/' + name + '\n@@ -1 +1 @@\n'
-            '-original upstream bytes\n+modified upstream bytes\n'
-            for name in ['index.node.js', 'index.edge.js']))
-        with tarfile.open(source, 'w:gz') as archive:
-            for name in ['index.node.js', 'index.edge.js', 'resvg.wasm', 'yoga.wasm', 'Geist-Regular.ttf',
-                         'index.node.js.map', 'index.edge.js.map']:
-                data = (json.dumps({'sources': ['../src/og.ts'], 'sourcesContent': ['original TypeScript']}).encode()
-                        if name.endswith('.map') else b'original upstream bytes\n')
-                member = tarfile.TarInfo('package/dist/' + name)
-                member.size = len(data)
-                archive.addfile(member, io.BytesIO(data))
-                if not name.endswith('.map'):
-                    (compiled / name).write_bytes(b'modified upstream bytes\n' if name.endswith('.js') else data)
-        notices.verify_embedded_og(self.root, source, upstream_patch)
-        (compiled / 'resvg.wasm').write_bytes(b'different')
-        with self.assertRaisesRegex(ValueError, 'differs from source archive'):
-            notices.verify_embedded_og(self.root, source, upstream_patch)
-        (compiled / 'resvg.wasm').write_bytes(b'original upstream bytes\n')
-        with patch.object(notices.json, 'load', return_value={'sources': ['original'], 'sourcesContent': [None]}):
-            with self.assertRaisesRegex(ValueError, 'source bodies incomplete'):
-                notices.verify_embedded_og(self.root, source, upstream_patch)
-        upstream_patch.write_text('invalid patch')
-        with self.assertRaises(notices.subprocess.CalledProcessError):
-            notices.verify_embedded_og(self.root, source, upstream_patch)
+    def test_shipped_rasterizer_must_match_reviewed_archive(self):
+        shipped = self.root / 'src-tauri/resources/runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm'
+        shipped.parent.mkdir(parents=True)
+        archive = self.root / 'resvg-wasm.tgz'
+        with tarfile.open(archive, 'w:gz') as output:
+            member = tarfile.TarInfo('package/index_bg.wasm')
+            member.size = len(b'reviewed wasm')
+            output.addfile(member, io.BytesIO(b'reviewed wasm'))
+        shipped.write_bytes(b'reviewed wasm')
+        notices.verify_rasterizer(self.root, archive)
+        shipped.write_bytes(b'different wasm')
+        with self.assertRaisesRegex(ValueError, 'differs from the reviewed'):
+            notices.verify_rasterizer(self.root, archive)
+        shipped.unlink()
+        with self.assertRaises(FileNotFoundError):
+            notices.verify_rasterizer(self.root, archive)
+
+    def test_excluded_groups_must_be_absent_from_the_runtime(self):
+        runtime = self.root / 'src-tauri/resources/runtime'
+        excluded = ['node_modules/sharp', 'node_modules/next/dist/compiled/@vercel/og']
+        (runtime / 'node_modules/next/dist/compiled').mkdir(parents=True)
+        notices.verify_excluded(self.root, excluded)
+        (runtime / 'node_modules/next/dist/compiled/@vercel/og').mkdir(parents=True)
+        with self.assertRaisesRegex(ValueError, 'compiled/@vercel/og'):
+            notices.verify_excluded(self.root, excluded)
 
     def test_npm_uses_actual_texts_and_only_installed_production_versions(self):
         for name in ['production', 'development']:
@@ -112,6 +107,23 @@ class RedistributionTests(unittest.TestCase):
         (self.root / 'node_modules/production/package.json').write_text('{"name":"production","version":"2.0.0"}')
         with self.assertRaisesRegex(ValueError, 'differs from lock'):
             notices.npm_notices(self.root)
+
+    def test_npm_notices_omit_excluded_packages_and_paths_only(self):
+        for name, files in [('kept', ['LICENSE', 'dist/compiled/og/LICENSE', 'dist/compiled/other/LICENSE']),
+                            ('dropped', ['LICENSE'])]:
+            directory = self.root / 'node_modules' / name
+            for file in files:
+                (directory / file).parent.mkdir(parents=True, exist_ok=True)
+                (directory / file).write_text(name + '/' + file)
+            (directory / 'package.json').write_text(json.dumps({'name': name, 'version': '1.0.0'}))
+        lock = {'packages': {'': {}, 'node_modules/kept': {'version': '1.0.0'},
+                            'node_modules/dropped': {'version': '1.0.0', 'optional': True}}}
+        (self.root / 'package-lock.json').write_text(json.dumps(lock))
+        packages, texts = notices.npm_notices(
+            self.root, ['node_modules/dropped', 'node_modules/kept/dist/compiled/og'])
+        self.assertEqual([p['name'] for p in packages], ['kept'])
+        self.assertEqual([name for name, _ in texts], ['node_modules/kept/LICENSE',
+                                                       'node_modules/kept/dist/compiled/other/LICENSE'])
 
     def test_native_archive_binds_locked_sources_and_has_no_private_metadata(self):
         directory = self.root / 'dist/desktop-license-crates/component-1.0.0'
