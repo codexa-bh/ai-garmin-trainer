@@ -275,6 +275,9 @@ class PayloadTests(unittest.TestCase):
                     self.fail('payload mutation must refuse')
 
     def test_package_creates_once_without_build_install_or_overwrite(self):
+        node = self.app / 'Contents/Resources/resources/node'
+        node.parent.mkdir(parents=True, exist_ok=True)
+        node.write_bytes(b'bundled node')
         def commands(args, **kwargs):
             if args[0] == '/usr/bin/ditto':
                 shutil.copytree(args[-2], args[-1])
@@ -292,6 +295,7 @@ class PayloadTests(unittest.TestCase):
             self.assertEqual(report['dmgBytes'], len(b'final image'))
             self.assertEqual(report['appBytes'], sum(p.stat().st_size for p in self.app.rglob('*') if p.is_file()))
             self.assertEqual(set(report['groups']), {'node', 'runtime', 'next', 'redistribution'})
+            self.assertEqual(report['groups']['node'], (self.app / 'Contents/Resources/resources/node').stat().st_size)
             self.assertEqual(run.call_count, 2)
             creation = run.call_args.args[0]
             self.assertEqual(creation[1], 'create')

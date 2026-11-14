@@ -206,6 +206,8 @@ SIZE_GROUPS = {'node': 'node', 'runtime': 'runtime', 'next': 'runtime/node_modul
 def size_report(app, dmg):
     """Local review aid: logical payload bytes per group; not a release asset."""
     def logical(path):
+        if path.is_file():
+            return path.lstat().st_size
         return sum(item.lstat().st_size for item in path.rglob('*') if item.is_file() and not item.is_symlink())
     resources = app / 'Contents/Resources/resources'
     return {'schemaVersion': 1, 'dmgBytes': dmg.stat().st_size, 'appBytes': logical(app),
