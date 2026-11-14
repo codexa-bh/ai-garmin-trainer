@@ -199,6 +199,10 @@ def mounted(dmg, workspace):
         # On attach timeout the OS may still own the mount: preserve it, never blind retry/delete.
 
 
+# Operator-accepted ARM64 DMG budget (T0333): 132,262,024 bytes measured plus
+# headroom. Exceeding it stops packaging before a record exists; raise it only
+# by a reviewed change with the new measured breakdown.
+DMG_BUDGET_BYTES = 140_000_000
 SIZE_GROUPS = {'node': 'node', 'runtime': 'runtime', 'next': 'runtime/node_modules/next',
                'redistribution': 'redistribution'}
 
@@ -210,7 +214,8 @@ def size_report(app, dmg):
             return path.lstat().st_size
         return sum(item.lstat().st_size for item in path.rglob('*') if item.is_file() and not item.is_symlink())
     resources = app / 'Contents/Resources/resources'
-    return {'schemaVersion': 1, 'dmgBytes': dmg.stat().st_size, 'appBytes': logical(app),
+    return {'schemaVersion': 1, 'dmgBytes': dmg.stat().st_size, 'dmgBudgetBytes': DMG_BUDGET_BYTES,
+            'appBytes': logical(app),
             'groups': {name: logical(resources / path) for name, path in SIZE_GROUPS.items()}}
 
 
@@ -277,14 +282,17 @@ def package(repo, bundle, source, verified, inventory, scratch):
              'Garmin Trainer ' + version, '-srcfolder', staging, dmg], timeout=300)
     with verified_image(repo, bundle, source, verified, inventory, dmg, workspace) as (_, record):
         pass
+    report = size_report(bundle, dmg)
+    with (workspace / 'size-report.json').open('x') as stream:
+        json.dump(report, stream, indent=2)
+        stream.write('\n')
+    if report['dmgBytes'] > DMG_BUDGET_BYTES:
+        raise ValueError('DMG exceeds the accepted size budget; see retained size-report.json')
     with (workspace / 'release.json').open('x') as stream:
         json.dump(record, stream, indent=2)
         stream.write('\n')
     with (workspace / (dmg.name + '.sha256')).open('x') as stream:
         stream.write(record['artifact']['sha256'] + '  ' + dmg.name + '\n')
-    with (workspace / 'size-report.json').open('x') as stream:
-        json.dump(size_report(bundle, dmg), stream, indent=2)
-        stream.write('\n')
     return workspace / 'release.json'
 
 

@@ -293,6 +293,7 @@ class PayloadTests(unittest.TestCase):
             self.assertTrue(next(record.parent.glob('*.sha256')).is_file())
             report = json.loads((record.parent / 'size-report.json').read_text())
             self.assertEqual(report['dmgBytes'], len(b'final image'))
+            self.assertEqual(report['dmgBudgetBytes'], artifact.DMG_BUDGET_BYTES)
             self.assertEqual(report['appBytes'], sum(p.stat().st_size for p in self.app.rglob('*') if p.is_file()))
             self.assertEqual(set(report['groups']), {'node', 'runtime', 'next', 'redistribution'})
             self.assertEqual(report['groups']['node'], (self.app / 'Contents/Resources/resources/node').stat().st_size)
@@ -301,6 +302,23 @@ class PayloadTests(unittest.TestCase):
             self.assertEqual(creation[1], 'create')
             self.assertNotIn('-ov', creation)
             self.assertFalse(any('build' in str(arg) or 'install' in str(arg) for call in run.call_args_list for arg in call.args[0]))
+
+    def test_package_refuses_over_budget_image_before_any_record(self):
+        def commands(args, **kwargs):
+            if args[0] == '/usr/bin/ditto':
+                shutil.copytree(args[-2], args[-1])
+            elif args[1] == 'create':
+                with Path(args[-1]).open('xb') as stream:
+                    stream.write(b'x' * 11)
+        @contextlib.contextmanager
+        def image(*args):
+            yield self.app, {'artifact': {'sha256': 'a' * 64}}
+        with patch.object(artifact.platform, 'system', return_value='Darwin'), patch.object(artifact.platform, 'machine', return_value='arm64'), patch.object(artifact, 'check', return_value=('0.1.0', 'notes')), patch.object(artifact, 'verify_ordinary'), patch.object(artifact, 'payload_checks', return_value=artifact.tree_identity(self.app)), patch.object(artifact, 'run', side_effect=commands), patch.object(artifact, 'verified_image', image), patch.object(artifact, 'DMG_BUDGET_BYTES', 10):
+            with self.assertRaisesRegex(ValueError, 'size budget'):
+                artifact.package(self.root, self.app, 'source', {}, {}, self.root)
+        workspace = next(self.root.glob('release-*'))
+        self.assertFalse((workspace / 'release.json').exists())
+        self.assertEqual(json.loads((workspace / 'size-report.json').read_text())['dmgBytes'], 11)
 
     def test_macos_copy_preserves_xattrs_before_enrollment_sealing(self):
         import smoke_resources
