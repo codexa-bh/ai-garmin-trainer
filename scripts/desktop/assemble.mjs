@@ -1,7 +1,15 @@
 import { build } from "esbuild";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,12 +59,41 @@ for (const path of [".next", "node_modules", "package.json"]) {
   });
 }
 // Next's generated standalone trace targets its stock server.js, not the
-// documented custom-server API. Include the complete pinned production Next
-// package so app.prepare() cannot fall through to the developer checkout.
-await cp(join(root, "node_modules/next"), join(target, "node_modules/next"), {
+// documented custom-server API. Include the pinned production Next package so
+// app.prepare() cannot fall through to the developer checkout, minus content
+// the production server never loads: source maps, type declarations,
+// development-only runtimes, docs, the bundle analyzer and the unused
+// next/og (ImageResponse) renderer. dist/esm stays: client manifests name it.
+const unusedNext = (path) =>
+  /\.(map|d\.ts)$|\.runtime\.dev\.js$/.test(path) ||
+  /^dist\/(docs|bundle-analyzer|compiled\/@vercel\/og)(\/|$)/.test(path);
+const nextSource = join(root, "node_modules/next");
+await rm(join(target, "node_modules/next"), { recursive: true, force: true });
+await cp(nextSource, join(target, "node_modules/next"), {
   recursive: true,
   dereference: true,
+  filter: (path) =>
+    !unusedNext(path.slice(nextSource.length + 1).replaceAll("\\", "/")),
 });
+// Next traces its optional sharp image optimizer; images are unoptimized in
+// the desktop configuration and activity images use @resvg/resvg-wasm, so
+// sharp and its native libvips must not ship (nor their source corpus).
+for (const path of ["sharp", "@img"])
+  await rm(join(target, "node_modules", path), {
+    recursive: true,
+    force: true,
+  });
+const present = async (path) =>
+  (await stat(join(target, path)).catch(() => null)) !== null;
+for (const path of [
+  "node_modules/sharp",
+  "node_modules/@img",
+  "node_modules/next/dist/compiled/@vercel/og",
+])
+  if (await present(path))
+    throw new Error(`Excluded runtime content still present: ${path}.`);
+if (!(await present("node_modules/@resvg/resvg-wasm/index_bg.wasm")))
+  throw new Error("Activity image rasterizer missing from runtime.");
 await cp(join(root, ".next/static"), join(target, ".next/static"), {
   recursive: true,
 });

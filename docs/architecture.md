@@ -239,8 +239,8 @@ Terrain keeps its whole-analysis coverage/counts, including unsupported/partial
 states independently of valid summary/HR facts. Numerical-only default exposes no GPS, charts/raw streams,
 connector refresh, storage migration or focused-UI selection. Optional unique
 `panels` selects heartRate/elevation/speed/route images from the same synchronously
-captured dashboard input; route geometry is never implicit. The finite sharp PNG
-adapter reuses shared chart calculations and the interactive map's unchanged
+captured dashboard input; route geometry is never implicit. The finite resvg-wasm PNG
+adapter (macOS system Helvetica/Menlo fonts; none bundled or downloaded) reuses shared chart calculations and the interactive map's unchanged
 offline projection. Route images visibly disclose offline geometry/no topographic
 background/no tiles, sampling and attribution; no remote tile fetch is added.
 Images are 960×540, at most 1 MiB each/four panels. Above100,000 chart

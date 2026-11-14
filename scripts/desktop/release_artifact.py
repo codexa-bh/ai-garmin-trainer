@@ -110,6 +110,9 @@ def identity_hash(identity):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
+EXCLUDED_RUNTIME = ('node_modules/sharp', 'node_modules/@img', 'node_modules/next/dist/compiled/@vercel/og')
+
+
 def payload_checks(app, version):
     identity = tree_identity(app)
     with (app / 'Contents/Info.plist').open('rb') as stream:
@@ -134,9 +137,12 @@ def payload_checks(app, version):
     sqlite = list(root.glob('runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node'))
     if len(sqlite) != 1:
         raise ValueError('Required native SQLite missing')
-    binaries = [app / 'Contents/MacOS/garmin-trainer-desktop', root / 'node', sqlite[0],
-                root / 'runtime/node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64-0.35.5.node',
-                root / 'runtime/node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib']
+    if regular(root / 'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm').st_size == 0:
+        raise ValueError('Required activity image rasterizer missing')
+    # Excluded groups ship neither code nor their (removed) source corpus.
+    if any(os.path.lexists(root / 'runtime' / path) for path in EXCLUDED_RUNTIME):
+        raise ValueError('Excluded runtime content present in payload')
+    binaries = [app / 'Contents/MacOS/garmin-trainer-desktop', root / 'node', sqlite[0]]
     for binary in binaries:
         if run(['/usr/bin/lipo', '-archs', binary]).stdout.strip() != b'arm64':
             raise ValueError('Payload must contain ARM64-only native binaries')
@@ -191,6 +197,26 @@ def mounted(dmg, workspace):
                     raise
                 print('Owned DMG detach also failed; original failure preserved; inspect mount receipt before recovery', flush=True)
         # On attach timeout the OS may still own the mount: preserve it, never blind retry/delete.
+
+
+# Operator-accepted ARM64 DMG budget (T0333): 132,262,024 bytes measured plus
+# headroom. Exceeding it stops packaging before a record exists; raise it only
+# by a reviewed change with the new measured breakdown.
+DMG_BUDGET_BYTES = 140_000_000
+SIZE_GROUPS = {'node': 'node', 'runtime': 'runtime', 'next': 'runtime/node_modules/next',
+               'redistribution': 'redistribution'}
+
+
+def size_report(app, dmg):
+    """Local review aid: logical payload bytes per group; not a release asset."""
+    def logical(path):
+        if path.is_file():
+            return path.lstat().st_size
+        return sum(item.lstat().st_size for item in path.rglob('*') if item.is_file() and not item.is_symlink())
+    resources = app / 'Contents/Resources/resources'
+    return {'schemaVersion': 1, 'dmgBytes': dmg.stat().st_size, 'dmgBudgetBytes': DMG_BUDGET_BYTES,
+            'appBytes': logical(app),
+            'groups': {name: logical(resources / path) for name, path in SIZE_GROUPS.items()}}
 
 
 def record_for(repo, bundle, dmg, version, notes, verified, identity):
@@ -256,6 +282,12 @@ def package(repo, bundle, source, verified, inventory, scratch):
              'Garmin Trainer ' + version, '-srcfolder', staging, dmg], timeout=300)
     with verified_image(repo, bundle, source, verified, inventory, dmg, workspace) as (_, record):
         pass
+    report = size_report(bundle, dmg)
+    with (workspace / 'size-report.json').open('x') as stream:
+        json.dump(report, stream, indent=2)
+        stream.write('\n')
+    if report['dmgBytes'] > DMG_BUDGET_BYTES:
+        raise ValueError('DMG exceeds the accepted size budget; see retained size-report.json')
     with (workspace / 'release.json').open('x') as stream:
         json.dump(record, stream, indent=2)
         stream.write('\n')

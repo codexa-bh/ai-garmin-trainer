@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import sharp from "sharp";
+import { inflateSync } from "node:zlib";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
   buildActivityDashboardCharts,
@@ -25,6 +25,53 @@ import {
 import { createTrainerGeneration } from "../src/lib/ai/provider-generation";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import type { LocalDataToolPorts } from "../src/lib/ai/tool-ports";
+
+/** Minimal decoder for the renderer's 8-bit RGBA non-interlaced PNG output. */
+function decodePng(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const width = view.getUint32(16);
+  const height = view.getUint32(20);
+  expect([bytes[24], bytes[25], bytes[28]]).toEqual([8, 6, 0]);
+  const chunks: Uint8Array[] = [];
+  for (let at = 8; at < bytes.length;) {
+    const length = view.getUint32(at);
+    const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+    if (type === "IDAT") chunks.push(bytes.subarray(at + 8, at + 8 + length));
+    at += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(chunks));
+  const stride = width * 4;
+  const pixels = new Uint8Array(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    for (let x = 0; x < stride; x++) {
+      const value = raw[y * (stride + 1) + 1 + x];
+      const left = x >= 4 ? pixels[y * stride + x - 4] : 0;
+      const up = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      const corner = x >= 4 && y > 0 ? pixels[(y - 1) * stride + x - 4] : 0;
+      const p = left + up - corner;
+      const [a, b, c] = [left, up, corner].map((v) => Math.abs(p - v));
+      const predictor = [
+        0,
+        left,
+        up,
+        (left + up) >> 1,
+        a <= b && a <= c ? left : b <= c ? up : corner,
+      ][filter];
+      pixels[y * stride + x] = (value + predictor) & 255;
+    }
+  }
+  const darkIn = (x0: number, y0: number, x1: number, y1: number) => {
+    let dark = 0;
+    for (let y = y0; y < y1; y++)
+      for (let x = x0; x < x1; x++) {
+        const i = y * stride + x * 4;
+        if (pixels[i] + pixels[i + 1] + pixels[i + 2] < 300) dark++;
+      }
+    return dark;
+  };
+  return { width, height, darkIn };
+}
 
 const rows = Array.from({ length: 101 }, (_, i) => ({
   elapsedSec: i * 10,
@@ -109,11 +156,19 @@ it("rasterizes actual shared chart/route owners into bounded readable PNGs witho
   expect(new Set(result.images.map((image) => image.source)).size).toBe(1);
   for (const image of result.images) {
     expect(validActivityImage(image)).toBe(true);
-    expect(await sharp(image.bytes).metadata()).toMatchObject({
-      width: 960,
-      height: 540,
-      format: "png",
-    });
+    const decoded = decodePng(image.bytes);
+    expect([decoded.width, decoded.height]).toEqual([960, 540]);
+    // Title, monospace activity ID and capture line are drawn, not dropped.
+    for (const [top, bottom] of [
+      [10, 45],
+      [55, 78],
+      [84, 104],
+    ])
+      expect(decoded.darkIn(24, top, 400, bottom)).toBeGreaterThan(100);
+    // The decoder distinguishes drawn text from the empty background.
+    expect(decoded.darkIn(910, 5, 955, 40)).toBe(0);
+    // Footer evidence/attribution text is drawn too.
+    expect(decoded.darkIn(24, 440, 600, 520)).toBeGreaterThan(100);
   }
   const refreshed = await renderActivityImages(
     {
@@ -504,3 +559,31 @@ it.each([false, true])(
     expect(context!.activityImages.size).toBe(0);
   },
 );
+
+it("reports render_failed instead of label-less images when no system font is available", async () => {
+  vi.resetModules();
+  vi.doMock("node:fs/promises", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("node:fs/promises")>();
+    return {
+      ...actual,
+      readFile: (path: string, ...rest: unknown[]) =>
+        /\/fonts\//i.test(String(path))
+          ? Promise.reject(new Error("absent"))
+          : (actual.readFile as (...args: unknown[]) => unknown)(path, ...rest),
+    };
+  });
+  try {
+    const { renderActivityImages: render } =
+      await import("../src/lib/local-data/activity-image-renderer");
+    const result = await render(visualInput, ["heartRate"]);
+    expect(result).toEqual({
+      images: [],
+      panels: [
+        { panel: "heartRate", status: "unavailable", reason: "render_failed" },
+      ],
+    });
+  } finally {
+    vi.doUnmock("node:fs/promises");
+    vi.resetModules();
+  }
+});

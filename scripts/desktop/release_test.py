@@ -143,8 +143,7 @@ class PayloadTests(unittest.TestCase):
                      'redistribution/index.json', 'redistribution/NOTICES.txt', 'redistribution/sources/native-crates.tar.gz',
                      'runtime/runtime.cjs', 'runtime/scripts/garmin_auth.py', 'runtime/scripts/garmin_auth.py.lock',
                      'runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node',
-                     'runtime/node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64-0.35.5.node',
-                     'runtime/node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib', 'node']:
+                     'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm', 'node']:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'synthetic bundled input')
@@ -158,8 +157,20 @@ class PayloadTests(unittest.TestCase):
             self.assertTrue(artifact.payload_checks(self.app, '0.1.0'))
             with self.assertRaisesRegex(ValueError, 'version'):
                 artifact.payload_checks(self.app, '1.0.0')
+            for excluded, group in [
+                    ('@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib', '@img'),
+                    ('sharp/package.json', 'sharp'),
+                    ('next/dist/compiled/@vercel/og/resvg.wasm', 'next/dist/compiled/@vercel/og')]:
+                path = root / 'runtime/node_modules' / excluded
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'unwanted')
+                with self.subTest(excluded=excluded), self.assertRaisesRegex(ValueError, 'Excluded runtime'):
+                    artifact.payload_checks(self.app, '0.1.0')
+                shutil.rmtree(root / 'runtime/node_modules' / group)
+            self.assertTrue(artifact.payload_checks(self.app, '0.1.0'))
             for required in ['NODE-LICENSE.txt', 'redistribution/index.json', 'redistribution/NOTICES.txt',
-                             'redistribution/sources/native-crates.tar.gz']:
+                             'redistribution/sources/native-crates.tar.gz',
+                             'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm']:
                 path = root / required
                 original = path.read_bytes()
                 path.unlink()
@@ -264,6 +275,9 @@ class PayloadTests(unittest.TestCase):
                     self.fail('payload mutation must refuse')
 
     def test_package_creates_once_without_build_install_or_overwrite(self):
+        node = self.app / 'Contents/Resources/resources/node'
+        node.parent.mkdir(parents=True, exist_ok=True)
+        node.write_bytes(b'bundled node')
         def commands(args, **kwargs):
             if args[0] == '/usr/bin/ditto':
                 shutil.copytree(args[-2], args[-1])
@@ -277,11 +291,34 @@ class PayloadTests(unittest.TestCase):
             record = artifact.package(self.root, self.app, 'source', {}, {}, self.root)
             self.assertTrue(record.is_file())
             self.assertTrue(next(record.parent.glob('*.sha256')).is_file())
+            report = json.loads((record.parent / 'size-report.json').read_text())
+            self.assertEqual(report['dmgBytes'], len(b'final image'))
+            self.assertEqual(report['dmgBudgetBytes'], artifact.DMG_BUDGET_BYTES)
+            self.assertEqual(report['appBytes'], sum(p.stat().st_size for p in self.app.rglob('*') if p.is_file()))
+            self.assertEqual(set(report['groups']), {'node', 'runtime', 'next', 'redistribution'})
+            self.assertEqual(report['groups']['node'], (self.app / 'Contents/Resources/resources/node').stat().st_size)
             self.assertEqual(run.call_count, 2)
             creation = run.call_args.args[0]
             self.assertEqual(creation[1], 'create')
             self.assertNotIn('-ov', creation)
             self.assertFalse(any('build' in str(arg) or 'install' in str(arg) for call in run.call_args_list for arg in call.args[0]))
+
+    def test_package_refuses_over_budget_image_before_any_record(self):
+        def commands(args, **kwargs):
+            if args[0] == '/usr/bin/ditto':
+                shutil.copytree(args[-2], args[-1])
+            elif args[1] == 'create':
+                with Path(args[-1]).open('xb') as stream:
+                    stream.write(b'x' * 11)
+        @contextlib.contextmanager
+        def image(*args):
+            yield self.app, {'artifact': {'sha256': 'a' * 64}}
+        with patch.object(artifact.platform, 'system', return_value='Darwin'), patch.object(artifact.platform, 'machine', return_value='arm64'), patch.object(artifact, 'check', return_value=('0.1.0', 'notes')), patch.object(artifact, 'verify_ordinary'), patch.object(artifact, 'payload_checks', return_value=artifact.tree_identity(self.app)), patch.object(artifact, 'run', side_effect=commands), patch.object(artifact, 'verified_image', image), patch.object(artifact, 'DMG_BUDGET_BYTES', 10):
+            with self.assertRaisesRegex(ValueError, 'size budget'):
+                artifact.package(self.root, self.app, 'source', {}, {}, self.root)
+        workspace = next(self.root.glob('release-*'))
+        self.assertFalse((workspace / 'release.json').exists())
+        self.assertEqual(json.loads((workspace / 'size-report.json').read_text())['dmgBytes'], 11)
 
     def test_macos_copy_preserves_xattrs_before_enrollment_sealing(self):
         import smoke_resources

@@ -2,7 +2,7 @@
 
 Called only by the existing resource assembler under the ordinary producer lock.
 Arbitrary archive paths are never extracted; upstream code is never executed.
-Only two fixed public JS files are materialized to qualify Next's pinned patch.
+The shipped rasterizer Wasm is compared with its reviewed npm archive.
 Public indexes omit paths
 from Cargo metadata and all local environment information.
 """
@@ -16,7 +16,6 @@ import re
 import shutil
 import subprocess
 import tarfile
-import tempfile
 import urllib.request
 
 
@@ -34,7 +33,7 @@ def notice_name(name):
 
 def archive_notices(path):
     if path.suffix == '.txt':
-        return [(path.name, path.read_text())] if notice_name(path.name) or path.name.startswith(('MIT', 'LGPL')) else []
+        return [(path.name, path.read_text())] if notice_name(path.name) or path.name.startswith(('MIT', 'Apache')) else []
     texts = []
     with tarfile.open(path) as archive:
         for member in archive:
@@ -68,33 +67,28 @@ def acquire(entry, cache):
     return path
 
 
-def verify_embedded_og(root, source, upstream_patch):
-    """Qualify Next's own two-file patch, without modifying installed/runtime code."""
-    compiled = root / 'node_modules/next/dist/compiled/@vercel/og'
-    with tarfile.open(source) as archive, tempfile.TemporaryDirectory(dir=source.parent) as temporary:
-        reconstructed = Path(temporary) / 'dist'
-        reconstructed.mkdir()
-        for name in ['index.node.js', 'index.edge.js']:
-            (reconstructed / name).write_bytes(archive.extractfile('package/dist/' + name).read())
-        subprocess.run(['/usr/bin/patch', '-t', '-N', '-p1', '-d', temporary, '-i', str(upstream_patch)],
-                       check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
-        for name in ['index.node.js', 'index.edge.js', 'resvg.wasm', 'yoga.wasm', 'Geist-Regular.ttf']:
-            original = ((reconstructed / name).read_bytes() if name.endswith('.js')
-                        else archive.extractfile('package/dist/' + name).read())
-            if original != (compiled / name).read_bytes():
-                raise ValueError('Embedded OG asset differs from source archive and Next patch: ' + name)
-        for name in ['index.node.js.map', 'index.edge.js.map']:
-            value = json.load(archive.extractfile('package/dist/' + name))
-            if (not value['sources'] or len(value['sources']) != len(value['sourcesContent'])
-                    or any(not isinstance(text, str) for text in value['sourcesContent'])):
-                raise ValueError('Embedded OG preferred-source bodies incomplete')
+def verify_rasterizer(root, archive):
+    """The shipped activity-image Wasm must be the reviewed npm archive's bytes."""
+    shipped = root / 'src-tauri/resources/runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm'
+    with tarfile.open(archive) as source:
+        if source.extractfile('package/index_bg.wasm').read() != shipped.read_bytes():
+            raise ValueError('Shipped rasterizer Wasm differs from the reviewed source archive')
 
 
-def npm_notices(root):
+def verify_excluded(root, excluded):
+    """Excluded groups (and so their source corpus) must be absent from the runtime."""
+    runtime = root / 'src-tauri/resources/runtime'
+    present = [path for path in excluded if (runtime / path).exists()]
+    if present:
+        raise ValueError('Excluded runtime content present: ' + ', '.join(present))
+
+
+def npm_notices(root, excluded=()):
     lock = json.loads((root / 'package-lock.json').read_text())
     packages, texts = [], []
     for relative, package in sorted(lock['packages'].items()):
-        if not relative or package.get('dev'):
+        if not relative or package.get('dev') or any(
+                relative == path or relative.startswith(path + '/') for path in excluded):
             continue
         directory = root / relative
         if not directory.exists():  # Optional packages for other platforms.
@@ -107,7 +101,8 @@ def npm_notices(root):
                          'source': package.get('resolved'), 'integrity': package.get('integrity')})
         for path in sorted(directory.rglob('*')):
             local = path.relative_to(directory)
-            if 'node_modules' in local.parts or not notice_name(path.name):
+            if ('node_modules' in local.parts or not notice_name(path.name)
+                    or any((relative + '/' + local.as_posix()).startswith(item + '/') for item in excluded)):
                 continue
             if path.is_file() and not path.is_symlink():
                 if path.stat().st_size > 2 * 1024 * 1024:
@@ -172,16 +167,14 @@ def assemble(root):
             raise ValueError('Reviewed redistribution inputs need updating for ' + relative)
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         inputs = list(pool.map(lambda entry: acquire(entry, cache), reviewed['sources']))
-    og = [path for entry, path in zip(reviewed['sources'], inputs) if entry['name'].startswith('@vercel/og@')]
-    if len(og) != 1:
-        raise ValueError('Exactly one reviewed OG source archive required')
-    verify_embedded_og(root, og[0], cache / reviewed['ogPatch'])
+    verify_excluded(root, reviewed['excludedRuntime'])
+    verify_rasterizer(root, cache / reviewed['rasterizerArchive'])
     texts = []
     for entry, path in zip(reviewed['sources'], inputs):
         shutil.copyfile(path, sources / entry['file'])
         texts.extend((entry['name'] + '/' + name, text) for name, text in archive_notices(path))
     native, native_texts = native_sources(root, sources / 'native-crates.tar.gz')
-    npm, npm_texts = npm_notices(root)
+    npm, npm_texts = npm_notices(root, reviewed['excludedRuntime'])
     texts.extend(native_texts)
     texts.extend(npm_texts)
     with (output / 'NOTICES.txt').open('x') as stream:

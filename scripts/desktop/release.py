@@ -88,7 +88,8 @@ def run(parser, args):
         if args.action == 'package':
             record = package(ROOT, bundle, source, verified, inventory, scratch)
             timing.correlate(dmgSha256=document(record)['artifact']['sha256'])
-            print(json.dumps({'record': str(record), 'artifact': document(record)['artifact'], 'localOnly': True}))
+            print(json.dumps({'record': str(record), 'artifact': document(record)['artifact'], 'localOnly': True,
+                              'size': document(record.parent / 'size-report.json')}))
             return
         if args.record is None:
             parser.error('verification/remote actions require --record')

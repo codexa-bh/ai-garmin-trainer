@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import sharp from "sharp";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { initWasm, Resvg } from "@resvg/resvg-wasm";
 import { offlineRouteCoordinates } from "../analytics/activity-route-layout";
 import {
   validActivityImage,
@@ -8,6 +10,69 @@ import {
   type ActivityVisualInput,
   type ActivityVisualResult,
 } from "./activity-visuals";
+
+// resvg does not map generic families to loaded fonts reliably, so name them.
+const SANS = "Helvetica, DejaVu Sans, sans-serif";
+const MONOSPACE = "Menlo, DejaVu Sans Mono, monospace";
+// Fonts are read from the OS, never redistributed or downloaded. macOS is the
+// product platform; the DejaVu pair only serves Linux CI test hosts.
+const FONT_FILES = [
+  "/System/Library/Fonts/Helvetica.ttc",
+  "/System/Library/Fonts/Menlo.ttc",
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+];
+let fonts: Promise<Uint8Array[]> | undefined;
+// The Wasm package is a server-external singleton that refuses a second
+// initWasm(), so share its initialization across re-evaluated modules.
+const RASTERIZER_WASM = "node_modules/@resvg/resvg-wasm/index_bg.wasm";
+const WASM = Symbol.for("garmin-trainer.resvg-wasm");
+const shared = globalThis as { [WASM]?: Promise<void> };
+
+/** One-time font and Wasm load; a failure is retried by the next render. */
+async function loadRasterizer(): Promise<Uint8Array[]> {
+  fonts ??= Promise.all(
+    FONT_FILES.map((path) =>
+      readFile(/* turbopackIgnore: true */ path).catch(() => null),
+    ),
+  ).then((loaded) => {
+    const available = loaded.flatMap((font) =>
+      font ? [new Uint8Array(font)] : [],
+    );
+    // Without fonts resvg silently drops every label; refuse instead.
+    if (available.length === 0) throw new Error("No system font available.");
+    return available;
+  });
+  shared[WASM] ??= initWasm(
+    // The runtime root holds the package; next.config traces its Wasm file.
+    readFile(join(/* turbopackIgnore: true */ process.cwd(), RASTERIZER_WASM)),
+  );
+  const loading = fonts;
+  const initializing = shared[WASM];
+  loading.catch(() => {
+    if (fonts === loading) fonts = undefined;
+  });
+  initializing.catch(() => {
+    if (shared[WASM] === initializing) delete shared[WASM];
+  });
+  await initializing;
+  return loading;
+}
+
+async function rasterize(svg: string): Promise<Uint8Array> {
+  const fontBuffers = await loadRasterizer();
+  const renderer = new Resvg(svg, { font: { fontBuffers } });
+  try {
+    const rendered = renderer.render();
+    try {
+      return rendered.asPng();
+    } finally {
+      rendered.free();
+    }
+  } finally {
+    renderer.free();
+  }
+}
 
 const labels = {
   heartRate: ["Heart rate", "heartRate", "bpm"],
@@ -33,7 +98,7 @@ const text = (
   size = 18,
   monospace = false,
 ) =>
-  `<text x="${x}" y="${y}" font-size="${size}"${monospace ? ' font-family="monospace"' : ""}>${escape(value)}</text>`;
+  `<text x="${x}" y="${y}" font-size="${size}"${monospace ? ` font-family="${MONOSPACE}"` : ""}>${escape(value)}</text>`;
 const number = (value: number) => Number(value.toFixed(2)).toString();
 
 function chart(
@@ -181,16 +246,14 @@ export async function renderActivityImages(
         });
         continue;
       }
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="960" height="540" fill="#fff"/><g font-family="sans-serif" fill="#172b3a">${text(24, 38, view.title, 26)}${text(24, 72, `Activity ${input.garminId}`, 17, true)}${text(24, 100, `Captured ${capturedAt} · source ${source.slice(0, 16)} · current turn`, 16)}${view.body}</g></svg>`;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"><rect width="960" height="540" fill="#fff"/><g font-family="${SANS}" fill="#172b3a">${text(24, 38, view.title, 26)}${text(24, 72, `Activity ${input.garminId}`, 17, true)}${text(24, 100, `Captured ${capturedAt} · source ${source.slice(0, 16)} · current turn`, 16)}${view.body}</g></svg>`;
       const image: ActivityPanelImage = {
         garminId: input.garminId,
         panel,
         source,
         capturedAt,
         mediaType: "image/png",
-        bytes: await sharp(Buffer.from(svg), { limitInputPixels: 960 * 540 })
-          .png()
-          .toBuffer(),
+        bytes: await rasterize(svg),
       };
       if (!validActivityImage(image)) {
         image.bytes.fill(0);
