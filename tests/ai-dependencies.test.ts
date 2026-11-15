@@ -67,6 +67,7 @@ const allowed = new Set([
   "garmin/import-contracts.ts",
   "garmin/history-policy.ts",
   "garmin/discovery-policy.ts",
+  "garmin/scope-policy.ts",
   "garmin/sync-policy.ts",
   "garmin/types.ts",
   "local-data/activity-policy.ts",

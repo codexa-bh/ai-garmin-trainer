@@ -75,9 +75,11 @@ function fixture() {
       journal.push("write:body");
     }),
     getCheckpoint: vi.fn((key) => checkpoints.get(key) ?? null),
-    saveCheckpoint: vi.fn((key, value) => {
-      journal.push(`checkpoint:${key}:${value}`);
-      checkpoints.set(key, value);
+    saveCheckpoints: vi.fn((entries) => {
+      for (const [key, value] of entries) {
+        journal.push(`checkpoint:${key}:${value}`);
+        checkpoints.set(key, value);
+      }
     }),
     upsertActivities: vi.fn((rows) => {
       journal.push("write:activities");
@@ -698,14 +700,11 @@ describe("Garmin imports with supplied capabilities, no infrastructure mocks", (
     ).toEqual(["2026-09-21", "2026-09-20", "2026-09-19"]);
     expect(f.journal.at(-1)).toBe("event:completed");
     expect(f.reader.close).toHaveBeenCalledOnce();
-    expect(f.store.saveCheckpoint).not.toHaveBeenCalledWith(
-      "activity_page",
-      expect.anything(),
-    );
-    expect(f.store.saveCheckpoint).not.toHaveBeenCalledWith(
-      "health_next_date",
-      expect.anything(),
-    );
+    const savedKeys = vi
+      .mocked(f.store.saveCheckpoints)
+      .mock.calls.flatMap(([entries]) => entries.map(([key]) => key));
+    expect(savedKeys).not.toContain("activity_page");
+    expect(savedKeys).not.toContain("health_next_date");
     expect(result).toMatchObject({
       status: "completed",
       activitiesImported: 1,

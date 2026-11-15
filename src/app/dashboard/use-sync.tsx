@@ -81,7 +81,10 @@ export function useSyncFeature({
       importSummary?.sync?.operationInvalid ||
       !summaryKnownRef.current ||
       (intent === "history" &&
-        importSummary?.sync?.historical.state !== "available")
+        (importSummary?.sync?.historical.state !== "available" ||
+          importSummary.sync.historical.action === "discover")) ||
+      (intent === "discover" &&
+        importSummary?.sync?.historical.action !== "discover")
     )
       return;
     setBackendObserved(false);
@@ -90,13 +93,19 @@ export function useSyncFeature({
     setSummaryKnown(false);
     isSyncingRef.current = true;
     setIsSyncing(true);
+    const label =
+      intent === "latest"
+        ? "Latest refresh"
+        : intent === "discover"
+          ? "Older history discovery"
+          : "Historical import";
     let logLines: SyncRunState["lines"] = [
       {
-        text: `${intent === "latest" ? "Sync latest" : "Historical import"}: starting…`,
+        text: `${intent === "latest" ? "Sync latest" : label}: starting…`,
         severity: "info",
       },
     ];
-    const runningMessage = `${intent === "latest" ? "Latest refresh" : "Historical import"} in progress…`;
+    const runningMessage = `${label} in progress…`;
     let countSummary: string | undefined;
     let phase: string | undefined;
     let workSummary: string | undefined;

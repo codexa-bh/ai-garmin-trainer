@@ -43,6 +43,8 @@ const summary = (
       next:
         state === "available" ? { family: "health", date: "2026-09-01" } : null,
       limit: "2026-09-01",
+      savedLimit: "2026-09-01",
+      recovery: null,
       remoteLowerBound: null,
       interrupted: false,
       reason:
@@ -737,5 +739,155 @@ describe("truthful Sync UI admission", () => {
         .filter((el) => el.classList.contains("sync-current-status")),
     ).toHaveLength(1);
     expect(screen.queryByText(/Summary truth is not confirmed/)).toBeNull();
+  });
+});
+
+describe("limited progress continuing into automatic discovery", () => {
+  const discoverReason =
+    "Saved progress stopped at a date limit. Automatic discovery can continue farther back; imported data will be kept.";
+  function reconcilable(): ImportSummaryPayload {
+    const value = summary();
+    value.sync!.operation = {
+      version: 1,
+      intent: "latest",
+      outcome: "settled",
+      updatedAt: "2026-11-15T09:00:00Z",
+      stopReason: null,
+      detailsAttempted: 2,
+      detailsProcessed: 2,
+      detailsFailed: 0,
+      detailsRemaining: 0,
+      activitiesProcessed: 10,
+      healthDaysRefreshed: 14,
+    };
+    value.sync!.historical = {
+      state: "available",
+      action: "discover",
+      next: { family: "health", date: "2024-05-31" },
+      limit: null,
+      savedLimit: "2024-06-01",
+      recovery: null,
+      remoteLowerBound: null,
+      interrupted: false,
+      reason: discoverReason,
+    };
+    return value;
+  }
+  it("shows latest success separately and dispatches exactly one explicit discover", async () => {
+    let body: string | undefined;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/sync") {
+        body = String(init?.body);
+        return new Response(
+          `${JSON.stringify({ type: "result", status: "completed", intent: "discover", sync: summary("complete").sync })}\n`,
+        );
+      }
+      return response(reconcilable());
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<SyncHarness />);
+    const card = await screen.findByRole("region", { name: "Run Garmin sync" });
+    await within(card).findByText("Latest refresh finished.");
+    expect(
+      within(card).getByText(
+        "10 activity records processed · 14 health dates refreshed · 2 details completed · 2 attempted · 0 remaining",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(card).queryByText("Older history needs attention."),
+    ).toBeNull();
+    expect(
+      within(card).getByText(/Saved progress stopped at 2024-06-01/)
+        .textContent,
+    ).toContain("Total history unknown.");
+    expect(
+      within(card).queryByRole("button", {
+        name: /Continue|Import older|Reset/,
+      }),
+    ).toBeNull();
+    const details = within(card).getByText("Technical details")
+      .parentElement as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(
+      within(details).getByText(
+        /Saved scope: 2024-06-01; current scope: automatic discovery/,
+      ),
+    ).toBeTruthy();
+    expect(
+      fetch.mock.calls.filter(([url]) => url === "/api/sync"),
+    ).toHaveLength(0);
+    const button = within(card).getByRole("button", {
+      name: "Discover older history",
+    });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(within(card).getByRole("status").textContent).toContain(
+        "Older history discovery finished",
+      ),
+    );
+    expect(
+      fetch.mock.calls.filter(([url]) => url === "/api/sync"),
+    ).toHaveLength(1);
+    expect(JSON.parse(body!)).toEqual({ intent: "discover" });
+  });
+  it.each([
+    ["inconsistent", "Saved progress records disagree"],
+    ["scope-changed", "uses another date limit (2024-06-01)"],
+    ["unsupported", "Use a compatible app build"],
+    ["no-progress", "made no progress"],
+  ] as const)(
+    "explains blocked %s recovery once without an executable action",
+    async (recovery, text) => {
+      const value = reconcilable();
+      value.sync!.historical = {
+        ...value.sync!.historical,
+        state: "blocked",
+        action: null,
+        next: null,
+        limit: "2023-01-01",
+        recovery,
+        reason: "server reason",
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response(value)),
+      );
+      render(<SyncHarness />);
+      const card = await screen.findByRole("region", {
+        name: "Run Garmin sync",
+      });
+      await within(card).findByText("Latest refresh finished.");
+      expect(
+        within(card).getAllByText("Older history needs attention."),
+      ).toHaveLength(1);
+      expect(
+        within(card)
+          .getByText(new RegExp(text.replace(/[()]/g, "\\$&")))
+          .closest("details"),
+      ).toBeNull();
+      expect(card.textContent).not.toMatch(/delete|reset|log in|sign in/i);
+      expect(
+        within(card).queryByRole("button", {
+          name: /Discover|Continue|Import older/,
+        }),
+      ).toBeNull();
+    },
+  );
+  it("hook refuses discover when the summary does not offer it and history when it does", async () => {
+    const fetch = vi.fn(async (_url: string) => response(reconcilable()));
+    vi.stubGlobal("fetch", fetch);
+    const { result } = renderHook(() => useSyncFeature(ports()));
+    await act(() => result.current.loadImportSummary("startup", false));
+    await act(() => result.current.syncNow("history"));
+    expect(
+      fetch.mock.calls.filter(([url]) => url === "/api/sync"),
+    ).toHaveLength(0);
+    fetch.mockImplementation(async (_url: string) => response(summary()));
+    await act(() => result.current.loadImportSummary("startup", false));
+    await act(() => result.current.syncNow("discover"));
+    expect(
+      fetch.mock.calls.filter(([url]) => url === "/api/sync"),
+    ).toHaveLength(0);
   });
 });

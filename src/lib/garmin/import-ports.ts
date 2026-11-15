@@ -114,7 +114,8 @@ export interface GarminImportStore extends BaselineStore, DetailStore {
     oldestWithMetrics: string | null;
   };
   getCheckpoint(key: string): string | null;
-  saveCheckpoint(key: string, value: string): void;
+  /** Atomic: all entries commit together or none do. */
+  saveCheckpoints(entries: [key: string, value: string][]): void;
   listRecentActivities(limit: number): { garminId: string }[];
   listDailyHealthMissingGapDates(input: DateRange): string[];
   listDailyHealthRepairCandidateDates(input: DateRange): string[];

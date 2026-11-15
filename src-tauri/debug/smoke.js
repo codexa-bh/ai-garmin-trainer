@@ -3449,6 +3449,7 @@
       "Sync latest",
       "Import older data",
       "Continue historical import",
+      "Discover older history",
       "Technical details",
       "Sync in progress",
       "Cancel sync",
@@ -3507,8 +3508,14 @@
         "Selected older range checked; remote earliest history unknown.",
         "Latest refresh in progress…",
         "Historical import in progress…",
+        "Older history discovery in progress…",
         "Cancellation requested. Refresh import summary to confirm settlement.",
-        ...["Latest refresh", "Historical import", "Sync"].flatMap((label) => [
+        ...[
+          "Latest refresh",
+          "Historical import",
+          "Older history discovery",
+          "Sync",
+        ].flatMap((label) => [
           `${label} finished.`,
           `${label} failed. Refresh import summary for status.`,
           `${label} cancelled. Saved progress is retained.`,
@@ -3718,11 +3725,16 @@
         } else if (command.action !== "observe") {
           const labels = {
             start: "Sync now — import latest Garmin data",
-            continue: [...panel.querySelectorAll("button")].some(
-              (el) => name(el) === "Continue historical import",
-            )
-              ? "Continue historical import"
-              : "Import older data",
+            // Exactly one historical control is rendered at a time.
+            continue: [
+              "Continue historical import",
+              "Discover older history",
+              "Import older data",
+            ].find((label) =>
+              [...panel.querySelectorAll("button")].some(
+                (el) => name(el) === label,
+              ),
+            ),
             cancel: "Cancel sync",
             refresh: "Refresh import summary",
           };

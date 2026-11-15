@@ -29,6 +29,7 @@ const allowed = new Set([
   "garmin/dependency-error.ts",
   "garmin/history-policy.ts",
   "garmin/discovery-policy.ts",
+  "garmin/scope-policy.ts",
   "garmin/sync-policy.ts",
   "garmin/normalize.ts",
   "analytics/activity-dashboard-calculations.ts",

@@ -111,6 +111,29 @@ def prepare_synthetic_history(run):
     os.replace(staged, path)
 
 
+def prepare_automatic_history(run):
+    """Stopped owned keyless synthetic settings only: clear the authored limit.
+
+    This is the same allowlisted field prepare_synthetic_history authored, now
+    removed so the next owned boot runs automatic discovery. Checkpoints are
+    untouched; only the explicit visible action may reconcile them.
+    """
+    from history_connector import SENTINEL
+    root = private_directory(run.root)
+    if run.child is not None or listening(run.config['port']):
+        raise ValueError('Stopped owned synthetic run required')
+    path = root / 'config/settings-v3.json'
+    saved = json.loads(path.read_text())
+    if saved['keys'] or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens') or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL:
+        raise ValueError('Synthetic-only automatic transition required')
+    if not saved['fields'].get('GARMIN_HISTORY_START_DATE'):
+        raise ValueError('Authored date-limited synthetic settings required')
+    del saved['fields']['GARMIN_HISTORY_START_DATE']
+    staged = root / 'config/synthetic-automatic-settings.json'
+    private_json(staged, saved)
+    os.replace(staged, path)
+
+
 def prepare_mixed_sync_presentation(run, outcome):
     """Fixed authored 6/14 + no-progress history, after real scenario settlement.
 
@@ -134,7 +157,7 @@ def prepare_mixed_sync_presentation(run, outcome):
         if row is None:
             raise ValueError('Settled authored history required')
         history = json.loads(row[0])
-        if history['outcome'] not in ('settled', 'failed') or history['remoteLowerBound'] is not None:
+        if history['outcome'] not in ('settled', 'failed', 'cancelled') or history['remoteLowerBound'] is not None:
             raise ValueError('Settled unknown-boundary authored history required')
         history.update(outcome='failed', recoveryReason='no-progress')
         latest = {'version':1, 'outcome':outcome, 'updatedAt':datetime.now(timezone.utc).isoformat(), 'activitiesProcessed':6, 'healthDaysRefreshed':14}
@@ -315,6 +338,10 @@ class HistoryRun(OrdinaryRun):
                 'nextHealthDate': health.get('nextDate'), 'remoteLowerBound': history.get('remoteLowerBound'),
                 'operations': history.get('operations'), 'failureClass': history.get('failureClass'),
                 'historicalState': ((value.get('sync') or {}).get('historical') or {}).get('state'),
+                'historicalAction': ((value.get('sync') or {}).get('historical') or {}).get('action'),
+                'savedLimit': ((value.get('sync') or {}).get('historical') or {}).get('savedLimit'),
+                'limit': ((value.get('sync') or {}).get('historical') or {}).get('limit'),
+                'expandedFrom': history.get('expandedFrom'),
                 'latestOutcome': ((value.get('sync') or {}).get('latest') or {}).get('outcome'),
                 'detailsAttempted': sync_work.get('detailsAttempted'),
                 'detailsProcessed': sync_work.get('detailsProcessed'),
@@ -496,6 +523,7 @@ class HistoryRun(OrdinaryRun):
         for preset in ('wide', 'narrow'):
             self.command({'type':'setViewport', 'preset':preset})
             images.append({'scenario':f'technical-details-expanded-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+        discovery = self.automatic_discovery()
         for outcome in ('settled', 'failed'):
             self.stop()
             prepare_mixed_sync_presentation(self, outcome)
@@ -514,7 +542,85 @@ class HistoryRun(OrdinaryRun):
                 for preset in ('wide', 'narrow'):
                     self.command({'type':'setViewport', 'preset':preset})
                     images.append({'scenario':f'mixed-technical-details-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'latest':latest, 'maxInvocations':5, 'maxObservationSecondsPerOperation':150, 'mixedPresentation':'stopped authored 6/14 latest settled/failed with no-progress blocked history; not engine progression', 'realGarminCertified':False})
+        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'latest':latest, 'automaticDiscovery':discovery, 'maxInvocations':9, 'maxObservationSecondsPerOperation':150, 'mixedPresentation':'stopped authored 6/14 latest settled/failed with no-progress blocked history; not engine progression', 'realGarminCertified':False})
+
+    def automatic_discovery(self):
+        """Settled date-limited progress continued by the explicit Discover action.
+
+        Four more actual operations: latest (bytes preserved), Discover (cancel
+        after older-than-limit progress), relaunch, explicit Continue (cancel),
+        then latest. Remote earliest history stays unknown; no injected cursor.
+        """
+        images = self.sync_captures
+        before = self.summary()
+        limit = before['savedLimit']
+        if before['active'] or before['historicalState'] != 'complete' or not limit or before['limit'] != limit:
+            raise ValueError('Settled date-limited authored history required')
+        digest = self.history_digest()
+        self.stop()
+        prepare_automatic_history(self)
+        self.start(self.binary)
+        self.command({'type':'setViewport', 'preset':'wide'})
+        self.command({'type':'click', 'target':'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'automatic-scope Sync')
+        offered = self.summary()
+        if offered['active'] or offered['historicalAction'] != 'discover' or offered['savedLimit'] != limit or offered['limit'] is not None or offered['remoteLowerBound'] is not None or self.history_digest() != digest:
+            raise ValueError('Relaunch/passive read changed history or did not offer Discover')
+        records = {'savedLimit': limit, 'offered': offered, 'latest': [self.latest_only()]}
+        if records['latest'][0]['after']['historicalAction'] != 'discover':
+            raise ValueError('Latest refresh changed the offered discovery action')
+        for preset in ('wide', 'narrow'):
+            self.command({'type':'setViewport', 'preset':preset})
+            images.append({'scenario':f'discover-offered-latest-success-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+        self.command({'type':'sync', 'action':'details'})
+        for preset in ('wide', 'narrow'):
+            self.command({'type':'setViewport', 'preset':preset})
+            images.append({'scenario':f'discover-offered-details-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+        self.command({'type':'sync', 'action':'details'})
+        self.command({'type':'setViewport', 'preset':'wide'})
+        records['operations'] = []
+        for index, action in enumerate(('discover', 'continue')):
+            start = self.summary()
+            if start['historicalAction'] != action:
+                raise ValueError('Unexpected historical action before explicit operation')
+            self.wait_sync(lambda value: value['startEnabled'], 10)
+            self.command({'type':'sync', 'action':'continue'})  # Exactly one visible action.
+            self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
+            deadline = time.monotonic() + 150
+            while time.monotonic() < deadline:
+                current = self.summary()
+                if current['outcome'] == 'failed' or current['operationAttempts'] > 150:
+                    raise ValueError('Discovery failed/exceeded finite evidence envelope')
+                older = current['nextHealthDate'] is not None and current['nextHealthDate'] < (limit if index == 0 else start['nextHealthDate'])
+                if current['active'] and older and current['batches'] >= 1:
+                    break
+                time.sleep(.25)
+            else:
+                raise TimeoutError('Older-than-limit progress not observed within finite envelope')
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                images.append({'scenario':f'{action}-active-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            self.command({'type':'setViewport', 'preset':'wide'})
+            self.command({'type':'sync', 'action':'cancel'})
+            self.settle_claim()
+            self.wait_sync(lambda value: not value['running'] and value['paused'], 40)
+            after = self.summary()
+            if after['active'] or after['outcome'] != 'cancelled' or after['savedLimit'] is not None or after['expandedFrom'] != limit or after['healthChecks'] <= (start['healthChecks'] or 0) or not after['nextHealthDate'] < limit:
+                raise ValueError('Transition/progress was not durable under automatic scope')
+            for preset in ('wide', 'narrow'):
+                self.command({'type':'setViewport', 'preset':preset})
+                images.append({'scenario':f'{action}-cancelled-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            self.stop()
+            self.start(self.binary)
+            self.command({'type':'setViewport', 'preset':'wide'})
+            self.command({'type':'click', 'target':'Sync'})
+            self.wait(lambda value: value['view'] == 'Sync', 'relaunch after explicit discovery')
+            restored = self.summary()
+            if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalAction'] != 'continue':
+                raise ValueError('Relaunch replayed, lost progress or re-offered the transition')
+            records['operations'].append({'action':action, 'before':start, 'after':after})
+        records['latest'].append(self.latest_only())
+        return records
 
     def dependency_guidance(self):
         images = self.sync_captures = []

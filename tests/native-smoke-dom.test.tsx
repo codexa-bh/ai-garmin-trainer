@@ -311,6 +311,52 @@ describe("native-installed rendered smoke boundary", () => {
     ))
       expect(typeof value).toBe("boolean");
   });
+  it("targets the single visible Discover older history control and masks its scope dates", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 850);
+    const discover = vi.fn();
+    render(
+      <div className="sync-view-active">
+        <section className="sync-view-panel">
+          <div className="sync-view-content">
+            <section aria-labelledby="sync-action-heading">
+              <h2 id="sync-action-heading">Run Garmin sync</h2>
+              <button aria-label="Sync now — import latest Garmin data">
+                Sync latest
+              </button>
+              <button onClick={discover}>Discover older history</button>
+              <p className="helper-text sync-history-scope">
+                Saved progress stopped at 2024-06-01-canary.
+              </p>
+              <p className="sync-current-status">Latest refresh finished.</p>
+              <details>
+                <summary>Technical details</summary>
+                <p>Saved scope: private-scope-canary</p>
+              </details>
+            </section>
+          </div>
+        </section>
+      </div>,
+    );
+    expect(
+      (await command({ type: "sync", action: "continue" })).result.ok,
+    ).toBe(true);
+    expect(discover).toHaveBeenCalledOnce();
+    expect(
+      (await command({ type: "captureView", view: "sync", preset: "wide" }))
+        .result.ok,
+    ).toBe(true);
+    expect(
+      getComputedStyle(screen.getByText("Discover older history")).visibility,
+    ).toBe("visible");
+    expect(
+      getComputedStyle(screen.getByText(/2024-06-01-canary/)).visibility,
+    ).toBe("hidden");
+    expect(
+      getComputedStyle(screen.getByText(/private-scope-canary/)).visibility,
+    ).toBe("hidden");
+  });
   it("drives fixed actual model owner explicit selection and synthetic draft/keys, returning only booleans and masking all copied content", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     vi.stubGlobal("innerWidth", 1280);

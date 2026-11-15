@@ -259,6 +259,19 @@ export function saveCheckpoint(key: string, value: string): void {
     .run(key, value, Date.now());
 }
 
+/** Commit related checkpoints together or not at all. */
+export function saveCheckpoints(entries: [key: string, value: string][]): void {
+  const db = getDatabase();
+  const upsert = db.prepare(
+    `insert into sync_checkpoint (key, value, updated_at) values (?, ?, ?)
+     on conflict(key) do update set value=excluded.value, updated_at=excluded.updated_at`,
+  );
+  const now = Date.now();
+  db.transaction(() => {
+    for (const [key, value] of entries) upsert.run(key, value, now);
+  })();
+}
+
 export function getCheckpoint(key: string): string | null {
   const row = getDatabase()
     .prepare("select value from sync_checkpoint where key = ?")

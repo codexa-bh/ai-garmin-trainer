@@ -13,6 +13,7 @@ import {
   formatSyncRunStatus,
   formatSyncWork,
   syncFailureSummary,
+  historyRecoveryHint,
 } from "./sync-presentation";
 
 function SyncLoginHelp({
@@ -217,11 +218,21 @@ export function SyncView({
                   importSummary.syncActive ||
                   importSummary.sync?.operationInvalid
                 }
-                onClick={() => runInBackground(syncNow("history"))}
+                onClick={() =>
+                  runInBackground(
+                    syncNow(
+                      importSummary.sync?.historical.action === "discover"
+                        ? "discover"
+                        : "history",
+                    ),
+                  )
+                }
               >
                 {importSummary.sync.historical.action === "start"
                   ? "Import older data"
-                  : "Continue historical import"}
+                  : importSummary.sync.historical.action === "discover"
+                    ? "Discover older history"
+                    : "Continue historical import"}
               </button>
             ) : null}
             {isSyncing && cancelSync ? (
@@ -230,7 +241,16 @@ export function SyncView({
               </button>
             ) : null}
           </div>
-          {history?.state === "available" && summaryKnown !== false ? (
+          {history?.action === "discover" && summaryKnown !== false ? (
+            <p className="helper-text sync-history-scope">
+              {history.interrupted
+                ? "Older import interrupted; saved progress retained. "
+                : ""}
+              Saved progress stopped at {history.savedLimit}. Automatic
+              discovery can continue farther back; imported data will be kept.
+              Up to 30 minutes. Total history unknown.
+            </p>
+          ) : history?.state === "available" && summaryKnown !== false ? (
             <p className="helper-text">
               {history.interrupted
                 ? "Older import interrupted; saved progress retained. "
@@ -277,9 +297,16 @@ export function SyncView({
             </p>
           ) : null}
           {history?.state === "blocked" ? (
-            <p className="sync-history-status sync-history-warning">
-              Older history needs attention.
-            </p>
+            <>
+              <p className="sync-history-status sync-history-warning">
+                Older history needs attention.
+              </p>
+              {history.recovery ? (
+                <p className="helper-text sync-history-recovery">
+                  {historyRecoveryHint(history.recovery, history.savedLimit)}
+                </p>
+              ) : null}
+            </>
           ) : history?.state === "complete" && summaryKnown !== false ? (
             <p className="helper-text sync-history-status">
               Selected older range checked; remote earliest history unknown.
@@ -305,6 +332,13 @@ export function SyncView({
                 {history.next.page !== undefined
                   ? ` · page ${history.next.page}`
                   : ""}
+              </p>
+            ) : null}
+            {history && history.savedLimit !== history.limit ? (
+              <p className="helper-text">
+                Saved scope: {history.savedLimit ?? "automatic discovery"};
+                current scope: {history.limit ?? "automatic discovery"}
+                {history.recovery ? `; recovery: ${history.recovery}` : ""}.
               </p>
             ) : null}
             {importSummary?.history ? (
