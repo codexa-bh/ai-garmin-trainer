@@ -140,6 +140,50 @@ it("measures the approved hiking definition with timer Time, replacement, ties a
   expect((await measure())[0]).toMatchObject({ status: "incomplete" });
 });
 
+it("avoids HR-zone join fan-out and keeps missing ascent unknown, not zero", async () => {
+  const insert = await load();
+  insert.run("h", "h", "Hike", "hiking", at(11), 9000, null);
+  const zone = db.prepare(
+    "insert into activity_hr_zone_time(garmin_id,zone,fetched_at,source,status,seconds,source_total_seconds) values (?,?,?,?,?,?,1800)",
+  );
+  for (const z of [1, 2, 3]) zone.run("h", z, 1, "authored", "available", 600);
+  const { createKpiRecipeExecution } =
+    await import("../src/lib/ai/analytics/recipe-execution");
+  const run = await createKpiRecipeExecution().run(
+    [
+      {
+        conceptId: "hike",
+        sql: HIKING_SQL,
+        tracks: ["long_time", "long_ascent", "others"].map((key) => ({
+          key,
+          signature: "s",
+        })),
+      },
+      {
+        conceptId: "zone",
+        sql: "select count(distinct a.garmin_id) as outings, sum(z.seconds) as z_seconds from activity a join activity_hr_zone_time z on z.garmin_id = a.garmin_id where a.started_at >= :week_start_ms and a.started_at < :week_end_ms",
+        tracks: ["outings", "z_seconds"].map((key) => ({
+          key,
+          signature: "s",
+        })),
+      },
+    ],
+    window,
+  );
+  expect(run.outcomes).toEqual([
+    {
+      conceptId: "hike",
+      status: "measured",
+      values: { long_time: 9000, long_ascent: null, others: 0 },
+    },
+    {
+      conceptId: "zone",
+      status: "measured",
+      values: { outings: 1, z_seconds: 1800 },
+    },
+  ]);
+});
+
 it("hard-stops expensive and allocation-heavy recipes and isolates them from valid ones", async () => {
   await load();
   const { createKpiRecipeExecution } =
