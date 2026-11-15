@@ -1909,6 +1909,25 @@ it.each(["supported", "partial", "capped"])(
   },
 );
 
+function WeeklySmokeView() {
+  const weekly = useWeeklyFeature();
+  return (
+    <WeeklyPlanView
+      weekly={weekly}
+      close={() => {}}
+      closeRef={createRef()}
+      openGeneral={async () => {}}
+      run={(work) => {
+        work.catch(() => {
+          throw new Error("Unexpected weekly test read failure");
+        });
+      }}
+    >
+      {null}
+    </WeeklyPlanView>
+  );
+}
+
 it("exercises finite previous-week and current-plan measurement actions on real weekly views without exposing arbitrary options", async () => {
   smoke.__trainerOrdinaryIsolated = { runId: "run" };
   vi.stubGlobal("innerWidth", 1280);
@@ -1952,25 +1971,7 @@ it("exercises finite previous-week and current-plan measurement actions on real 
       );
     }),
   );
-  function View() {
-    const weekly = useWeeklyFeature();
-    return (
-      <WeeklyPlanView
-        weekly={weekly}
-        close={() => {}}
-        closeRef={createRef()}
-        openGeneral={async () => {}}
-        run={(work) => {
-          work.catch(() => {
-            throw new Error("Unexpected weekly test read failure");
-          });
-        }}
-      >
-        {null}
-      </WeeklyPlanView>
-    );
-  }
-  render(<View />);
+  render(<WeeklySmokeView />);
   expect(
     (await command({ type: "weeklyKpis", action: "current" })).result.ok,
   ).toBe(true);
@@ -2212,25 +2213,7 @@ it("clicks only the existing current-week Refresh through the finite refresh act
       );
     }),
   );
-  function View() {
-    const weekly = useWeeklyFeature();
-    return (
-      <WeeklyPlanView
-        weekly={weekly}
-        close={() => {}}
-        closeRef={createRef()}
-        openGeneral={async () => {}}
-        run={(work) => {
-          work.catch(() => {
-            throw new Error("Unexpected weekly test read failure");
-          });
-        }}
-      >
-        {null}
-      </WeeklyPlanView>
-    );
-  }
-  render(<View />);
+  render(<WeeklySmokeView />);
   expect(
     (await command({ type: "weeklyKpis", action: "progress" })).result.ok,
   ).toBe(true);

@@ -372,13 +372,13 @@ describe("KPI measurements through real composition (T0328)", () => {
     const weeklyRoute = await import("../src/app/api/weekly/route");
     const read = async () =>
       (
-        (await (
-          await weeklyRoute.GET(
+        (await weeklyRoute
+          .GET(
             new Request(
               `http://localhost/api/weekly?view=progress&from=2026-09-21&through=2026-09-21&timeZone=${encodeURIComponent(timeZone)}`,
             ),
           )
-        ).json()) as { weeks: { kpis: { measured: unknown } }[] }
+          .json()) as { weeks: { kpis: { measured: unknown } }[] }
       ).weeks[0].kpis.measured;
     expect(await read()).toBeNull();
     const post = (body: unknown) =>
