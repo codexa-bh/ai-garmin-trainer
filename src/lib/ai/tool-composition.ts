@@ -1,4 +1,4 @@
-import { weekly } from "../weekly/composition";
+import { kpiMeasurements, weekly } from "../weekly/composition";
 import { describeGarminDatabase, runReadOnlySql } from "./sql-analysis";
 import {
   analyzeActivityTerrain,
@@ -24,6 +24,7 @@ import type { TrainerToolPorts } from "./tool-ports";
 // synchronous compare/write boundaries; each turn still owns its own context.
 const ports: TrainerToolPorts = {
   weekly,
+  measurements: kpiMeasurements,
   analytics: { describeGarminDatabase, runReadOnlySql, analyzeActivityTerrain },
   localData: {
     getActivityDashboard,

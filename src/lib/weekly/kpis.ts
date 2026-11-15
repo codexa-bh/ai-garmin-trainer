@@ -543,3 +543,55 @@ export function latestKpiMeasurement(
       null,
   };
 }
+
+/**
+ * The one actual for a latest-plan track, shared by grid, charts and tools: a
+ * stored measurement with the same track meaning wins; otherwise the reviewed
+ * assessment's recorded actual keeps its own provenance. Never mixes weeks.
+ */
+export function kpiActual(
+  kpis: KpiRead | null,
+  conceptId: string,
+  track: KpiSet["items"][number]["tracks"][number],
+) {
+  const success = kpis?.measured?.concepts[conceptId]?.success;
+  const failure = kpis?.measured?.concepts[conceptId]?.failure;
+  if (
+    success &&
+    success.signatures[track.key] ===
+      JSON.stringify([track.kind, track.unit, track.meaning]) &&
+    track.key in success.values
+  )
+    return {
+      source: "measured" as const,
+      value: success.values[track.key],
+      incomplete: success.status === "incomplete",
+      asOf: success.asOf,
+      stale: Boolean(failure && failure.at >= success.measuredAt),
+    };
+  if (!kpis) return null;
+  const { set, assessment } = latestKpiScore(kpis);
+  const item = set?.items.find((value) => value.conceptId === conceptId);
+  const result = assessment?.items.find((value) => value.itemId === item?.id);
+  const value = result?.actuals.find((v) => v.trackKey === track.key)?.value;
+  return result && typeof value === "number"
+    ? {
+        source: "assessed" as const,
+        value,
+        incomplete: result.status !== "supported",
+        asOf: assessment!.asOf,
+        stale: Boolean(failure),
+        note: [result.evidence.qualification, result.evidence.limitations]
+          .filter(Boolean)
+          .join("; "),
+      }
+    : failure
+      ? {
+          source: "failed" as const,
+          value: null,
+          incomplete: true,
+          asOf: null,
+          stale: true,
+        }
+      : null;
+}

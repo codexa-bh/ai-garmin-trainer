@@ -1,4 +1,4 @@
-import { executeWeeklyTool } from "./tool-weekly";
+import { executeMeasurementTool, executeWeeklyTool } from "./tool-weekly";
 import { executeAnalyticsTool } from "./tool-analytics";
 import { executeLocalDataTool } from "./tool-local-data";
 import { executeTrainingPlanTool } from "./tool-training-plan";
@@ -19,6 +19,9 @@ export async function executeTrainerTool(
       case "saveWeeklyKpis":
       case "getKpiProgress":
         return executeWeeklyTool(input, ports.weekly);
+      case "saveKpiRecipes":
+      case "refreshKpiMeasurements":
+        return await executeMeasurementTool(input, ports.measurements);
       case "analyzeActivityTerrain":
       case "describeGarminDatabase":
       case "runReadOnlySql":

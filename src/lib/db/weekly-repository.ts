@@ -5,7 +5,11 @@ import type {
   WeeklySummary,
 } from "../weekly/contracts";
 import { getDatabase } from "./connection";
-import type { WeeklyKpis } from "../weekly/kpi-contracts";
+import type {
+  KpiRecipe,
+  KpiWeekMeasurements,
+  WeeklyKpis,
+} from "../weekly/kpi-contracts";
 
 type WeeklyDatabase = ReturnType<typeof getDatabase>;
 export function createWeeklyStore(
@@ -88,6 +92,37 @@ export function createWeeklyStore(
       db.prepare(
         "insert or ignore into weekly_kpi_track(concept_id,track_key,signature) values (?,?,?)",
       ).run(concept, key, signature);
+    },
+    currentRecipes() {
+      const rows = getDatabase()
+        .prepare(
+          "select recipe_json from weekly_kpi_recipe r where version=(select max(version) from weekly_kpi_recipe where concept_id=r.concept_id) order by concept_id",
+        )
+        .all() as { recipe_json: string }[];
+      return rows.map((row) => JSON.parse(row.recipe_json) as KpiRecipe);
+    },
+    saveRecipe(recipe) {
+      // Versions are immutable: a conflicting insert fails the transaction.
+      getDatabase()
+        .prepare(
+          "insert into weekly_kpi_recipe(concept_id,version,recipe_json) values (?,?,?)",
+        )
+        .run(recipe.conceptId, recipe.version, JSON.stringify(recipe));
+    },
+    readMeasurements(weekStart) {
+      const row = getDatabase()
+        .prepare(
+          "select state_json from weekly_kpi_measurement where week_start=?",
+        )
+        .get(weekStart) as { state_json: string } | undefined;
+      return row ? (JSON.parse(row.state_json) as KpiWeekMeasurements) : null;
+    },
+    saveMeasurements(state) {
+      getDatabase()
+        .prepare(
+          "insert into weekly_kpi_measurement(week_start,state_json) values (?,?) on conflict(week_start) do update set state_json=excluded.state_json",
+        )
+        .run(state.weekStart, JSON.stringify(state));
     },
     proposal(id) {
       const row = getDatabase()

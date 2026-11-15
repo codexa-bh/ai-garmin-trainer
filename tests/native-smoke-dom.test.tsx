@@ -1955,6 +1955,25 @@ it.each(["supported", "partial", "capped"])(
   },
 );
 
+function WeeklySmokeView() {
+  const weekly = useWeeklyFeature();
+  return (
+    <WeeklyPlanView
+      weekly={weekly}
+      close={() => {}}
+      closeRef={createRef()}
+      openGeneral={async () => {}}
+      run={(work) => {
+        work.catch(() => {
+          throw new Error("Unexpected weekly test read failure");
+        });
+      }}
+    >
+      {null}
+    </WeeklyPlanView>
+  );
+}
+
 it("exercises finite previous-week and current-plan measurement actions on real weekly views without exposing arbitrary options", async () => {
   smoke.__trainerOrdinaryIsolated = { runId: "run" };
   vi.stubGlobal("innerWidth", 1280);
@@ -1998,25 +2017,7 @@ it("exercises finite previous-week and current-plan measurement actions on real 
       );
     }),
   );
-  function View() {
-    const weekly = useWeeklyFeature();
-    return (
-      <WeeklyPlanView
-        weekly={weekly}
-        close={() => {}}
-        closeRef={createRef()}
-        openGeneral={async () => {}}
-        run={(work) => {
-          work.catch(() => {
-            throw new Error("Unexpected weekly test read failure");
-          });
-        }}
-      >
-        {null}
-      </WeeklyPlanView>
-    );
-  }
-  render(<View />);
+  render(<WeeklySmokeView />);
   expect(
     (await command({ type: "weeklyKpis", action: "current" })).result.ok,
   ).toBe(true);
@@ -2214,6 +2215,102 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   expect(select.hasAttribute("data-smoke-reveal")).toBe(false);
   smoke.__trainerSmokeRestore();
   delete smoke.__trainerOrdinaryIsolated;
+});
+
+it("clicks only the existing current-week Refresh through the finite refresh action and reveals only authored measured text", async () => {
+  smoke.__trainerOrdinaryIsolated = { runId: "run" };
+  vi.stubGlobal("innerWidth", 1280);
+  vi.stubGlobal("innerHeight", 850);
+  const week = weeklyCalendar(
+    new Date(),
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ).weekStart;
+  const current = projectKpis(week, authoredAssessedLatestKpis());
+  let withRecipes = false;
+  const posts: unknown[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return Response.json({ weekStart: week, failed: 0 });
+      }
+      const query = new URL(url, "http://localhost").searchParams;
+      return Response.json(
+        query.get("view") === "progress"
+          ? {
+              from: query.get("from"),
+              through: week,
+              weeks: [{ weekStart: week, kpis: current }],
+              latestPlan: current,
+              recipes: withRecipes
+                ? [
+                    {
+                      conceptId: "authored-sessions",
+                      version: 1,
+                      sql: "select 1",
+                      tracks: [],
+                      savedAt: "2026-11-01T12:00:00.000Z",
+                    },
+                  ]
+                : [],
+            }
+          : { record: null, kpis: current },
+      );
+    }),
+  );
+  render(<WeeklySmokeView />);
+  expect(
+    (await command({ type: "weeklyKpis", action: "progress" })).result.ok,
+  ).toBe(true);
+  await screen.findByRole("heading", { name: "Weekly achievement" });
+  // No recipes: no Refresh control, so the finite action refuses and posts nothing.
+  expect(
+    (await command({ type: "weeklyKpis", action: "refresh" })).result.ok,
+  ).toBe(false);
+  expect(posts).toEqual([]);
+  withRecipes = true;
+  expect(
+    (await command({ type: "weeklyKpis", action: "oneMonth" })).result.ok,
+  ).toBe(true);
+  await screen.findByRole("button", { name: "Refresh current week" });
+  const refreshed = (await command({ type: "weeklyKpis", action: "refresh" }))
+    .result;
+  expect(refreshed).toMatchObject({
+    ok: true,
+    action: "refresh",
+    trustedInput: false,
+  });
+  await waitFor(() =>
+    expect(posts).toEqual([
+      {
+        action: "refresh-current-week",
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      },
+    ]),
+  );
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(false);
+  smoke.__trainerSmokeRestore();
+  expect(
+    screen
+      .getByRole("button", { name: "Refresh current week" })
+      .hasAttribute("data-smoke-reveal"),
+  ).toBe(false);
+  for (const invalid of [
+    { type: "weeklyKpis", action: "refresh", week: "2026-01-05" },
+    { type: "weeklyKpis", action: "recompute" },
+    { type: "weeklyKpis", action: "saveRecipe" },
+  ])
+    expect((await command(invalid)).result.ok).toBe(false);
+  expect(posts).toHaveLength(1);
+  delete smoke.__trainerOrdinaryIsolated;
+  expect(
+    (await command({ type: "weeklyKpis", action: "refresh" })).result.ok,
+  ).toBe(false);
+  expect(posts).toHaveLength(1);
 });
 
 it("admits only finite ordinary KPI actions and masks every noncanonical/private value", async () => {

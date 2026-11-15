@@ -6,6 +6,7 @@ const f = vi.hoisted(() => ({ context: vi.fn<() => Promise<string>>() }));
 vi.mock("@/lib/chat/context", () => ({ createChatContext: () => f.context }));
 vi.mock("@/lib/weekly/composition", () => ({
   weekly: { context: () => null },
+  kpiMeasurements: {},
 }));
 
 afterEach(() => {

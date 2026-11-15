@@ -4,7 +4,11 @@ import type {
   KpiSet,
   KpiAssessment,
 } from "../../src/lib/weekly/kpi-contracts";
-import { weeklyCalendar, addDays } from "../../src/lib/weekly/calendar";
+import {
+  weeklyCalendar,
+  addDays,
+  weekInterval,
+} from "../../src/lib/weekly/calendar";
 
 // Independently authored finite presentation corpus. No operator-derived values.
 export function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
@@ -254,5 +258,61 @@ export function seedWeeklyKpis(db: Database.Database) {
   db.prepare("insert into weekly_kpi values (?,?)").run(
     addDays(week, -14),
     JSON.stringify(unassessed),
+  );
+  seedMeasurementRecipe(db, week);
+}
+
+/** T0328: one verified-shape recipe and two authored current-week hikes, so an
+ * explicit Refresh visibly measures 2 sessions / 2 h 30 min without changing
+ * the authored reviewed assessment (4 sessions, unknown duration, 50/30 points).
+ * No stored measurement is seeded: the first values come from a real refresh. */
+const AUTHORED_RECIPE_SQL =
+  "select count(*) as count, sum(duration_sec) / 60.0 as duration from activity where sport in ('hiking','walking') and started_at >= :week_start_ms and started_at < :week_end_ms";
+function seedMeasurementRecipe(db: Database.Database, week: string) {
+  const signature = (unit: string, meaning: string) =>
+    JSON.stringify(["numeric", unit, meaning]);
+  db.prepare(
+    "insert into weekly_kpi_recipe(concept_id,version,recipe_json) values (?,?,?)",
+  ).run(
+    "authored-sessions",
+    1,
+    JSON.stringify({
+      conceptId: "authored-sessions",
+      version: 1,
+      sql: AUTHORED_RECIPE_SQL,
+      tracks: [
+        {
+          key: "count",
+          signature: signature("sessions", "Selected session count"),
+        },
+        {
+          key: "duration",
+          signature: signature("minutes", "Selected session duration"),
+        },
+      ],
+      savedAt: "2026-11-01T12:00:00.000Z",
+    }),
+  );
+  const start = Date.parse(weekInterval(week, "UTC").from);
+  const insert = db.prepare(
+    "insert into activity(id,garmin_id,name,sport,started_at,duration_sec,elevation_gain_meters) values (?,?,?,?,?,?,?)",
+  );
+  insert.run(
+    "T0328-a",
+    "T0328-a",
+    "Authored hike",
+    "hiking",
+    start + 60_000,
+    4500,
+    300,
+  );
+  insert.run(
+    "T0328-b",
+    "T0328-b",
+    "Authored walk",
+    "walking",
+    start + 120_000,
+    4500,
+    50,
   );
 }

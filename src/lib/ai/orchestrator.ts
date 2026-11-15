@@ -175,7 +175,9 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
     .map((step) => {
       if (
         step.status === "succeeded" &&
-        ["saveWeeklyDocuments", "saveWeeklyKpis"].includes(step.tool)
+        ["saveWeeklyDocuments", "saveWeeklyKpis", "saveKpiRecipes"].includes(
+          step.tool,
+        )
       )
         return `Evidence step ${step.index}: ${step.tool} succeeded. ${JSON.stringify(step.result)}`;
       if (step.status === "succeeded" && step.tool === "getWeeklyKpis")
@@ -373,9 +375,12 @@ function savedPlanningResultText(steps: TrainerToolStep[]): string {
   const saved = steps.filter(
     (step) =>
       step.status === "succeeded" &&
-      ["saveTrainingPlan", "saveWeeklyDocuments", "saveWeeklyKpis"].includes(
-        step.tool,
-      ),
+      [
+        "saveTrainingPlan",
+        "saveWeeklyDocuments",
+        "saveWeeklyKpis",
+        "saveKpiRecipes",
+      ].includes(step.tool),
   );
   return saved.length
     ? ` Already saved: ${saved.map((step) => `${step.tool}: ${step.summary}`).join("; ")}. These successful writes remain saved; separate operations are not atomic together.`
@@ -552,6 +557,8 @@ async function orchestrateTurn(
             "saveTrainingPlan",
             "saveWeeklyDocuments",
             "saveWeeklyKpis",
+            "saveKpiRecipes",
+            "refreshKpiMeasurements",
             "runGarminSync",
             "forceRefreshActivityDetail",
           ].includes(step.tool),
@@ -748,13 +755,20 @@ async function orchestrateTurn(
         break;
       }
       if (
-        ["saveTrainingPlan", "saveWeeklyDocuments", "saveWeeklyKpis"].includes(
-          accepted.toolName,
-        ) &&
+        [
+          "saveTrainingPlan",
+          "saveWeeklyDocuments",
+          "saveWeeklyKpis",
+          "saveKpiRecipes",
+        ].includes(accepted.toolName) &&
         steps.some((step) =>
           accepted.toolName === "saveTrainingPlan"
             ? step.tool === "saveTrainingPlan"
-            : ["saveWeeklyDocuments", "saveWeeklyKpis"].includes(step.tool),
+            : [
+                "saveWeeklyDocuments",
+                "saveWeeklyKpis",
+                "saveKpiRecipes",
+              ].includes(step.tool),
         )
       ) {
         const allSteps = [

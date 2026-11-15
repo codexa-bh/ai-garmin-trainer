@@ -49,6 +49,8 @@ export function assertDesktopDatabase(path: string): void {
         ],
       ],
       ["activity_detail_attempt", ["garmin_id", "status"]],
+      ["weekly_kpi_recipe", ["concept_id", "version", "recipe_json"]],
+      ["weekly_kpi_measurement", ["week_start", "state_json"]],
       [
         "conversation_history_control",
         [

@@ -1,4 +1,5 @@
 import type { createWeekly } from "../weekly/application";
+import type { createKpiMeasurements } from "../weekly/measurements";
 import type {
   ActivityDashboardEvidence,
   ActivityVisualInput,
@@ -63,5 +64,9 @@ export type TrainerToolPorts = {
   weekly?: Pick<
     ReturnType<typeof createWeekly>,
     "read" | "save" | "readKpis" | "saveKpis" | "progress"
+  >;
+  measurements?: Pick<
+    ReturnType<typeof createKpiMeasurements>,
+    "saveRecipes" | "refresh"
   >;
 };

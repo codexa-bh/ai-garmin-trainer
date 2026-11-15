@@ -1,6 +1,11 @@
 import { Fragment } from "react";
 import type { KpiRead, KpiTrack } from "@/lib/weekly/kpi-contracts";
-import { kpiAwarded, kpiScoredUnits, latestKpiScore } from "@/lib/weekly/kpis";
+import {
+  kpiActual,
+  kpiAwarded,
+  kpiScoredUnits,
+  latestKpiScore,
+} from "@/lib/weekly/kpis";
 
 export function kpiNumber(value: number): string {
   return Number.isFinite(value)
@@ -48,6 +53,14 @@ export function kpiTarget(track: KpiTrack): string {
     comparator
   ];
   return `${prefix}${kpiValue(value, track.unit)}${upper === undefined ? "" : ` – ${kpiValue(upper, track.unit)}`}`;
+}
+/** Compact provenance of one shared actual; never implies points changed. */
+export function kpiActualStatus(
+  point: NonNullable<ReturnType<typeof kpiActual>>,
+): string {
+  return point.source === "failed"
+    ? "Measurement failed"
+    : `${point.source === "measured" ? "Measured" : "Assessed"}${point.incomplete ? ", incomplete" : ""}${point.stale ? ", stale" : ""}`;
 }
 export function kpiCutoff(value: string): string {
   const date = new Date(value);
@@ -138,6 +151,15 @@ export function WeeklyKpiScorecard({
   );
   const result = (item: KpiItem) =>
     assessment?.items.find((value) => value.itemId === item.id);
+  const measuredAt =
+    set?.items
+      .flatMap((item) =>
+        item.tracks.map((track) => kpiActual(kpis, item.conceptId, track)),
+      )
+      .filter((point) => point?.source === "measured")
+      .map((point) => point!.asOf!)
+      .sort()
+      .at(-1) ?? null;
   return (
     <section className="weekly-kpis" aria-label="Saved weekly KPIs">
       <h2>Weekly KPIs</h2>
@@ -158,9 +180,12 @@ export function WeeklyKpiScorecard({
       ) : (
         <>
           <p className="training-plan-meta">
+            {measuredAt ? `Actuals measured ${kpiCutoff(measuredAt)} · ` : ""}
             {assessment
-              ? `As of ${kpiCutoff(assessment.asOf)}`
-              : "Not assessed — not a zero."}
+              ? `${measuredAt ? "Points as of" : "As of"} ${kpiCutoff(assessment.asOf)}`
+              : measuredAt
+                ? "Points not assessed"
+                : "Not assessed — not a zero."}
             {score.provisional ? " · Provisional" : ""}
           </p>
           {conditionOnly.length ? (
@@ -213,7 +238,11 @@ export function WeeklyKpiScorecard({
                         </td>
                       </tr>
                     ) : (
-                      <TrackRow row={row} result={result(row.item)} />
+                      <TrackRow
+                        row={row}
+                        result={result(row.item)}
+                        actual={kpiActual(kpis, row.item.conceptId, row.track)}
+                      />
                     )}
                   </Fragment>
                 ))}
@@ -260,8 +289,10 @@ function ExtraRows({
 function TrackRow({
   row,
   result,
+  actual,
 }: {
   row: Extract<KpiRow, { kind: "track" }>;
+  actual: ReturnType<typeof kpiActual>;
   result:
     | NonNullable<
         ReturnType<typeof latestKpiScore>["assessment"]
@@ -285,10 +316,16 @@ function TrackRow({
       <td>
         <div>
           {kpiValue(
-            result?.actuals.find((value) => value.trackKey === track.key)
-              ?.value,
+            actual?.source === "measured"
+              ? actual.value
+              : result?.actuals.find((value) => value.trackKey === track.key)
+                  ?.value,
             track.unit,
           )}
+          {actual?.source === "measured" &&
+          (actual.incomplete || actual.stale) ? (
+            <small>{actual.stale ? "Stale" : "Incomplete"}</small>
+          ) : null}
         </div>
         {row.evidence && result ? (
           <details className="weekly-kpi-qualification">

@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 
-export const LATEST_SCHEMA_VERSION = 27;
+export const LATEST_SCHEMA_VERSION = 28;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -29,6 +29,11 @@ const BODY_METRICS_WEIGH_IN_COLUMNS_SQL = [
 const WEEKLY_SCHEMA_SQL = [
   `create table if not exists weekly_artifact (week_start text primary key, document_json text not null)`,
   `create table if not exists weekly_proposal (id text primary key, conversation_id text not null unique, proposal_json text not null)`,
+];
+
+const WEEKLY_KPI_MEASUREMENT_SQL = [
+  `create table weekly_kpi_recipe (concept_id text not null, version integer not null, recipe_json text not null check(json_valid(recipe_json)), primary key(concept_id,version))`,
+  `create table weekly_kpi_measurement (week_start text primary key, state_json text not null check(json_valid(state_json)))`,
 ];
 
 const TRAINING_PLAN_TABLE_SQL = `create table if not exists training_plan (id text primary key default 'default', title text not null, content_markdown text not null, revised_at integer not null, updated_at integer not null)`;
@@ -464,6 +469,12 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
        end`,
     ],
   },
+  {
+    version: 28,
+    name: "weekly_kpi_measurements",
+    // Additive measurement-only state; assessments and points are untouched.
+    statements: WEEKLY_KPI_MEASUREMENT_SQL,
+  },
 ];
 
 // Compatibility admission only: never used by current generation or consumption.
@@ -866,6 +877,8 @@ export function databaseHasUserData(db: Database.Database): boolean {
     "weekly_proposal",
     "weekly_kpi",
     "weekly_kpi_track",
+    "weekly_kpi_recipe",
+    "weekly_kpi_measurement",
     "conversation_turn",
     "conversation_completion",
     "conversation_segment",

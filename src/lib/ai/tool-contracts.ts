@@ -277,6 +277,26 @@ export const trainerToolInputSchemas = {
   getKpiProgress: z
     .object({ from: isoDateSchema, through: isoDateSchema })
     .strict(),
+  saveKpiRecipes: z
+    .object({
+      weekStart: isoDateSchema,
+      recipes: z
+        .array(
+          z
+            .object({
+              conceptId: kpiId,
+              sql: z.string().min(1).max(2000),
+              tracks: z.array(kpiId).min(1).max(3),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(6),
+    })
+    .strict(),
+  refreshKpiMeasurements: z
+    .object({ weekStart: isoDateSchema.optional() })
+    .strict(),
   getActivityDashboard: z
     .object({
       garminId: garminIdSchema,
@@ -427,8 +447,18 @@ export const trainerToolContracts = {
   },
   getKpiProgress: {
     description:
-      "Read saved latest-plan KPI history for an inclusive Monday range of at most12 weeks. latestPlan separately returns the latest established plan and its canonical identities/names/signatures independent of the chosen chart range; an empty future slot does not replace it and a real KPI-free plan has no resurrected historical choices. Missing weeks remain gaps; results never evaluate, fetch fresh Garmin data or save an assessment. Scores with different baselines/denominators are not interchangeable trends. Read individual complete sets before any correction.",
+      "Read saved latest-plan KPI history for an inclusive Monday range of at most12 weeks, including each week's stored measured actuals (measured; independent of reviewed points) and current recipes. latestPlan separately returns the latest established plan and its canonical identities/names/signatures independent of the chosen chart range; an empty future slot does not replace it and a real KPI-free plan has no resurrected historical choices. Missing weeks remain gaps; results never evaluate, fetch fresh Garmin data or save an assessment. Scores with different baselines/denominators are not interchangeable trends. Read individual complete sets before any correction.",
     inputSchema: trainerToolInputSchemas.getKpiProgress,
+  },
+  saveKpiRecipes: {
+    description:
+      "Establish/revise reusable read-only SQL measurements for numeric tracks of the current/upcoming latest-plan KPIs, after reading that week's complete KPIs in a prior pass and agreeing the calculation. One SELECT per concept returns exactly one row: one column named per listed track key (null = no qualifying value), plus optional missing_source>0 when eligible source data is incomplete. Use :week_start_ms/:week_end_ms (epoch ms, end = week end or now), allowlisted normalized tables, no fixed dates/activity IDs. Shared selection belongs in one recipe (e.g. long outing time and ascent). The app verifies on this and the previous week before accepting; refused/unchanged recipes are not saved. Targets/points are not part of a recipe and points are never computed. Shares the one weekly save attempt per turn; respect no-save.",
+    inputSchema: trainerToolInputSchemas.saveKpiRecipes,
+  },
+  refreshKpiMeasurements: {
+    description:
+      "Recompute stored measured actuals from saved recipes and imported local data: the current week by default, or one exact earlier Monday within 12 weeks for a deliberate correction. Never fetches Garmin, changes recipes, assessments, reviews or points.",
+    inputSchema: trainerToolInputSchemas.refreshKpiMeasurements,
   },
   getActivityDashboard: {
     description:

@@ -304,3 +304,106 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     expect(state.closes).toBe(1);
   });
 });
+
+describe("KPI measurements through real composition (T0328)", () => {
+  async function seed() {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const { createWeeklyStore } =
+      await import("../src/lib/db/weekly-repository");
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const store = createWeeklyStore(getDatabase);
+    const { authoredWeeklyKpis } = await import("../scripts/ci/kpi-fixture");
+    const kpis = authoredWeeklyKpis(new Date("2026-09-21T12:00:00Z"));
+    kpis.timeZone = timeZone;
+    store.saveKpis("2026-09-21", kpis);
+    store.saveRecipe({
+      conceptId: "authored-sessions",
+      version: 1,
+      sql: "select count(*) as count from activity where sport = 'running' and started_at >= :week_start_ms and started_at < :week_end_ms",
+      tracks: [
+        {
+          key: "count",
+          signature: JSON.stringify([
+            "numeric",
+            "sessions",
+            "Selected session count",
+          ]),
+        },
+      ],
+      savedAt: "2026-09-21T00:00:00Z",
+    });
+    return { store, timeZone };
+  }
+
+  it("triggers one current-week refresh after a completed sync and keeps the sync result when it fails", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-21T12:00:00Z"));
+    const { kpiMeasurements } = await import("../src/lib/weekly/composition");
+    const refresh = vi
+      .spyOn(kpiMeasurements, "refresh")
+      .mockRejectedValue(new Error("measurement_failed"));
+    const sync = await import("../src/app/api/sync/route");
+    const stream = (await sync.POST()).text();
+    await vi.advanceTimersByTimeAsync(30_000);
+    const events = (await stream).trim().split("\n");
+    expect(JSON.parse(events.at(-1)!)).toMatchObject({
+      type: "result",
+      status: "completed",
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(refresh.mock.calls[0]).toHaveLength(1);
+  });
+
+  it("recomputes stored actuals in a real bounded child via explicit POST only, never on GET or points", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-22T12:00:00Z"));
+    const { store, timeZone } = await seed();
+    const { upsertActivities } = await import("../src/lib/db/repository");
+    upsertActivities([
+      {
+        garminId: "w1",
+        name: "Authored run",
+        sport: "running",
+        startedAt: new Date("2026-09-21T12:00:00"),
+        durationSec: 1800,
+      } as Parameters<typeof upsertActivities>[0][number],
+    ]);
+    const before = JSON.stringify(store.readKpis("2026-09-21"));
+    const weeklyRoute = await import("../src/app/api/weekly/route");
+    const read = async () =>
+      (
+        (await weeklyRoute
+          .GET(
+            new Request(
+              `http://localhost/api/weekly?view=progress&from=2026-09-21&through=2026-09-21&timeZone=${encodeURIComponent(timeZone)}`,
+            ),
+          )
+          .json()) as { weeks: { kpis: { measured: unknown } }[] }
+      ).weeks[0].kpis.measured;
+    expect(await read()).toBeNull();
+    const post = (body: unknown) =>
+      weeklyRoute.POST(
+        new Request("http://localhost/api/weekly", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    expect(
+      await (await post({ action: "refresh-current-week", timeZone })).json(),
+    ).toEqual({ weekStart: "2026-09-21", status: "refreshed", failed: 0 });
+    const measured = store.readMeasurements("2026-09-21");
+    expect(measured?.concepts["authored-sessions"].success).toMatchObject({
+      recipeVersion: 1,
+      status: "measured",
+      values: { count: 1 },
+    });
+    // Ordinary GET reads only the stored value; nothing is recalculated.
+    expect(await read()).toEqual(measured);
+    expect(store.readMeasurements("2026-09-21")?.revision).toBe(
+      measured?.revision,
+    );
+    expect((await post({ action: "rescore", timeZone })).status).toBe(400);
+    // Reviewed assessments, points and narrative state are never changed.
+    expect(JSON.stringify(store.readKpis("2026-09-21"))).toBe(before);
+  }, 30000);
+});

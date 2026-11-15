@@ -391,3 +391,160 @@ it("keeps the chosen period and failure-only retry after a failed reload", async
   expect(urls[1]).toBe(urls[2]);
   expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 });
+it("recomputes only the current week on Refresh, keeps the period, shows measured actuals and leaves reviewed points unchanged", async () => {
+  const measured = progress();
+  measured.recipes = [
+    {
+      conceptId: "authored-sessions",
+      version: 1,
+      sql: "select 1",
+      tracks: [],
+      savedAt: now.toISOString(),
+    },
+  ];
+  let refreshed = false;
+  const after = () => {
+    const data = structuredClone(measured);
+    if (refreshed)
+      data.weeks[2].kpis.measured = {
+        weekStart: "2026-11-09",
+        timeZone: "UTC",
+        revision: "r",
+        concepts: {
+          "authored-sessions": {
+            success: {
+              recipeVersion: 1,
+              status: "measured",
+              values: { count: 7 },
+              signatures: {
+                count: JSON.stringify([
+                  "numeric",
+                  "sessions",
+                  "Selected session count",
+                ]),
+              },
+              measuredAt: now.toISOString(),
+              asOf: now.toISOString(),
+              basis: "b",
+            },
+          },
+        },
+      };
+    return data;
+  };
+  const posts: unknown[] = [];
+  let release: () => void = () => undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        await new Promise<void>((resolve) => (release = resolve));
+        refreshed = true;
+        return Response.json({ weekStart: "2026-11-09", failed: 0 });
+      }
+      return Response.json(after());
+    }),
+  );
+  function View() {
+    const weekly = useWeeklyFeature();
+    const run = (work: Promise<unknown>) => {
+      work.catch(() => {
+        throw new Error("Unexpected failure");
+      });
+    };
+    return (
+      <>
+        <button onClick={() => run(weekly.loadProgress("6m"))}>
+          Read progress
+        </button>
+        <WeeklyKpiProgress weekly={weekly} run={run} />
+      </>
+    );
+  }
+  render(<View />);
+  fireEvent.click(screen.getByRole("button", { name: "Read progress" }));
+  const refresh = await screen.findByRole("button", {
+    name: "Refresh current week",
+  });
+  expect(refresh.textContent).toBe("Refresh");
+  const achievementBefore = series(screen.getAllByTestId("saved-chart")[0]);
+  fireEvent.click(refresh);
+  await waitFor(() => expect(refresh).toHaveProperty("disabled", true));
+  expect(refresh.getAttribute("aria-busy")).toBe("true");
+  await act(async () => release());
+  const figure = await screen.findByRole("figure", {
+    name: /T0319 authored sessions · sessions/,
+  });
+  await waitFor(() =>
+    expect(
+      series(within(figure).getByTestId("saved-chart")).at(-1).actual,
+    ).toBe(7),
+  );
+  expect(posts).toEqual([
+    {
+      action: "refresh-current-week",
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    },
+  ]);
+  expect(figure.textContent).toContain("Measured");
+  expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
+    "value",
+    "6m",
+  );
+  // Reviewed achievement points are independent of the refreshed actual.
+  expect(series(screen.getAllByTestId("saved-chart")[0])).toEqual(
+    achievementBefore,
+  );
+  expect(refresh).toHaveProperty("disabled", false);
+});
+it("shows no Refresh without recipes and a compact status when a measurement fails", async () => {
+  setup(progress);
+  await screen.findByRole("figure", {
+    name: /T0319 authored sessions · sessions/,
+  });
+  expect(
+    screen.queryByRole("button", { name: "Refresh current week" }),
+  ).toBeNull();
+  cleanup();
+  const data = progress();
+  data.recipes = [
+    {
+      conceptId: "authored-sessions",
+      version: 1,
+      sql: "select 1",
+      tracks: [],
+      savedAt: now.toISOString(),
+    },
+  ];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "POST"
+        ? Response.json({ weekStart: "2026-11-09", failed: 1 })
+        : Response.json(data),
+    ),
+  );
+  function View() {
+    const weekly = useWeeklyFeature();
+    const run = (work: Promise<unknown>) => {
+      work.catch(() => undefined);
+    };
+    return (
+      <>
+        <button onClick={() => run(weekly.loadProgress("2m"))}>
+          Read progress
+        </button>
+        <WeeklyKpiProgress weekly={weekly} run={run} />
+      </>
+    );
+  }
+  render(<View />);
+  fireEvent.click(screen.getByRole("button", { name: "Read progress" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Refresh current week" }),
+  );
+  expect(
+    await screen.findByText("Some measurements failed; last values kept."),
+  ).toBeTruthy();
+});

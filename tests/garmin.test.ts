@@ -909,3 +909,40 @@ describe("Garmin boundary", () => {
     expect(store.days.has("2026-07-03")).toBe(true);
   });
 });
+
+describe("KPI measurement source mapping (T0328)", () => {
+  // Authored shapes of the pinned connector: get_activities_by_date curates
+  // duration_seconds from Garmin summary duration (displayed Time, timer
+  // excluding pauses); moving/elapsed are distinct keys only in get_activity.
+  it("maps displayed timer Time, not moving or elapsed time, and keeps hiking/walking type keys", () => {
+    const paused = normalizeActivity({
+      id: 1,
+      name: "Steep slow hike",
+      type: "hiking",
+      start_time: "2026-11-10T08:00:00",
+      duration_seconds: 7300,
+      moving_duration_seconds: 5100,
+      elapsed_duration_seconds: 9100,
+    });
+    expect(paused).toMatchObject({ sport: "hiking", durationSec: 7300 });
+    const walk = normalizeActivity({
+      activityId: 2,
+      activityType: { typeKey: "walking" },
+      startTimeLocal: "2026-11-11T08:00:00",
+      duration: 3600,
+      movingDuration: 3000,
+      elapsedDuration: 4000,
+    });
+    expect(walk).toMatchObject({ sport: "walking", durationSec: 3600 });
+    // Missing Time stays unknown; no elapsed/moving fallback is invented.
+    expect(
+      normalizeActivity({
+        id: 3,
+        type: "hiking",
+        start_time: "2026-11-12T08:00:00",
+        moving_duration_seconds: 100,
+        elapsed_duration_seconds: 200,
+      }).durationSec,
+    ).toBeNull();
+  });
+});

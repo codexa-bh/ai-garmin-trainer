@@ -170,7 +170,7 @@ it("explicit migration refuses live ownership and creates a verified online back
     backupPath: string;
     schemaVersionAfter: number;
   };
-  expect(output.schemaVersionAfter).toBe(27);
+  expect(output.schemaVersionAfter).toBe(28);
   expect(readdirSync(join(root, "backups"))).toHaveLength(1);
   const backup = new Database(output.backupPath, { readonly: true });
   expect(

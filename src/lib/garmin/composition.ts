@@ -42,6 +42,7 @@ import { fetchFitSpeedWithLocalWrapper } from "./fit-speed";
 import { createGarminImports } from "./sync-import";
 import { createGarminReader } from "./reader-adapter";
 import { createActivityDetailRequests } from "./detail-requests";
+import { kpiMeasurements } from "../weekly/composition";
 
 // Bind functions only: no environment validation, DB opening, clock capture or
 // connector construction until the corresponding invocation reaches that step.
@@ -92,8 +93,23 @@ const imports = createGarminImports({
   },
 });
 
+// After a completed sync, maintain current-week KPI measurements once against
+// the settled import. Measurement failure never changes the sync outcome.
+async function measuredAfterSync<T extends { status: string }>(
+  work: Promise<T>,
+): Promise<T> {
+  const result = await work;
+  if (result.status === "completed")
+    await kpiMeasurements
+      .refresh(Intl.DateTimeFormat().resolvedOptions().timeZone)
+      .catch(() => undefined);
+  return result;
+}
+export const runGarminSync = ((onProgress, options) =>
+  measuredAfterSync(
+    imports.runGarminSync(onProgress, options ?? {}),
+  )) as typeof imports.runGarminSync;
 export const {
-  runGarminSync,
   syncSummary,
   backfillActivityDetail,
   backfillActivityEffortFields,

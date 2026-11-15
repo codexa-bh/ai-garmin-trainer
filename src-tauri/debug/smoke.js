@@ -3071,6 +3071,7 @@
         "oneMonth",
         "threeMonths",
         "twelveMonths",
+        "refresh",
       ].includes(command.action)
     )
       throw Error("Unsupported weekly KPI action/mode");
@@ -3086,6 +3087,21 @@
       ].filter((el) => visible(el) && name(el) === label);
       if (buttons.length !== 1 || buttons[0].disabled)
         throw Error("Weekly KPI control unavailable");
+      buttons[0].click();
+    } else if (command.action === "refresh") {
+      // T0328: the one existing current-week Refresh control, by exact
+      // accessible name; no other measurement/write control is reachable.
+      const region = weeklyKpiRegion();
+      const buttons = region?.classList.contains("weekly-kpi-progress")
+        ? [...region.querySelectorAll("button")].filter(
+            (el) =>
+              visible(el) &&
+              el.getAttribute("aria-label") === "Refresh current week" &&
+              el.textContent === "Refresh",
+          )
+        : [];
+      if (buttons.length !== 1 || buttons[0].disabled)
+        throw Error("Current-week Refresh unavailable");
       buttons[0].click();
     } else if (
       ["oneMonth", "threeMonths", "twelveMonths"].includes(command.action)
@@ -3247,17 +3263,29 @@
       "History",
       "Back to chat",
       "Training Plan",
+      // T0328 authored measured actuals and the one Refresh control.
+      "Refresh",
+      "2 sessions",
+      "2 h 30 min",
       ...ranges,
     ]);
     const format = new Intl.DateTimeFormat(undefined, {
       dateStyle: "medium",
       timeStyle: "short",
     });
+    const cutoffs = [];
     for (let minute = -60; minute <= 60; minute++) {
       const cutoff = format.format(new Date(Date.now() + minute * 60000));
+      cutoffs.push(cutoff);
       safe.add(`As of ${cutoff} · Provisional`);
       safe.add(`Review notes · ${cutoff}`);
     }
+    // Measured-at is fresh; reviewed points keep the authored seed cutoff.
+    for (const measured of cutoffs)
+      for (const points of cutoffs)
+        safe.add(
+          `Actuals measured ${measured} · Points as of ${points} · Provisional`,
+        );
     const panel = region.closest(".weekly-plan-panel");
     const nodes = [
       ...panel.querySelectorAll(
