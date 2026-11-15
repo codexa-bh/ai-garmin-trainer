@@ -258,6 +258,7 @@ impl Command {
                 "oneMonth",
                 "threeMonths",
                 "twelveMonths",
+                "refresh",
             ]
             .contains(&action.as_str()),
             Self::ActivityLabels { action } => {
@@ -1929,6 +1930,7 @@ mod tests {
             "oneMonth",
             "threeMonths",
             "twelveMonths",
+            "refresh",
         ] {
             let command = Command::WeeklyKpis {
                 action: action.into(),

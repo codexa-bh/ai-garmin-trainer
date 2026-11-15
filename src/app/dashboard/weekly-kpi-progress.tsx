@@ -193,7 +193,7 @@ export function WeeklyKpiProgress({
               <>
                 <p className="training-plan-meta">
                   Latest established plan · {latest?.weekStart}. Dashed: target.
-                  Solid: actual.
+                  Solid: recorded actual.
                 </p>
                 {charts.map(({ item, track, label }) => {
                   const measurements = weeks.map(({ weekStart, kpis }) => {
@@ -267,7 +267,7 @@ export function WeeklyKpiProgress({
                           <Line
                             type="linear"
                             dataKey="actual"
-                            name="Actual"
+                            name="Recorded actual"
                             stroke="#49d6c8"
                             connectNulls={false}
                             isAnimationActive={false}

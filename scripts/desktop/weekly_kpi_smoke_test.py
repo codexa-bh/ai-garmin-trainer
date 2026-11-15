@@ -132,5 +132,29 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
             retained.assert_called_once()
 
 
+    def _refresh_run(self, states, hashes):
+        run = Run()
+        run.database = '/owned/run.sqlite'
+        return run, patch.object(kpis, 'measured', side_effect=states), patch.object(kpis, 'saved_hash', side_effect=hashes)
+
+    def test_refresh_requires_one_click_published_authored_values_and_unchanged_reviews(self):
+        good = {'concepts': {'authored-sessions': {'success': {'values': {'count': 2, 'duration': 150}, 'status': 'measured', 'recipeVersion': 1}}}}
+        run, states, hashes = self._refresh_run([None, good], ['h', 'h'])
+        with states, hashes:
+            captures, facts = kpis.refresh_proof(run, '2026-11-09')
+        self.assertEqual(sum(value.get('action') == 'refresh' for value in run.commands), 1)
+        self.assertEqual([(c['view'], c['preset']) for c in captures], [('refreshed', 'wide'), ('refreshed', 'wide'), ('refreshed', 'narrow'), ('refreshed', 'narrow'), ('refreshed-grid', 'wide'), ('refreshed-grid', 'narrow')])
+        self.assertTrue(facts['reviewedKpisUnchanged'])
+
+    def test_refresh_refuses_seeded_measurement_changed_reviews_and_wrong_values_without_retry(self):
+        good = {'concepts': {'authored-sessions': {'success': {'values': {'count': 2, 'duration': 150}, 'status': 'measured', 'recipeVersion': 1}}}}
+        wrong = {'concepts': {'authored-sessions': {'success': {'values': {'count': 0, 'duration': None}, 'status': 'measured', 'recipeVersion': 1}}}}
+        for states, hashes, message in [([good], ['h'], 'must not contain'), ([None, good], ['h', 'changed'], 'changed reviewed'), ([None, wrong], ['h', 'h'], 'did not publish')]:
+            run, s, h = self._refresh_run(states, hashes)
+            with s, h, self.assertRaisesRegex(ValueError, message):
+                kpis.refresh_proof(run, '2026-11-09')
+            self.assertLessEqual(sum(value.get('action') == 'refresh' for value in run.commands), 1)
+
+
 if __name__ == '__main__':
     unittest.main()
