@@ -5,6 +5,7 @@ import {
   isGarminSyncRunning,
   syncSummary,
 } from "@/lib/garmin/composition";
+import { historicalIntentAdmitted } from "@/lib/garmin/sync-policy";
 
 export async function GET() {
   const verification = await verifyConnectorToken();
@@ -26,7 +27,9 @@ export async function POST(request?: Request) {
         !input ||
         Array.isArray(input) ||
         Object.keys(input).length !== 1 ||
-        (input.intent !== "latest" && input.intent !== "history")
+        (input.intent !== "latest" &&
+          input.intent !== "history" &&
+          input.intent !== "discover")
       )
         throw new Error("invalid intent");
       intent = input.intent;
@@ -34,7 +37,8 @@ export async function POST(request?: Request) {
       return NextResponse.json(
         {
           status: "blocked",
-          detail: "Expected exactly one Sync intent: latest or history.",
+          detail:
+            "Expected exactly one Sync intent: latest, history or discover.",
         },
         { status: 400 },
       );
@@ -58,8 +62,8 @@ export async function POST(request?: Request) {
       { status: 409 },
     );
   if (
-    intent === "history" &&
-    syncSummary().sync.historical.state !== "available"
+    intent !== "latest" &&
+    !historicalIntentAdmitted(syncSummary().sync.historical, intent)
   )
     return NextResponse.json(
       {
