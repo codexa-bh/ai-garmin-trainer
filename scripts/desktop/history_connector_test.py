@@ -148,7 +148,8 @@ class SyntheticHistoryContracts(unittest.TestCase):
             return result
         run = SimpleNamespace(root=self.root, config={'source':'unit'}, boot='unit', binary=Path('/unit'), command=command,
                               latest_only=Mock(side_effect=latest_only), backend_latest=Mock(side_effect=backend_latest), wait=Mock(), wait_sync=Mock(side_effect=lambda *args: settlement_order.append('observe')), summary=summary,
-                              settle_claim=Mock(side_effect=lambda: settlement_order.append('settle')), stop=Mock(), start=Mock())
+                              settle_claim=Mock(side_effect=lambda: settlement_order.append('settle')), stop=Mock(), start=Mock(),
+                              automatic_discovery=Mock(return_value={'unit':'automatic'}))
         with patch('history_smoke.prepare_mixed_sync_presentation', side_effect=seed_mixed) as seed:
             HistoryRun.synthetic_sync(run)
         self.assertEqual([call.args[1] for call in seed.call_args_list], ['settled', 'failed'])
@@ -162,7 +163,9 @@ class SyntheticHistoryContracts(unittest.TestCase):
         self.assertEqual(run.stop.call_count, 4)
         evidence = json.loads((self.root / 'synthetic-sync.json').read_text())
         self.assertFalse(evidence['realGarminCertified'])
-        self.assertEqual(evidence['maxInvocations'], 5)
+        self.assertEqual(evidence['maxInvocations'], 9)
+        self.assertEqual(evidence['automaticDiscovery'], {'unit':'automatic'})
+        run.automatic_discovery.assert_called_once_with()
         self.assertEqual(len(evidence['captures']), 26)
         self.assertEqual(evidence['settled'][-1]['after']['healthChecks'], 24)
 

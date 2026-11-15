@@ -1,6 +1,7 @@
 import type { GarminImportPorts } from "./import-ports";
 import {
   historicalAction,
+  historicalIntentAdmitted,
   latestSyncState,
   LATEST_CHECKPOINT,
   nextHistoricalWork,
@@ -12,6 +13,7 @@ import {
   type SyncState,
 } from "./sync-policy";
 import type { GarminHistoryState } from "./history-policy";
+import { historyScope, reconcileToAutomatic } from "./scope-policy";
 import type { GarminDiscoveryState } from "./discovery-policy";
 import {
   BatchEnd,
@@ -39,6 +41,7 @@ import {
   historyFailureClass,
   historyState,
   historyWindowStart,
+  savedHistoryState,
   shiftDate,
 } from "./history-policy";
 
@@ -125,23 +128,24 @@ export function createGarminImports({
     let invalid = false;
     try {
       // Validate against the saved scope first: reads never reset a changed limit.
-      if (rawHistory)
-        history = historyState(
-          rawHistory,
-          (JSON.parse(rawHistory) as GarminHistoryState).limit,
-          today,
-        );
+      if (rawHistory) history = savedHistoryState(rawHistory);
       discovery = discoveryState(
         rawDiscovery,
+        // Absent discovery is "no discovery progress" under the saved scope.
         rawDiscovery
           ? (JSON.parse(rawDiscovery) as GarminDiscoveryState).limit
-          : limit,
+          : history.limit,
         history.health.nextDate,
       );
-      if (rawDiscovery && !rawHistory) invalid = true;
     } catch {
       invalid = true;
     }
+    const scope = historyScope({
+      history: rawHistory && !invalid ? history : null,
+      discovery: rawDiscovery && !invalid ? discovery : null,
+      limit,
+      invalid,
+    });
     let latest: SyncState["latest"] = null;
     try {
       latest = latestSyncState(store.getCheckpoint(LATEST_CHECKPOINT));
@@ -164,8 +168,18 @@ export function createGarminImports({
       historical: historicalAction({
         history,
         discovery,
-        repairs: invalid ? [] : repairCandidates(history, today, recentStart),
+        repairs:
+          scope.kind === "blocked"
+            ? []
+            : repairCandidates(
+                scope.kind === "reconcilable"
+                  ? reconcileToAutomatic(history, null).history
+                  : history,
+                today,
+                recentStart,
+              ),
         exists: Boolean(rawHistory),
+        discoveryExists: Boolean(rawDiscovery),
         active,
         limit,
         invalid,
@@ -203,17 +217,46 @@ export function createGarminImports({
     // Unknown versions are preserved and refuse mutation, never silently reset.
     syncOperation(store.getCheckpoint(SYNC_CHECKPOINT));
     if (!historical) latestSyncState(store.getCheckpoint(LATEST_CHECKPOINT));
+    // The transition must commit history and discovery together, which only
+    // the interactive operation owns.
+    if (options.intent === "discover" && !options.interactive)
+      throw new Error(
+        "Discover older history requires the interactive operation.",
+      );
+    // Server revalidation: an explicit intent runs only its own current action;
+    // no request ever resets saved progress whose scope differs.
     if (
-      options.intent === "history" &&
-      syncSummary().sync.historical.state !== "available"
+      historical &&
+      !historicalIntentAdmitted(syncSummary().sync.historical, options.intent)
     )
       throw new Error(
         "Historical work is not actionable; refresh summary and preserve saved state for recovery.",
       );
+    const rawHistory = historical
+      ? store.getCheckpoint(HISTORY_CHECKPOINT)
+      : null;
+    // The explicit discover action plans the finite -> automatic transition
+    // from validated snapshots; it is committed by the first coherent save.
+    const reconciled =
+      options.intent === "discover"
+        ? reconcileToAutomatic(
+            savedHistoryState(rawHistory!),
+            (() => {
+              const raw = store.getCheckpoint(DISCOVERY_CHECKPOINT);
+              return raw
+                ? discoveryState(
+                    raw,
+                    (JSON.parse(raw) as GarminDiscoveryState).limit,
+                    null,
+                  )
+                : null;
+            })(),
+          )
+        : null;
     // Latest work has independent settlement and never writes family/discovery state.
-    const state = historical
-      ? historyState(store.getCheckpoint(HISTORY_CHECKPOINT), limit, today)
-      : historyState(null, limit, today);
+    const state = reconciled
+      ? reconciled.history
+      : historyState(rawHistory, limit, today);
     const interactive = Boolean(options.interactive);
     const operationLimits = interactive
       ? options.finiteLiveSmoke
@@ -224,11 +267,12 @@ export function createGarminImports({
       throw new Error("Interactive sync requires an owned pacing port.");
     const discovery =
       interactive && historical
-        ? discoveryState(
-            store.getCheckpoint(DISCOVERY_CHECKPOINT),
+        ? (reconciled?.discovery ??
+          discoveryState(
+            reconciled ? null : store.getCheckpoint(DISCOVERY_CHECKPOINT),
             limit,
             state.health.nextDate,
-          )
+          ))
         : undefined;
     if (discovery)
       discovery.operation = {
@@ -353,11 +397,15 @@ export function createGarminImports({
     const save = () => {
       state.operations = operations;
       state.updatedAt = clock().toISOString();
-      store.saveCheckpoint(
+      const entries: [string, string][] = [];
+      entries.push([
         SYNC_CHECKPOINT,
         JSON.stringify({
           version: 1,
-          intent: options.intent ?? "legacy",
+          intent:
+            options.intent === "discover"
+              ? "history"
+              : (options.intent ?? "legacy"),
           outcome: state.outcome,
           updatedAt: state.updatedAt,
           stopReason,
@@ -368,9 +416,9 @@ export function createGarminImports({
           activitiesProcessed: activitiesImported,
           healthDaysRefreshed: healthDaysImported,
         } satisfies SyncOperation),
-      );
-      if (!historical) {
-        store.saveCheckpoint(
+      ]);
+      if (!historical)
+        entries.push([
           LATEST_CHECKPOINT,
           JSON.stringify({
             version: 1,
@@ -379,15 +427,18 @@ export function createGarminImports({
             activitiesProcessed: activitiesImported,
             healthDaysRefreshed: healthDaysImported,
           }),
-        );
-        return;
+        ]);
+      else {
+        entries.push([HISTORY_CHECKPOINT, JSON.stringify(state)]);
+        if (discovery?.operation) {
+          discovery.operation.attempts = operations;
+          discovery.operation.updatedAt = state.updatedAt;
+          entries.push([DISCOVERY_CHECKPOINT, JSON.stringify(discovery)]);
+        }
       }
-      store.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(state));
-      if (discovery?.operation) {
-        discovery.operation.attempts = operations;
-        discovery.operation.updatedAt = state.updatedAt;
-        store.saveCheckpoint(DISCOVERY_CHECKPOINT, JSON.stringify(discovery));
-      }
+      // One transaction: a history/discovery pair (including an explicit
+      // scope transition) is never observable half-written.
+      store.saveCheckpoints(entries);
     };
     const progress = (
       stage: Parameters<ProgressReporter>[0]["stage"],
@@ -574,7 +625,9 @@ export function createGarminImports({
         async function activityBatch() {
           if (historyDateAllowed(state.activities.nextDate, limit)) {
             const end = state.activities.windowEnd;
-            const start = historyWindowStart(end, limit);
+            // A frozen window keeps its original lower bound while paging.
+            const start =
+              state.activities.windowStart ?? historyWindowStart(end, limit);
             for (let count = 0; count < 2; count += 1) {
               checkStop();
               progress(
@@ -632,6 +685,10 @@ export function createGarminImports({
                   start === "0001-01-01" ? null : shiftDate(start, -1);
                 state.activities.windowEnd = state.activities.nextDate ?? start;
                 state.activities.page = 0;
+                if (state.activities.windowStart !== undefined) {
+                  delete state.activities.windowStart;
+                  state.version = 1;
+                }
               }
               save();
               await drainDetails();

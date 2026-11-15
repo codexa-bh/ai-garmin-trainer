@@ -420,7 +420,7 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     expect(repo.dataCounts().healthDays).toBe(0);
   });
 
-  it("preserves global legacy checkpoints and normalized rows across clearing/changing a limit", async () => {
+  it("preserves global legacy checkpoints and normalized rows; a changed limit never resets via legacy callers", async () => {
     const repo = await import("../src/lib/db/repository");
     repo.saveCheckpoint("activity_page", "99");
     repo.saveCheckpoint("health_next_date", "2030-01-01");
@@ -428,14 +428,25 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-20");
     await app.runGarminSync();
     expect(healthDates()).toEqual(["2026-09-21", "2026-09-20"]);
+    const bytes = [
+      repo.getCheckpoint(HISTORY_CHECKPOINT),
+      repo.getCheckpoint(DISCOVERY_CHECKPOINT),
+    ];
+    const rows = repo.dataCounts().healthDays;
     vi.stubEnv("GARMIN_HISTORY_START_DATE", "");
     remote.calls = [];
-    const automatic = await app.runGarminSync();
-    expect(automatic.history.limit).toBeNull();
-    expect(automatic.history.health.nextDate).toBe("2026-09-01");
+    // Only the explicit discover action may continue limited progress.
+    await expect(app.runGarminSync()).rejects.toThrow("not actionable");
+    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-10");
+    await expect(app.runGarminSync()).rejects.toThrow("not actionable");
+    expect(remote.calls).toEqual([]);
+    expect([
+      repo.getCheckpoint(HISTORY_CHECKPOINT),
+      repo.getCheckpoint(DISCOVERY_CHECKPOINT),
+    ]).toEqual(bytes);
     expect(repo.getCheckpoint("activity_page")).toBe("99");
     expect(repo.getCheckpoint("health_next_date")).toBe("2030-01-01");
-    expect(repo.dataCounts().healthDays).toBe(20);
+    expect(repo.dataCounts().healthDays).toBe(rows);
   });
 });
 
@@ -706,6 +717,278 @@ describe("explicit Sync intents and durable eligibility", () => {
     const next = (await explicit("history")).events.at(-1);
     expect(next.history.health.nextDate).toBe("2026-09-05");
     expect(next.sync.historical.state).toBe("complete");
+  });
+});
+
+describe("explicit finite limit -> automatic discovery through HTTP/NDJSON/SQLite", () => {
+  async function post(intent: string) {
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST(
+      new Request("http://localhost/api/sync", {
+        method: "POST",
+        body: JSON.stringify({ intent }),
+      }),
+    );
+    const stream = response.text();
+    await vi.advanceTimersByTimeAsync(2_000_000);
+    const text = await stream;
+    return {
+      status: response.status,
+      events: text.trim()
+        ? text
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line))
+        : [],
+    };
+  }
+  // Authored populated copy: settled pair limited to 2026-09-07, automatic now.
+  async function seedSettledPair() {
+    const repo = await import("../src/lib/db/repository");
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    for (const [date, steps] of [
+      ["2026-09-10", 5000],
+      ["2026-09-08", 4000],
+    ] as const)
+      db.prepare(
+        "insert into daily_health(date,availability,steps) values (?, 'partial', ?)",
+      ).run(date, steps);
+    db.prepare(
+      "insert into garmin_body_weight_history(date,weight_kg,source,fetched_at) values ('2026-09-08',71,'authored-transition',1)",
+    ).run();
+    const history = historyState(null, "2026-09-07", "2026-09-21");
+    history.outcome = "settled";
+    for (const family of ["health", "body", "activities"] as const)
+      history[family].nextDate = "2026-09-06";
+    history.activities.windowEnd = "2026-09-06";
+    history.health.checks = 14;
+    history.health.checksWithMetrics = 2;
+    history.health.oldestChecked = "2026-09-07";
+    const discovery = {
+      version: 1,
+      limit: "2026-09-07",
+      nextHintEnd: "2025-09-08",
+      positiveDates: [],
+      hint: null,
+      operation: {
+        phase: "settled",
+        startedAt: "2026-09-20T09:00:00.000Z",
+        updatedAt: "2026-09-20T09:10:00.000Z",
+        attempts: 20,
+        batches: 3,
+        outcome: "settled",
+        stopReason:
+          "Chosen exploration range checked; remote boundary unknown.",
+      },
+    };
+    repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(history));
+    repo.saveCheckpoint(DISCOVERY_CHECKPOINT, JSON.stringify(discovery));
+    repo.saveCheckpoint(
+      "garmin_latest_v1",
+      JSON.stringify({
+        version: 1,
+        outcome: "settled",
+        updatedAt: "2026-09-21T08:00:00.000Z",
+        activitiesProcessed: 10,
+        healthDaysRefreshed: 14,
+      }),
+    );
+    const facts = () => [
+      db
+        .prepare(
+          "select date,availability,steps from daily_health where date in ('2026-09-10','2026-09-08') order by date",
+        )
+        .all(),
+      db
+        .prepare(
+          "select date,weight_kg,source from garmin_body_weight_history order by date",
+        )
+        .all(),
+    ];
+    const pair = () => [
+      repo.getCheckpoint(HISTORY_CHECKPOINT),
+      repo.getCheckpoint(DISCOVERY_CHECKPOINT),
+    ];
+    return { repo, db, facts, pair, before: { facts: facts(), pair: pair() } };
+  }
+  it("summary, latest and legacy callers never transition; one explicit action continues older", async () => {
+    vi.useFakeTimers();
+    const { repo, db, facts, pair, before } = await seedSettledPair();
+    const summary = await import("../src/app/api/summary/route");
+    const initial = await (await summary.GET()).json();
+    expect(initial.sync.historical).toMatchObject({
+      state: "available",
+      action: "discover",
+      savedLimit: "2026-09-07",
+      limit: null,
+      remoteLowerBound: null,
+    });
+    expect(initial.sync.latest.healthDaysRefreshed).toBe(14);
+    expect((await post("history")).status).toBe(409);
+    const composition = await import("../src/lib/garmin/composition");
+    await expect(
+      composition.runGarminSync(undefined, { intent: "discover" }),
+    ).rejects.toThrow("interactive");
+    const legacy = await import("../src/app/api/sync/route");
+    expect((await legacy.POST()).status).toBe(409);
+    expect(remote.calls).toEqual([]);
+    const latest = (await post("latest")).events.at(-1);
+    expect(latest.status).toBe("completed");
+    expect(latest.sync.historical.action).toBe("discover");
+    expect(remote.calls.some((call) => call.name === "get_weekly_steps")).toBe(
+      false,
+    );
+    expect(pair()).toEqual(before.pair);
+    remote.calls = [];
+    const discover = await post("discover");
+    expect(discover.status).toBe(200);
+    const result = discover.events.at(-1);
+    expect(result.type).toBe("result");
+    expect(["completed", "budget-limited"]).toContain(result.status);
+    // Older-than-limit progress, without a recent-first history reset.
+    const older = healthDates().filter((date) => date < "2026-09-07");
+    expect(older[0]).toBe("2026-09-06");
+    expect(
+      healthDates().filter(
+        (date) => date > "2026-09-07" && date < "2026-09-08",
+      ),
+    ).toEqual([]);
+    expect(
+      remote.calls.find((call) => call.name === "get_weekly_steps")?.args
+        .end_date,
+    ).toBe("2026-09-06");
+    const saved = JSON.parse(repo.getCheckpoint(HISTORY_CHECKPOINT)!);
+    expect(saved).toMatchObject({
+      limit: null,
+      expandedFrom: "2026-09-07",
+      remoteLowerBound: null,
+    });
+    expect(saved.health.checks).toBeGreaterThan(14);
+    expect(saved.health.nextDate < "2026-09-06").toBe(true);
+    expect(
+      JSON.parse(repo.getCheckpoint(DISCOVERY_CHECKPOINT)!).limit,
+    ).toBeNull();
+    expect(JSON.parse(repo.getCheckpoint("garmin_sync_v1")!).intent).toBe(
+      "history",
+    );
+    expect(
+      JSON.parse(repo.getCheckpoint("garmin_latest_v1")!).healthDaysRefreshed,
+    ).toBe(latest.healthDaysRefreshed);
+    expect(facts()[1]).toEqual(
+      expect.arrayContaining(before.facts[1] as unknown[]),
+    );
+    expect(facts()[0]).toHaveLength(2);
+    expect(db.pragma("integrity_check", { simple: true })).toBe("ok");
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+    const reload = await (await summary.GET()).json();
+    expect(reload.sync).toEqual(result.sync);
+    expect(reload.sync.historical.action).not.toBe("discover");
+    // Idempotent: the transition happened once; discover is no longer admitted.
+    const transitioned = pair();
+    remote.calls = [];
+    expect((await post("discover")).status).toBe(409);
+    expect(remote.calls).toEqual([]);
+    expect(pair()).toEqual(transitioned);
+  });
+  it("keeps a clamped activity window's query identity while paging, then widens", async () => {
+    vi.useFakeTimers();
+    const { repo } = await seedSettledPair();
+    const history = JSON.parse(repo.getCheckpoint(HISTORY_CHECKPOINT)!);
+    history.activities.nextDate = "2026-09-07";
+    history.activities.windowEnd = "2026-09-07";
+    history.activities.page = 1;
+    repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(history));
+    remote.pages.set(0, { activities: [], has_more: true });
+    remote.pages.set(1, { activities: [], has_more: false });
+    const result = (await post("discover")).events.at(-1);
+    expect(["completed", "budget-limited"]).toContain(result.status);
+    const windows = remote.calls
+      .filter((call) => call.name === "get_activities_by_date")
+      .map((call) => [
+        call.args.start_date,
+        call.args.end_date,
+        call.args.page,
+      ]);
+    // Same (start, end, page) identity as the original limited query.
+    expect(windows).toContainEqual(["2026-09-07", "2026-09-07", 0]);
+    expect(windows).toContainEqual(["2026-09-07", "2026-09-07", 1]);
+    expect(
+      windows.some(
+        ([start, end]) => end === "2026-09-07" && start !== "2026-09-07",
+      ),
+    ).toBe(false);
+    // After that window completes, older windows are opened without the limit.
+    expect(windows).toContainEqual(["2026-08-08", "2026-09-06", 0]);
+    const saved = JSON.parse(repo.getCheckpoint(HISTORY_CHECKPOINT)!);
+    expect(saved.version).toBe(1);
+    expect(saved.activities.windowStart).toBeUndefined();
+  });
+  it("never exposes a half-written pair when the transition commit fails", async () => {
+    vi.useFakeTimers();
+    const { db, pair, before } = await seedSettledPair();
+    db.exec(
+      "create trigger inject_t0335 before update on sync_checkpoint when new.key = 'garmin_discovery_v1' begin select raise(abort, 'injected storage failure'); end",
+    );
+    const failed = await post("discover");
+    expect(failed.events.at(-1)).toMatchObject({
+      type: "result",
+      status: "failed",
+    });
+    expect(pair()).toEqual(before.pair);
+    const summary = await import("../src/app/api/summary/route");
+    expect((await (await summary.GET()).json()).sync.historical.action).toBe(
+      "discover",
+    );
+    db.exec("drop trigger inject_t0335");
+    const composition = await import("../src/lib/garmin/composition");
+    expect(composition.isGarminSyncRunning()).toBe(false);
+    const retry = (await post("discover")).events.at(-1);
+    expect(["completed", "budget-limited"]).toContain(retry.status);
+    expect(JSON.parse(pair()[0]!).limit).toBeNull();
+  });
+  it("cancellation after commitment settles durably and continues explicitly under automatic scope", async () => {
+    vi.useFakeTimers();
+    const { pair, before } = await seedSettledPair();
+    const app = await import("../src/lib/garmin/composition");
+    remote.cancelAt = 4;
+    const run = app.runGarminSync(undefined, {
+      intent: "discover",
+      interactive: true,
+      cancelled: () => remote.cancelled,
+    });
+    await vi.advanceTimersByTimeAsync(2_000_000);
+    const cancelled = await run;
+    expect(cancelled.status).toBe("cancelled");
+    const saved = JSON.parse(pair()[0]!);
+    expect(saved).toMatchObject({
+      limit: null,
+      expandedFrom: "2026-09-07",
+      outcome: "cancelled",
+    });
+    expect(saved.health.checks).toBeGreaterThanOrEqual(14);
+    expect(JSON.parse(pair()[1]!).limit).toBeNull();
+    expect(pair()).not.toEqual(before.pair);
+    // Relaunch equivalent: fresh modules read the committed automatic pair.
+    vi.resetModules();
+    const summary = await import("../src/app/api/summary/route");
+    const after = (await (await summary.GET()).json()).sync.historical;
+    expect(after).toMatchObject({
+      state: "available",
+      action: "continue",
+      savedLimit: null,
+      recovery: null,
+    });
+    remote.cancelAt = 0;
+    remote.cancelled = false;
+    remote.calls = [];
+    const resumed = (await post("history")).events.at(-1);
+    expect(["completed", "budget-limited"]).toContain(resumed.status);
+    const continued = JSON.parse(pair()[0]!);
+    // Never a reset to the recent-first fresh cursor (today - 14).
+    expect(continued.health.nextDate < saved.health.nextDate).toBe(true);
+    expect(continued.health.checks).toBeGreaterThan(saved.health.checks);
+    expect(continued.expandedFrom).toBe("2026-09-07");
   });
 });
 

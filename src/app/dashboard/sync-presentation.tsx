@@ -126,6 +126,8 @@ export function formatSyncResultLine(event: SyncProgressEvent): string {
   }
   if (event.sync?.historical.state === "blocked")
     parts.push("older history needs attention");
+  else if (event.sync?.historical.action === "discover")
+    parts.push("older history can continue with automatic discovery");
   const athlete =
     event.athleteBaseline?.availability ?? event.athleteAvailability;
   const body = event.bodyMetrics?.availability ?? event.bodyMetricsAvailability;
@@ -166,7 +168,12 @@ export function formatSyncRunStatus(run: SyncRunState): string {
         : run.kind === "failed"
           ? ["failed"]
           : ["running"];
-  for (const label of ["Latest refresh", "Historical import", "Sync"]) {
+  for (const label of [
+    "Latest refresh",
+    "Historical import",
+    "Older history discovery",
+    "Sync",
+  ]) {
     for (const outcome of outcomes) {
       const message = formatSyncOutcome(label, outcome);
       if (run.finalMessage === message) return message;
@@ -268,7 +275,9 @@ export function formatSyncFinalMessage(event: SyncProgressEvent): string {
       ? "Latest refresh"
       : event.intent === "history"
         ? "Historical import"
-        : "Sync",
+        : event.intent === "discover"
+          ? "Older history discovery"
+          : "Sync",
     event.status,
   );
 }
@@ -293,4 +302,23 @@ export function formatDetailCoverageSummary(
   if (!coverage)
     return `${legacyDetailedActivities} available/partial detailed activities`;
   return `${coverage.available} available, ${coverage.partial} partial, ${coverage.unsupported} unsupported, ${coverage.pending} pending, ${coverage.retryableFailures} retryable activity details`;
+}
+
+/** Short safe next step for blocked older history; never reset or login. */
+export function historyRecoveryHint(
+  recovery: import("@/lib/garmin/scope-policy").HistoricalRecovery,
+  savedLimit: string | null,
+): string {
+  switch (recovery) {
+    case "unsupported":
+      return "Saved progress is from an unsupported format. Use a compatible app build; it is preserved.";
+    case "inconsistent":
+      return "Saved progress records disagree. They are preserved; this build will not guess how to continue.";
+    case "scope-changed":
+      return `Saved progress uses another date limit${savedLimit ? ` (${savedLimit})` : ""}. Only continuing into automatic discovery is supported; progress is preserved.`;
+    case "failed":
+      return "The last older-history run failed. Check the connection; saved work is preserved.";
+    case "no-progress":
+      return "The last older-history run made no progress. Saved work is preserved.";
+  }
 }

@@ -1,7 +1,15 @@
 import type { GarminDiscoveryState } from "./discovery-policy";
 import { historyDateAllowed, type GarminHistoryState } from "./history-policy";
+import {
+  historyScope,
+  reconcileToAutomatic,
+  recoveryReason,
+  type HistoricalRecovery,
+} from "./scope-policy";
 
-export type SyncIntent = "latest" | "history";
+// "discover" is the explicit visible action that continues date-limited
+// progress into automatic discovery; it is recorded as a history operation.
+export type SyncIntent = "latest" | "history" | "discover";
 export const LATEST_CHECKPOINT = "garmin_latest_v1";
 export const SYNC_CHECKPOINT = "garmin_sync_v1";
 export type SyncStopReason =
@@ -20,7 +28,7 @@ export type SyncStopReason =
   | "connector";
 export type SyncOperation = {
   version: 1;
-  intent: SyncIntent | "legacy";
+  intent: "latest" | "history" | "legacy";
   outcome: GarminHistoryState["outcome"];
   updatedAt: string;
   stopReason: SyncStopReason | null;
@@ -88,17 +96,41 @@ export type LatestSyncState = {
 };
 export type HistoricalAction = {
   state: "available" | "complete" | "blocked" | "active";
-  action: "start" | "continue" | null;
+  action: "start" | "continue" | "discover" | null;
   next: {
     family: "health" | "activities" | "body" | "repair" | "hint";
     date: string;
     page?: number;
   } | null;
   limit: string | null;
+  /** Scope of saved progress; differs from `limit` only for discover/blocked. */
+  savedLimit: string | null;
+  recovery: HistoricalRecovery | null;
   remoteLowerBound: null;
   interrupted: boolean;
   reason: string;
 };
+
+/** Closed server/client admission: explicit intents never cross over. */
+export function historicalIntentAdmitted(
+  historical: HistoricalAction | undefined,
+  intent: SyncIntent | undefined,
+): boolean {
+  if (intent === "latest") return true;
+  if (intent === "discover") return historical?.action === "discover";
+  if (intent === "history")
+    return (
+      historical?.state === "available" && historical.action !== "discover"
+    );
+  // Bodyless legacy callers keep their bounds but never reset or reconcile
+  // saved progress whose scope differs from the current configuration.
+  // Same-scope failed state keeps the established bounded legacy behavior.
+  return (
+    historical?.action !== "discover" &&
+    historical?.recovery !== "inconsistent" &&
+    historical?.savedLimit === historical?.limit
+  );
+}
 export type SyncState = {
   operation?: SyncOperation | null;
   operationInvalid?: boolean;
@@ -145,6 +177,7 @@ export function historicalAction({
   discovery,
   repairs,
   exists,
+  discoveryExists = exists,
   active,
   limit,
   invalid = false,
@@ -153,12 +186,21 @@ export function historicalAction({
   discovery: GarminDiscoveryState | null;
   repairs: string[];
   exists: boolean;
+  discoveryExists?: boolean;
   active: boolean;
   limit: string | null;
   invalid?: boolean;
 }): HistoricalAction {
+  const scope = historyScope({
+    history: exists ? history : null,
+    discovery: discoveryExists ? discovery : null,
+    limit,
+    invalid,
+  });
   const base = {
     limit,
+    savedLimit: exists ? history.limit : limit,
+    recovery: null,
     remoteLowerBound: null,
     interrupted: exists && history.outcome === "running" && !active,
   } as const;
@@ -170,29 +212,53 @@ export function historicalAction({
       next: null,
       reason: "A sync is active. Wait for settlement, then refresh summary.",
     };
-  if (
-    invalid ||
-    history.limit !== limit ||
-    (discovery && discovery.limit !== limit)
-  )
+  if (scope.kind === "blocked")
     return {
       ...base,
+      savedLimit: scope.savedLimit,
+      recovery: scope.recovery,
       state: "blocked",
       action: null,
       next: null,
-      reason:
-        "Saved history or its selected limit needs recovery. Preserve checkpoints; do not reset or replay.",
+      reason: recoveryReason(scope.recovery),
     };
+  if (scope.kind === "reconcilable") {
+    // Eligibility means executable work after the planned transition.
+    const planned = reconcileToAutomatic(history, discovery);
+    const next = nextHistoricalWork(
+      planned.history,
+      planned.discovery,
+      repairs,
+    );
+    return next
+      ? {
+          ...base,
+          state: "available",
+          action: "discover",
+          next,
+          reason:
+            "Saved progress stopped at a date limit. Automatic discovery can continue farther back; imported data will be kept.",
+        }
+      : {
+          ...base,
+          state: "complete",
+          action: null,
+          next: null,
+          reason:
+            "Saved progress reached the calendar floor. Remote earliest history remains unknown.",
+        };
+  }
   if (exists && history.outcome === "failed")
     return {
       ...base,
       state: "blocked",
       action: null,
+      recovery:
+        history.recoveryReason === "no-progress" ? "no-progress" : "failed",
       next: null,
-      reason:
-        history.recoveryReason === "no-progress"
-          ? "Historical import made no progress. Saved work is retained for recovery, not automatic retry."
-          : "Historical import stopped after a failure. Resolve the connection or storage failure before recovering saved work.",
+      reason: recoveryReason(
+        history.recoveryReason === "no-progress" ? "no-progress" : "failed",
+      ),
     };
   const next = nextHistoricalWork(history, discovery, repairs);
   return next

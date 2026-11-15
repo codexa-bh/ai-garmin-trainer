@@ -121,6 +121,105 @@ class HistoryTokenContracts(unittest.TestCase):
             prepare_mixed_sync_presentation(run, 'settled')
         self.assertEqual(database.read_bytes(), before)
 
+    def test_automatic_transition_preparation_is_stopped_synthetic_and_settings_only(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from history_connector import SENTINEL
+        from history_smoke import prepare_automatic_history
+        (self.destination / 'config').mkdir(mode=0o700)
+        (self.destination / 'tokens').mkdir(mode=0o700)
+        token = self.destination / 'tokens/garmin_tokens.json'
+        token.write_bytes(SENTINEL)
+        token.chmod(0o600)
+        settings = self.destination / 'config/settings-v3.json'
+        fields = {'GARMIN_MCP_TOKEN_DIR':str(token.parent), 'GARMIN_HISTORY_START_DATE':'2026-10-11', 'DATABASE_PATH':'/owned/trainer.sqlite'}
+        private_json(settings, {'keys':{}, 'fields':fields})
+        run = SimpleNamespace(root=self.destination, child=None, config={'port':1})
+        with patch('history_smoke.listening', return_value=True):
+            with self.assertRaisesRegex(ValueError, 'Stopped'):
+                prepare_automatic_history(run)
+        with patch('history_smoke.listening', return_value=False):
+            prepare_automatic_history(run)
+            saved = json.loads(settings.read_text())
+            self.assertNotIn('GARMIN_HISTORY_START_DATE', saved['fields'])
+            self.assertEqual(saved['fields']['DATABASE_PATH'], '/owned/trainer.sqlite')
+            self.assertEqual(settings.stat().st_mode & 0o777, 0o600)
+            with self.assertRaisesRegex(ValueError, 'date-limited'):
+                prepare_automatic_history(run)
+            settings.unlink()
+            private_json(settings, {'keys':{'OPENAI_API_KEY':'private-canary'}, 'fields':fields})
+            before = settings.read_bytes()
+            with self.assertRaisesRegex(ValueError, 'Synthetic-only'):
+                prepare_automatic_history(run)
+            self.assertEqual(settings.read_bytes(), before)
+            settings.unlink()
+            private_json(settings, {'keys':{}, 'fields':fields})
+            token.write_bytes(b'real-looking token')
+            with self.assertRaisesRegex(ValueError, 'Synthetic-only'):
+                prepare_automatic_history(run)
+
+    def test_automatic_discovery_refuses_unsettled_or_already_automatic_history_before_any_mutation(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        for state in [{'active':True, 'historicalState':'complete', 'savedLimit':'2026-10-11', 'limit':'2026-10-11'},
+                      {'active':False, 'historicalState':'available', 'savedLimit':'2026-10-11', 'limit':'2026-10-11'},
+                      {'active':False, 'historicalState':'complete', 'savedLimit':None, 'limit':None}]:
+            run = SimpleNamespace(sync_captures=[], summary=Mock(return_value=state), history_digest=Mock(), stop=Mock(), start=Mock(), command=Mock())
+            with self.assertRaisesRegex(ValueError, 'Settled date-limited'):
+                HistoryRun.automatic_discovery(run)
+            run.stop.assert_not_called()
+            run.command.assert_not_called()
+
+    def test_automatic_discovery_requires_offered_action_without_passive_mutation(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        settled = {'active':False, 'historicalState':'complete', 'savedLimit':'2026-10-11', 'limit':'2026-10-11', 'remoteLowerBound':None}
+        offered = {**settled, 'historicalAction':'discover', 'limit':None}
+        for after, digests in [({**offered, 'historicalAction':None, 'historicalState':'blocked'}, ['d', 'd']), (offered, ['d', 'changed'])]:
+            run = SimpleNamespace(sync_captures=[], summary=Mock(side_effect=[settled, after]), history_digest=Mock(side_effect=digests),
+                                  stop=Mock(), start=Mock(), command=Mock(), wait=Mock(), binary='b', latest_only=Mock())
+            with patch('history_smoke.prepare_automatic_history') as prepare:
+                with self.assertRaisesRegex(ValueError, 'did not offer Discover'):
+                    HistoryRun.automatic_discovery(run)
+                prepare.assert_called_once_with(run)
+            run.latest_only.assert_not_called()
+            self.assertNotIn({'type':'sync','action':'continue'}, [call.args[0] for call in run.command.call_args_list])
+
+    def test_automatic_discovery_uses_one_visible_action_per_operation_and_proves_older_progress(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock, patch
+        state = {'active':False, 'historicalState':'complete', 'historicalAction':None, 'savedLimit':'2026-10-11', 'limit':'2026-10-11',
+                 'remoteLowerBound':None, 'outcome':'settled', 'healthChecks':20, 'nextHealthDate':'2026-10-10', 'batches':0,
+                 'operationAttempts':10, 'expandedFrom':None}
+        commands = []
+        def command(value):
+            commands.append(value)
+            if value.get('action') == 'continue':
+                state.update(active=True, historicalState='active', batches=1, outcome='running',
+                             savedLimit=None, expandedFrom='2026-10-11', healthChecks=state['healthChecks'] + 6,
+                             nextHealthDate='2026-10-01' if state['historicalAction'] == 'discover' else '2026-09-20')
+            if value.get('action') == 'cancel':
+                state.update(active=False, outcome='cancelled', historicalState='available', historicalAction='continue')
+            return {'ok':True, 'capture':'unit.png'}
+        def start(_binary):
+            if state['limit'] is not None and state['historicalAction'] is None:
+                state.update(limit=None, historicalState='available', historicalAction='discover')
+        run = SimpleNamespace(sync_captures=[], summary=Mock(side_effect=lambda: dict(state)), history_digest=Mock(return_value='same'),
+                              stop=Mock(), start=Mock(side_effect=start), command=Mock(side_effect=command), wait=Mock(), binary='b',
+                              wait_sync=Mock(), settle_claim=Mock(),
+                              latest_only=Mock(side_effect=lambda: {'after':dict(state), 'historyBytesPreserved':True}))
+        with patch('history_smoke.prepare_automatic_history') as prepare:
+            result = HistoryRun.automatic_discovery(run)
+        prepare.assert_called_once_with(run)
+        self.assertEqual([op['action'] for op in result['operations']], ['discover', 'continue'])
+        self.assertEqual(sum(value.get('action') == 'continue' for value in commands), 2)
+        self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 2)
+        self.assertEqual(run.latest_only.call_count, 2)
+        self.assertEqual(run.stop.call_count, 3)
+        self.assertLess(result['operations'][0]['after']['nextHealthDate'], '2026-10-11')
+        self.assertLess(result['operations'][1]['after']['nextHealthDate'], result['operations'][0]['after']['nextHealthDate'])
+        self.assertEqual(len(run.sync_captures), 12)
+
     def test_sync_scope_uses_populated_existing_setup_without_changing_default_wizard_coverage(self):
         from types import SimpleNamespace
         from history_smoke import setup_modes

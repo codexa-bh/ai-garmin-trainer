@@ -17,15 +17,21 @@ export type HistoryFamily = {
   oldestImported: string | null;
 };
 export type GarminHistoryState = {
-  version: 1;
+  // Version 2 exists only while a frozen activity window keeps the lower bound
+  // of its original date-limited query. Prior builds refuse it instead of
+  // re-paging a widened window; it returns to version 1 when that window ends.
+  version: 1 | 2;
   limit: string | null;
   remoteLowerBound: null;
+  // Earlier finite limit this progress explicitly expanded from (provenance).
+  expandedFrom?: string;
   health: HistoryFamily;
   body: HistoryFamily;
   activities: HistoryFamily & {
     windowEnd: string;
     page: number;
     windowOldestImported: string | null;
+    windowStart?: string;
   };
   unresolvedHealth: string[];
   repairAfter: string | null;
@@ -121,6 +127,11 @@ function validFamily(
     family.checksWithMetrics <= family.checks,
   );
 }
+/** Validate saved bytes against their own scope; never resets. */
+export function savedHistoryState(raw: string): GarminHistoryState {
+  const saved = JSON.parse(raw) as GarminHistoryState | null;
+  return historyState(raw, saved?.limit ?? null, "0001-01-01");
+}
 export function historyState(
   raw: string | null,
   limit: string | null,
@@ -131,9 +142,16 @@ export function historyState(
     // Corrupt/unknown state is a recovery error, not permission to reset it.
     if (
       !saved ||
-      saved.version !== 1 ||
+      ![1, 2].includes(saved.version) ||
+      (saved.version === 2) !== (saved.activities?.windowStart !== undefined) ||
+      (saved.activities?.windowStart !== undefined &&
+        (!validDate(saved.activities.windowStart) ||
+          saved.activities.windowStart > saved.activities.windowEnd ||
+          saved.activities.page < 1)) ||
       saved.remoteLowerBound !== null ||
       !nullableDate(saved.limit) ||
+      (saved.expandedFrom !== undefined &&
+        (saved.limit !== null || !validDate(saved.expandedFrom))) ||
       !validFamily(saved.health, "date") ||
       !validFamily(saved.body, "window") ||
       !validFamily(saved.activities, "window") ||
