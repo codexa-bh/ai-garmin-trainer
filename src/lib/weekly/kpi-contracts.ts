@@ -100,6 +100,8 @@ export type KpiRead = {
   assessments: KpiAssessment[];
   availableSets: { id: string; origin: KpiSet["origin"]; savedAt: string }[];
   narrowToSetIds?: string[];
+  /** Stored measurement-only actuals; independent of reviewed points. */
+  measured?: KpiWeekMeasurements | null;
 };
 export type KpiChange = {
   weekStart: string;
@@ -111,4 +113,72 @@ export type KpiProgress = {
   through: string;
   weeks: { weekStart: string; kpis: KpiRead }[];
   latestPlan: KpiRead | null;
+  /** Current verified recipes for latest-plan concepts. */
+  recipes?: KpiRecipe[];
+};
+
+/** A verified, reusable read-only measurement for one KPI concept. One row;
+ * each named column is the value of one numeric track of that concept, so
+ * related tracks share one selection. Optional missing_source > 0 marks the
+ * source as incomplete. Targets and points are never part of a recipe. */
+export type KpiRecipe = {
+  conceptId: string;
+  version: number;
+  sql: string;
+  tracks: { key: string; signature: string }[];
+  savedAt: string;
+};
+export type KpiRecipeInput = {
+  conceptId: string;
+  sql: string;
+  tracks: string[];
+};
+export type KpiMeasurementWindow = {
+  weekStart: string;
+  timeZone: string;
+  /** Inclusive start, exclusive end and as-of cutoff (epoch ms). */
+  startMs: number;
+  endMs: number;
+  asOfMs: number;
+};
+export type KpiRecipeOutcome =
+  | {
+      conceptId: string;
+      status: "measured" | "incomplete";
+      values: Record<string, number | null>;
+    }
+  | { conceptId: string; status: "failed"; reason: string };
+export type KpiMeasurementRun = {
+  /** Imported-data basis observed in the same read snapshot as the results. */
+  basis: string;
+  outcomes: KpiRecipeOutcome[];
+};
+/** Runs admitted recipes against one window; never throws for one recipe. */
+export type KpiMeasurementExecution = {
+  run(
+    recipes: Pick<KpiRecipe, "conceptId" | "sql" | "tracks">[],
+    window: KpiMeasurementWindow,
+  ): Promise<KpiMeasurementRun>;
+  /** Current basis, read synchronously for a conditional publication. */
+  basis(window: KpiMeasurementWindow): string;
+};
+export type KpiConceptMeasurement = {
+  success?: {
+    recipeVersion: number;
+    status: "measured" | "incomplete";
+    values: Record<string, number | null>;
+    /** Track signatures at measurement; a changed meaning is not reused. */
+    signatures: Record<string, string>;
+    measuredAt: string;
+    asOf: string;
+    basis: string;
+  };
+  /** Latest failed attempt; a retained success stays useful but stale. */
+  failure?: { recipeVersion: number; reason: string; at: string };
+};
+export type KpiWeekMeasurements = {
+  weekStart: string;
+  timeZone: string;
+  revision: string;
+  concepts: Record<string, KpiConceptMeasurement>;
 };

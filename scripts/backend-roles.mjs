@@ -71,7 +71,7 @@ const groups = [
     ["calculated-grade", "contracts", "policy", "schema"],
   ],
   ["analytics", "application", "lib/ai/analytics", ["application"]],
-  ["analytics", "adapter", "lib/ai/analytics", ["sqlite-execution"]],
+  ["analytics", "adapter", "lib/ai/analytics", ["sqlite-execution", "recipe-execution"]],
   [
     "local-data",
     "domain",
@@ -265,7 +265,12 @@ const groups = [
     "lib/weekly",
     ["contracts", "calendar", "kpi-contracts"],
   ],
-  ["weekly", "application", "lib/weekly", ["application", "kpis", "backfill"]],
+  [
+    "weekly",
+    "application",
+    "lib/weekly",
+    ["application", "kpis", "backfill", "measurements"],
+  ],
   ["weekly", "composition", "lib/weekly", ["composition"]],
   [
     "model-settings",

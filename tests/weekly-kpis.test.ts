@@ -155,6 +155,12 @@ beforeEach(() => {
     },
     history: () => [],
     latestPlanWeek: () => createWeeklyStore(() => db).latestPlanWeek(),
+    currentRecipes: () => createWeeklyStore(() => db).currentRecipes(),
+    saveRecipe: (recipe) => createWeeklyStore(() => db).saveRecipe(recipe),
+    readMeasurements: (key) =>
+      createWeeklyStore(() => db).readMeasurements(key),
+    saveMeasurements: (state) =>
+      createWeeklyStore(() => db).saveMeasurements(state),
     isCurrentTurn: () => current,
     proposal: () => null,
     pending: () => null,

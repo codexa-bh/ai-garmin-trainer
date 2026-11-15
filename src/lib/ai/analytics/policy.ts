@@ -68,6 +68,9 @@ function sanitizedMessage(reason: string): string {
       "SQLite rejected the query because a column name was ambiguous.",
     syntax_error: "SQLite rejected the query syntax.",
     sql_error: "SQLite rejected the bounded query.",
+    quoted_identifier: "Saved recipes cannot use quoted identifiers.",
+    recipe_parameters:
+      "Saved recipes must use exactly :week_start_ms and :week_end_ms.",
   };
   return messages[reason] ?? "The query was rejected by local SQL guardrails.";
 }
@@ -414,4 +417,45 @@ export function interpretSqlRows(
     truncated,
     privacy: PRIVACY,
   };
+}
+
+/** Server-bound parameters of a saved weekly measurement recipe. */
+export const RECIPE_PARAMETERS = ["week_start_ms", "week_end_ms"] as const;
+export const RECIPE_MAX_SQL_BYTES = 2000;
+
+/**
+ * Admission for saved, unattended measurement SQL, applied before every
+ * execution (saved SQL is never trusted). Adds to validateSql: a smaller size,
+ * exactly the two named window parameters, no quoted identifiers, schema
+ * qualifiers or SQLite internals, and no parameterized virtual table. Column
+ * admission is enforced by the executor's allowlisted views, not by parsing.
+ */
+export function validateRecipeSql(sql: string): SqlValidationResult {
+  if (new TextEncoder().encode(sql).length > RECIPE_MAX_SQL_BYTES)
+    return { ok: false, reason: "oversized_sql" };
+  const base = validateSql(sql);
+  if (!base.ok) return base;
+  const code = sql.replace(/'(?:[^']|'')*'/g, "''");
+  if (/["`[\]]/.test(code)) return { ok: false, reason: "quoted_identifier" };
+  const tokens = normalizedTokens(code);
+  if (
+    tokens.some(
+      (token) =>
+        ["main", "temp", "temporary"].includes(token) ||
+        token.startsWith("sqlite_"),
+    ) ||
+    tokens.includes("activity_calculated_grade")
+  )
+    return { ok: false, reason: "forbidden_token" };
+  const parameters = Array.from(
+    code.matchAll(/[:@$]([A-Za-z_][A-Za-z0-9_]*)|\?\d*/g),
+  ).map((match) => match[1] ?? "?");
+  if (
+    parameters.some(
+      (name) => !(RECIPE_PARAMETERS as readonly string[]).includes(name),
+    ) ||
+    RECIPE_PARAMETERS.some((name) => !parameters.includes(name))
+  )
+    return { ok: false, reason: "recipe_parameters" };
+  return { ok: true };
 }

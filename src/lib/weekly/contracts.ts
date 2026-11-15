@@ -1,4 +1,8 @@
-import type { WeeklyKpis } from "./kpi-contracts";
+import type {
+  KpiRecipe,
+  KpiWeekMeasurements,
+  WeeklyKpis,
+} from "./kpi-contracts";
 
 export type WeeklyDocument = {
   title: string;
@@ -57,6 +61,11 @@ export type WeeklyStore = {
   readKpis(weekStart: string): WeeklyKpis | null;
   saveKpis(weekStart: string, state: WeeklyKpis): void;
   registerTrack(concept: string, key: string, signature: string): void;
+  /** Latest version per concept; older versions stay stored unchanged. */
+  currentRecipes(): KpiRecipe[];
+  saveRecipe(recipe: KpiRecipe): void;
+  readMeasurements(weekStart: string): KpiWeekMeasurements | null;
+  saveMeasurements(state: KpiWeekMeasurements): void;
   proposal(id: string): WeeklyProposal | null;
   pending(conversationId: string): WeeklyProposal | null;
   saveProposal(proposal: WeeklyProposal): void;

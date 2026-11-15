@@ -194,14 +194,17 @@ export function createWeekly(
       status: "saved" as const,
     };
   }
-  function readKpis(weekStart: string, setId?: string) {
+  function readKpis(weekStart: string, setId?: string): KpiRead {
     if (!validWeek(weekStart)) throw new Error("invalid_week");
-    return projectKpis(
-      weekStart,
-      store.readKpis(weekStart),
-      setId,
-      store.read(weekStart),
-    );
+    return {
+      ...projectKpis(
+        weekStart,
+        store.readKpis(weekStart),
+        setId,
+        store.read(weekStart),
+      ),
+      measured: store.readMeasurements(weekStart),
+    };
   }
   function latestRead(weekStart: string) {
     const header = readKpis(weekStart);
@@ -230,11 +233,18 @@ export function createWeekly(
     for (let week = from; week <= through; week = addDays(week, 7))
       weeks.push({ weekStart: week, kpis: latestRead(week) });
     const latest = store.latestPlanWeek();
+    const latestPlan = latest ? latestRead(latest) : null;
+    const concepts = new Set(
+      latestPlan?.sets.flatMap((set) => set.items.map((i) => i.conceptId)),
+    );
     return {
       from,
       through,
       weeks,
-      latestPlan: latest ? latestRead(latest) : null,
+      latestPlan,
+      recipes: store
+        .currentRecipes()
+        .filter((recipe) => concepts.has(recipe.conceptId)),
     };
   }
   function saveKpis(change: KpiChange, turn: WeeklyTurn, snapshots: KpiRead[]) {
