@@ -119,8 +119,11 @@ it("verifies over two periods before accepting, then publishes the verified curr
     latestKpiScore({ ...read, measured: null }).total,
   );
   expect(latestKpiMeasurement(read, "authored-sessions", track)?.value).toBe(
-    latestKpiMeasurement({ ...read, measured: null }, "authored-sessions", track)
-      ?.value,
+    latestKpiMeasurement(
+      { ...read, measured: null },
+      "authored-sessions",
+      track,
+    )?.value,
   );
   // The same stored values reach the progress read used by charts and tools.
   const progress = weekly.progress(week, week, 12);

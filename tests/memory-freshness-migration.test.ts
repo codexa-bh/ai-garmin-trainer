@@ -104,11 +104,12 @@ it("preserves every populated authored schema24 table through25, changes effecti
   const before = tables();
   expect(migrateDatabase(db)).toMatchObject({
     fromVersion: 24,
-    toVersion: 27,
+    toVersion: 28,
     applied: [
       "25:memory_freshness_without_erasure",
       "26:structured_weekly_kpis",
       "27:memory_survives_source_deletion",
+      "28:weekly_kpi_measurements",
     ],
     integrity: "ok",
   });
@@ -117,6 +118,8 @@ it("preserves every populated authored schema24 table through25, changes effecti
     ...before,
     weekly_kpi: [],
     weekly_kpi_track: [],
+    weekly_kpi_recipe: [],
+    weekly_kpi_measurement: [],
     summary_debug_revision: [],
     summary_debug_event: [],
     conversation_history_control: (

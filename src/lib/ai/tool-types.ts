@@ -16,7 +16,9 @@ export type TrainerToolName =
   | "saveWeeklyDocuments"
   | "getWeeklyKpis"
   | "saveWeeklyKpis"
-  | "getKpiProgress";
+  | "getKpiProgress"
+  | "saveKpiRecipes"
+  | "refreshKpiMeasurements";
 
 export type TrainerToolStepName = TrainerToolName | "providerToolSelection";
 

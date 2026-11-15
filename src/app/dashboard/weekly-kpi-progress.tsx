@@ -11,13 +11,14 @@ import {
 } from "recharts";
 import type { ReactNode } from "react";
 import type { useWeeklyFeature } from "./use-weekly";
-import { latestKpiMeasurement, latestKpiScore } from "@/lib/weekly/kpis";
+import { kpiActual, latestKpiScore } from "@/lib/weekly/kpis";
 import {
   kpiCutoff,
   kpiNumber,
   kpiTarget,
   kpiTrackLabel,
   kpiValue,
+  kpiActualStatus,
 } from "./weekly-kpi-scorecard";
 
 // Exact values stay chart-local and available on keyboard focus without another
@@ -104,6 +105,22 @@ export function WeeklyKpiProgress({
             <option value="12m">Last 12 months</option>
           </select>
         </label>
+        {weekly.progress?.recipes?.length ? (
+          <button
+            type="button"
+            className="chrome-button"
+            aria-label="Refresh current week"
+            title="Refresh current week"
+            disabled={weekly.measuring === "busy"}
+            aria-busy={weekly.measuring === "busy"}
+            onClick={() => run(weekly.refreshMeasurements())}
+          >
+            {weekly.measuring === "busy" ? "Refreshing…" : "Refresh"}
+          </button>
+        ) : null}
+        {weekly.measuring === "error" ? (
+          <span role="status">Some measurements failed; last values kept.</span>
+        ) : null}
       </div>
       {weekly.state === "loading" || weekly.state === "idle" ? (
         <p role="status">Loading saved progress…</p>
@@ -176,26 +193,36 @@ export function WeeklyKpiProgress({
               <>
                 <p className="training-plan-meta">
                   Latest established plan · {latest?.weekStart}. Dashed: target.
-                  Solid: recorded actual.
+                  Solid: actual.
                 </p>
                 {charts.map(({ item, track, label }) => {
                   const measurements = weeks.map(({ weekStart, kpis }) => {
-                    const point = latestKpiMeasurement(
-                      kpis,
-                      item.conceptId,
-                      track,
-                    );
+                    // Each week's own latest-set target, joined by exact meaning.
+                    const set = latestKpiScore(kpis).set;
+                    const weekTrack = set?.items
+                      .find((value) => value.conceptId === item.conceptId)
+                      ?.tracks.find(
+                        (value) =>
+                          value.key === track.key &&
+                          value.kind === track.kind &&
+                          value.unit === track.unit &&
+                          value.meaning === track.meaning,
+                      );
+                    const point = weekTrack
+                      ? kpiActual(kpis, item.conceptId, weekTrack)
+                      : null;
                     return {
                       weekStart,
                       point,
+                      weekTrack,
                       actual:
                         typeof point?.value === "number" &&
                         Number.isFinite(point.value)
                           ? point.value
                           : null,
                       target:
-                        typeof point?.track.target?.value === "number"
-                          ? point.track.target.value
+                        typeof weekTrack?.target?.value === "number"
+                          ? weekTrack.target.value
                           : null,
                     };
                   });
@@ -204,8 +231,8 @@ export function WeeklyKpiProgress({
                       key={`${item.conceptId}/${track.key}`}
                       label={label}
                       values={measurements.map(
-                        ({ weekStart, point }) =>
-                          `${weekStart}: target ${point ? kpiTarget(point.track) : "unavailable"}; actual ${kpiValue(point?.value, track.unit)}; ${point?.result?.status ?? "Not assessed"}${point?.assessment ? `; as of ${kpiCutoff(point.assessment.asOf)}` : ""}${point?.result?.evidence.qualification ? `; ${point.result.evidence.qualification}` : ""}${point?.result?.evidence.limitations ? `; ${point.result.evidence.limitations}` : ""}`,
+                        ({ weekStart, point, weekTrack }) =>
+                          `${weekStart}: target ${weekTrack ? kpiTarget(weekTrack) : "unavailable"}; actual ${kpiValue(point?.value, track.unit)}; ${point ? kpiActualStatus(point) : "No actual"}${point?.asOf ? `; as of ${kpiCutoff(point.asOf)}` : ""}`,
                       )}
                     >
                       <ResponsiveContainer width="100%" height="100%">
@@ -240,7 +267,7 @@ export function WeeklyKpiProgress({
                           <Line
                             type="linear"
                             dataKey="actual"
-                            name="Recorded actual"
+                            name="Actual"
                             stroke="#49d6c8"
                             connectNulls={false}
                             isAnimationActive={false}

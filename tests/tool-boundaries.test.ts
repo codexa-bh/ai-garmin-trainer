@@ -71,6 +71,11 @@ describe("dependency-light contracts and evidence", () => {
         },
       },
       getKpiProgress: { from: "2026-11-02", through: "2026-11-09" },
+      saveKpiRecipes: {
+        weekStart: "2026-11-09",
+        recipes: [{ conceptId: "hike", sql: "select 1", tracks: ["time"] }],
+      },
+      refreshKpiMeasurements: {},
       getActivityDashboard: { garminId: "123" },
       analyzeActivityTerrain: { garminId: "123" },
       getWeeklyPlan: { weekStart: "2026-09-21" },

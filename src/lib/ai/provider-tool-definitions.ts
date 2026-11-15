@@ -26,6 +26,8 @@ export const trainerToolDefinitions = {
   getWeeklyKpis: tool(contracts.getWeeklyKpis),
   saveWeeklyKpis: weeklyTool("saveWeeklyKpis"),
   getKpiProgress: tool(contracts.getKpiProgress),
+  saveKpiRecipes: tool(contracts.saveKpiRecipes),
+  refreshKpiMeasurements: tool(contracts.refreshKpiMeasurements),
   getActivityDashboard: tool(contracts.getActivityDashboard),
   analyzeActivityTerrain: tool(contracts.analyzeActivityTerrain),
   getWeeklyPlan: tool(contracts.getWeeklyPlan),

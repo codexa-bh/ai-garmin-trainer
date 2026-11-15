@@ -211,7 +211,13 @@ it("re-admits every execution, hides unlisted columns and reports schema drift h
     ],
     window,
   );
-  expect(run.outcomes.map((o) => [o.conceptId, o.status, "reason" in o ? o.reason : null])).toEqual([
+  expect(
+    run.outcomes.map((o) => [
+      o.conceptId,
+      o.status,
+      "reason" in o ? o.reason : null,
+    ]),
+  ).toEqual([
     ["a", "failed", "disallowed_table"],
     ["b", "failed", "unknown_column"],
     ["c", "failed", "column_mismatch"],

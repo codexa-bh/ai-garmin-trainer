@@ -720,6 +720,8 @@ export function useChatFeature({
               [
                 "saveWeeklyDocuments",
                 "saveWeeklyKpis",
+                "saveKpiRecipes",
+                "refreshKpiMeasurements",
                 "applyWeeklyProposal",
               ].includes(step.tool) && step.status === "succeeded",
           )
@@ -786,6 +788,8 @@ export function useChatFeature({
               [
                 "saveWeeklyDocuments",
                 "saveWeeklyKpis",
+                "saveKpiRecipes",
+                "refreshKpiMeasurements",
                 "applyWeeklyProposal",
               ].includes(step.tool) && step.status === "succeeded",
           )

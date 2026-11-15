@@ -104,6 +104,7 @@ export function debugProviderCall(input: {
               "saveTrainingPlan",
               "saveWeeklyDocuments",
               "saveWeeklyKpis",
+              "saveKpiRecipes",
               "proposeWeeklyDocuments",
               "applyWeeklyProposal",
             ].includes(call.toolName)
@@ -148,6 +149,8 @@ export function buildLlmDebugTrace(input: {
       "getWeeklyKpis",
       "getKpiProgress",
       "saveWeeklyKpis",
+      "saveKpiRecipes",
+      "refreshKpiMeasurements",
       "saveWeeklyDocuments",
       "proposeWeeklyDocuments",
       "applyWeeklyProposal",

@@ -420,8 +420,8 @@ export function interpretSqlRows(
 }
 
 /** Server-bound parameters of a saved weekly measurement recipe. */
-export const RECIPE_PARAMETERS = ["week_start_ms", "week_end_ms"] as const;
-export const RECIPE_MAX_SQL_BYTES = 2000;
+const RECIPE_PARAMETERS = ["week_start_ms", "week_end_ms"] as const;
+const RECIPE_MAX_SQL_BYTES = 2000;
 
 /**
  * Admission for saved, unattended measurement SQL, applied before every

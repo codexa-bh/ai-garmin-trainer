@@ -13,7 +13,7 @@ import { ANALYTICAL_SCHEMA } from "./schema";
 import { validateRecipeSql } from "./policy";
 
 /** Hard bounds for unattended saved measurements; not model-selectable. */
-export const RECIPE_LIMITS = {
+const RECIPE_LIMITS = {
   recipeMs: 2000,
   totalMs: 8000,
   heapMb: 64,
@@ -245,12 +245,7 @@ export function createKpiRecipeExecution(): KpiMeasurementExecution {
             });
           break;
         }
-        const result = await runChild(
-          path,
-          pending,
-          window,
-          deadline,
-        );
+        const result = await runChild(path, pending, window, deadline);
         basis = result.lines.find((line) => line.basis)?.basis ?? "";
         if (!result.crashed) {
           for (const line of result.lines) {

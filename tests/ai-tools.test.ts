@@ -92,6 +92,8 @@ describe("trainer tool registry schemas", async () => {
         "getWeeklyKpis",
         "saveWeeklyKpis",
         "getKpiProgress",
+        "saveKpiRecipes",
+        "refreshKpiMeasurements",
         "forceRefreshActivityDetail",
         "getActivityDetailAvailability",
         "describeGarminDatabase",

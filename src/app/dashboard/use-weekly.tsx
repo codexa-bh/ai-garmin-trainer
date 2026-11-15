@@ -26,6 +26,7 @@ export function useWeeklyFeature() {
   const [state, setState] = useState<"idle" | "loading" | "loaded" | "error">(
     "idle",
   );
+  const [measuring, setMeasuring] = useState<"idle" | "busy" | "error">("idle");
   const generation = useRef(0);
   const calendarBasis = useRef("");
   async function load(
@@ -124,6 +125,26 @@ export function useWeeklyFeature() {
       true,
     );
   }
+  /** Recompute current-week measured actuals, then reload the kept period. */
+  async function refreshMeasurements() {
+    setMeasuring("busy");
+    try {
+      const response = await fetch("/api/weekly", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "refresh-current-week",
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
+      });
+      const result = await readJsonResponse<{ failed: number }>(response);
+      setMeasuring(result.failed ? "error" : "idle");
+    } catch {
+      setMeasuring("error");
+    }
+    if (mode === "progress") await load("progress");
+    else if (mode === "current") await load("current");
+  }
   const rollover = useEffectEvent(() => {
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const calendar = weeklyCalendar(new Date(), zone);
@@ -158,6 +179,8 @@ export function useWeeklyFeature() {
     progress,
     progressRange,
     progressPeriod,
+    measuring,
+    refreshMeasurements,
     loadSet: (setId: string) => load(mode, week, undefined, false, setId),
     loadProgress: (period: ProgressPeriod) => {
       setProgressPeriod(period);

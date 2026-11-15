@@ -14,7 +14,7 @@ import type {
 } from "./kpi-contracts";
 
 /** Deliberate trainer history refresh shares the 12-week evidence bound. */
-export const MEASUREMENT_HISTORY_WEEKS = 12;
+const MEASUREMENT_HISTORY_WEEKS = 12;
 const MAX_QUEUED = 16;
 
 export type MeasurementRefresh = {
@@ -39,14 +39,14 @@ function applicable(recipe: KpiRecipe, set: KpiSet): boolean {
   const item = set.items.find((value) => value.conceptId === recipe.conceptId);
   return Boolean(
     item &&
-      recipe.tracks.every((track) =>
-        item.tracks.some(
-          (value) =>
-            value.key === track.key &&
-            value.kind === "numeric" &&
-            signature(value) === track.signature,
-        ),
+    recipe.tracks.every((track) =>
+      item.tracks.some(
+        (value) =>
+          value.key === track.key &&
+          value.kind === "numeric" &&
+          signature(value) === track.signature,
       ),
+    ),
   );
 }
 
@@ -76,9 +76,7 @@ export function createKpiMeasurements(
     return { weekStart, timeZone, startMs, endMs, asOfMs: endMs };
   }
   function versions(recipes: KpiRecipe[]) {
-    return JSON.stringify(
-      recipes.map((r) => [r.conceptId, r.version]).sort(),
-    );
+    return JSON.stringify(recipes.map((r) => [r.conceptId, r.version]).sort());
   }
 
   /** Short conditional write: refuses when plan, recipes or imported data moved. */
@@ -93,7 +91,9 @@ export function createKpiMeasurements(
       if (weekSet(store, window.weekStart)?.id !== set.id) return null;
       const current = store
         .currentRecipes()
-        .filter((recipe) => recipes.some((r) => r.conceptId === recipe.conceptId));
+        .filter((recipe) =>
+          recipes.some((r) => r.conceptId === recipe.conceptId),
+        );
       if (versions(current) !== expectedVersions) return null;
       if (!run.basis || execution.basis(window) !== run.basis) return null;
       const previous = store.readMeasurements(window.weekStart);
@@ -231,7 +231,9 @@ export function createKpiMeasurements(
       throw new Error("prior_complete_kpi_read_required");
     const existing = store.currentRecipes();
     const candidates: KpiRecipe[] = inputs.map((input) => {
-      const item = set.items.find((value) => value.conceptId === input.conceptId);
+      const item = set.items.find(
+        (value) => value.conceptId === input.conceptId,
+      );
       const tracks = input.tracks.map((key) =>
         item?.tracks.find(
           (track) => track.key === key && track.kind === "numeric",
@@ -292,13 +294,7 @@ export function createKpiMeasurements(
     });
     const measured =
       verification && changed.length
-        ? publish(
-            target,
-            set,
-            changed,
-            verification,
-            versions(changed),
-          )
+        ? publish(target, set, changed, verification, versions(changed))
         : null;
     return {
       status: "saved" as const,

@@ -2,11 +2,25 @@ import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { SCHEMA_MIGRATIONS } from "@/lib/db/migrations";
 
+/** Reconstruct exactly schema27 on an exclusive authored fixture. */
+function removeMeasurementFixtureSchema(db: Database.Database): void {
+  if (
+    !db
+      .prepare("select 1 from sqlite_master where name='weekly_kpi_recipe'")
+      .get()
+  )
+    return;
+  db.exec(
+    "drop table weekly_kpi_recipe; drop table weekly_kpi_measurement; update app_metadata set value='27' where key='schema_version'",
+  );
+}
+
 /** Reconstruct exactly schema26 on an exclusive authored fixture: restore the
  * shared deletion/revocation triggers and remove schema27 additions. */
 export function removeDeletionContinuityFixtureSchema(
   db: Database.Database,
 ): void {
+  removeMeasurementFixtureSchema(db);
   if (
     !db
       .prepare("select 1 from sqlite_master where name='summary_debug_event'")
