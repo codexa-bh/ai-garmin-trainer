@@ -20,6 +20,14 @@ export type GarminDiscoveryState = {
   limit: string | null;
   nextHintEnd: string | null;
   positiveDates: string[];
+  /**
+   * Automatic scope only: a full 52-week steps read before this date was
+   * empty, so older discovery stops here. Garmin activity/health history is
+   * treated as starting at this date; it is not a remote account boundary.
+   */
+  noDataBefore?: string;
+  /** Oldest day of a positive steps week seen by automatic discovery. */
+  oldestPositive?: string;
   hint: {
     source: "get_weekly_steps";
     startDate: string;
@@ -75,6 +83,10 @@ export function discoveryState(
       saved.version !== 1 ||
       !nullableDate(saved.limit) ||
       !nullableDate(saved.nextHintEnd) ||
+      (saved.noDataBefore !== undefined &&
+        (saved.limit !== null || !discoveryDate(saved.noDataBefore))) ||
+      (saved.oldestPositive !== undefined &&
+        !discoveryDate(saved.oldestPositive)) ||
       !Array.isArray(saved.positiveDates) ||
       saved.positiveDates.length > 364 ||
       !saved.positiveDates.every(discoveryDate) ||

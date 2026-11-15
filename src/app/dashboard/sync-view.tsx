@@ -307,6 +307,17 @@ export function SyncView({
                 </p>
               ) : null}
             </>
+          ) : history?.state === "complete" &&
+            summaryKnown !== false &&
+            history.noDataBefore ? (
+            <>
+              <p className="helper-text sync-history-status">
+                Older history complete.
+              </p>
+              <p className="helper-text sync-history-boundary">
+                No Garmin data found before {history.noDataBefore}.
+              </p>
+            </>
           ) : history?.state === "complete" && summaryKnown !== false ? (
             <p className="helper-text sync-history-status">
               Selected older range checked; remote earliest history unknown.

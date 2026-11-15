@@ -33,6 +33,7 @@ const remote = vi.hoisted(() => ({
   failure: "",
   bodyFailed: false,
   hang: false,
+  stepsStart: "",
 }));
 vi.mock("../src/lib/garmin/client", () => ({
   verifyConnectorToken: async () => ({ ok: true, detail: "fixture metadata" }),
@@ -71,13 +72,26 @@ vi.mock("../src/lib/garmin/mcp-client", async (original) => ({
               })
             : { activities: [], has_more: false },
         );
-      if (name === "get_weekly_steps")
+      if (name === "get_weekly_steps") {
+        // Default: long history (one positive week per read). Tests that set
+        // remote.stepsStart model an account whose data begins there.
+        const data: { week_start: string; days_with_data: number }[] = [];
+        if (!remote.stepsStart)
+          data.push({ week_start: String(args.end_date), days_with_data: 1 });
+        else
+          for (
+            let week = String(args.end_date);
+            week >= remote.stepsStart && data.length < Number(args.weeks);
+            week = shiftDate(week, -7)
+          )
+            data.push({ week_start: week, days_with_data: 7 });
         return JSON.stringify({
           end_date: args.end_date,
           weeks_requested: args.weeks,
-          weeks_returned: 0,
-          weekly_data: [],
+          weeks_returned: data.length,
+          weekly_data: data,
         });
+      }
       if (name === "get_user_profile")
         return '{"userData":{"weight":70,"height":180}}';
       if (name === "get_body_composition")
@@ -116,6 +130,7 @@ beforeEach(() => {
     failure: "",
     bodyFailed: false,
     hang: false,
+    stepsStart: "",
   });
   vi.resetModules();
 });
@@ -923,6 +938,47 @@ describe("explicit finite limit -> automatic discovery through HTTP/NDJSON/SQLit
     const saved = JSON.parse(repo.getCheckpoint(HISTORY_CHECKPOINT)!);
     expect(saved.version).toBe(1);
     expect(saved.activities.windowStart).toBeUndefined();
+  });
+  it("stops at the oldest data instead of crawling an empty year, and says so", async () => {
+    vi.useFakeTimers();
+    const { repo } = await seedSettledPair();
+    // Account data starts in late July 2026; nothing before.
+    remote.stepsStart = "2026-07-20";
+    const result = (await post("discover")).events.at(-1);
+    expect(result.status).toBe("completed");
+    const steps = remote.calls.filter(
+      (call) => call.name === "get_weekly_steps",
+    );
+    expect(steps.map((call) => call.args.end_date)).toEqual([
+      "2026-09-06",
+      "2025-09-07",
+    ]);
+    const discovery = JSON.parse(repo.getCheckpoint(DISCOVERY_CHECKPOINT)!);
+    // Oldest positive week found by the first read, not a day-by-day walk.
+    expect(discovery.noDataBefore).toBe(discovery.oldestPositive);
+    expect(discovery.nextHintEnd).toBeNull();
+    // No health/activity/body reads before the discovered start.
+    expect(healthDates().every((date) => date >= discovery.noDataBefore)).toBe(
+      true,
+    );
+    expect(
+      remote.calls
+        .filter((call) => call.name === "get_activities_by_date")
+        .every(
+          (call) => String(call.args.start_date) >= discovery.noDataBefore,
+        ),
+    ).toBe(true);
+    const summary = await import("../src/app/api/summary/route");
+    const historical = (await (await summary.GET()).json()).sync.historical;
+    expect(historical).toMatchObject({
+      state: "complete",
+      action: null,
+      noDataBefore: discovery.noDataBefore,
+    });
+    expect(historical.reason).toContain("No older Garmin data found before");
+    remote.calls = [];
+    expect((await post("history")).status).toBe(409);
+    expect(remote.calls).toEqual([]);
   });
   it("never exposes a half-written pair when the transition commit fails", async () => {
     vi.useFakeTimers();

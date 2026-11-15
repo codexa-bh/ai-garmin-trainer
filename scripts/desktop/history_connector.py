@@ -4,12 +4,14 @@
 Only the explicit history runner selects this script in its stopped keyless copy.
 It is not bundled, enabled by default, a real Garmin adapter or an auth mechanism.
 """
+import datetime
 import json
 import os
 from pathlib import Path
 import stat
 import sys
 
+DATA_START_DAYS = 80
 SENTINEL = b'{"syntheticHistoryOnly":true}'
 REVIEWED_ARGS = ['--from', 'git+https://github.com/Taxuspt/garmin_mcp.git@3610be6feed93088d85b0f35aba9d7d07c2505a7', '--with', 'mcp==1.28.1', 'garmin-mcp']
 TOOLS = frozenset(('get_stats', 'get_sleep_summary', 'get_body_battery',
@@ -80,7 +82,17 @@ def reply(message):
              'altitude_meters': 10, 'distance_meters': 0, 'speed_mps': 2}
         ] if args['include_records'] else []}
     elif name == 'get_weekly_steps':
-        value = {'end_date': args['end_date'], 'weeks_requested': args['weeks'], 'weeks_returned': 0, 'weekly_data': []}
+        # Authored account whose data starts DATA_START_DAYS before today (UTC):
+        # positive weeks from that start to end_date, nothing earlier, so
+        # automatic discovery can find and stop at the start.
+        end = datetime.date.fromisoformat(args['end_date'])
+        start = datetime.datetime.now(datetime.timezone.utc).date() - datetime.timedelta(days=DATA_START_DAYS)
+        weeks = []
+        week = end
+        while week >= start and len(weeks) < args['weeks']:
+            weeks.append({'week_start': week.isoformat(), 'days_with_data': 7})
+            week -= datetime.timedelta(days=7)
+        value = {'end_date': args['end_date'], 'weeks_requested': args['weeks'], 'weeks_returned': len(weeks), 'weekly_data': weeks}
     else:
         value = {}
     return {'content': [{'type': 'text', 'text': json.dumps(value)}]}
