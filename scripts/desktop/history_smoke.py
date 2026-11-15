@@ -342,6 +342,7 @@ class HistoryRun(OrdinaryRun):
                 'savedLimit': ((value.get('sync') or {}).get('historical') or {}).get('savedLimit'),
                 'limit': ((value.get('sync') or {}).get('historical') or {}).get('limit'),
                 'expandedFrom': history.get('expandedFrom'),
+                'noDataBefore': ((value.get('sync') or {}).get('historical') or {}).get('noDataBefore'),
                 'latestOutcome': ((value.get('sync') or {}).get('latest') or {}).get('outcome'),
                 'detailsAttempted': sync_work.get('detailsAttempted'),
                 'detailsProcessed': sync_work.get('detailsProcessed'),
@@ -579,6 +580,8 @@ class HistoryRun(OrdinaryRun):
         self.command({'type':'sync', 'action':'details'})
         self.command({'type':'setViewport', 'preset':'wide'})
         records['operations'] = []
+        # Discover (cancel after older progress), relaunch, then Continue until
+        # automatic discovery finds the authored data start and stops itself.
         for index, action in enumerate(('discover', 'continue')):
             start = self.summary()
             if start['historicalAction'] != action:
@@ -591,33 +594,47 @@ class HistoryRun(OrdinaryRun):
                 current = self.summary()
                 if current['outcome'] == 'failed' or current['operationAttempts'] > 150:
                     raise ValueError('Discovery failed/exceeded finite evidence envelope')
-                older = current['nextHealthDate'] is not None and current['nextHealthDate'] < (limit if index == 0 else start['nextHealthDate'])
-                if current['active'] and older and current['batches'] >= 1:
+                if index == 0:
+                    older = current['nextHealthDate'] is not None and current['nextHealthDate'] < limit
+                    if current['active'] and older and current['batches'] >= 1:
+                        break
+                elif not current['active']:
                     break
                 time.sleep(.25)
             else:
-                raise TimeoutError('Older-than-limit progress not observed within finite envelope')
-            for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
-                images.append({'scenario':f'{action}-active-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-            self.command({'type':'setViewport', 'preset':'wide'})
-            self.command({'type':'sync', 'action':'cancel'})
-            self.settle_claim()
-            self.wait_sync(lambda value: not value['running'] and value['paused'], 40)
+                raise TimeoutError('Older progress/settlement not observed within finite envelope')
+            if index == 0:
+                for preset in ('wide', 'narrow'):
+                    self.command({'type':'setViewport', 'preset':preset})
+                    images.append({'scenario':f'{action}-active-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+                self.command({'type':'setViewport', 'preset':'wide'})
+                self.command({'type':'sync', 'action':'cancel'})
+                self.settle_claim()
+                self.wait_sync(lambda value: not value['running'] and value['paused'], 40)
+            else:
+                self.settle_claim()
+                self.wait_sync(lambda value: not value['running'] and value['completed'], 40)
             after = self.summary()
-            if after['active'] or after['outcome'] != 'cancelled' or after['savedLimit'] is not None or after['expandedFrom'] != limit or after['healthChecks'] <= (start['healthChecks'] or 0) or not after['nextHealthDate'] < limit:
+            if after['active'] or after['savedLimit'] is not None or after['expandedFrom'] != limit or after['healthChecks'] <= (start['healthChecks'] or 0) or not after['nextHealthDate'] < limit:
                 raise ValueError('Transition/progress was not durable under automatic scope')
+            if index == 0 and after['outcome'] != 'cancelled':
+                raise ValueError('Discover cancellation was not durable')
+            if index == 1 and (after['outcome'] != 'settled' or after['historicalState'] != 'complete' or after['historicalAction'] is not None
+                               or not after['noDataBefore'] or not after['noDataBefore'] < limit or after['remoteLowerBound'] is not None):
+                raise ValueError('Automatic discovery did not stop at the authored data start')
             for preset in ('wide', 'narrow'):
                 self.command({'type':'setViewport', 'preset':preset})
-                images.append({'scenario':f'{action}-cancelled-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+                label = 'cancelled' if index == 0 else 'no-older-data'
+                images.append({'scenario':f'{action}-{label}-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
             self.stop()
             self.start(self.binary)
             self.command({'type':'setViewport', 'preset':'wide'})
             self.command({'type':'click', 'target':'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'relaunch after explicit discovery')
             restored = self.summary()
-            if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalAction'] != 'continue':
-                raise ValueError('Relaunch replayed, lost progress or re-offered the transition')
+            expected = 'continue' if index == 0 else None
+            if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalAction'] != expected:
+                raise ValueError('Relaunch replayed, lost progress or re-offered work')
             records['operations'].append({'action':action, 'before':start, 'after':after})
         records['latest'].append(self.latest_only())
         return records

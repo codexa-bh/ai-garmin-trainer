@@ -44,6 +44,7 @@ const summary = (
         state === "available" ? { family: "health", date: "2026-09-01" } : null,
       limit: "2026-09-01",
       savedLimit: "2026-09-01",
+      noDataBefore: null,
       recovery: null,
       remoteLowerBound: null,
       interrupted: false,
@@ -766,6 +767,7 @@ describe("limited progress continuing into automatic discovery", () => {
       next: { family: "health", date: "2024-05-31" },
       limit: null,
       savedLimit: "2024-06-01",
+      noDataBefore: null,
       recovery: null,
       remoteLowerBound: null,
       interrupted: false,
@@ -889,5 +891,36 @@ describe("limited progress continuing into automatic discovery", () => {
     expect(
       fetch.mock.calls.filter(([url]) => url === "/api/sync"),
     ).toHaveLength(0);
+  });
+});
+
+describe("automatic discovery that found the start of the data", () => {
+  it("shows a terminal no-older-data state with no historical action", async () => {
+    const value = summary("complete");
+    value.sync!.historical = {
+      ...value.sync!.historical,
+      limit: null,
+      savedLimit: null,
+      noDataBefore: "2024-07-15",
+      reason: "No older Garmin data found before 2024-07-15.",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response(value)),
+    );
+    render(<SyncHarness />);
+    const card = await screen.findByRole("region", { name: "Run Garmin sync" });
+    expect(
+      await within(card).findByText("Older history complete."),
+    ).toBeTruthy();
+    expect(
+      within(card).getByText("No Garmin data found before 2024-07-15."),
+    ).toBeTruthy();
+    expect(
+      within(card).queryByRole("button", {
+        name: /Discover|Continue|Import older/,
+      }),
+    ).toBeNull();
+    expect(card.textContent).not.toContain("remote earliest history unknown");
   });
 });

@@ -190,14 +190,16 @@ class HistoryTokenContracts(unittest.TestCase):
         from unittest.mock import Mock, patch
         state = {'active':False, 'historicalState':'complete', 'historicalAction':None, 'savedLimit':'2026-10-11', 'limit':'2026-10-11',
                  'remoteLowerBound':None, 'outcome':'settled', 'healthChecks':20, 'nextHealthDate':'2026-10-10', 'batches':0,
-                 'operationAttempts':10, 'expandedFrom':None}
+                 'operationAttempts':10, 'expandedFrom':None, 'noDataBefore':None}
         commands = []
         def command(value):
             commands.append(value)
             if value.get('action') == 'continue':
-                state.update(active=True, historicalState='active', batches=1, outcome='running',
-                             savedLimit=None, expandedFrom='2026-10-11', healthChecks=state['healthChecks'] + 6,
-                             nextHealthDate='2026-10-01' if state['historicalAction'] == 'discover' else '2026-09-20')
+                discover = state['historicalAction'] == 'discover'
+                state.update(active=discover, historicalState='active' if discover else 'complete', batches=1,
+                             outcome='running' if discover else 'settled', savedLimit=None, expandedFrom='2026-10-11',
+                             healthChecks=state['healthChecks'] + 6, nextHealthDate='2026-10-01' if discover else '2026-08-26',
+                             historicalAction='discover' if discover else None, noDataBefore=None if discover else '2026-08-27')
             if value.get('action') == 'cancel':
                 state.update(active=False, outcome='cancelled', historicalState='available', historicalAction='continue')
             return {'ok':True, 'capture':'unit.png'}
@@ -213,12 +215,14 @@ class HistoryTokenContracts(unittest.TestCase):
         prepare.assert_called_once_with(run)
         self.assertEqual([op['action'] for op in result['operations']], ['discover', 'continue'])
         self.assertEqual(sum(value.get('action') == 'continue' for value in commands), 2)
-        self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 2)
+        self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 1)
+        self.assertEqual(result['operations'][1]['after']['noDataBefore'], '2026-08-27')
+        self.assertIsNone(result['operations'][1]['after']['historicalAction'])
         self.assertEqual(run.latest_only.call_count, 2)
         self.assertEqual(run.stop.call_count, 3)
         self.assertLess(result['operations'][0]['after']['nextHealthDate'], '2026-10-11')
         self.assertLess(result['operations'][1]['after']['nextHealthDate'], result['operations'][0]['after']['nextHealthDate'])
-        self.assertEqual(len(run.sync_captures), 12)
+        self.assertEqual(len(run.sync_captures), 10)
 
     def test_sync_scope_uses_populated_existing_setup_without_changing_default_wizard_coverage(self):
         from types import SimpleNamespace

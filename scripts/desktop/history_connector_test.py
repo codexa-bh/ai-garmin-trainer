@@ -44,7 +44,7 @@ class SyntheticHistoryContracts(unittest.TestCase):
             self.prepare()
         tree = ast.parse((self.root / 'synthetic_history_connector.py').read_text())
         imports = {node.names[0].name for node in ast.walk(tree) if isinstance(node, ast.Import)}
-        self.assertEqual(imports, {'json', 'os', 'stat', 'sys'})
+        self.assertEqual(imports, {'datetime', 'json', 'os', 'stat', 'sys'})
         self.assertFalse(any(isinstance(node, ast.ImportFrom) and node.module not in ('pathlib',) for node in ast.walk(tree)))
 
     def test_actual_executable_keeps_reviewed_argv_and_refuses_unknown_launch(self):
@@ -93,8 +93,14 @@ class SyntheticHistoryContracts(unittest.TestCase):
         page = json.loads(tool('get_activities_by_date', {'start_date':'2026-09-01', 'end_date':'2026-09-07', 'page':0, 'page_size':100})['content'][0]['text'])
         self.assertEqual(len(page['activities']), 3)
         self.assertEqual(len({row['activityId'] for row in page['activities']}), 3)
-        weekly = json.loads(tool('get_weekly_steps', {'end_date':'2026-09-07', 'weeks':52})['content'][0]['text'])
+        weekly = json.loads(tool('get_weekly_steps', {'end_date':'2001-01-07', 'weeks':52})['content'][0]['text'])
         self.assertEqual(weekly['weekly_data'], [])
+        from datetime import datetime, timedelta, timezone
+        today = datetime.now(timezone.utc).date()
+        recent = json.loads(tool('get_weekly_steps', {'end_date':(today - timedelta(days=40)).isoformat(), 'weeks':52})['content'][0]['text'])
+        self.assertGreater(recent['weeks_returned'], 0)
+        self.assertEqual(recent['weeks_returned'], len(recent['weekly_data']))
+        self.assertTrue(all(row['week_start'] >= (today - timedelta(days=80)).isoformat() for row in recent['weekly_data']))
         for name in ('login', 'set_weight', 'fetch', 'private'):
             with self.assertRaises(ValueError):
                 tool(name, {})

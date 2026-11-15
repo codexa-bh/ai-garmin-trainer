@@ -234,11 +234,12 @@ function operationFixture() {
           calls.push({ name, args, at: milliseconds });
           if (nextFailure) throw new Error(nextFailure);
           if (name === "get_weekly_steps")
+            // Long history: one positive week per year keeps discovery open.
             return JSON.stringify({
               end_date: args.end_date,
               weeks_requested: args.weeks,
-              weeks_returned: 0,
-              weekly_data: [],
+              weeks_returned: 1,
+              weekly_data: [{ week_start: args.end_date, days_with_data: 1 }],
             });
           if (name === "get_activities_by_date")
             return '{"activities":[],"has_more":false}';

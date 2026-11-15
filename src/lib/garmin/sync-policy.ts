@@ -103,6 +103,8 @@ export type HistoricalAction = {
     page?: number;
   } | null;
   limit: string | null;
+  /** Automatic discovery found a full empty year before this date. */
+  noDataBefore: string | null;
   /** Scope of saved progress; differs from `limit` only for discover/blocked. */
   savedLimit: string | null;
   recovery: HistoricalRecovery | null;
@@ -145,7 +147,8 @@ export function nextHistoricalWork(
   discovery: GarminDiscoveryState | null,
   repairs: string[],
 ): HistoricalAction["next"] {
-  const limit = history.limit;
+  // A discovered empty year bounds automatic exploration like a limit.
+  const limit = history.limit ?? discovery?.noDataBefore ?? null;
   const repair = [...history.unresolvedHealth, ...repairs]
     .filter((date) => historyDateAllowed(date, limit))
     .sort()[0];
@@ -165,6 +168,7 @@ export function nextHistoricalWork(
   if (historyDateAllowed(history.body.nextDate, limit))
     return { family: "body", date: history.body.nextDate };
   if (
+    !discovery?.noDataBefore &&
     historyDateAllowed(discovery?.nextHintEnd ?? null, limit) &&
     discovery!.nextHintEnd! >= "0002-01-01"
   )
@@ -200,6 +204,7 @@ export function historicalAction({
   const base = {
     limit,
     savedLimit: exists ? history.limit : limit,
+    noDataBefore: discovery?.noDataBefore ?? null,
     recovery: null,
     remoteLowerBound: null,
     interrupted: exists && history.outcome === "running" && !active,
@@ -276,8 +281,9 @@ export function historicalAction({
         state: "complete",
         action: null,
         next: null,
-        reason:
-          "Selected exploration range checked. Remote earliest history remains unknown.",
+        reason: discovery?.noDataBefore
+          ? `No older Garmin data found before ${discovery.noDataBefore}.`
+          : "Selected exploration range checked. Remote earliest history remains unknown.",
       };
 }
 

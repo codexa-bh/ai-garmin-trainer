@@ -3478,6 +3478,7 @@
         "Fetching activity details…",
         "Sync paused. Refresh import summary to confirm settlement.",
         "Selected older range checked; remote earliest history unknown.",
+        "Older history complete.",
         "Latest refresh in progress…",
         "Historical import in progress…",
         "Older history discovery in progress…",

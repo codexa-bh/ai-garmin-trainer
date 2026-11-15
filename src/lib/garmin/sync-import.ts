@@ -551,31 +551,63 @@ export function createGarminImports({
           .reverse()
           .slice(0, 14);
         for (const date of trailing) await health(date);
-        async function healthBatch() {
-          if (discovery?.operation) {
-            discovery.operation.phase = "discovery";
-            const end = discovery.nextHintEnd;
-            if (
-              client.weeklySteps &&
-              !discovery.positiveDates.length &&
-              historyDateAllowed(end, limit) &&
-              end >= "0002-01-01"
-            ) {
-              const hint = await client.weeklySteps(end, 52);
-              checkStop();
-              discovery.hint = {
-                source: "get_weekly_steps",
-                startDate: hint.startDate,
-                endDate: hint.endDate,
-                weeksWithData: hint.weeksWithData,
-                checkedAt: clock().toISOString(),
-              };
+        // Selected limit, or the start automatic discovery found.
+        const floor = () => limit ?? discovery?.noDataBefore ?? null;
+        // Runs before family batches so an empty year stops every family.
+        async function hintBatch() {
+          if (!discovery?.operation) return;
+          discovery.operation.phase = "discovery";
+          const end = discovery.nextHintEnd;
+          if (
+            client.weeklySteps &&
+            !discovery.noDataBefore &&
+            // Automatic scope probes one year per batch until it finds the
+            // start; a selected limit keeps the queue-first behavior.
+            (limit === null || !discovery.positiveDates.length) &&
+            historyDateAllowed(end, limit) &&
+            end >= "0002-01-01"
+          ) {
+            const hint = await client.weeklySteps(end, 52);
+            checkStop();
+            const previous = discovery.hint;
+            discovery.hint = {
+              source: "get_weekly_steps",
+              startDate: hint.startDate,
+              endDate: hint.endDate,
+              weeksWithData: hint.weeksWithData,
+              checkedAt: clock().toISOString(),
+            };
+            // Queued candidates are prioritization only; keep the current
+            // queue and let the daily cursor cover later probed weeks.
+            if (!discovery.positiveDates.length)
               discovery.positiveDates = hint.positiveDates.filter((date) =>
                 historyDateAllowed(date, limit),
               );
-              discovery.nextHintEnd = shiftDate(hint.startDate, -1);
-              save();
+            discovery.nextHintEnd = shiftDate(hint.startDate, -1);
+            // A whole empty year under automatic scope ends discovery here
+            // instead of crawling empty days one at a time.
+            if (limit === null && hint.positiveDates.length)
+              discovery.oldestPositive = [
+                ...hint.positiveDates,
+                ...(discovery.oldestPositive ? [discovery.oldestPositive] : []),
+              ].sort()[0];
+            if (limit === null && hint.weeksWithData === 0) {
+              // Stop at the oldest week with data; otherwise at the newest
+              // edge of the contiguous empty range (earlier empty hint).
+              const emptyFrom =
+                previous?.weeksWithData === 0 &&
+                previous.startDate === shiftDate(hint.endDate, 1)
+                  ? shiftDate(previous.endDate, 1)
+                  : shiftDate(hint.endDate, 1);
+              discovery.noDataBefore = discovery.oldestPositive ?? emptyFrom;
+              discovery.nextHintEnd = null;
             }
+            save();
+          }
+        }
+        async function healthBatch() {
+          if (discovery?.operation) {
+            discovery.operation.phase = "discovery";
             discovery.operation.phase = "backfill";
             for (const date of discovery.positiveDates.slice(0, 2)) {
               if (
@@ -597,7 +629,7 @@ export function createGarminImports({
           for (
             let index = 0;
             index < 6 &&
-            historyDateAllowed(state.health.nextDate, limit) &&
+            historyDateAllowed(state.health.nextDate, floor()) &&
             state.unresolvedHealth.length < 32;
             index += 1
           ) {
@@ -623,11 +655,11 @@ export function createGarminImports({
           }
         }
         async function activityBatch() {
-          if (historyDateAllowed(state.activities.nextDate, limit)) {
+          if (historyDateAllowed(state.activities.nextDate, floor())) {
             const end = state.activities.windowEnd;
             // A frozen window keeps its original lower bound while paging.
             const start =
-              state.activities.windowStart ?? historyWindowStart(end, limit);
+              state.activities.windowStart ?? historyWindowStart(end, floor());
             for (let count = 0; count < 2; count += 1) {
               checkStop();
               progress(
@@ -697,9 +729,9 @@ export function createGarminImports({
           }
         }
         async function bodyBatch() {
-          if (historyDateAllowed(state.body.nextDate, limit)) {
+          if (historyDateAllowed(state.body.nextDate, floor())) {
             const end = state.body.nextDate;
-            const start = historyWindowStart(end, limit);
+            const start = historyWindowStart(end, floor());
             const olderBody = await baseline.fetchAndStoreBodyMetrics(
               client,
               start,
@@ -731,6 +763,7 @@ export function createGarminImports({
           }
         }
         async function historyBatch() {
+          await hintBatch();
           const families = [healthBatch, activityBatch, bodyBatch, repairBatch];
           const offset = (discovery?.operation?.batches ?? 0) % families.length;
           for (let index = 0; index < families.length; index += 1)
