@@ -573,6 +573,7 @@ vi.mock("@/lib/weekly/composition", async () => {
         upcomingPlan: false,
       }),
     },
+    kpiMeasurements: {},
   };
 });
 vi.mock("@/lib/db/connection", () => ({

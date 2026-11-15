@@ -42,6 +42,9 @@ const allowed = new Set([
   "weekly/kpis.ts",
   "weekly/calendar.ts",
   "weekly/application.ts",
+  // T0328 measurement policy: weekly contracts/calendar/kpis only; the
+  // bounded execution port is supplied by composition, never imported here.
+  "weekly/measurements.ts",
   "ai/tool-types.ts",
   "ai/trainer-instructions.ts",
   "ai/trainer-progress.ts",
