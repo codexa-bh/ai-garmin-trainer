@@ -266,7 +266,7 @@ export function seedWeeklyKpis(db: Database.Database) {
  * explicit Refresh visibly measures 2 sessions / 2 h 30 min without changing
  * the authored reviewed assessment (4 sessions, unknown duration, 50/30 points).
  * No stored measurement is seeded: the first values come from a real refresh. */
-export const AUTHORED_RECIPE_SQL =
+const AUTHORED_RECIPE_SQL =
   "select count(*) as count, sum(duration_sec) / 60.0 as duration from activity where sport in ('hiking','walking') and started_at >= :week_start_ms and started_at < :week_end_ms";
 function seedMeasurementRecipe(db: Database.Database, week: string) {
   const signature = (unit: string, meaning: string) =>
