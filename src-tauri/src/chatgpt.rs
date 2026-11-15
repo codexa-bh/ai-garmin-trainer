@@ -1239,8 +1239,23 @@ mod tests {
         assert_eq!(owner.metadata()[0]["id"],first.id);
         assert!(owner.metadata()[0]["epoch"].as_u64().unwrap()>first.epoch);
         owner.stop();
+        let held = owner.clone();
         drop(owner);
-        std::thread::sleep(Duration::from_millis(100));
+        assert!(Owner::start(&fixture.0, &fixture.0).is_err());
+        // Listener and request threads may still hold the owner after stop.
+        // Take sole ownership before dropping it, so lease release is synchronous.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut remaining = held;
+        loop {
+            match Arc::try_unwrap(remaining) {
+                Ok(settled) => { drop(settled); break; }
+                Err(active) => {
+                    assert!(std::time::Instant::now() < deadline, "owner did not settle");
+                    remaining = active;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
         let reopened=Owner::start(&fixture.0,&fixture.0).unwrap();
         assert_eq!(reopened.metadata().as_array().unwrap().len(),1);
         assert_eq!(reopened.metadata()[0]["id"],first.id);
