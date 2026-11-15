@@ -232,7 +232,7 @@ export function WeeklyKpiProgress({
                       label={label}
                       values={measurements.map(
                         ({ weekStart, point, weekTrack }) =>
-                          `${weekStart}: target ${weekTrack ? kpiTarget(weekTrack) : "unavailable"}; actual ${kpiValue(point?.value, track.unit)}; ${point ? kpiActualStatus(point) : "No actual"}${point?.asOf ? `; as of ${kpiCutoff(point.asOf)}` : ""}`,
+                          `${weekStart}: target ${weekTrack ? kpiTarget(weekTrack) : "unavailable"}; actual ${kpiValue(point?.value, track.unit)}; ${point ? kpiActualStatus(point) : "No actual"}${point?.asOf ? `; as of ${kpiCutoff(point.asOf)}` : ""}${point && "note" in point && point.note ? `; ${point.note}` : ""}`,
                       )}
                     >
                       <ResponsiveContainer width="100%" height="100%">

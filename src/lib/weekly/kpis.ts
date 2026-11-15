@@ -581,6 +581,9 @@ export function kpiActual(
         incomplete: result.status !== "supported",
         asOf: assessment!.asOf,
         stale: Boolean(failure),
+        note: [result.evidence.qualification, result.evidence.limitations]
+          .filter(Boolean)
+          .join("; "),
       }
     : failure
       ? {

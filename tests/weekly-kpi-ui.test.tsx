@@ -478,3 +478,57 @@ it("reads progress/weekly selection without writes, retains range and ignores st
     "12m",
   );
 });
+it("shows stored measured actuals in the grid with compact stale/incomplete state while points and total stay reviewed", () => {
+  const data = structuredClone(sample);
+  data.measured = {
+    weekStart: "2026-11-09",
+    timeZone: "UTC",
+    revision: "m",
+    concepts: {
+      sessions: {
+        success: {
+          recipeVersion: 1,
+          status: "incomplete",
+          values: { count: 3, time: 125 },
+          signatures: {
+            count: JSON.stringify([
+              "numeric",
+              "sessions",
+              "Selected session count",
+            ]),
+            time: JSON.stringify([
+              "numeric",
+              "minutes",
+              "Selected session duration",
+            ]),
+          },
+          measuredAt: "2026-11-11T08:00:00Z",
+          asOf: "2026-11-11T08:00:00Z",
+          basis: "b",
+        },
+      },
+    },
+  };
+  render(<WeeklyKpiScorecard kpis={data} loadSet={vi.fn()} />);
+  const table = screen.getByRole("table") as HTMLTableElement;
+  expect(
+    [...table.tBodies[0].rows].map(
+      (row) => row.cells[2].firstElementChild?.textContent,
+    ),
+  ).toEqual(["3 sessionsIncomplete", "2 h 5 minIncomplete"]);
+  expect(
+    [...table.tBodies[0].rows].map((row) => row.cells[3].textContent),
+  ).toEqual(["0 / 60", "0 / 40"]);
+  expect(screen.getByText("112.5 / 100 points · 112.5%")).toBeTruthy();
+  expect(document.querySelector(".training-plan-meta")?.textContent).toMatch(
+    /^Actuals measured .+ · Points as of .+ · Provisional$/,
+  );
+  // A changed track meaning never reuses an older measured value.
+  data.sets[0].items[0].tracks[0].meaning = "Different meaning";
+  cleanup();
+  render(<WeeklyKpiScorecard kpis={data} loadSet={vi.fn()} />);
+  expect(
+    (screen.getByRole("table") as HTMLTableElement).tBodies[0].rows[0].cells[2]
+      .firstElementChild?.textContent,
+  ).toBe("0 sessions");
+});

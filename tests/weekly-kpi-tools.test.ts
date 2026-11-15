@@ -480,3 +480,132 @@ it("keeps the trainer getKpiProgress tool at 12 weeks while the app Progress bou
     "at most12 weeks",
   );
 });
+it("saves verified recipes through real orchestration with prior-pass reads, shares the weekly attempt and never changes points", async () => {
+  const { createKpiMeasurements } =
+    await import("../src/lib/weekly/measurements");
+  const { executeMeasurementTool } = await import("../src/lib/ai/tool-weekly");
+  const store = createWeeklyStore(() => db);
+  store.saveKpis(weekStart, structuredClone(fixture));
+  const before = JSON.stringify(store.readKpis(weekStart));
+  let fail = false;
+  const measurements = createKpiMeasurements(
+    store,
+    {
+      run: async (recipes) => ({
+        basis: "b",
+        outcomes: recipes.map((r) =>
+          fail
+            ? {
+                conceptId: r.conceptId,
+                status: "failed" as const,
+                reason: "unknown_column",
+              }
+            : {
+                conceptId: r.conceptId,
+                status: "measured" as const,
+                values: { count: 2 },
+              },
+        ),
+      }),
+      basis: () => "b",
+    },
+    () => now,
+    () => `m-${++id}`,
+  );
+  const save = {
+    toolName: "saveKpiRecipes",
+    input: {
+      weekStart,
+      recipes: [
+        {
+          conceptId: "authored-sessions",
+          sql: "select count(*) as count from activity where started_at >= :week_start_ms and started_at < :week_end_ms",
+          tracks: ["count"],
+        },
+      ],
+    },
+  };
+  const go = (passes: TrainerToolCall[][]) =>
+    orchestrateTrainerChat(
+      {
+        system: TRAINER_SYSTEM_PROMPT,
+        userRequest: "Authored",
+        weeklyTurn: turn,
+      },
+      {
+        generate: (() => {
+          let pass = 0;
+          return async () => {
+            const calls = passes[pass++];
+            return calls ? { toolCalls: calls } : { text: "Done." };
+          };
+        })(),
+        executeTool: async (input) =>
+          ["saveKpiRecipes", "refreshKpiMeasurements"].includes(input.toolName)
+            ? executeMeasurementTool(input, measurements)
+            : executeWeeklyTool(input, app),
+      },
+    );
+  // Same-pass read is not prior-pass authority.
+  const samePass = await go([
+    [{ toolName: "getWeeklyKpis", input: { weekStart } }, save],
+  ]);
+  expect(
+    samePass.toolSteps.find((s) => s.tool === "saveKpiRecipes"),
+  ).toMatchObject({
+    status: "rejected",
+    reason: "prior_complete_kpi_read_required",
+  });
+  // Failed verification is refused and saves nothing.
+  fail = true;
+  const refused = await go([
+    [{ toolName: "getWeeklyKpis", input: { weekStart } }],
+    [save],
+  ]);
+  expect(refused.toolSteps.at(-1)).toMatchObject({
+    status: "rejected",
+    reason: "recipe_verification_failed",
+  });
+  expect(measurements.recipes()).toEqual([]);
+  fail = false;
+  const saved = await go([
+    [{ toolName: "getWeeklyKpis", input: { weekStart } }],
+    [save],
+    [{ toolName: "saveWeeklyKpis", input: change }],
+    [{ toolName: "refreshKpiMeasurements", input: {} }],
+  ]);
+  expect(
+    saved.toolSteps.map((s) => [s.tool, s.status, s.reason ?? null]),
+  ).toEqual([
+    ["getWeeklyKpis", "succeeded", null],
+    ["saveKpiRecipes", "succeeded", null],
+    ["saveWeeklyKpis", "rejected", "duplicate_side_effect"],
+  ]);
+  expect(measurements.recipes()).toMatchObject([
+    { conceptId: "authored-sessions", version: 1 },
+  ]);
+  expect(
+    store.readMeasurements(weekStart)?.concepts["authored-sessions"].success
+      ?.values,
+  ).toEqual({ count: 2 });
+  expect(JSON.stringify(store.readKpis(weekStart))).toBe(before);
+  // Refresh is a measurement-only read/write, not a save attempt.
+  const refreshed = await go([
+    [{ toolName: "refreshKpiMeasurements", input: {} }],
+  ]);
+  expect(refreshed.toolSteps[0]).toMatchObject({ status: "succeeded" });
+  expect(refreshed.toolSteps[0].summary).toContain("Points are unchanged");
+  const history = await go([
+    [
+      {
+        toolName: "refreshKpiMeasurements",
+        input: { weekStart: "2026-01-05" },
+      },
+    ],
+  ]);
+  expect(history.toolSteps[0]).toMatchObject({
+    status: "rejected",
+    reason: "invalid_measurement_week",
+  });
+  expect(JSON.stringify(store.readKpis(weekStart))).toBe(before);
+});
