@@ -103,6 +103,10 @@ afterEach(() => {
 it("formats duration fractions and finite display values without changing stored precision", () => {
   expect(kpiValue(74.125, "min")).toBe("1 h 14 min 7.5 s");
   expect(kpiValue(15.25, "sec")).toBe("15.25 s");
+  // Measured minutes keep exact seconds without an ambiguous skipped unit.
+  expect(kpiValue(180.7666666667, "min")).toBe("3 h 0 min 46 s");
+  expect(kpiValue(180, "min")).toBe("3 h");
+  expect(kpiValue(3605, "s")).toBe("1 h 0 min 5 s");
   expect(kpiValue(0, "minutes")).toBe("0 min");
   expect(kpiValue(7.333333333333, "m")).toBe("7.33 m");
   expect(kpiValue(Number.POSITIVE_INFINITY, "m")).toBe("Unknown");
