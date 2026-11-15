@@ -31,7 +31,8 @@ export function kpiValue(
       return (
         [
           hours ? `${hours} h` : "",
-          minutes ? `${minutes} min` : "",
+          // Never skip a middle unit: "3 h 46 s" would read as 3 h 46 min.
+          minutes || (hours && seconds) ? `${minutes} min` : "",
           seconds ? `${kpiNumber(seconds)} s` : "",
         ]
           .filter(Boolean)
