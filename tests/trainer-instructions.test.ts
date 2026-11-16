@@ -123,10 +123,13 @@ describe("canonical trainer instruction package", () => {
     expect(planner).toContain("the next analytical tool");
     expect(planner).toContain("same-turn SQL result");
     expect(planner).toContain("integer ratios (3/2, not 1.5)");
+    expect(planner).toContain(
+      "Declared-rule points in canonical reads are code-derived evidence, not new coaching math.",
+    );
     expect(planner).toContain("do not reread unchanged documents");
     expect(planner).toContain("save at most one complete weekly bundle");
     expect(planner).toContain(
-      "Without successful math, leave derived points/total unavailable",
+      "Otherwise, without successful math leave derived points/total unavailable",
     );
     expect(planner).toContain("ISO UTC timestamp ending Z");
     expect(planner).toContain("display conversions");

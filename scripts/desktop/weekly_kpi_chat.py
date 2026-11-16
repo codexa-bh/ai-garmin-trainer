@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import signal
+import sqlite3
 import uuid
 import smoke_resources as resources
 from chat_smoke import AuthoredProvider, api, seed_run
@@ -21,6 +22,23 @@ def state(run, week):
     with contextlib.closing(readonly(run.database)) as db:
         row = db.execute('select state_json from weekly_kpi where week_start=?', (week,)).fetchone()
         return json.loads(row[0]) if row else None
+
+
+def seed_auto_measurements(run, week):
+    """Only the stopped exclusive synthetic run copy; no live/private input."""
+    if run.child is not None or run.database.parent != run.root or run.database.is_symlink():
+        raise ValueError('Stopped exclusive run copy required')
+    start = int(datetime.datetime.fromisoformat(week).replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
+    recipe = {'conceptId': 'authored-sessions', 'version': 1,
+              'sql': "select count(*) as count, sum(duration_sec) / 60.0 as duration from activity where sport in ('hiking','walking') and started_at >= :week_start_ms and started_at < :week_end_ms",
+              'tracks': [{'key': key, 'signature': json.dumps(['numeric', unit, meaning], separators=(',', ':'))} for key, unit, meaning in [('count', 'sessions', 'Selected session count'), ('duration', 'minutes', 'Selected session duration')]], 'savedAt': week + 'T00:00:00Z'}
+    with contextlib.closing(sqlite3.connect(run.database)) as db:
+        db.execute('insert into weekly_kpi_recipe(concept_id,version,recipe_json) values (?,?,?)', ('authored-sessions', 1, json.dumps(recipe)))
+        for index in [1, 2]:
+            db.execute('insert into activity(id,garmin_id,name,sport,started_at,duration_sec) values (?,?,?,?,?,?)', ('T0336-' + str(index), 'T0336-' + str(index), 'Authored point measurement', 'hiking', start + index * 60000, 4500))
+        db.commit()
+        if db.execute('pragma integrity_check').fetchone()[0] != 'ok' or db.execute('pragma foreign_key_check').fetchone():
+            raise ValueError('Authored automatic-point copy integrity failed')
 
 
 def exercise(run, provider, receipt):
@@ -45,6 +63,16 @@ def exercise(run, provider, receipt):
             if value['assistant']['content'] != expected or [(s['tool'], s['status']) for s in value['toolSteps']] != [('getWeeklyKpis', 'succeeded'), ('saveWeeklyDocuments' if action == 'correct' else 'saveWeeklyKpis', 'succeeded')]:
                 raise ValueError('Actual JSON KPI tool sequence failed')
         saved = state(run, provider.week)
+        points = json.loads(api(run, 'GET', '/api/weekly?weekStart=' + provider.week + '&timeZone=UTC'))['kpis']['points']
+        if action in ['establish', 'adapt']:
+            expected_points = 80 if action == 'establish' else 50
+            if saved['assessments'] or points['total'] != expected_points or not points['automatic'] or not points['provisional']:
+                raise ValueError('Post-save refresh did not publish common automatic points without manual Refresh')
+            if any(track.get('pointsRule') != {'kind': 'proportional'} for track in saved['sets'][-1]['items'][0]['tracks']):
+                raise ValueError('Adaptation dropped actual canonical rule metadata')
+        elif action in ['assess', 'correct']:
+            if points['automatic'] or points['total'] != (112.5 if action == 'assess' else 12.5):
+                raise ValueError('Reviewed override did not win over measured automatic points')
         if action == 'establish':
             if not saved or saved['originalId'] != saved['latestId'] or saved['assessments']:
                 raise ValueError('Initial structured commitment failed')
@@ -57,7 +85,7 @@ def exercise(run, provider, receipt):
             raise ValueError('Latest-plan above100/unknown per-measurement assessment failed')
         if action == 'no-save' and saved != before:
             raise ValueError('No-save changed structured state')
-        if action == 'correct' and (saved['assessments'][0]['totalPoints'] != 25 or saved['assessments'][0]['items'][0]['actuals'][0]['value'] != 0 or len(saved['assessments']) != 1 or saved['sets'] != before['sets']):
+        if action == 'correct' and (saved['assessments'][0]['totalPoints'] != 12.5 or saved['assessments'][0]['items'][0]['actuals'][0]['value'] != 0 or len(saved['assessments']) != 1 or saved['sets'] != before['sets']):
             raise ValueError('Focused correction/reference preservation failed')
         with contextlib.closing(readonly(run.database)) as db:
             if db.execute('select count(*) from weekly_kpi_track').fetchone()[0] != 2:
@@ -88,7 +116,7 @@ def main():
     bundle = canonical(args.bundle)
     source = source_identity()
     run = provider = observer = None
-    receipt = {'scenario': 'T0324-minimal-focused-combined-KPI-native-chat', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised; finite authored provider', 'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis', 'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.'}
+    receipt = {'scenario': 'T0336-declared-rules-carry-forward-post-save-refresh-reviewed-zero-native-chat', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised; finite authored provider', 'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis', 'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.'}
     with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
         try:
             run = OrdinaryRun(scratch, prepared.database, source, bundle, inventory, verified=verified)
@@ -98,6 +126,7 @@ def main():
             today = datetime.datetime.now(datetime.timezone.utc).date()
             provider.week = (today - datetime.timedelta(days=today.weekday())).isoformat()
             seed_run(run, provider)
+            seed_auto_measurements(run, provider.week)
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer
             run.start(run.binary)

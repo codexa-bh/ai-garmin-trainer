@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { executeTrainerTool } from "../src/lib/ai/tool-execution";
+import type { TrainerToolPorts } from "../src/lib/ai/tool-ports";
 import { z } from "zod";
 import { trainerToolContracts } from "../src/lib/ai/tool-contracts";
 import type { KpiChange } from "../src/lib/weekly/kpi-contracts";
@@ -63,7 +65,115 @@ beforeEach(() => {
     () => `kpi-${++id}`,
   );
 });
-afterEach(() => db.close());
+afterEach(() => {
+  db.close();
+  vi.useRealTimers();
+});
+it.each(["saveWeeklyKpis", "saveWeeklyDocuments"] as const)(
+  "refreshes only a committed current-week set after %s, preserving success on refresh failure",
+  async (toolName) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const rules = structuredClone(commitment);
+    rules.items[0].tracks.forEach((track) => {
+      track.pointsRule = { kind: "proportional" };
+    });
+    const store = createWeeklyStore(() => db);
+    const refresh = vi.fn(async () => {
+      store.saveMeasurements({
+        weekStart,
+        timeZone: "UTC",
+        revision: "measured",
+        concepts: Object.fromEntries(
+          rules.items.map((item) => [
+            item.conceptId,
+            {
+              success: {
+                recipeVersion: 1,
+                status: "measured",
+                values: Object.fromEntries(
+                  item.tracks.map((track) => [track.key, 1]),
+                ),
+                signatures: Object.fromEntries(
+                  item.tracks.map((track) => [
+                    track.key,
+                    JSON.stringify([track.kind, track.unit, track.meaning]),
+                  ]),
+                ),
+                measuredAt: now.toISOString(),
+                asOf: now.toISOString(),
+                basis: "authored",
+              },
+            },
+          ]),
+        ),
+      });
+      return { status: "refreshed" };
+    });
+    const ports = {
+      weekly: app,
+      measurements: { refresh },
+    } as unknown as TrainerToolPorts;
+    const execute = (commit: typeof rules | undefined, target = weekStart) =>
+      executeTrainerTool(
+        {
+          toolName,
+          input:
+            toolName === "saveWeeklyKpis"
+              ? {
+                  weekStart: target,
+                  ...(commit
+                    ? { commitment: commit }
+                    : {
+                        assessments: [
+                          {
+                            ...assessment,
+                            setId: app.readKpis(target).latestId!,
+                          },
+                        ],
+                      }),
+                }
+              : {
+                  changes: [],
+                  kpiChanges: [
+                    {
+                      weekStart: target,
+                      ...(commit
+                        ? { commitment: commit }
+                        : {
+                            assessments: [
+                              {
+                                ...assessment,
+                                setId: app.readKpis(target).latestId!,
+                              },
+                            ],
+                          }),
+                    },
+                  ],
+                },
+          index: 0,
+          context: new TrainerToolExecutionContext(),
+          weeklyTurn: turn,
+          kpiSnapshots: [app.readKpis(target)],
+        } as Parameters<typeof executeTrainerTool>[0],
+        ports,
+      );
+    expect((await execute(rules)).status).toBe("succeeded");
+    expect(refresh).toHaveBeenCalledExactlyOnceWith("UTC", weekStart);
+    expect(app.readKpis(weekStart).points?.automatic).toBe(true);
+    expect(app.readKpis(weekStart).points?.total).not.toBeNull();
+    expect((await execute(undefined)).status).toBe("succeeded");
+    expect((await execute(rules, "2026-11-16")).status).toBe("succeeded");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    refresh.mockRejectedValueOnce(new Error("busy"));
+    expect((await execute({ ...rules, origin: "adaptation" })).status).toBe(
+      "succeeded",
+    );
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(app.readKpis(weekStart).sets).toHaveLength(2);
+  },
+);
+
 async function run(passes: TrainerToolCall[][], answers: string[] = []) {
   let pass = 0;
   const systems: string[] = [];
@@ -90,6 +200,59 @@ async function run(passes: TrainerToolCall[][], answers: string[] = []) {
   );
   return { result, systems };
 }
+it.each(["saveWeeklyKpis", "saveWeeklyDocuments"] as const)(
+  "parses strict rule metadata through %s and preserves it in an adaptation",
+  (toolName) => {
+    const rules = {
+      origin: commitment.origin,
+      items: commitment.items.map(({ id, conceptId, label, tracks }) => ({
+        id,
+        conceptId,
+        label,
+        tracks: structuredClone(tracks),
+      })),
+    };
+    rules.items[0].tracks[0].pointsRule = {
+      kind: "perUnit",
+      points: 1,
+      cap: 2,
+    };
+    rules.items[0].tracks[1].pointsRule = { kind: "proportional" };
+    const schema = trainerToolContracts[toolName].inputSchema;
+    const input =
+      toolName === "saveWeeklyKpis"
+        ? { weekStart, commitment: rules }
+        : { changes: [], kpiChanges: [{ weekStart, commitment: rules }] };
+    expect(schema.safeParse(input).success).toBe(true);
+    const parsed = schema.parse(input);
+    const changes: KpiChange[] =
+      "weekStart" in parsed ? [parsed] : parsed.kpiChanges!;
+    app.save([], turn, [], changes, [app.readKpis(weekStart)]);
+    const before = app.readKpis(weekStart);
+    const adaptation = { ...rules, origin: "adaptation" as const };
+    app.save([], turn, [], [{ weekStart, commitment: adaptation }], [before]);
+    expect(app.readKpis(weekStart).sets.at(-1)!.items).toEqual(rules.items);
+    const omitted = structuredClone(adaptation);
+    delete omitted.items[0].tracks[0].pointsRule;
+    app.save(
+      [],
+      turn,
+      [],
+      [{ weekStart, commitment: omitted }],
+      [app.readKpis(weekStart)],
+    );
+    // Omission remains visible: never silently copy server-side agreement.
+    expect(
+      app.readKpis(weekStart).sets.at(-1)!.items[0].tracks[0].pointsRule,
+    ).toBeUndefined();
+    rules.items[0].tracks[0].pointsRule = {
+      kind: "threshold",
+      extra: true,
+    } as never;
+    expect(schema.safeParse(input).success).toBe(false);
+  },
+);
+
 it("discovers latest canonical identities outside the chart range and reuses them in a future real tool write", async () => {
   const store = createWeeklyStore(() => db);
   store.saveKpis(weekStart, structuredClone(fixture));
@@ -597,7 +760,9 @@ it("saves verified recipes through real orchestration with prior-pass reads, sha
   expect(refreshed.toolSteps[0]).toMatchObject({ status: "succeeded" });
   expect(refreshed.toolSteps[0].summary).toContain(`${weekStart}: refreshed`);
   expect(refreshed.toolSteps[0].summary).toContain("2026-11-02: refreshed");
-  expect(refreshed.toolSteps[0].summary).toMatch(/Points are unchanged\.$/);
+  expect(refreshed.toolSteps[0].summary).toContain(
+    "Reviewed points are unchanged; declared rules may advance provisional points.",
+  );
   expect(
     store.readMeasurements("2026-11-02")?.concepts["authored-sessions"].success
       ?.values,

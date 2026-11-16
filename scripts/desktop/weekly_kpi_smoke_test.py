@@ -148,6 +148,20 @@ class WeeklyKpiRunnerTests(unittest.TestCase):
         self.assertTrue(facts['reviewedKpisUnchanged'])
         self.assertEqual(facts['weeks'], {'2026-11-09': {'count': 2, 'duration': 150}, '2026-11-02': {'count': 1, 'duration': 108}})
 
+    def test_automatic_refresh_requires_exact_shared_mixed_projection(self):
+        good = {'concepts': {'authored-sessions': {'success': {'values': {'count': 2, 'duration': 150}, 'status': 'measured', 'recipeVersion': 1}}}}
+        previous = {'concepts': {'authored-sessions': {'success': {'values': {'count': 1, 'duration': 108}, 'status': 'measured', 'recipeVersion': 1}}}}
+        points = {'total': 92.5, 'percentage': 115.625, 'automatic': True, 'provisional': True, 'tracks': [{'source': 'reviewed', 'amount': 50}, {'source': 'automatic', 'amount': 30}]}
+        for total in [92.5, 142.5]:
+            run, s, h = self._refresh_run([None, None, good, previous], ['h', 'h'])
+            with s, h, patch.object(kpis, 'api', return_value=__import__('json').dumps({'kpis': {'points': dict(points, total=total)}})):
+                if total == 92.5:
+                    self.assertEqual(len(kpis.refresh_proof(run, '2026-11-09', True)[0]), 6)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'mixed total'):
+                        kpis.refresh_proof(run, '2026-11-09', True)
+            self.assertEqual(sum(value.get('action') == 'refresh' for value in run.commands), 1)
+
     def test_refresh_refuses_seeded_measurement_changed_reviews_and_wrong_values_without_retry(self):
         good = {'concepts': {'authored-sessions': {'success': {'values': {'count': 2, 'duration': 150}, 'status': 'measured', 'recipeVersion': 1}}}}
         wrong = {'concepts': {'authored-sessions': {'success': {'values': {'count': 0, 'duration': None}, 'status': 'measured', 'recipeVersion': 1}}}}

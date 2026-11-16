@@ -30,6 +30,7 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         self.assertEqual(adapted['commitment']['items'][0]['tracks'][0]['target']['value'], 5)
         self.assertEqual([track['availablePoints'] for track in adapted['commitment']['items'][0]['tracks']], [50, 30])
         self.assertNotIn('availablePoints', adapted['commitment']['items'][0])
+        self.assertEqual([track['pointsRule'] for track in adapted['commitment']['items'][0]['tracks']], [track['pointsRule'] for track in planned['commitment']['items'][0]['tracks']])
         self.assertEqual(adapted['commitment']['items'][0]['conceptId'], planned['commitment']['items'][0]['conceptId'])
         self.assertEqual(adapted['commitment']['items'][0]['label'], planned['commitment']['items'][0]['label'])
         self.assertEqual(response(9, body, '2026-11-09'), {'role': 'assistant', 'content': NO_SAVE})
@@ -67,6 +68,8 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         self.assertEqual(len(commitment()['items'][0]['tracks']), 2)
         self.assertIsNone(assessment('saved')['items'][0]['actuals'][1]['value'])
         self.assertEqual(assessment('saved', True)['items'][0]['actuals'][0]['value'], 0)
+        self.assertEqual(assessment('saved', True)['items'][0]['actuals'][0]['awardedPoints'], 0)
+        self.assertEqual(assessment('saved', True)['totalPoints'], 12.5)
         with self.assertRaises(ValueError):
             AuthoredProvider(weekly_kpis=True, activity_images=True)
 

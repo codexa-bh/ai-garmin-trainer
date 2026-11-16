@@ -5,7 +5,7 @@ import {
   weeklyCalendar,
   weekInterval,
 } from "./calendar";
-import { applyKpiChange, projectKpis } from "./kpis";
+import { applyKpiChange, projectKpis, kpiPointsProjection } from "./kpis";
 import type { KpiChange, KpiRead, KpiProgress } from "./kpi-contracts";
 import type {
   WeeklyChange,
@@ -196,7 +196,7 @@ export function createWeekly(
   }
   function readKpis(weekStart: string, setId?: string): KpiRead {
     if (!validWeek(weekStart)) throw new Error("invalid_week");
-    return {
+    const read: KpiRead = {
       ...projectKpis(
         weekStart,
         store.readKpis(weekStart),
@@ -205,6 +205,21 @@ export function createWeekly(
       ),
       measured: store.readMeasurements(weekStart),
     };
+    const projected = { ...read, points: kpiPointsProjection(read) };
+    // The existing complete-read budget includes additive measured/point
+    // evidence too. Never turn a clipped object into write authority.
+    if (JSON.stringify(projected).length > 60000) {
+      const incomplete: KpiRead = {
+        ...read,
+        complete: false,
+        sets: [],
+        assessments: [],
+        measured: null,
+        narrowToSetIds: read.sets.map((set) => set.id),
+      };
+      return { ...incomplete, points: kpiPointsProjection(incomplete) };
+    }
+    return projected;
   }
   function latestRead(weekStart: string) {
     const header = readKpis(weekStart);

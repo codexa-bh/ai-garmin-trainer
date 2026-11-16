@@ -162,13 +162,21 @@ export function authoredAssessedLatestKpis(now = new Date()): WeeklyKpis {
   state.assessments.push(latest);
   return state;
 }
-export function seedWeeklyKpis(db: Database.Database) {
+export function seedWeeklyKpis(db: Database.Database, automatic = false) {
   const now = new Date();
   const week = weeklyCalendar(
     now,
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   ).weekStart;
   const state = authoredAssessedLatestKpis(now);
+  if (automatic) {
+    const track = state.sets[1].items[0].tracks[1];
+    track.pointsRule = { kind: "proportional" };
+    track.requiresCondition = "condition";
+    state.assessments[1].items[0].actuals[1].awardedPoints = null;
+    // The saved total is deliberately unlike the mixed projection; never add
+    // candidates to it. Reviewed count50 + auto duration30 + extras12.5 =92.5.
+  }
   const note = {
     title: "T0321 authored plan",
     contentMarkdown:
