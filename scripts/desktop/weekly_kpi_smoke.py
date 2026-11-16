@@ -34,9 +34,10 @@ def measured(database, week):
 
 
 def refresh_proof(run, week):
-    """T0328: one explicit current-week Refresh recomputes stored actuals from the
-    authored activities in a real bounded child; reviewed KPI bytes stay unchanged."""
-    if measured(run.database, week) is not None:
+    """One Refresh publishes both authored weeks; reviewed KPI bytes stay unchanged."""
+    previous = (datetime.date.fromisoformat(week) - datetime.timedelta(days=7)).isoformat()
+    expected = {week: {'count': 2, 'duration': 150}, previous: {'count': 1, 'duration': 108}}
+    if any(measured(run.database, target) is not None for target in expected):
         raise ValueError('Authored seed must not contain a stored measurement')
     before = saved_hash(run.database)
     run.command({'type': 'setViewport', 'preset': 'wide'})
@@ -44,15 +45,16 @@ def refresh_proof(run, week):
     wait_kpis(run, True)
     run.command({'type': 'weeklyKpis', 'action': 'refresh'})  # Effect unknown on timeout; never retried.
     deadline = time.monotonic() + 15
-    state = None
+    states = {}
     while time.monotonic() < deadline:
-        state = measured(run.database, week)
-        if state:
+        states = {target: measured(run.database, target) for target in expected}
+        if all(states.values()):
             break
         time.sleep(.2)  # Read-only observation of the one requested refresh.
-    success = (state or {}).get('concepts', {}).get('authored-sessions', {}).get('success') or {}
-    if success.get('values') != {'count': 2, 'duration': 150} or success.get('status') != 'measured' or success.get('recipeVersion') != 1:
-        raise ValueError('Current-week Refresh did not publish the authored measured actuals')
+    for target, values in expected.items():
+        success = (states.get(target) or {}).get('concepts', {}).get('authored-sessions', {}).get('success') or {}
+        if success.get('values') != values or success.get('status') != 'measured' or success.get('recipeVersion') != 1:
+            raise ValueError(f'Refresh did not publish the authored measured actuals for {target}')
     if saved_hash(run.database) != before:
         raise ValueError('Refresh changed reviewed KPI state')
     wait_kpis(run, True)
@@ -78,7 +80,7 @@ def refresh_proof(run, week):
         if not (observed['contained'] and observed['notesCorrect']):
             raise ValueError('Refreshed grid geometry/notes proof failed; inspect retained capture')
     run.command({'type': 'setViewport', 'preset': 'wide'})
-    return captures, {'recipeVersion': 1, 'values': success['values'], 'reviewedKpisUnchanged': True}
+    return captures, {'recipeVersion': 1, 'weeks': expected, 'reviewedKpisUnchanged': True}
 
 
 def wait_kpis(run, progress=False):
@@ -151,7 +153,7 @@ def main():
         expected = saved_hash(run.database)
         observer = None
         errors = []
-        receipt = {'source': source, 'scenario': 'T0328-measured-refresh-independent-points-preset-periods-real-pane-bottom', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. One synthetic DOM Refresh click runs the real bounded recipe child on the run copy. Synthetic DOM input, not trusted input, real trainer/provider recipe writes or production migration.', 'resourceDisposition': resources.disposition()}
+        receipt = {'source': source, 'scenario': 'T0337-two-week-measured-refresh-independent-points-preset-periods-real-pane-bottom', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. One synthetic DOM Refresh click runs the real bounded recipe child on the run copy. Synthetic DOM input, not trusted input, real trainer/provider recipe writes or production migration.', 'resourceDisposition': resources.disposition()}
         try:
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer
@@ -161,7 +163,7 @@ def main():
             refreshed, receipt['refresh'] = refresh_proof(run, week)
             receipt['captures'] += refreshed
             expected = saved_hash(run.database)
-            expected_measured = measured(run.database, week)
+            expected_measured = {target: measured(run.database, target) for target in receipt['refresh']['weeks']}
             run.command({'type': 'setViewport', 'preset': 'wide'})
             run.command({'type': 'click', 'target': 'Back to chat'})
             run.wait(lambda value: value['view'] == 'Trainer', 'Trainer before owned Profile restart proof')
@@ -170,7 +172,7 @@ def main():
             run.command({'type': 'click', 'target': 'Close Profile & data'})
             run.command({'type': 'click', 'target': 'Training Plan'})
             wait_kpis(run)
-            receipt['restartPersisted'] = saved_hash(run.database) == expected and measured(run.database, week) == expected_measured
+            receipt['restartPersisted'] = saved_hash(run.database) == expected and all(measured(run.database, target) == state for target, state in expected_measured.items())
             if not receipt['restartPersisted'] or source_identity() != source or audit(bundle) != inventory or audit(run.bundle) != inventory:
                 raise ValueError('KPI state/source/artifact changed during smoke')
             receipt['readOnlyViewsPreservedKpis'] = True

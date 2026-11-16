@@ -457,7 +457,7 @@ export const trainerToolContracts = {
   },
   refreshKpiMeasurements: {
     description:
-      "Recompute stored measured actuals from saved recipes and imported local data: the current week by default, or one exact earlier Monday within 12 weeks for a deliberate correction. Never fetches Garmin, changes recipes, assessments, reviews or points.",
+      "Recompute stored measured actuals from saved recipes and imported local data: the current and previous week by default, or one explicit Monday within 12 weeks for a deliberate correction. Never fetches Garmin, changes recipes, assessments, reviews or points.",
     inputSchema: trainerToolInputSchemas.refreshKpiMeasurements,
   },
   getActivityDashboard: {

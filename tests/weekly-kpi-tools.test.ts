@@ -590,11 +590,33 @@ it("saves verified recipes through real orchestration with prior-pass reads, sha
   ).toEqual({ count: 2 });
   expect(JSON.stringify(store.readKpis(weekStart))).toBe(before);
   // Refresh is a measurement-only read/write, not a save attempt.
+  store.saveKpis("2026-11-02", structuredClone(fixture));
   const refreshed = await go([
     [{ toolName: "refreshKpiMeasurements", input: {} }],
   ]);
   expect(refreshed.toolSteps[0]).toMatchObject({ status: "succeeded" });
-  expect(refreshed.toolSteps[0].summary).toContain("Points are unchanged");
+  expect(refreshed.toolSteps[0].summary).toContain(`${weekStart}: refreshed`);
+  expect(refreshed.toolSteps[0].summary).toContain("2026-11-02: refreshed");
+  expect(refreshed.toolSteps[0].summary).toMatch(/Points are unchanged\.$/);
+  expect(
+    store.readMeasurements("2026-11-02")?.concepts["authored-sessions"].success
+      ?.values,
+  ).toEqual({ count: 2 });
+  const previousRevision = store.readMeasurements("2026-11-02")?.revision;
+  const explicit = await go([
+    [{ toolName: "refreshKpiMeasurements", input: { weekStart } }],
+  ]);
+  expect(explicit.toolSteps[0].summary).toContain(`${weekStart}: refreshed`);
+  expect(explicit.toolSteps[0].summary).not.toContain("2026-11-02");
+  expect(store.readMeasurements("2026-11-02")?.revision).toBe(previousRevision);
+  fail = true;
+  const failed = await go([
+    [{ toolName: "refreshKpiMeasurements", input: {} }],
+  ]);
+  expect(failed.toolSteps[0].summary).toContain(
+    "failed: authored-sessions (prior values kept)",
+  );
+  expect(failed.toolSteps[0].summary).toContain("2026-11-02: refreshed");
   const history = await go([
     [
       {

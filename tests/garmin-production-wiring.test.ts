@@ -316,6 +316,7 @@ describe("KPI measurements through real composition (T0328)", () => {
     const kpis = authoredWeeklyKpis(new Date("2026-09-21T12:00:00Z"));
     kpis.timeZone = timeZone;
     store.saveKpis("2026-09-21", kpis);
+    store.saveKpis("2026-09-14", structuredClone(kpis));
     store.saveRecipe({
       conceptId: "authored-sessions",
       version: 1,
@@ -335,7 +336,7 @@ describe("KPI measurements through real composition (T0328)", () => {
     return { store, timeZone };
   }
 
-  it("triggers one current-week refresh after a completed sync and keeps the sync result when it fails", async () => {
+  it("triggers the two-week default once after a completed sync and keeps the sync result when it fails", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-21T12:00:00Z"));
     const { kpiMeasurements } = await import("../src/lib/weekly/composition");
@@ -368,7 +369,10 @@ describe("KPI measurements through real composition (T0328)", () => {
         durationSec: 1800,
       } as Parameters<typeof upsertActivities>[0][number],
     ]);
-    const before = JSON.stringify(store.readKpis("2026-09-21"));
+    const before = JSON.stringify([
+      store.readKpis("2026-09-21"),
+      store.readKpis("2026-09-14"),
+    ]);
     const weeklyRoute = await import("../src/app/api/weekly/route");
     const read = async () =>
       (
@@ -390,7 +394,33 @@ describe("KPI measurements through real composition (T0328)", () => {
       );
     expect(
       await (await post({ action: "refresh-current-week", timeZone })).json(),
-    ).toEqual({ weekStart: "2026-09-21", status: "refreshed", failed: 0 });
+    ).toEqual({
+      weekStart: "2026-09-21",
+      status: "refreshed",
+      previous: { weekStart: "2026-09-14", status: "refreshed" },
+      failed: 0,
+    });
+    expect(
+      store.readMeasurements("2026-09-14")?.concepts["authored-sessions"]
+        .success?.values,
+    ).toEqual({ count: 0 });
+    // A late previous-week import is picked up by the same default POST.
+    upsertActivities([
+      {
+        garminId: "late-previous",
+        name: "Authored late run",
+        sport: "running",
+        startedAt: new Date("2026-09-20T12:00:00"),
+        durationSec: 6480,
+      } as Parameters<typeof upsertActivities>[0][number],
+    ]);
+    expect(
+      (await post({ action: "refresh-current-week", timeZone })).status,
+    ).toBe(200);
+    expect(
+      store.readMeasurements("2026-09-14")?.concepts["authored-sessions"]
+        .success?.values,
+    ).toEqual({ count: 1 });
     const measured = store.readMeasurements("2026-09-21");
     expect(measured?.concepts["authored-sessions"].success).toMatchObject({
       recipeVersion: 1,
@@ -403,7 +433,16 @@ describe("KPI measurements through real composition (T0328)", () => {
       measured?.revision,
     );
     expect((await post({ action: "rescore", timeZone })).status).toBe(400);
+    expect(
+      (await post({ action: "refresh-current-week", timeZone: "invalid" }))
+        .status,
+    ).toBe(400);
     // Reviewed assessments, points and narrative state are never changed.
-    expect(JSON.stringify(store.readKpis("2026-09-21"))).toBe(before);
+    expect(
+      JSON.stringify([
+        store.readKpis("2026-09-21"),
+        store.readKpis("2026-09-14"),
+      ]),
+    ).toBe(before);
   }, 30000);
 });

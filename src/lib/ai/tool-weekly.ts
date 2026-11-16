@@ -130,14 +130,21 @@ export async function executeMeasurementTool(
       };
     }
     if (input.toolName === "refreshKpiMeasurements") {
-      const result = await measurements.refresh(
-        input.weeklyTurn.timeZone,
-        input.input.weekStart,
-      );
+      const result =
+        input.input.weekStart !== undefined
+          ? await measurements.refresh(
+              input.weeklyTurn.timeZone,
+              input.input.weekStart,
+            )
+          : await measurements.refresh(input.weeklyTurn.timeZone);
+      const weeks =
+        "current" in result ? [result.current, result.previous] : [result];
       return {
         ...base,
-        status: "succeeded",
-        summary: `Measured actuals for ${result.weekStart}: ${result.status}${result.failed.length ? `; failed: ${result.failed.join(", ")} (prior values kept)` : ""}. Points are unchanged.`,
+        status: weeks.some((week) => week.status === "failed")
+          ? "failed"
+          : "succeeded",
+        summary: `Measured actuals — ${weeks.map((week) => `${week.weekStart}: ${week.status}${week.failed.length ? `; failed: ${week.failed.join(", ")} (prior values kept)` : ""}`).join("; ")}. Points are unchanged.`,
         result,
       };
     }

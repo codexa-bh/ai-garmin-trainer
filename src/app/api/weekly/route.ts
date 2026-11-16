@@ -41,7 +41,7 @@ export function GET(request: Request) {
   }
 }
 
-/** Explicit recomputation of current-week measured actuals only; GET stays a
+/** Explicit recomputation of current and previous week actuals; GET stays a
  * saved read. Points and assessments are never changed. */
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
@@ -53,9 +53,17 @@ export async function POST(request: Request) {
   try {
     const result = await kpiMeasurements.refresh(body.timeZone);
     return NextResponse.json({
-      weekStart: result.weekStart,
-      status: result.status,
-      failed: result.failed.length,
+      weekStart: result.current.weekStart,
+      status: result.current.status,
+      previous: {
+        weekStart: result.previous.weekStart,
+        status: result.previous.status,
+      },
+      failed: [result.current, result.previous].reduce(
+        (count, week) =>
+          count + week.failed.length + (week.status === "failed" ? 1 : 0),
+        0,
+      ),
     });
   } catch {
     return NextResponse.json(

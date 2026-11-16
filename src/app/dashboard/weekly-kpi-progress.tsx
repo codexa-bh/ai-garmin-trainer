@@ -109,8 +109,8 @@ export function WeeklyKpiProgress({
           <button
             type="button"
             className="chrome-button"
-            aria-label="Refresh current week"
-            title="Refresh current week"
+            aria-label="Refresh this and last week"
+            title="Refresh this and last week"
             disabled={weekly.measuring === "busy"}
             aria-busy={weekly.measuring === "busy"}
             onClick={() => run(weekly.refreshMeasurements())}
@@ -120,6 +120,8 @@ export function WeeklyKpiProgress({
         ) : null}
         {weekly.measuring === "error" ? (
           <span role="status">Some measurements failed; last values kept.</span>
+        ) : weekly.measuring === "no_plan" ? (
+          <span role="status">No plan for this week</span>
         ) : null}
       </div>
       {weekly.state === "loading" || weekly.state === "idle" ? (

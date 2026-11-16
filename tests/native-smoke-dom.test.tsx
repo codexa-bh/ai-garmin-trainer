@@ -2217,7 +2217,7 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   delete smoke.__trainerOrdinaryIsolated;
 });
 
-it("clicks only the existing current-week Refresh through the finite refresh action and reveals only authored measured text", async () => {
+it("clicks only the existing two-week Refresh through the finite refresh action and reveals only authored measured text", async () => {
   smoke.__trainerOrdinaryIsolated = { runId: "run" };
   vi.stubGlobal("innerWidth", 1280);
   vi.stubGlobal("innerHeight", 850);
@@ -2233,7 +2233,12 @@ it("clicks only the existing current-week Refresh through the finite refresh act
     vi.fn(async (url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
         posts.push(JSON.parse(String(init.body)));
-        return Response.json({ weekStart: week, failed: 0 });
+        return Response.json({
+          weekStart: week,
+          status: "refreshed",
+          previous: { status: "refreshed" },
+          failed: 0,
+        });
       }
       const query = new URL(url, "http://localhost").searchParams;
       return Response.json(
@@ -2273,7 +2278,18 @@ it("clicks only the existing current-week Refresh through the finite refresh act
   expect(
     (await command({ type: "weeklyKpis", action: "oneMonth" })).result.ok,
   ).toBe(true);
-  await screen.findByRole("button", { name: "Refresh current week" });
+  await screen.findByRole("button", { name: "Refresh this and last week" });
+  const button = screen.getByRole("button", {
+    name: "Refresh this and last week",
+  });
+  for (const label of ["Refresh current week", "Refresh history"]) {
+    button.setAttribute("aria-label", label);
+    expect(
+      (await command({ type: "weeklyKpis", action: "refresh" })).result.ok,
+    ).toBe(false);
+  }
+  button.setAttribute("aria-label", "Refresh this and last week");
+  expect(posts).toEqual([]);
   const refreshed = (await command({ type: "weeklyKpis", action: "refresh" }))
     .result;
   expect(refreshed).toMatchObject({
@@ -2296,7 +2312,7 @@ it("clicks only the existing current-week Refresh through the finite refresh act
   smoke.__trainerSmokeRestore();
   expect(
     screen
-      .getByRole("button", { name: "Refresh current week" })
+      .getByRole("button", { name: "Refresh this and last week" })
       .hasAttribute("data-smoke-reveal"),
   ).toBe(false);
   for (const invalid of [
