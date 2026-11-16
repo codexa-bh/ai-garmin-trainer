@@ -115,6 +115,7 @@ export const {
   backfillActivityEffortFields,
 } = imports;
 export const isGarminSyncRunning = imports.isSyncRunning;
+export const cancelGarminSync = imports.requestCancel;
 export const verifyGarminConnection = verifyConnectorToken;
 export const activityDetailRequests = createActivityDetailRequests({
   activityDetailCoverage,

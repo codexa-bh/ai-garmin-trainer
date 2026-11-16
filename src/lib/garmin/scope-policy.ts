@@ -124,3 +124,27 @@ export function recoveryReason(recovery: HistoricalRecovery): string {
       return "Historical import stopped after a failure. Resolve the connection or storage failure before recovering saved work.";
   }
 }
+
+/**
+ * Automatic-scope floor once discovery found an empty year: never older than
+ * the oldest real evidence (imported records or positive steps weeks). A
+ * stale empty-hint chain can otherwise place the stop decades too early.
+ */
+export function automaticFloor(
+  history: GarminHistoryState,
+  discovery: GarminDiscoveryState | null,
+): string | null {
+  if (history.limit !== null) return history.limit;
+  const stop = discovery?.noDataBefore;
+  if (!stop) return null;
+  const evidence = [
+    history.health.oldestImported,
+    history.activities.oldestImported,
+    history.body.oldestImported,
+    discovery.oldestPositive,
+    ...discovery.positiveDates,
+  ]
+    .filter((date): date is string => Boolean(date))
+    .sort()[0];
+  return evidence && evidence > stop ? evidence : stop;
+}

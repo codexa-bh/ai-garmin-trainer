@@ -13,7 +13,11 @@ import {
   type SyncState,
 } from "./sync-policy";
 import type { GarminHistoryState } from "./history-policy";
-import { historyScope, reconcileToAutomatic } from "./scope-policy";
+import {
+  automaticFloor,
+  historyScope,
+  reconcileToAutomatic,
+} from "./scope-policy";
 import type { GarminDiscoveryState } from "./discovery-policy";
 import {
   BatchEnd,
@@ -70,6 +74,8 @@ export function createGarminImports({
   const baseline = createBaselineImports(store, clock);
   const details = createDetailImports(store, createReader);
   let running = false;
+  // Explicit server-side cancel; independent of HTTP disconnect propagation.
+  let cancelRequested = false;
 
   function repairCandidates(
     state: GarminHistoryState,
@@ -324,7 +330,7 @@ export function createGarminImports({
       }
     };
     const control = {
-      cancelled: options.cancelled ?? (() => false),
+      cancelled: () => cancelRequested || Boolean(options.cancelled?.()),
       remainingMs: () =>
         Math.min(
           overallRemaining(),
@@ -504,6 +510,7 @@ export function createGarminImports({
       }
     }
     running = true;
+    cancelRequested = false;
     try {
       state.outcome = "running";
       delete state.failureClass;
@@ -552,7 +559,8 @@ export function createGarminImports({
           .slice(0, 14);
         for (const date of trailing) await health(date);
         // Selected limit, or the start automatic discovery found.
-        const floor = () => limit ?? discovery?.noDataBefore ?? null;
+        const floor = () =>
+          limit ?? (discovery ? automaticFloor(state, discovery) : null);
         // Runs before family batches so an empty year stops every family.
         async function hintBatch() {
           if (!discovery?.operation) return;
@@ -600,6 +608,8 @@ export function createGarminImports({
                   ? shiftDate(previous.endDate, 1)
                   : shiftDate(hint.endDate, 1);
               discovery.noDataBefore = discovery.oldestPositive ?? emptyFrom;
+              discovery.noDataBefore =
+                automaticFloor(state, discovery) ?? discovery.noDataBefore;
               discovery.nextHintEnd = null;
             }
             save();
@@ -1004,6 +1014,11 @@ export function createGarminImports({
     runGarminSync,
     syncSummary,
     isSyncRunning: () => running,
+    /** Ask the active operation to stop at its next safe point. */
+    requestCancel: () => {
+      if (running) cancelRequested = true;
+      return running;
+    },
     backfillActivityDetail: details.backfillActivityDetail,
     backfillActivityEffortFields: details.backfillActivityEffortFields,
   };

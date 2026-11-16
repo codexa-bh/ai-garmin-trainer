@@ -69,6 +69,8 @@ export function useSyncFeature({
   const isSyncingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   function cancelSync() {
+    // Tell the server directly; a dropped stream alone may not reach it.
+    fetch("/api/sync", { method: "DELETE" }).catch(() => undefined);
     abortRef.current?.abort();
   }
 

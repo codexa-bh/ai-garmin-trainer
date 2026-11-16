@@ -924,3 +924,43 @@ describe("automatic discovery that found the start of the data", () => {
     expect(card.textContent).not.toContain("remote earliest history unknown");
   });
 });
+
+describe("cancel reaches the server", () => {
+  it("sends an explicit DELETE to /api/sync when Cancel sync is pressed", async () => {
+    let release: (() => void) | undefined;
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/sync" && init?.method === "POST")
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              release = () => controller.close();
+            },
+          }),
+        );
+      if (url === "/api/sync" && init?.method === "DELETE") {
+        release?.();
+        return response({ cancelled: true });
+      }
+      return response(summary());
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(<SyncHarness />);
+    const card = await screen.findByRole("region", { name: "Run Garmin sync" });
+    await within(card).findByRole("button", {
+      name: "Continue historical import",
+    });
+    fireEvent.click(
+      within(card).getByRole("button", { name: "Continue historical import" }),
+    );
+    fireEvent.click(
+      await within(card).findByRole("button", { name: "Cancel sync" }),
+    );
+    await waitFor(() =>
+      expect(
+        fetch.mock.calls.some(
+          ([url, init]) => url === "/api/sync" && init?.method === "DELETE",
+        ),
+      ).toBe(true),
+    );
+  });
+});
