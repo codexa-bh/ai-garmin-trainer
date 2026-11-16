@@ -191,7 +191,7 @@ it("keeps useful prior values with stale failure facts, never zeroes them, and r
   await establish();
   const { weekly, measurements } = setup();
   outcome = (conceptId) => ({ conceptId, status: "failed", reason: "timeout" });
-  expect(await measurements.refresh("UTC")).toMatchObject({
+  expect(await measurements.refresh("UTC", week)).toMatchObject({
     status: "refreshed",
     failed: ["authored-sessions"],
   });
@@ -212,7 +212,7 @@ it("keeps useful prior values with stale failure facts, never zeroes them, and r
     values: { count: 99, duration: 1 },
   });
   during = () => (basis = `${basis}+`);
-  expect(await measurements.refresh("UTC")).toMatchObject({
+  expect(await measurements.refresh("UTC", week)).toMatchObject({
     status: "superseded",
   });
   expect(
@@ -225,7 +225,7 @@ it("keeps useful prior values with stale failure facts, never zeroes them, and r
     if (once) basis = "b3";
     once = false;
   };
-  expect(await measurements.refresh("UTC")).toMatchObject({
+  expect(await measurements.refresh("UTC", week)).toMatchObject({
     status: "refreshed",
   });
   expect(
@@ -233,26 +233,145 @@ it("keeps useful prior values with stale failure facts, never zeroes them, and r
   ).toMatchObject({ values: { count: 99, duration: 1 }, basis: "b3" });
 });
 
-it("coalesces repeated triggers, defaults to the current week and bounds deliberate history", async () => {
+it("coalesces repeated two-week triggers and bounds deliberate single-week history", async () => {
   await establish();
   runs = [];
-  const { measurements } = setup();
+  const { store, measurements } = setup();
+  store.saveKpis("2026-11-02", authoredWeeklyKpis(now));
+  const before = db.prepare("select * from weekly_kpi").all();
   const [a, b] = await Promise.all([
     measurements.refresh("UTC"),
     measurements.refresh("UTC"),
   ]);
-  expect(a).toBe(b);
-  expect(runs).toHaveLength(1);
+  expect(a.current).toBe(b.current);
+  expect(a.previous).toBe(b.previous);
+  expect(runs).toHaveLength(2);
   expect(runs[0]).toMatchObject({ weekStart: week, endMs: now.getTime() });
+  expect(runs[1]).toMatchObject({
+    weekStart: "2026-11-02",
+    endMs: Date.parse("2026-11-09T00:00:00Z"),
+  });
+  expect(a).toMatchObject({
+    current: { status: "refreshed" },
+    previous: { status: "refreshed" },
+  });
+  expect(db.prepare("select * from weekly_kpi").all()).toEqual(before);
   expect(() => measurements.refresh("UTC", "2026-11-16")).toThrow(
     "invalid_measurement_week",
   );
   expect(() => measurements.refresh("UTC", "2026-08-17")).toThrow(
     "invalid_measurement_week",
   );
+  runs = [];
   expect(await measurements.refresh("UTC", "2026-11-02")).toMatchObject({
+    status: "refreshed",
+  });
+  expect(runs.map((run) => run.weekStart)).toEqual(["2026-11-02"]);
+  expect(await measurements.refresh("UTC", "2026-08-24")).toMatchObject({
     status: "no_plan",
   });
+  expect(() => measurements.refresh("UTC", "2026-11-03")).toThrow(
+    "invalid_measurement_week",
+  );
+});
+
+it.each(["throw", "failed", "superseded", "no_plan", "no_recipes"])(
+  "preserves the previous publication when the current week is %s",
+  async (mode) => {
+    await establish();
+    const { store, measurements } = setup();
+    store.saveKpis("2026-11-02", authoredWeeklyKpis(now));
+    const previousOutcome = outcome;
+    outcome = (conceptId, target) => {
+      if (target === week && mode === "throw")
+        throw new Error("executor_failed");
+      if (target === week && mode === "failed")
+        return { conceptId, status: "failed", reason: "timeout" };
+      return previousOutcome(conceptId, target);
+    };
+    if (mode === "superseded")
+      during = () => {
+        if (runs.at(-1)?.weekStart === week) basis += "+";
+      };
+    if (mode === "no_plan")
+      db.prepare("delete from weekly_kpi where week_start=?").run(week);
+    if (mode === "no_recipes") {
+      const state = store.readKpis(week)!;
+      for (const set of state.sets)
+        set.items[0].tracks[0].meaning = "different";
+      store.saveKpis(week, state);
+    }
+    const result = await measurements.refresh("UTC");
+    expect(result.current.status).toBe(
+      mode === "throw" ? "failed" : mode === "failed" ? "refreshed" : mode,
+    );
+    expect(result.previous.status).toBe("refreshed");
+    expect(
+      store.readMeasurements("2026-11-02")?.concepts["authored-sessions"]
+        .success?.values.count,
+    ).toBe(6);
+  },
+);
+
+it("preserves current publication on a previous-week exception and skips absent weeks without writing", async () => {
+  await establish();
+  const { store, measurements } = setup();
+  store.saveKpis("2026-11-02", authoredWeeklyKpis(now));
+  outcome = (conceptId, target) => {
+    if (target === "2026-11-02") throw new Error("executor_failed");
+    return { conceptId, status: "measured", values: { count: 9 } };
+  };
+  expect(await measurements.refresh("UTC")).toMatchObject({
+    current: { status: "refreshed" },
+    previous: { status: "failed" },
+  });
+  expect(
+    store.readMeasurements(week)?.concepts["authored-sessions"].success?.values
+      .count,
+  ).toBe(9);
+  db.prepare("delete from weekly_kpi").run();
+  const before = db.prepare("select * from weekly_kpi_measurement").all();
+  expect(await measurements.refresh("UTC")).toMatchObject({
+    current: { status: "no_plan" },
+    previous: { status: "no_plan" },
+  });
+  expect(db.prepare("select * from weekly_kpi_measurement").all()).toEqual(
+    before,
+  );
+});
+
+it("derives the previous civil Monday once and respects its saved timezone across DST", async () => {
+  await establish();
+  const { store } = setup();
+  const state = authoredWeeklyKpis(now);
+  state.timeZone = "America/New_York";
+  store.saveKpis("2026-11-02", state);
+  const windows: { weekStart: string; timeZone: string; endMs: number }[] = [];
+  const measurements = createKpiMeasurements(
+    store,
+    {
+      ...execution,
+      run: async (recipes, window) => {
+        windows.push(window);
+        return execution.run(recipes, window);
+      },
+    },
+    () => new Date("2026-11-09T00:30:00Z"),
+    () => "zone-rev",
+  );
+  await measurements.refresh("Pacific/Kiritimati");
+  expect(windows).toMatchObject([
+    {
+      weekStart: week,
+      timeZone: "UTC",
+      endMs: Date.parse("2026-11-09T00:30:00Z"),
+    },
+    {
+      weekStart: "2026-11-02",
+      timeZone: "America/New_York",
+      endMs: Date.parse("2026-11-09T00:30:00Z"),
+    },
+  ]);
 });
 
 it("does not apply a recipe whose track meaning changed, and keeps the measured value bound to its meaning", async () => {
@@ -264,7 +383,7 @@ it("does not apply a recipe whose track meaning changed, and keeps the measured 
   store.saveKpis(week, state);
   runs = [];
   const { weekly, measurements } = setup();
-  expect(await measurements.refresh("UTC")).toMatchObject({
+  expect(await measurements.refresh("UTC", week)).toMatchObject({
     status: "no_recipes",
   });
   expect(runs).toEqual([]);

@@ -26,7 +26,9 @@ export function useWeeklyFeature() {
   const [state, setState] = useState<"idle" | "loading" | "loaded" | "error">(
     "idle",
   );
-  const [measuring, setMeasuring] = useState<"idle" | "busy" | "error">("idle");
+  const [measuring, setMeasuring] = useState<
+    "idle" | "busy" | "error" | "no_plan"
+  >("idle");
   const generation = useRef(0);
   const calendarBasis = useRef("");
   async function load(
@@ -125,7 +127,7 @@ export function useWeeklyFeature() {
       true,
     );
   }
-  /** Recompute current-week measured actuals, then reload the kept period. */
+  /** Recompute this and last week, then reload the kept period. */
   async function refreshMeasurements() {
     setMeasuring("busy");
     try {
@@ -137,8 +139,19 @@ export function useWeeklyFeature() {
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       });
-      const result = await readJsonResponse<{ failed: number }>(response);
-      setMeasuring(result.failed ? "error" : "idle");
+      const result = await readJsonResponse<{
+        failed: number;
+        status: string;
+        previous: { status: string };
+      }>(response);
+      setMeasuring(
+        result.failed
+          ? "error"
+          : result.status === "no_plan" &&
+              result.previous.status !== "refreshed"
+            ? "no_plan"
+            : "idle",
+      );
     } catch {
       setMeasuring("error");
     }

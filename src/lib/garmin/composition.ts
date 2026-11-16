@@ -93,7 +93,7 @@ const imports = createGarminImports({
   },
 });
 
-// After a completed sync, maintain current-week KPI measurements once against
+// After a completed sync, maintain current and previous week measurements against
 // the settled import. Measurement failure never changes the sync outcome.
 async function measuredAfterSync<T extends { status: string }>(
   work: Promise<T>,

@@ -262,8 +262,8 @@ export function seedWeeklyKpis(db: Database.Database) {
   seedMeasurementRecipe(db, week);
 }
 
-/** T0328: one verified-shape recipe and two authored current-week hikes, so an
- * explicit Refresh visibly measures 2 sessions / 2 h 30 min without changing
+/** One verified-shape recipe, two current-week outings and a previous-week hike.
+ * Refresh measures current 2 / 150 min and previous 1 / 108 min without changing
  * the authored reviewed assessment (4 sessions, unknown duration, 50/30 points).
  * No stored measurement is seeded: the first values come from a real refresh. */
 const AUTHORED_RECIPE_SQL =
@@ -314,5 +314,14 @@ function seedMeasurementRecipe(db: Database.Database, week: string) {
     start + 120_000,
     4500,
     50,
+  );
+  insert.run(
+    "T0337-previous",
+    "T0337-previous",
+    "Authored previous hike",
+    "hiking",
+    Date.parse(weekInterval(addDays(week, -7), "UTC").from) + 60_000,
+    6480,
+    432,
   );
 }

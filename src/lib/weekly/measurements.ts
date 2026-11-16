@@ -24,6 +24,20 @@ export type MeasurementRefresh = {
   failed: string[];
 };
 
+/** A default refresh preserves each week's outcome, including queue/executor errors. */
+type RecentWeekRefresh =
+  | MeasurementRefresh
+  | {
+      weekStart: string;
+      status: "failed";
+      measured: null;
+      failed: string[];
+    };
+export type RecentMeasurementRefresh = {
+  current: RecentWeekRefresh;
+  previous: RecentWeekRefresh;
+};
+
 const signature = (track: KpiSet["items"][number]["tracks"][number]) =>
   JSON.stringify([track.kind, track.unit, track.meaning]);
 
@@ -184,17 +198,34 @@ export function createKpiMeasurements(
     return work;
   }
 
-  /** Current week by default; a past week must be explicit and recent. */
+  /** Default triggers refresh both weeks; explicit history stays single-week. */
+  function refresh(timeZone: string): Promise<RecentMeasurementRefresh>;
+  function refresh(
+    timeZone: string,
+    weekStart: string,
+  ): Promise<MeasurementRefresh>;
   function refresh(timeZone: string, weekStart?: string) {
     const current = weeklyCalendar(clock(), timeZone).weekStart;
-    const target = weekStart ?? current;
-    if (
-      !validWeek(target) ||
-      target > current ||
-      target < addDays(current, -7 * (MEASUREMENT_HISTORY_WEEKS - 1))
-    )
-      throw new Error("invalid_measurement_week");
-    return enqueue(target, timeZone);
+    if (weekStart !== undefined) {
+      if (
+        !validWeek(weekStart) ||
+        weekStart > current ||
+        weekStart < addDays(current, -7 * (MEASUREMENT_HISTORY_WEEKS - 1))
+      )
+        throw new Error("invalid_measurement_week");
+      return enqueue(weekStart, timeZone);
+    }
+    const independent = (week: string): Promise<RecentWeekRefresh> =>
+      enqueue(week, timeZone).catch(() => ({
+        weekStart: week,
+        status: "failed",
+        measured: null,
+        failed: [],
+      }));
+    return Promise.all([
+      independent(current),
+      independent(addDays(current, -7)),
+    ]).then(([current, previous]) => ({ current, previous }));
   }
 
   /**

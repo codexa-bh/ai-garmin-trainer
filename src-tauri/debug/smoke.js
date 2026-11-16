@@ -3089,19 +3089,19 @@
         throw Error("Weekly KPI control unavailable");
       buttons[0].click();
     } else if (command.action === "refresh") {
-      // T0328: the one existing current-week Refresh control, by exact
+      // T0337: the one existing two-week Refresh control, by exact
       // accessible name; no other measurement/write control is reachable.
       const region = weeklyKpiRegion();
       const buttons = region?.classList.contains("weekly-kpi-progress")
         ? [...region.querySelectorAll("button")].filter(
             (el) =>
               visible(el) &&
-              el.getAttribute("aria-label") === "Refresh current week" &&
+              el.getAttribute("aria-label") === "Refresh this and last week" &&
               el.textContent === "Refresh",
           )
         : [];
       if (buttons.length !== 1 || buttons[0].disabled)
-        throw Error("Current-week Refresh unavailable");
+        throw Error("Two-week Refresh unavailable");
       buttons[0].click();
     } else if (
       ["oneMonth", "threeMonths", "twelveMonths"].includes(command.action)
@@ -3664,10 +3664,13 @@
       "body * {visibility:hidden !important} [data-smoke-reveal] {visibility:visible !important}";
     document.head.append(style);
     maskExpiry = setTimeout(restore, 10000);
-    // Memory's changing subviews/scroll layers need a bounded background paint
-    // turn after resize and masks; 120ms produced partial cached native frames.
+    // Memory and weekly KPI scroll layers need a bounded background paint
+    // turn after masks; 120ms produced partial or blank cached native frames.
     await new Promise((resolve) =>
-      setTimeout(resolve, command.view === "memory" ? 350 : 120),
+      setTimeout(
+        resolve,
+        ["memory", "weeklyKpis"].includes(command.view) ? 350 : 120,
+      ),
     );
     return {
       ok: true,
