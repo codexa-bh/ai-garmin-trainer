@@ -7,6 +7,8 @@ import type {
   KpiRead,
   KpiSetInput,
   KpiSet,
+  KpiTrack,
+  KpiPointsProjection,
   WeeklyKpis,
 } from "./kpi-contracts";
 
@@ -80,12 +82,9 @@ export function validateKpiSet(set: KpiSetInput) {
         optionalText(item.definition) &&
         optionalText(item.selection) &&
         optionalText(item.evidenceRequired) &&
-        optionalText(
-          item.scoring,
-          !item.tracks?.some(
-            (track) => typeof track.availablePoints === "number",
-          ),
-        ),
+        // Scoring prose is optional even on scored tracks. Empty optional
+        // text carries no rubric, just like omission; the tool schema permits it.
+        optionalText(item.scoring, true),
     );
     requireValid(
       !("availablePoints" in item) || item.availablePoints == null,
@@ -110,6 +109,7 @@ export function validateKpiSet(set: KpiSetInput) {
         track.availablePoints == null || track.kind === "numeric",
         "kpi_qualifying_points_unsupported",
       );
+      validatePointsRule(track, item.tracks);
       if (track.target !== null) {
         const target = track.target;
         requireValid(
@@ -141,6 +141,67 @@ export function validateKpiSet(set: KpiSetInput) {
   }
   requireValid(JSON.stringify(set).length <= 24000, "kpi_set_too_large");
 }
+/** Closed declared arithmetic; targets/allocations remain the saved agreement. */
+function validatePointsRule(track: KpiTrack, tracks: KpiTrack[]) {
+  const rule = track.pointsRule;
+  requireValid(
+    track.requiresCondition === undefined ||
+      (rule &&
+        id(track.requiresCondition) &&
+        tracks.some(
+          (condition) =>
+            condition.key === track.requiresCondition &&
+            condition.kind === "qualifying",
+        )),
+    "invalid_kpi_condition",
+  );
+  if (rule === undefined) return;
+  requireValid(
+    rule &&
+      typeof rule === "object" &&
+      track.kind === "numeric" &&
+      typeof track.availablePoints === "number" &&
+      Number.isFinite(track.availablePoints) &&
+      track.availablePoints >= 0,
+    "invalid_kpi_points_rule",
+  );
+  const keys = Object.keys(rule);
+  requireValid(
+    ["proportional", "threshold", "perUnit"].includes(rule.kind) &&
+      keys.every((key) =>
+        (rule.kind === "perUnit"
+          ? ["kind", "points", "cap"]
+          : ["kind"]
+        ).includes(key),
+      ),
+    "invalid_kpi_points_rule",
+  );
+  if (rule.kind === "perUnit") {
+    requireValid(
+      typeof rule.points === "number" &&
+        Number.isFinite(rule.points) &&
+        rule.points >= 0 &&
+        typeof rule.cap === "number" &&
+        Number.isFinite(rule.cap) &&
+        rule.cap >= 0 &&
+        rule.cap <= track.availablePoints!,
+      "invalid_kpi_points_rule",
+    );
+  } else {
+    requireValid(
+      track.target &&
+        typeof track.target.value === "number" &&
+        track.target.value >= 0,
+      "invalid_kpi_points_rule",
+    );
+    if (rule.kind === "proportional")
+      requireValid(
+        track.target.comparator === "at-least" && track.target.value > 0,
+        "invalid_kpi_points_rule",
+      );
+  }
+}
+
 export function validateKpiAssessment(
   assessment: KpiAssessmentInput,
   set: KpiSetInput,
@@ -439,8 +500,8 @@ export function kpiAwarded(
     : undefined;
 }
 
-/** One read-only score meaning for report and Progress; never rescoring. */
-export function latestKpiScore(kpis: KpiRead | null) {
+/** Exact selection independent of actuals or points: no projection recursion. */
+function selectLatestKpis(kpis: KpiRead | null) {
   const id =
     kpis?.latestPlanSetId !== undefined ? kpis.latestPlanSetId : kpis?.latestId;
   const sets = kpis?.sets.filter((value) => value.id === id) ?? [];
@@ -448,6 +509,12 @@ export function latestKpiScore(kpis: KpiRead | null) {
   const assessments =
     kpis?.assessments.filter((value) => value.setId === id) ?? [];
   const assessment = assessments.length === 1 ? assessments[0] : undefined;
+  return { set, assessment };
+}
+
+/** Preserve saved reviewed totals, including totals unlike the item sum. */
+function reviewedKpiScore(kpis: KpiRead | null) {
+  const { set, assessment } = selectLatestKpis(kpis);
   const available =
     set?.items.reduce(
       (sum, item) =>
@@ -511,13 +578,224 @@ export function latestKpiScore(kpis: KpiRead | null) {
   };
 }
 
+/** Shared pure points projection: never SQL, refresh, assessment or persistence. */
+export function latestKpiScore(kpis: KpiRead | null) {
+  const reviewed = reviewedKpiScore(kpis);
+  const { set, assessment } = reviewed;
+  const tracks: KpiPointsProjection["tracks"] = [];
+  for (const item of set?.items ?? []) {
+    const result = assessment?.items.find((value) => value.itemId === item.id);
+    for (const unit of kpiScoredUnits(item)) {
+      const award = kpiAwarded(item, result, unit.trackKey);
+      const base = { itemId: item.id, trackKey: unit.trackKey };
+      if (typeof award === "number" && Number.isFinite(award) && award >= 0) {
+        const unavailable =
+          result?.status === "unavailable" ||
+          assessment?.status === "unavailable";
+        tracks.push({
+          ...base,
+          amount: award,
+          source: "reviewed",
+          status: unavailable
+            ? "unavailable"
+            : result?.status === "provisional" ||
+                assessment?.status === "provisional"
+              ? "provisional"
+              : "supported",
+          reason: unavailable ? "Reviewed evidence unavailable" : null,
+          asOf: assessment!.asOf,
+        });
+        continue;
+      }
+      const track = item.tracks.find((value) => value.key === unit.trackKey);
+      // Legacy pools remain reviewed-only, even when a stored track has metadata.
+      const automatic =
+        track && item.availablePoints == null
+          ? automaticPoints(
+              kpis,
+              item,
+              track,
+              result,
+              assessment?.asOf ?? null,
+              assessment?.status === "unavailable",
+            )
+          : null;
+      tracks.push(
+        automatic
+          ? { ...base, ...automatic }
+          : {
+              ...base,
+              amount: null,
+              source: "unavailable",
+              status: "unavailable",
+              reason: "No reviewed award or usable automatic rule",
+              asOf: null,
+            },
+      );
+    }
+  }
+  const automatic = tracks.some((track) => track.source === "automatic");
+  if (!automatic) return { ...reviewed, tracks, automatic };
+  const complete =
+    kpis?.complete &&
+    tracks.every(
+      (track) => track.amount !== null && track.status !== "unavailable",
+    );
+  const extras = assessment?.extras ?? [];
+  const extrasValid =
+    extras.every(
+      (extra) => Number.isFinite(extra.points) && extra.points >= 0,
+    ) &&
+    (!extras.length || assessment?.status !== "unavailable");
+  const sum =
+    tracks.reduce((total, track) => total + (track.amount ?? 0), 0) +
+    extras.reduce((total, extra) => total + extra.points, 0);
+  const available = reviewed.available;
+  const total =
+    complete &&
+    extrasValid &&
+    Number.isFinite(sum) &&
+    available !== null &&
+    available > 0 &&
+    Number.isFinite(available)
+      ? sum
+      : null;
+  const percent = total === null ? null : (total / available!) * 100;
+  return {
+    ...reviewed,
+    tracks,
+    automatic,
+    total,
+    percentage: percent !== null && Number.isFinite(percent) ? percent : null,
+    provisional: true,
+    reason:
+      total === null
+        ? "Overall score unavailable"
+        : percent !== null && !Number.isFinite(percent)
+          ? "Percentage unavailable"
+          : null,
+  };
+}
+
+function automaticPoints(
+  kpis: KpiRead | null,
+  item: KpiItem,
+  track: KpiTrack,
+  result: KpiItemResult | undefined,
+  reviewedAsOf: string | null,
+  assessmentUnavailable: boolean,
+): Omit<KpiPointsProjection["tracks"][number], "itemId" | "trackKey"> | null {
+  if (!track.pointsRule || !kpis?.complete) return null;
+  // Persisted metadata is untrusted too: fail closed if an old/external writer
+  // supplied an invalid combination, without throwing from a read.
+  try {
+    validatePointsRule(track, item.tracks);
+  } catch {
+    return null;
+  }
+  const measured = kpiActual(kpis, item.conceptId, track);
+  if (measured?.source !== "measured" || measured.stale) return null;
+  const rule = track.pointsRule;
+  const target = track.target;
+  let value = measured.value;
+  // A complete null means no qualifying volume, not a reward-bearing zero
+  // for at-most/equal/range. Incomplete null is simply unknown.
+  if (
+    value === null &&
+    !measured.incomplete &&
+    (rule.kind === "perUnit" ||
+      (target?.comparator === "at-least" &&
+        typeof target.value === "number" &&
+        target.value > 0))
+  )
+    value = 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
+    return null;
+  let amount: number;
+  if (rule.kind === "perUnit") amount = Math.min(value * rule.points, rule.cap);
+  else if (
+    !target ||
+    typeof target.value !== "number" ||
+    !Number.isFinite(target.value)
+  )
+    return null;
+  else if (rule.kind === "proportional")
+    amount = track.availablePoints! * Math.min(value / target.value, 1);
+  else {
+    const met =
+      target.comparator === "at-least"
+        ? value >= target.value
+        : target.comparator === "at-most"
+          ? value <= target.value
+          : target.comparator === "equal"
+            ? value === target.value
+            : typeof target.upper === "number" &&
+              Number.isFinite(target.upper) &&
+              value >= target.value &&
+              value <= target.upper;
+    amount = met ? track.availablePoints! : 0;
+  }
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  const qualification = track.requiresCondition
+    ? result?.actuals.find(
+        (actual) => actual.trackKey === track.requiresCondition,
+      )?.value
+    : true;
+  const pending =
+    track.requiresCondition &&
+    (assessmentUnavailable ||
+      result?.status === "unavailable" ||
+      typeof qualification !== "boolean");
+  if (!pending && qualification === false) amount = 0;
+  return {
+    amount,
+    source: "automatic",
+    status: pending ? "pending" : "provisional",
+    reason: pending
+      ? "Qualification pending"
+      : measured.incomplete
+        ? "Measurement incomplete"
+        : track.requiresCondition && qualification === false
+          ? "Reviewed condition not met"
+          : result?.status === "provisional" && track.requiresCondition
+            ? "Reviewed qualification provisional"
+            : null,
+    // Measurement and qualification keep their independent cutoffs; expose the
+    // qualification cutoff compactly, never advance it to the measured cutoff.
+    asOf: measured.asOf,
+    ...(track.requiresCondition ? { qualificationAsOf: reviewedAsOf } : {}),
+  };
+}
+
+/** Bounded additive read evidence without recursive set/assessment copies. */
+export function kpiPointsProjection(kpis: KpiRead): KpiPointsProjection {
+  const {
+    tracks,
+    total,
+    available,
+    percentage,
+    provisional,
+    automatic,
+    reason,
+  } = latestKpiScore(kpis);
+  return {
+    tracks,
+    total,
+    available,
+    percentage,
+    provisional,
+    automatic,
+    reason,
+  };
+}
+
 /** Exact stable identity, never renderer fuzzy matching or cross-revision mixing. */
 export function latestKpiMeasurement(
   kpis: KpiRead,
   conceptId: string,
   selected: KpiSet["items"][number]["tracks"][number],
 ) {
-  const { set, assessment } = latestKpiScore(kpis);
+  const { set, assessment } = selectLatestKpis(kpis);
   if (!kpis.complete) return null;
   const items =
     set?.items.filter((value) => value.conceptId === conceptId) ?? [];
@@ -558,6 +836,9 @@ export function kpiActual(
   const failure = kpis?.measured?.concepts[conceptId]?.failure;
   if (
     success &&
+    kpis?.complete &&
+    kpis.measured?.weekStart === kpis.weekStart &&
+    kpis.measured.timeZone === kpis.timeZone &&
     success.signatures[track.key] ===
       JSON.stringify([track.kind, track.unit, track.meaning]) &&
     track.key in success.values
@@ -570,7 +851,7 @@ export function kpiActual(
       stale: Boolean(failure && failure.at >= success.measuredAt),
     };
   if (!kpis) return null;
-  const { set, assessment } = latestKpiScore(kpis);
+  const { set, assessment } = selectLatestKpis(kpis);
   const item = set?.items.find((value) => value.conceptId === conceptId);
   const result = assessment?.items.find((value) => value.itemId === item?.id);
   const value = result?.actuals.find((v) => v.trackKey === track.key)?.value;

@@ -83,7 +83,9 @@ export function WeeklyKpiProgress({
     <section aria-label="Saved KPI progress" className="weekly-kpi-progress">
       <h2>Weekly achievement</h2>
       <p>
-        Saved points against each week’s latest plan — not fitness improvement.
+        {scores.some((point) => point.automatic)
+          ? "Points against each week’s latest plan · Auto is provisional."
+          : "Saved points against each week’s latest plan — not fitness improvement."}{" "}
         Gaps are not zero.
       </p>
       <div className="weekly-progress-controls">
@@ -144,7 +146,15 @@ export function WeeklyKpiProgress({
               label="Weekly KPI achievement (%)"
               values={scores.map(
                 (point) =>
-                  `${point.weekStart}: ${point.percentage === null ? point.reason : `${kpiNumber(point.total!)} / ${kpiNumber(point.available!)} points, ${kpiNumber(point.percentage)}%`}${point.provisional ? ", provisional" : ""}${point.assessment ? `, as of ${kpiCutoff(point.assessment.asOf)}` : ""}`,
+                  `${point.weekStart}: ${point.percentage === null ? point.reason : `${kpiNumber(point.total!)} / ${kpiNumber(point.available!)} points, ${kpiNumber(point.percentage)}%`}${point.automatic ? ", Auto" : ""}${point.provisional ? ", provisional" : ""}${point.tracks
+                    .filter((track) => track.source === "automatic")
+                    .map(
+                      (track) =>
+                        `; ${track.itemId}/${track.trackKey}: ${track.reason ?? "automatic"}${track.asOf ? `, as of ${kpiCutoff(track.asOf)}` : ""}${track.qualificationAsOf ? `, qualification as of ${kpiCutoff(track.qualificationAsOf)}` : ""}`,
+                    )
+                    .join(
+                      "",
+                    )}${point.assessment ? `, as of ${kpiCutoff(point.assessment.asOf)}` : ""}`,
               )}
             >
               <ResponsiveContainer width="100%" height="100%">
@@ -165,7 +175,9 @@ export function WeeklyKpiProgress({
                     tick={{ fill: "var(--muted)", fontSize: 11 }}
                   />
                   <Tooltip
-                    formatter={(value) => `${kpiNumber(Number(value))}%`}
+                    formatter={(value, _name, entry) =>
+                      `${kpiNumber(Number(value))}%${entry.payload?.automatic ? " · Auto · Provisional" : entry.payload?.provisional ? " · Provisional" : ""}`
+                    }
                   />
                   <Line
                     type="linear"

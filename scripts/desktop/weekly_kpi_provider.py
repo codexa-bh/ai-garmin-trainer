@@ -12,9 +12,9 @@ def commitment(origin='planned'):
     return {'origin': origin, 'items': [{
         'id': 'sessions', 'conceptId': 'authored-sessions', 'label': 'T0319 authored sessions',
         'tracks': [{'key': 'count', 'kind': 'numeric', 'unit': 'sessions', 'meaning': 'Selected session count', 'target': {'comparator': 'at-least', 'value': 3 if origin == 'planned' else 5},
-                    'availablePoints': 60 if origin == 'planned' else 50},
+                    'availablePoints': 60 if origin == 'planned' else 50, 'pointsRule': {'kind': 'proportional'}},
                    {'key': 'duration', 'kind': 'numeric', 'unit': 'minutes', 'meaning': 'Selected session duration', 'target': {'comparator': 'at-least', 'value': 90},
-                    'availablePoints': 40 if origin == 'planned' else 30}]}]}
+                    'availablePoints': 40 if origin == 'planned' else 30, 'pointsRule': {'kind': 'proportional'}}]}]}
 
 
 def canonical_kpis(messages):
@@ -69,8 +69,8 @@ def reused_adaptation(messages):
 def assessment(set_id, correction=False):
     evidence = {'origin': 'user-report', 'references': ['T0319 synthetic report']}
     return {'setId': set_id, 'asOf': datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z'), 'status': 'provisional',
-            'totalPoints': 25 if correction else 112.5,
-            'items': [{'itemId': 'sessions', 'actuals': [{'trackKey': 'count', 'value': 0 if correction else 4, 'awardedPoints': 12.5 if correction else 50},
+            'totalPoints': 12.5 if correction else 112.5,
+            'items': [{'itemId': 'sessions', 'actuals': [{'trackKey': 'count', 'value': 0 if correction else 4, 'awardedPoints': 0 if correction else 50},
                                                          {'trackKey': 'duration', 'value': None, 'awardedPoints': 0 if correction else 50}],
                        'status': 'provisional', 'evidence': evidence}],
             'extras': [{'label': 'Authored additional work', 'points': 12.5, 'explanation': 'Explained relevance without double counting', 'evidence': deepcopy(evidence)}]}

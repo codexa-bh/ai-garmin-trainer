@@ -100,6 +100,65 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+it("renders shared automatic points compactly beside reviewed zero, with pending qualification and exact cutoff", () => {
+  const read = structuredClone(sample);
+  const item = read.sets[0].items[0];
+  item.tracks[1].pointsRule = { kind: "perUnit", points: 1, cap: 40 };
+  item.tracks[1].requiresCondition = "qualified";
+  item.tracks.push({
+    key: "qualified",
+    kind: "qualifying",
+    unit: "boolean",
+    meaning: "Reviewed eligibility",
+    target: { comparator: "equal", value: true },
+  });
+  read.assessments[0].items[0].actuals[1].awardedPoints = null;
+  read.measured = {
+    weekStart: read.weekStart,
+    timeZone: "UTC",
+    revision: "m",
+    concepts: {
+      sessions: {
+        success: {
+          recipeVersion: 1,
+          status: "measured",
+          values: { time: 12.5 },
+          signatures: {
+            time: JSON.stringify([
+              "numeric",
+              "minutes",
+              "Selected session duration",
+            ]),
+          },
+          measuredAt: "2026-11-10T12:00:00Z",
+          asOf: "2026-11-10T11:00:00Z",
+          basis: "authored",
+        },
+      },
+    },
+  };
+  const { rerender } = render(
+    <WeeklyKpiScorecard kpis={read} loadSet={vi.fn()} />,
+  );
+  expect(screen.getByText("0 / 60")).toBeTruthy();
+  expect(screen.getByText("Auto · Pending")).toBeTruthy();
+  expect(screen.getByText("12.5 / 100 points · 12.5%")).toBeTruthy();
+  expect(
+    screen.getByLabelText(/automatic points; Qualification pending; as of/),
+  ).toBeTruthy();
+  expect(screen.queryByText("Points not assessed")).toBeNull();
+  expect(screen.getAllByRole("columnheader")).toHaveLength(4);
+  expect(screen.queryByRole("button")).toBeNull();
+  read.measured.concepts.sessions.failure = {
+    recipeVersion: 1,
+    reason: "failure",
+    at: "2026-11-10T13:00:00Z",
+  };
+  rerender(<WeeklyKpiScorecard kpis={read} loadSet={vi.fn()} />);
+  expect(screen.queryByText("Auto · Pending")).toBeNull();
+  expect(screen.getByText("Overall score unavailable")).toBeTruthy();
+});
+
 it("formats duration fractions and finite display values without changing stored precision", () => {
   expect(kpiValue(74.125, "min")).toBe("1 h 14 min 7.5 s");
   expect(kpiValue(15.25, "sec")).toBe("15.25 s");

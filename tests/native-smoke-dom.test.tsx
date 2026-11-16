@@ -2140,7 +2140,7 @@ it("exercises finite previous-week and current-plan measurement actions on real 
   for (const [index, chart] of charts.entries()) {
     svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     for (const value of index === 0
-      ? [0, 40, 80, 120, 140.63]
+      ? [0, 30, 60, 90, 115.63, 140.63]
       : authoredTicks) {
       const tick = document.createElementNS(
         "http://www.w3.org/2000/svg",
@@ -2327,6 +2327,65 @@ it("clicks only the existing two-week Refresh through the finite refresh action 
     (await command({ type: "weeklyKpis", action: "refresh" })).result.ok,
   ).toBe(false);
   expect(posts).toHaveLength(1);
+});
+
+it("reveals only the finite authored automatic points and restores all masks", async () => {
+  smoke.__trainerOrdinaryIsolated = { runId: "run" };
+  vi.stubGlobal("innerWidth", 1280);
+  vi.stubGlobal("innerHeight", 850);
+  const read = projectKpis("2026-11-09", authoredAssessedLatestKpis());
+  read.sets[1].items[0].tracks[1].pointsRule = { kind: "proportional" };
+  read.assessments[1].items[0].actuals[1].awardedPoints = null;
+  read.measured = {
+    weekStart: read.weekStart,
+    timeZone: "UTC",
+    revision: "m",
+    concepts: {
+      "authored-sessions": {
+        success: {
+          recipeVersion: 1,
+          status: "measured",
+          values: { duration: 150 },
+          signatures: {
+            duration: JSON.stringify([
+              "numeric",
+              "minutes",
+              "Selected session duration",
+            ]),
+          },
+          measuredAt: new Date().toISOString(),
+          asOf: new Date().toISOString(),
+          basis: "authored",
+        },
+      },
+    },
+  };
+  render(
+    <section className="weekly-plan-panel">
+      <WeeklyKpiScorecard kpis={read} loadSet={() => {}} />
+      <p>999.123 private points</p>
+    </section>,
+  );
+  expect(
+    (await command({ type: "captureView", view: "weeklyKpis", preset: "wide" }))
+      .result.ok,
+  ).toBe(true);
+  expect(screen.getByText("30 / 30").hasAttribute("data-smoke-reveal")).toBe(
+    true,
+  );
+  expect(
+    screen
+      .getByText("92.5 / 80 points · 115.63%")
+      .hasAttribute("data-smoke-reveal"),
+  ).toBe(true);
+  expect(
+    screen
+      .getByText("999.123 private points")
+      .hasAttribute("data-smoke-reveal"),
+  ).toBe(false);
+  smoke.__trainerSmokeRestore();
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  delete smoke.__trainerOrdinaryIsolated;
 });
 
 it("admits only finite ordinary KPI actions and masks every noncanonical/private value", async () => {

@@ -71,7 +71,7 @@ export function executeWeeklyTool(
             : input.toolName === "getWeeklyKpis"
               ? "Canonical KPI read; complete=false requires narrower reads before mutation. Missing is not zero."
               : input.toolName === "getKpiProgress"
-                ? "Saved bounded progress only; gaps and unlike baselines remain explicit, never evaluated."
+                ? "Bounded saved progress with shared declared-rule points; automatic totals remain provisional, gaps and unlike baselines explicit."
                 : "Complete selected week read; missing plan means no recorded commitment.",
       result,
     };
@@ -124,7 +124,7 @@ export async function executeMeasurementTool(
           result.status === "saved" ? undefined : "recipe_verification_failed",
         summary:
           result.status === "saved"
-            ? `KPI measurement recipes verified and saved: ${result.saved.map((r) => `${r.conceptId} v${r.version}`).join(", ") || "none changed"}. Points are unchanged.`
+            ? `KPI measurement recipes verified and saved: ${result.saved.map((r) => `${r.conceptId} v${r.version}`).join(", ") || "none changed"}. Reviewed points are unchanged; declared rules may advance provisional points.`
             : "Recipe verification failed; nothing was saved and the previous recipes/values remain.",
         result,
       };
@@ -144,7 +144,7 @@ export async function executeMeasurementTool(
         status: weeks.some((week) => week.status === "failed")
           ? "failed"
           : "succeeded",
-        summary: `Measured actuals — ${weeks.map((week) => `${week.weekStart}: ${week.status}${week.failed.length ? `; failed: ${week.failed.join(", ")} (prior values kept)` : ""}`).join("; ")}. Points are unchanged.`,
+        summary: `Measured actuals — ${weeks.map((week) => `${week.weekStart}: ${week.status}${week.failed.length ? `; failed: ${week.failed.join(", ")} (prior values kept)` : ""}`).join("; ")}. Reviewed points are unchanged; declared rules may advance provisional points.`,
         result,
       };
     }

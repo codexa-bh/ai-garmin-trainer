@@ -128,7 +128,7 @@ export function seed(
   tables = false,
   terrain = false,
   activityLabels = false,
-  weeklyKpis = false,
+  weeklyKpis: boolean | "automatic" = false,
 ): string {
   if (
     [llmDebug, tables, terrain, activityLabels, weeklyKpis].filter(Boolean)
@@ -254,7 +254,7 @@ export function seed(
     }
     if (terrain) seedTerrain(db);
     if (activityLabels) seedActivityLabels(db);
-    if (weeklyKpis) seedWeeklyKpis(db);
+    if (weeklyKpis) seedWeeklyKpis(db, weeklyKpis === "automatic");
     if (
       currentSchemaVersion(db) !== LATEST_SCHEMA_VERSION ||
       runIntegrityCheck(db) !== "ok"
@@ -285,6 +285,7 @@ if (
         "--terrain",
         "--activity-labels",
         "--weekly-kpis",
+        "--weekly-auto-points",
       ].includes(process.argv[4])
     )
   )
@@ -298,7 +299,9 @@ if (
     process.argv[4] === "--markdown-tables",
     process.argv[4] === "--terrain",
     process.argv[4] === "--activity-labels",
-    process.argv[4] === "--weekly-kpis",
+    process.argv[4] === "--weekly-auto-points"
+      ? "automatic"
+      : process.argv[4] === "--weekly-kpis",
   );
   console.log(
     "Fresh synthetic current-schema Profile seed ready; no private inputs or credentials.",

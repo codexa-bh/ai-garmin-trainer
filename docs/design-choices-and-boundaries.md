@@ -62,7 +62,7 @@ Deterministic code is appropriate for:
 - enforcing capability-specific side-effect rules (direct planning-document writes follow actual user direction; other tools retain explicit-intent requirements);
 - formatting bounded evidence summaries.
 
-Deterministic code is not appropriate for silently deciding that one fixed demand formula, sport grouping, or weighting scheme is “the” generic trainer answer.
+Deterministic code is not appropriate for silently deciding that one fixed demand formula, sport grouping, or weighting scheme is “the” generic trainer answer. The narrow weekly KPI exception executes only explicitly agreed closed numeric points rules from stored measurements: no app-chosen weights, inferred qualification, prose parsing or bonus generation. Reviewed awards remain authoritative; automatic-containing totals are provisional, pure read results, not saved assessments.
 
 ## Mechanical feature ownership
 

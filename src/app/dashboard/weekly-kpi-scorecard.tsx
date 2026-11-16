@@ -1,5 +1,9 @@
 import { Fragment } from "react";
-import type { KpiRead, KpiTrack } from "@/lib/weekly/kpi-contracts";
+import type {
+  KpiRead,
+  KpiTrack,
+  KpiPointsProjection,
+} from "@/lib/weekly/kpi-contracts";
 import {
   kpiActual,
   kpiAwarded,
@@ -182,11 +186,13 @@ export function WeeklyKpiScorecard({
         <>
           <p className="training-plan-meta">
             {measuredAt ? `Actuals measured ${kpiCutoff(measuredAt)} · ` : ""}
-            {assessment
-              ? `${measuredAt ? "Points as of" : "As of"} ${kpiCutoff(assessment.asOf)}`
-              : measuredAt
-                ? "Points not assessed"
-                : "Not assessed — not a zero."}
+            {score.automatic
+              ? "Auto points"
+              : assessment
+                ? `${measuredAt ? "Points as of" : "As of"} ${kpiCutoff(assessment.asOf)}`
+                : measuredAt
+                  ? "Points not assessed"
+                  : "Not assessed — not a zero."}
             {score.provisional ? " · Provisional" : ""}
           </p>
           {conditionOnly.length ? (
@@ -243,6 +249,11 @@ export function WeeklyKpiScorecard({
                         row={row}
                         result={result(row.item)}
                         actual={kpiActual(kpis, row.item.conceptId, row.track)}
+                        points={score.tracks.find(
+                          (point) =>
+                            point.itemId === row.item.id &&
+                            point.trackKey === row.track.key,
+                        )}
                       />
                     )}
                   </Fragment>
@@ -291,7 +302,9 @@ function TrackRow({
   row,
   result,
   actual,
+  points,
 }: {
+  points: KpiPointsProjection["tracks"][number] | undefined;
   row: Extract<KpiRow, { kind: "track" }>;
   actual: ReturnType<typeof kpiActual>;
   result:
@@ -353,10 +366,25 @@ function TrackRow({
           </details>
         ) : null}
       </td>
-      <td className="weekly-kpi-points">
-        {available === null
-          ? "—"
-          : kpiPoints(kpiAwarded(item, result, track.key), available)}
+      <td
+        className="weekly-kpi-points"
+        aria-label={
+          points
+            ? `${points.source} points${points.reason ? `; ${points.reason}` : ""}${points.asOf ? `; as of ${kpiCutoff(points.asOf)}` : ""}${points.qualificationAsOf ? `; qualification as of ${kpiCutoff(points.qualificationAsOf)}` : ""}`
+            : undefined
+        }
+      >
+        {available === null ? "—" : kpiPoints(points?.amount, available)}
+        {points?.source === "automatic" ? (
+          <small>
+            Auto
+            {points.status === "pending"
+              ? " · Pending"
+              : points.reason === "Measurement incomplete"
+                ? " · Incomplete"
+                : ""}
+          </small>
+        ) : null}
       </td>
     </tr>
   );

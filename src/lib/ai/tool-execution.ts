@@ -1,4 +1,5 @@
 import { executeMeasurementTool, executeWeeklyTool } from "./tool-weekly";
+import { weeklyCalendar } from "../weekly/calendar";
 import { executeAnalyticsTool } from "./tool-analytics";
 import { executeLocalDataTool } from "./tool-local-data";
 import { executeTrainingPlanTool } from "./tool-training-plan";
@@ -14,11 +15,48 @@ export async function executeTrainerTool(
   try {
     switch (input.toolName) {
       case "getWeeklyPlan":
-      case "saveWeeklyDocuments":
       case "getWeeklyKpis":
-      case "saveWeeklyKpis":
       case "getKpiProgress":
         return executeWeeklyTool(input, ports.weekly);
+      case "saveWeeklyDocuments":
+      case "saveWeeklyKpis": {
+        const step = executeWeeklyTool(input, ports.weekly);
+        if (
+          step.status === "succeeded" &&
+          input.weeklyTurn &&
+          ports.weekly &&
+          ports.measurements
+        ) {
+          // Save already committed. This one best-effort effect must never
+          // change its result or cause an uncertain/repeated weekly save.
+          try {
+            const week = weeklyCalendar(
+              new Date(),
+              input.weeklyTurn.timeZone,
+            ).weekStart;
+            const changes =
+              input.toolName === "saveWeeklyKpis"
+                ? [input.input]
+                : (input.input.kpiChanges ?? []);
+            if (
+              changes.some(
+                (change) =>
+                  change.weekStart === week &&
+                  change.commitment &&
+                  change.commitment.origin !== "review-defined",
+              ) &&
+              ports.weekly.readKpis(week).latestId !==
+                input.kpiSnapshots?.find((read) => read.weekStart === week)
+                  ?.latestId
+            ) {
+              await ports.measurements.refresh(input.weeklyTurn.timeZone, week);
+            }
+          } catch {
+            /* Measurement failure does not undo a confirmed save. */
+          }
+        }
+        return step;
+      }
       case "saveKpiRecipes":
       case "refreshKpiMeasurements":
         return await executeMeasurementTool(input, ports.measurements);

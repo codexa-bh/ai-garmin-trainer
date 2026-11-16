@@ -3241,6 +3241,10 @@
       "Unknown",
       "50 / 50",
       "30 / 30",
+      "30 / 30Auto",
+      "92.5 / 80 points · 115.63%",
+      "Points against each week’s latest plan · Auto is provisional. Gaps are not zero.",
+      "Overall score unavailable",
       "0 / 60",
       "0 / 40",
       "— / 50",
@@ -3277,6 +3281,7 @@
     for (let minute = -60; minute <= 60; minute++) {
       const cutoff = format.format(new Date(Date.now() + minute * 60000));
       cutoffs.push(cutoff);
+      safe.add(`Actuals measured ${cutoff} · Auto points · Provisional`);
       safe.add(`As of ${cutoff} · Provisional`);
       safe.add(`Review notes · ${cutoff}`);
     }
@@ -3349,7 +3354,7 @@
     }
     const numeric = new Set([
       0, 0.25, 0.5, 0.75, 1, 2, 4, 6, 8, 25, 40, 50, 75, 80, 100, 120, 140.63,
-      160,
+      160, 30, 60, 90, 115.63,
     ]);
     for (const chart of region.querySelectorAll(".weekly-progress-chart")) {
       // Only fixed authored numeric ticks and current twelve civil weeks; no tooltip wrappers.

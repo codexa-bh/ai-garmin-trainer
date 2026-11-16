@@ -1,3 +1,27 @@
+export type PointsRule =
+  | { kind: "proportional" }
+  | { kind: "threshold" }
+  | { kind: "perUnit"; points: number; cap: number };
+
+export type KpiPointsProjection = {
+  tracks: {
+    itemId: string;
+    trackKey: string | null;
+    amount: number | null;
+    source: "reviewed" | "automatic" | "unavailable";
+    status: "supported" | "provisional" | "pending" | "unavailable";
+    reason: string | null;
+    asOf: string | null;
+    qualificationAsOf?: string | null;
+  }[];
+  total: number | null;
+  available: number | null;
+  percentage: number | null;
+  provisional: boolean;
+  automatic: boolean;
+  reason: string | null;
+};
+
 export type KpiTrack = {
   key: string;
   kind: "numeric" | "qualifying";
@@ -10,6 +34,9 @@ export type KpiTrack = {
   } | null;
   /** Numeric tracks only; absent/null = monitoring, 0 = scored with no points. */
   availablePoints?: number | null;
+  pointsRule?: PointsRule;
+  /** Reviewed qualifying key in this same item; meaningful only with a rule. */
+  requiresCondition?: string;
 };
 type KpiItem = {
   id: string;
@@ -102,6 +129,8 @@ export type KpiRead = {
   narrowToSetIds?: string[];
   /** Stored measurement-only actuals; independent of reviewed points. */
   measured?: KpiWeekMeasurements | null;
+  /** Pure derived evidence, never saved as an assessment or score. */
+  points?: KpiPointsProjection;
 };
 export type KpiChange = {
   weekStart: string;

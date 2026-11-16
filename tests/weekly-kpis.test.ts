@@ -13,6 +13,7 @@ import type {
 import { migrateDatabase, databaseHasUserData } from "../src/lib/db/migrations";
 import { PROGRESS_MAX_WEEKS } from "../src/lib/weekly/calendar";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
+import { projectKpis, validateKpiSet } from "../src/lib/weekly/kpis";
 
 it("omits legacy item-level pool fields from new-write TypeScript contracts", () => {
   expectTypeOf<KpiSetInput["items"][number]>().not.toHaveProperty(
@@ -175,6 +176,94 @@ beforeEach(() => {
   );
 });
 afterEach(() => db.close());
+it("includes derived metadata in the complete-read budget and narrows rather than granting clipped write authority", () => {
+  const sets = ["original", "latest", "review"].map((id) => ({
+    ...authoredKpiSet(),
+    id,
+    savedAt: now.toISOString(),
+    items: Array.from({ length: 12 }, (_, index) => ({
+      id: `item-${index}`,
+      conceptId: `concept-${index}`,
+      label: "Volume",
+      tracks: [authoredKpiSet().items[0].tracks[0]],
+      definition: "x".repeat(800),
+      scoring: "x".repeat(350),
+    })),
+  }));
+  const state: WeeklyKpis = {
+    revision: "large",
+    timeZone: "UTC",
+    originalId: "original",
+    latestId: "latest",
+    reviewDefinedId: "review",
+    sets,
+    assessments: [],
+  };
+  // Keep the saved objects individually valid and the old header just below
+  // budget, while per-unit provenance pushes the complete envelope over it.
+  for (
+    let step = 0;
+    step < 450 && JSON.stringify(projectKpis(week, state)).length < 59000;
+    step++
+  ) {
+    for (const set of sets) for (const item of set.items) item.scoring += "x";
+  }
+  sets.forEach(validateKpiSet);
+  expect(projectKpis(week, state).complete).toBe(true);
+  store.saveKpis(week, state);
+  const read = app.readKpis(week);
+  expect(read.complete).toBe(false);
+  expect(read.sets).toEqual([]);
+  expect(read.points?.total).toBeNull();
+  expect(JSON.stringify(read).length).toBeLessThanOrEqual(60000);
+  const narrow = app.readKpis(week, "latest");
+  expect(narrow.complete).toBe(true);
+  expect(narrow.sets).toHaveLength(1);
+  expect(() =>
+    app.saveKpis(
+      {
+        weekStart: week,
+        commitment: { ...authoredKpiSet(), origin: "adaptation" },
+      },
+      turn,
+      [read],
+    ),
+  ).toThrow("prior_complete_kpi_read_required");
+});
+
+it("round trips declared rules and same-item conditions through SQLite and restart without changing measurement identity", () => {
+  const set = authoredKpiSet();
+  set.items[0].tracks[0].pointsRule = { kind: "perUnit", points: 1, cap: 2 };
+  set.items[0].tracks[1].pointsRule = { kind: "proportional" };
+  set.items[0].tracks[1].requiresCondition = "qualified";
+  set.items[0].tracks.push({
+    key: "qualified",
+    kind: "qualifying",
+    unit: "boolean",
+    meaning: "Reviewed eligibility",
+    target: { comparator: "equal", value: true },
+  });
+  app.saveKpis({ weekStart: week, commitment: set }, turn, [
+    app.readKpis(week),
+  ]);
+  const before = app.readKpis(week);
+  const restarted = createWeekly(
+    store,
+    () => now,
+    () => `restart-${++n}`,
+  );
+  expect(restarted.readKpis(week)).toEqual(before);
+  expect(before.sets[0].items).toEqual(set.items);
+  const invalid = structuredClone(set);
+  invalid.origin = "adaptation";
+  invalid.items[0].tracks[1].requiresCondition = "count";
+  expect(() =>
+    app.saveKpis({ weekStart: week, commitment: invalid }, turn, [before]),
+  ).toThrow("invalid_kpi_condition");
+  expect(app.readKpis(week)).toEqual(before);
+  expect(db.prepare("pragma foreign_key_check").all()).toEqual([]);
+});
+
 it("round trips compound baselines, above-100 credit, original/adapted comparisons and corrections across restart", () => {
   app.saveKpis(
     {

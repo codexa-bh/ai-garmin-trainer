@@ -19,6 +19,45 @@ function scratch() {
 }
 
 describe("narrow CI-only synthetic seed", () => {
+  it("opts into only finite automatic-rule metadata while retaining assessment/history and no preseeded measurements", async () => {
+    const { realpathSync } = await import("node:fs");
+    const path = seed(
+      realpathSync(scratch()),
+      `ci-seed-${randomUUID()}`,
+      false,
+      false,
+      false,
+      false,
+      "automatic",
+    );
+    const db = new Database(path, { readonly: true, fileMustExist: true });
+    try {
+      const { weekStart } = (
+        await import("../src/lib/weekly/calendar")
+      ).weeklyCalendar(
+        new Date(),
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+      );
+      const row = db
+        .prepare("select state_json from weekly_kpi where week_start=?")
+        .get(weekStart) as { state_json: string };
+      const state = JSON.parse(row.state_json);
+      expect(state.sets[1].items[0].tracks[1]).toMatchObject({
+        pointsRule: { kind: "proportional" },
+        requiresCondition: "condition",
+      });
+      expect(state.assessments[1].items[0].actuals[1].awardedPoints).toBeNull();
+      expect(state.assessments[1].totalPoints).toBe(112.5);
+      expect(state.assessments[0].items[0].actuals[1].awardedPoints).toBe(40);
+      expect(
+        db.prepare("select count(*) as n from weekly_kpi_measurement").get(),
+      ).toEqual({ n: 0 });
+      expect(runIntegrityCheck(db)).toBe("ok");
+      expect(db.prepare("pragma foreign_key_check").all()).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
   it("uses current migrations and typed Profile schema without credentials or env discovery", async () => {
     const { realpathSync } = await import("node:fs");
     const root = realpathSync(scratch());

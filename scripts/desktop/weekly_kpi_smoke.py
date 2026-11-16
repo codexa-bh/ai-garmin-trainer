@@ -14,6 +14,7 @@ from native_smoke import REPO, Observer, canonical, fingerprint, private_json, r
 from ordinary_smoke import OrdinaryRun, private_directory
 from ordinary_identity import ordinary_preparation, inventory_hash
 from release_smoke import audit
+from chat_smoke import api
 
 
 def saved_hash(database):
@@ -33,7 +34,7 @@ def measured(database, week):
     return json.loads(row[0]) if row else None
 
 
-def refresh_proof(run, week):
+def refresh_proof(run, week, automatic=False):
     """One Refresh publishes both authored weeks; reviewed KPI bytes stay unchanged."""
     previous = (datetime.date.fromisoformat(week) - datetime.timedelta(days=7)).isoformat()
     expected = {week: {'count': 2, 'duration': 150}, previous: {'count': 1, 'duration': 108}}
@@ -58,6 +59,12 @@ def refresh_proof(run, week):
     if saved_hash(run.database) != before:
         raise ValueError('Refresh changed reviewed KPI state')
     wait_kpis(run, True)
+    if automatic:
+        points = json.loads(api(run, 'GET', '/api/weekly?weekStart=' + week + '&timeZone=UTC'))['kpis']['points']
+        if points['total'] != 92.5 or points['percentage'] != 115.625 or not points['automatic'] or not points['provisional']:
+            raise ValueError('Shared automatic mixed total failed')
+        if [(point['source'], point['amount']) for point in points['tracks']] != [('reviewed', 50), ('automatic', 30)]:
+            raise ValueError('Reviewed precedence/automatic per-track points failed')
     captures = []
     for preset in ['wide', 'narrow']:
         run.command({'type': 'setViewport', 'preset': preset})
@@ -95,11 +102,11 @@ def wait_kpis(run, progress=False):
     raise TimeoutError('Weekly KPI rendered readiness')
 
 
-def scenario(run):
+def scenario(run, automatic=False):
     captures = []
     run.command({'type': 'click', 'target': 'Training Plan'})
     observed = wait_kpis(run)
-    if not observed['aboveHundred'] or not observed['unknown']:
+    if (not automatic and not observed['aboveHundred']) or not observed['unknown']:
         raise ValueError('Saved above100/unknown facts missing')
     for view in ['current', 'next', 'previous', 'progress', 'oneMonth', 'threeMonths', 'twelveMonths']:
         progress_view = view in ['progress', 'oneMonth', 'threeMonths', 'twelveMonths']
@@ -138,6 +145,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
+    parser.add_argument('--automatic-points', action='store_true', help='Finite mixed reviewed/automatic fixture; source KPI bytes remain unchanged by refresh')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
@@ -146,7 +154,7 @@ def main():
     with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
         allocation = resources.directory(resources.runtime_path(scratch / ('kpi-seed-' + str(uuid.uuid4()))))
         name = 'ci-seed-' + str(uuid.uuid4())
-        subprocess.run(['npm', 'run', 'ci:seed', '--', str(allocation), name, '--weekly-kpis'], cwd=REPO, check=True, timeout=60)
+        subprocess.run(['npm', 'run', 'ci:seed', '--', str(allocation), name, '--weekly-auto-points' if args.automatic_points else '--weekly-kpis'], cwd=REPO, check=True, timeout=60)
         database = allocation / name / 'synthetic.sqlite'
         resources.file_created(database)
         run = OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified)
@@ -158,9 +166,10 @@ def main():
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer
             run.start(run.binary)
-            receipt['captures'] = scenario(run)
+            receipt['automaticPoints'] = args.automatic_points
+            receipt['captures'] = scenario(run, args.automatic_points)
             week = current_week()
-            refreshed, receipt['refresh'] = refresh_proof(run, week)
+            refreshed, receipt['refresh'] = refresh_proof(run, week, args.automatic_points)
             receipt['captures'] += refreshed
             expected = saved_hash(run.database)
             expected_measured = {target: measured(run.database, target) for target in receipt['refresh']['weeks']}
