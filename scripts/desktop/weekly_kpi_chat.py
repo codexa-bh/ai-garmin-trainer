@@ -62,6 +62,13 @@ def exercise(run, provider, receipt):
             receipt['lastToolSteps'] = [{key: step.get(key) for key in ['tool', 'status', 'reason']} for step in value.get('toolSteps', [])]
             if value['assistant']['content'] != expected or [(s['tool'], s['status']) for s in value['toolSteps']] != [('getWeeklyKpis', 'succeeded'), ('saveWeeklyDocuments' if action == 'correct' else 'saveWeeklyKpis', 'succeeded')]:
                 raise ValueError('Actual JSON KPI tool sequence failed')
+        if action == 'adapt':
+            with contextlib.closing(readonly(run.database)) as db:
+                grounding = json.loads(db.execute("select grounding_json from message where conversation_id=? and role='assistant' order by created_at desc limit 1", (conversation,)).fetchone()[0])
+            steps = grounding.get('toolSteps', [])
+            if [(step['tool'], step['status']) for step in steps] != [('getWeeklyKpis', 'rejected'), ('getWeeklyKpis', 'succeeded'), ('saveWeeklyDocuments', 'succeeded')] or steps[0].get('reason') != 'kpi_set_unavailable':
+                raise ValueError('Actual unavailable-set read correction did not precede the single normal save')
+            receipt['readCorrection'] = {'rejectedRead': 'kpi_set_unavailable', 'freshDiscovery': True, 'singleConfirmedSave': True, 'transport': 'NDJSON'}
         saved = state(run, provider.week)
         points = json.loads(api(run, 'GET', '/api/weekly?weekStart=' + provider.week + '&timeZone=UTC'))['kpis']['points']
         if action in ['establish', 'adapt']:
@@ -98,7 +105,7 @@ def exercise(run, provider, receipt):
         if any('explanation' in result or any('explanation' in item or 'qualification' in item['evidence'] or 'limitations' in item['evidence'] for item in result['items']) for result in saved['assessments']):
             raise ValueError('Assessment omission contract failed')
         evidence.append({'action': action, 'tool': 'saveWeeklyDocuments' if action in ['adapt', 'correct'] else 'saveWeeklyKpis' if action != 'no-save' else None, 'transport': 'NDJSON' if stream else 'JSON', 'http': 200, 'storedOutcomeVerified': True, 'redundantFieldsOmitted': True})
-    if len(provider.calls) != 13:
+    if len(provider.calls) != 14:
         raise ValueError('Unexpected authored provider call count')
     return conversation, evidence, hashlib.sha256(json.dumps(state(run, provider.week), sort_keys=True).encode()).hexdigest()
 
@@ -116,7 +123,7 @@ def main():
     bundle = canonical(args.bundle)
     source = source_identity()
     run = provider = observer = None
-    receipt = {'scenario': 'T0336-declared-rules-carry-forward-post-save-refresh-reviewed-zero-native-chat', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised; finite authored provider', 'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis', 'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.'}
+    receipt = {'scenario': 'T0336-canonical-read-correction-declared-rules-carry-forward-post-save-refresh-reviewed-zero-native-chat', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised; finite authored provider', 'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis', 'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.'}
     with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
         try:
             run = OrdinaryRun(scratch, prepared.database, source, bundle, inventory, verified=verified)

@@ -581,6 +581,7 @@ async function orchestrateTurn(
   };
 
   const failedMathCorrections = new Set<string>();
+  let kpiReadCorrectionOffered = false;
   while (budget().exploratoryRemaining > 0) {
     providerCalls += 1;
     progress(modelWaitMessage(steps));
@@ -848,6 +849,17 @@ async function orchestrateTurn(
       )
         failedMathCorrections.clear();
       if (step.status !== "succeeded") {
+        if (
+          step.tool === "getWeeklyKpis" &&
+          step.reason === "kpi_set_unavailable" &&
+          !kpiReadCorrectionOffered
+        ) {
+          kpiReadCorrectionOffered = true;
+          // A read-only lookup can be corrected once. Discard any dependent
+          // batch tail; a save still needs complete evidence from a prior pass.
+          skippedForTurnBudget = 0;
+          break;
+        }
         if (
           step.tool === "runMathAnalysis" &&
           step.correctionAllowed === true

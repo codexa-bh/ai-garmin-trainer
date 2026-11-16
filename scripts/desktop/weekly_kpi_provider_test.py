@@ -19,9 +19,9 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         self.assertEqual(first['tool_calls'][0]['function']['name'], 'getWeeklyKpis')
         planned = json.loads(response(1, body, '2026-11-09')['tool_calls'][0]['function']['arguments'])
         with self.assertRaises(ValueError):
-            response(4, body, '2026-11-09')
+            response(5, body, '2026-11-09')
         body['messages'] = [{'role': 'tool', 'content': json.dumps(self.evidence())}]
-        adapted_call = response(4, body, '2026-11-09')['tool_calls'][0]['function']
+        adapted_call = response(5, body, '2026-11-09')['tool_calls'][0]['function']
         self.assertEqual(adapted_call['name'], 'saveWeeklyDocuments')
         adapted = json.loads(adapted_call['arguments'])['kpiChanges'][0]
         self.assertNotIn('provenance', planned['commitment'])
@@ -33,8 +33,8 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         self.assertEqual([track['pointsRule'] for track in adapted['commitment']['items'][0]['tracks']], [track['pointsRule'] for track in planned['commitment']['items'][0]['tracks']])
         self.assertEqual(adapted['commitment']['items'][0]['conceptId'], planned['commitment']['items'][0]['conceptId'])
         self.assertEqual(adapted['commitment']['items'][0]['label'], planned['commitment']['items'][0]['label'])
-        self.assertEqual(response(9, body, '2026-11-09'), {'role': 'assistant', 'content': NO_SAVE})
-        for bad in [13, -1, 99]:
+        self.assertEqual(response(10, body, '2026-11-09'), {'role': 'assistant', 'content': NO_SAVE})
+        for bad in [14, -1, 99]:
             with self.assertRaises(ValueError):
                 response(bad, body, '2026-11-09')
 
@@ -44,9 +44,9 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         for role in ['user', 'assistant']:
             body['messages'] = [{'role': role, 'content': json.dumps(value)}]
             with self.assertRaises(ValueError):
-                response(7, body, '2026-11-09')
+                response(8, body, '2026-11-09')
         body['messages'] = [{'role': 'tool', 'content': json.dumps(value)}]
-        parsed = json.loads(response(7, body, '2026-11-09')['tool_calls'][0]['function']['arguments'])
+        parsed = json.loads(response(8, body, '2026-11-09')['tool_calls'][0]['function']['arguments'])
         self.assertEqual(parsed['assessments'][0]['setId'], 'saved-latest')
         self.assertEqual(parsed['assessments'][0]['totalPoints'], 112.5)
         self.assertEqual([actual['awardedPoints'] for actual in parsed['assessments'][0]['items'][0]['actuals']], [50, 50])
@@ -63,6 +63,30 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         ]:
             with self.assertRaises(ValueError):
                 latest_id(bad)
+
+    def test_bad_literal_id_requires_actual_rejection_then_fresh_discovery(self):
+        body = self.body()
+        bad = response(3, body, '2026-11-09')['tool_calls'][0]
+        self.assertEqual(json.loads(bad['function']['arguments']), {'weekStart': '2026-11-09', 'setId': 'latest'})
+        with self.assertRaises(ValueError):
+            response(4, body, '2026-11-09')
+        rejected = {'status': 'rejected', 'evidence': 'Reason: kpi_set_unavailable. Omit setId to discover canonical sets.'}
+        for role in ['user', 'assistant']:
+            body['messages'] = [{'role': role, 'content': json.dumps(rejected)}]
+            with self.assertRaises(ValueError):
+                response(4, body, '2026-11-09')
+        body['messages'] = [{'role': 'tool', 'content': json.dumps(rejected)}]
+        corrected = response(4, body, '2026-11-09')['tool_calls'][0]
+        self.assertEqual(corrected['function']['name'], 'getWeeklyKpis')
+        self.assertEqual(json.loads(corrected['function']['arguments']), {'weekStart': '2026-11-09'})
+        self.assertNotEqual(corrected['id'], bad['id'])
+        legacy = 'Current-turn server-authored prior tool evidence context\nEvidence step 1: getWeeklyKpis rejected. Reason: kpi_set_unavailable. Omit setId to discover canonical sets.'
+        body['messages'] = [{'role': 'system', 'content': legacy}]
+        self.assertEqual(json.loads(response(4, body, '2026-11-09')['tool_calls'][0]['function']['arguments']), {'weekStart': '2026-11-09'})
+        for raw in [legacy.split('\n', 1)[1], legacy.replace('getWeeklyKpis rejected', 'getWeeklyKpis succeeded')]:
+            body['messages'] = [{'role': 'system', 'content': raw}]
+            with self.assertRaises(ValueError):
+                response(4, body, '2026-11-09')
 
     def test_null_zero_compound_and_corrected_scores_remain_authored_not_calculated(self):
         self.assertEqual(len(commitment()['items'][0]['tracks']), 2)
