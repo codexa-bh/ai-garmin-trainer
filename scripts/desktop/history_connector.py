@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import stat
 import sys
+import time
 
 DATA_START_DAYS = 80
 SENTINEL = b'{"syntheticHistoryOnly":true}'
@@ -17,7 +18,37 @@ REVIEWED_ARGS = ['--from', 'git+https://github.com/Taxuspt/garmin_mcp.git@3610be
 TOOLS = frozenset(('get_stats', 'get_sleep_summary', 'get_body_battery',
                    'get_weekly_steps', 'get_activities_by_date', 'get_user_profile',
                    'get_cycling_ftp', 'get_body_composition', 'get_weigh_ins',
-                   'get_activity_fit_data', 'get_activity', 'get_activity_hr_in_timezones'))
+                   'get_activity_fit_data', 'get_activity', 'get_activity_hr_in_timezones', 'get_devices'))
+PRESETS = frozenset(('known', 'delayed', 'unknown', 'new-activity'))
+
+
+def preset(root):
+    path = Path(root) / 'synthetic-latest-preset.json'
+    if not os.path.lexists(path):
+        return 'known'
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_size > 64:
+            raise ValueError('Private finite preset required')
+        value = json.loads(source.read(65))
+    if not isinstance(value, dict) or set(value) != {'preset'} or value['preset'] not in PRESETS:
+        raise ValueError('Finite latest preset refused')
+    return value['preset']
+
+
+def record_call(root, message):
+    params = message['params']
+    records = params['arguments'].get('include_records')
+    if params['name'] not in TOOLS or (records is not None and type(records) is not bool):
+        raise ValueError('Closed synthetic call evidence required')
+    entry = {'name': params['name'], 'records': records}
+    fd = os.open(Path(root) / 'synthetic-calls.jsonl', os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(fd, 'ab') as output:
+        info = os.fstat(output.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_size > 262144:
+            raise ValueError('Bounded owned call aggregates required')
+        output.write(json.dumps(entry).encode() + b'\n')
 
 
 def admitted(root):
@@ -45,7 +76,7 @@ def admitted(root):
         os.close(parent)
 
 
-def reply(message):
+def reply(message, scenario='known'):
     if message.get('method') == 'initialize':
         return {'protocolVersion': '2024-11-05', 'capabilities': {}, 'serverInfo': {'name': 'authored-history-only', 'version': '1'}}
     params = message.get('params') or {}
@@ -56,10 +87,18 @@ def reply(message):
               'get_weekly_steps': {'end_date', 'weeks'}, 'get_activities_by_date': {'start_date', 'end_date', 'page', 'page_size'},
               'get_activity': {'activity_id'}, 'get_activity_fit_data': {'activity_id', 'include_records'},
               'get_activity_hr_in_timezones': {'activity_id'}, 'get_body_composition': {'start_date', 'end_date'},
-              'get_weigh_ins': {'start_date', 'end_date'}, 'get_user_profile': set(), 'get_cycling_ftp': set()}
+              'get_weigh_ins': {'start_date', 'end_date'}, 'get_user_profile': set(), 'get_cycling_ftp': set(), 'get_devices': set()}
     if set(args) != fields[name]:
         raise ValueError('Synthetic argument shape refused')
-    if name == 'get_stats':
+    if scenario not in PRESETS:
+        raise ValueError('Finite latest preset refused')
+    if name == 'get_devices':
+        upload = datetime.datetime.now().astimezone() - datetime.timedelta(seconds=1)
+        if scenario == 'delayed':
+            upload -= datetime.timedelta(days=5)
+        value = [{'device_id': 8338, 'is_primary': True, 'last_sync_time': None if scenario == 'unknown' else upload.isoformat(timespec='milliseconds')},
+                 {'device_id': 2, 'is_primary': False, 'last_sync_time': '2020-01-01T00:00:00Z'}]
+    elif name == 'get_stats':
         value = {'date': args['date'], 'total_steps': 0}
     elif name == 'get_sleep_summary':
         value = {'sleep_seconds': 3600}
@@ -69,15 +108,15 @@ def reply(message):
         # Three stable authored IDs per selected window, including windows only
         # discovered later in the same historical operation. Never private input.
         value = {'activities': [
-            {'activityId': '8309' + args['start_date'].replace('-', '') + str(index),
-             'activityType': 'running', 'startTimeLocal': args['start_date'] + 'T12:00:00Z'}
+            {'activityId': ('8338' if scenario == 'new-activity' else '8309') + args['start_date'].replace('-', '') + str(index),
+             'activityType': 'running', 'startTimeLocal': (args['end_date'] if scenario == 'new-activity' else args['start_date']) + 'T12:00:00Z'}
             for index in range(3)] if args['page'] == 0 else [], 'has_more': False}
     elif name == 'get_activity':
         value = []
     elif name == 'get_activity_fit_data':
         # Supply every FIT supplement field; the baseline's records=False path
-        # keeps its empty zones target. No real FIT helper/service can be needed.
-        value = {'zones_target': {}, 'records': [
+        # supplies applicable zones. No real FIT helper/service can be needed.
+        value = {'zones_target': {'max_heart_rate': 190}, 'records': [
             {'timestamp': '2026-01-01T12:00:00Z', 'heart_rate_bpm': 140,
              'altitude_meters': 10, 'distance_meters': 0, 'speed_mps': 2}
         ] if args['include_records'] else []}
@@ -120,7 +159,12 @@ def main():
             if attempts > 480:
                 raise SystemExit('Synthetic attempt bound')
         try:
-            result = {'jsonrpc': '2.0', 'id': message['id'], 'result': reply(message)}
+            result = {'jsonrpc': '2.0', 'id': message['id'], 'result': reply(message, preset(Path(__file__).resolve().parent))}
+            if message.get('method') == 'tools/call':
+                record_call(Path(__file__).resolve().parent, message)
+                # Authored service latency only: retain observable actual UI
+                # ownership/capture windows without restoring product pacing.
+                time.sleep(.4)
         except (ValueError, KeyError, TypeError):
             result = {'jsonrpc': '2.0', 'id': message['id'], 'error': {'code': -32602, 'message': 'Finite synthetic operation refused'}}
         print(json.dumps(result), flush=True)

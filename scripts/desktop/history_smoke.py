@@ -109,6 +109,34 @@ def prepare_synthetic_history(run):
     staged = root / 'config/synthetic-history-settings.json'
     private_json(staged, saved)
     os.replace(staged, path)
+    prepare_latest_preset(run, 'delayed')
+
+
+def synthetic_calls(root):
+    from history_connector import TOOLS
+    from smoke_input import private_file
+    path = Path(root) / 'synthetic-calls.jsonl'
+    if not os.path.lexists(path):
+        return []
+    _, data, _ = private_file(path, 262144, allow_empty=True)
+    rows = [json.loads(line) for line in data.splitlines()]
+    if any(not isinstance(row, dict) or set(row) != {'name', 'records'} or row['name'] not in TOOLS or (row['records'] is not None and type(row['records']) is not bool) for row in rows):
+        raise ValueError('Closed synthetic call aggregates required')
+    return rows
+
+
+def prepare_latest_preset(run, scenario):
+    """Finite stopped synthetic evidence only; no private or checkpoint mutation."""
+    from history_connector import SENTINEL, PRESETS
+    root = private_directory(run.root)
+    if run.child is not None or listening(run.config['port']):
+        raise ValueError('Stopped owned synthetic run required')
+    saved = json.loads((root / 'config/settings-v3.json').read_text())
+    if scenario not in PRESETS or saved['keys'] or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens') or token_bytes(root / 'tokens', 'garmin_tokens.json') != SENTINEL:
+        raise ValueError('Finite synthetic-only latest preset required')
+    staged = root / ('latest-preset-' + str(uuid.uuid4()) + '.json')
+    private_json(staged, {'preset': scenario})
+    os.replace(staged, root / 'synthetic-latest-preset.json')
 
 
 def prepare_automatic_history(run):
@@ -375,6 +403,46 @@ class HistoryRun(OrdinaryRun):
             rows = db.execute("select key,value from sync_checkpoint where key in ('garmin_history_v1','garmin_discovery_v1') order by key").fetchall()
         return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
 
+    def latest_snapshot(self):
+        with contextlib.closing(readonly(self.database)) as db:
+            row = db.execute("select value from sync_checkpoint where key='garmin_latest_freshness_v1'").fetchone()
+            freshness = json.loads(row[0]) if row else None
+            days = (freshness or {}).get('days', {})
+            weight = db.execute('select * from garmin_body_weight_history order by date').fetchall()
+            legacy_dates = [date for date, day in days.items() if day['source'] == 'legacy']
+            legacy = [db.execute('select * from daily_health where date=?', (date,)).fetchone() for date in sorted(legacy_dates)]
+            return {'integrity': db.execute('pragma integrity_check').fetchone()[0], 'foreignKeys': len(db.execute('pragma foreign_key_check').fetchall()),
+                    'finalDays': sum(day['final'] for day in days.values()), 'mutableDays': sum(not day['final'] for day in days.values()),
+                    'legacyDays': len(legacy_dates), 'legacyHash': hashlib.sha256(json.dumps(legacy).encode()).hexdigest(),
+                    'weightRows': len(weight), 'weightHash': hashlib.sha256(json.dumps(weight).encode()).hexdigest(),
+                    'activities': db.execute('select count(*) from activity').fetchone()[0],
+                    'healthRows': db.execute('select count(*) from daily_health').fetchone()[0],
+                    'nonNullSteps': db.execute('select count(steps) from daily_health').fetchone()[0],
+                    'fitActivityPresent': bool((freshness or {}).get('fitActivity'))}
+
+    def latest_probe(self, backend=False):
+        before_calls = len(synthetic_calls(self.root))
+        before = self.latest_snapshot()
+        started = time.monotonic()
+        result = self.backend_latest() if backend else self.latest_only()
+        elapsed = time.monotonic() - started
+        rows = synthetic_calls(self.root)[before_calls:]
+        counts = {}
+        baseline = 0
+        for row in rows:
+            if set(row) != {'name', 'records'}:
+                raise ValueError('Closed synthetic call aggregates required')
+            counts[row['name']] = counts.get(row['name'], 0) + 1
+            baseline += row['name'] == 'get_activity_fit_data' and row['records'] is False
+        after = self.latest_snapshot()
+        if after['integrity'] != 'ok' or after['foreignKeys'] or after['activities'] < before['activities'] or after['healthRows'] < before['healthRows'] or after['nonNullSteps'] < before['nonNullSteps']:
+            raise ValueError('Latest populated-copy preservation failed')
+        if before['legacyDays'] and (after['legacyHash'] != before['legacyHash'] or after['weightRows'] < before['weightRows']):
+            raise ValueError('Legacy health/weight preservation failed')
+        evidence = {**result, 'requestCounts':counts, 'fitBaselineCalls':baseline, 'elapsedSeconds':round(elapsed, 3), 'totalCalls':len(rows), 'dataBefore':before, 'dataAfter':after, 'timingLimit':'authored connector .4 seconds per tool plus native observation/capture, not Garmin latency'}
+        private_json(self.root / ('latest-probe-' + str(uuid.uuid4()) + '.json'), evidence)
+        return evidence
+
     def latest_only(self):
         before, digest = self.summary(), self.history_digest()
         self.wait_sync(lambda value: value['startEnabled'], 10)
@@ -444,11 +512,26 @@ class HistoryRun(OrdinaryRun):
         self.wait(lambda value: value['view'] == 'Sync', 'synthetic Sync')
         if self.summary()['active']:
             raise ValueError('Passive navigation unexpectedly started sync')
-        latest = [self.latest_only()]
+        latest = [self.latest_probe()]
         if latest[0]['after']['outcome'] is not None:
             raise ValueError('Fresh latest created historical state')
         if latest[0]['after']['detailsProcessed'] <= 1 or latest[0]['after']['detailsRemaining'] != 0 or latest[0]['after']['detailsFailed'] != 0:
             raise ValueError('Multi-detail backlog was not actually exhausted')
+        # Delayed upload retains recent days; unknown cannot finalize them.
+        if latest[0]['dataAfter']['mutableDays'] < 5:
+            raise ValueError('Delayed primary upload did not retain mutable days')
+        for scenario in ('unknown', 'known'):
+            self.stop()
+            prepare_latest_preset(self, scenario)
+            self.start(self.binary)
+            self.command({'type':'setViewport', 'preset':'wide'})
+            self.command({'type':'click', 'target':'Sync'})
+            self.wait(lambda value: value['view'] == 'Sync', 'latest primary evidence restart')
+            latest.append(self.latest_probe())
+            if scenario == 'unknown' and latest[-1]['dataAfter']['mutableDays'] != latest[-2]['dataAfter']['mutableDays']:
+                raise ValueError('Unknown evidence falsely finalized daily health')
+            if scenario == 'known' and latest[-1]['dataAfter']['mutableDays'] != 1:
+                raise ValueError('Qualifying upload catch-up did not settle ended days')
         settled = []
         for index in range(2):
             before = self.summary()
@@ -513,10 +596,24 @@ class HistoryRun(OrdinaryRun):
             restored = self.summary()
             if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalState'] != after['historicalState']:
                 raise ValueError('Restart replayed or lost durable history')
-        latest.append(self.latest_only())
-        latest.append(self.backend_latest())
+        latest.append(self.latest_probe())
+        latest.append(self.latest_probe(backend=True))
+        counts = dict(latest[-1]['requestCounts'])
+        effort = counts.pop('get_activity', 0)
+        if effort not in (0, 1) or counts != {'get_devices':1, 'get_stats':1, 'get_sleep_summary':1, 'get_body_battery':1, 'get_activities_by_date':1, 'get_body_composition':1, 'get_weigh_ins':1}:
+            raise ValueError('Steady latest did not reduce to core reads plus existing bounded effort work')
         if latest[-1]['after']['activities'] != latest[-2]['after']['activities'] or latest[-1]['after']['healthDays'] != latest[-2]['after']['healthDays']:
             raise ValueError('Identical latest refresh was not idempotent')
+        self.stop()
+        prepare_latest_preset(self, 'new-activity')
+        self.start(self.binary)
+        self.command({'type':'setViewport', 'preset':'wide'})
+        self.command({'type':'click', 'target':'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'new newest activity')
+        changed = self.latest_probe()
+        if changed['fitBaselineCalls'] != 1 or changed['requestCounts'].get('get_user_profile', 0) or changed['requestCounts'].get('get_cycling_ftp', 0):
+            raise ValueError('Changed newest activity bypassed FIT/cadence contract')
+        latest.append(changed)
         for preset in ('wide', 'narrow'):
             self.command({'type':'setViewport', 'preset':preset})
             images.append({'scenario':f'completed-range-latest-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
@@ -543,7 +640,7 @@ class HistoryRun(OrdinaryRun):
                 for preset in ('wide', 'narrow'):
                     self.command({'type':'setViewport', 'preset':preset})
                     images.append({'scenario':f'mixed-technical-details-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'latest':latest, 'automaticDiscovery':discovery, 'maxInvocations':9, 'maxObservationSecondsPerOperation':150, 'mixedPresentation':'stopped authored 6/14 latest settled/failed with no-progress blocked history; not engine progression', 'realGarminCertified':False})
+        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'latest':latest, 'automaticDiscovery':discovery, 'maxInvocations':12, 'maxObservationSecondsPerOperation':150, 'mixedPresentation':'stopped authored 6/14 latest settled/failed with no-progress blocked history; not engine progression', 'realGarminCertified':False})
 
     def automatic_discovery(self):
         """Settled date-limited progress continued by the explicit Discover action.

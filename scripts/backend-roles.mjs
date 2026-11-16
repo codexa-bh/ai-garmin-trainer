@@ -161,6 +161,8 @@ const groups = [
       "discovery-policy",
       "scope-policy",
       "sync-policy",
+      "latest-policy",
+      "primary-upload",
       "import-ports",
       "normalize",
       "sync",

@@ -2,6 +2,7 @@ import type { GarminReader, BaselineStore } from "./import-ports";
 import type { GarminAthleteBaselineDto, GarminBodyMetricsDto } from "./types";
 import {
   hasUsableGarminAthleteBaseline,
+  mergeGarminAthleteBaseline,
   normalizeGarminAthleteBaseline,
 } from "./athlete-normalize";
 import {
@@ -22,19 +23,22 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
   async function fetchAndStoreAthleteBaseline(
     client: GarminReader,
     fitPayload?: unknown,
+    refresh = { profile: true, ftp: true },
   ): Promise<GarminAthleteBaselineDto> {
+    if (!refresh.profile && !refresh.ftp && !fitPayload)
+      return getGarminAthleteBaseline();
     const attemptedAt = clock();
     const previous = getGarminAthleteBaseline();
     let profilePayload: unknown;
     let ftpPayload: unknown;
     const errors: string[] = [];
     try {
-      profilePayload = await client.profile();
+      if (refresh.profile) profilePayload = await client.profile();
     } catch (error) {
       errors.push(`profile: ${compactError(error)}`);
     }
     try {
-      ftpPayload = await client.cyclingFtp();
+      if (refresh.ftp) ftpPayload = await client.cyclingFtp();
     } catch (error) {
       errors.push(`cycling FTP: ${compactError(error)}`);
     }
@@ -54,15 +58,35 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
       fitPayload,
       fetchedAt: clock(),
     });
-    const hasUsableSnapshot = hasUsableGarminAthleteBaseline(snapshot);
+    const merged = mergeGarminAthleteBaseline(previous.values, snapshot);
+    const hasUsableSnapshot = hasUsableGarminAthleteBaseline(merged);
     writeGarminAthleteBaselineRefresh({
-      snapshot: hasUsableSnapshot ? snapshot : null,
+      snapshot: hasUsableSnapshot ? merged : null,
       status: snapshot.availability,
       attemptedAt,
       errorMessage: errors.length ? errors.join("; ") : null,
-      preservedPrevious: false,
+      preservedPrevious: Boolean(previous.fetchedAt),
     });
     return getGarminAthleteBaseline();
+  }
+
+  function storeFitBaseline(fitPayload: unknown): boolean {
+    const snapshot = normalizeGarminAthleteBaseline({
+      fitPayload,
+      fetchedAt: clock(),
+    });
+    if (!hasUsableGarminAthleteBaseline(snapshot)) return false;
+    const previous = getGarminAthleteBaseline();
+    const merged = mergeGarminAthleteBaseline(previous.values, snapshot);
+    writeGarminAthleteBaselineRefresh({
+      preserveAttempt: true,
+      snapshot: merged,
+      status: merged.availability,
+      attemptedAt: clock(),
+      errorMessage: null,
+      preservedPrevious: Boolean(previous.fetchedAt),
+    });
+    return true;
   }
 
   async function fetchAndStoreBodyMetrics(
@@ -70,6 +94,7 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
     startDate: string,
     endDate: string,
     strict = false,
+    refreshProfile = true,
   ): Promise<
     GarminBodyMetricsDto & {
       fetchedHistory?: { count: number; oldest: string | null };
@@ -83,7 +108,7 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
     let historyFailed = false;
     let weighInFailed = false;
     const errors: string[] = [];
-    if (!strict) {
+    if (!strict && refreshProfile) {
       try {
         profilePayload = await client.profile();
       } catch (error) {
@@ -145,5 +170,9 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
     };
   }
 
-  return { fetchAndStoreAthleteBaseline, fetchAndStoreBodyMetrics };
+  return {
+    fetchAndStoreAthleteBaseline,
+    fetchAndStoreBodyMetrics,
+    storeFitBaseline,
+  };
 }
