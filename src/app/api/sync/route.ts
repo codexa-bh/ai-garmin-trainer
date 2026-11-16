@@ -3,6 +3,7 @@ import {
   verifyGarminConnection as verifyConnectorToken,
   runGarminSync,
   isGarminSyncRunning,
+  cancelGarminSync,
   syncSummary,
 } from "@/lib/garmin/composition";
 import { historicalIntentAdmitted } from "@/lib/garmin/sync-policy";
@@ -12,6 +13,11 @@ export async function GET() {
   return NextResponse.json(verification, {
     status: verification.ok ? 200 : 409,
   });
+}
+
+/** Stop the active Sync at its next safe point; committed data is kept. */
+export async function DELETE() {
+  return NextResponse.json({ cancelled: cancelGarminSync() });
 }
 
 export async function POST(request?: Request) {

@@ -980,6 +980,69 @@ describe("explicit finite limit -> automatic discovery through HTTP/NDJSON/SQLit
     expect((await post("history")).status).toBe(409);
     expect(remote.calls).toEqual([]);
   });
+  it("stops at the oldest imported data even when the saved empty-year stop is far older", async () => {
+    vi.useFakeTimers();
+    const { repo } = await seedSettledPair();
+    // Shape of a real stuck run: discovery recorded an empty-year stop decades
+    // back while history is already automatic and crawling empty days.
+    const history = JSON.parse(repo.getCheckpoint(HISTORY_CHECKPOINT)!);
+    Object.assign(history, {
+      limit: null,
+      expandedFrom: "2026-09-07",
+      outcome: "cancelled",
+    });
+    history.health.oldestImported = "2026-09-08";
+    history.activities.oldestImported = "2026-09-08";
+    repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(history));
+    const discovery = JSON.parse(repo.getCheckpoint(DISCOVERY_CHECKPOINT)!);
+    Object.assign(discovery, {
+      limit: null,
+      nextHintEnd: null,
+      noDataBefore: "1983-07-23",
+    });
+    repo.saveCheckpoint(DISCOVERY_CHECKPOINT, JSON.stringify(discovery));
+    const summary = await import("../src/app/api/summary/route");
+    const historical = (await (await summary.GET()).json()).sync.historical;
+    expect(historical).toMatchObject({
+      state: "complete",
+      action: null,
+      noDataBefore: "2026-09-08",
+    });
+    expect(historical.reason).toBe(
+      "No older Garmin data found before 2026-09-08.",
+    );
+    remote.calls = [];
+    expect((await post("history")).status).toBe(409);
+    expect(remote.calls).toEqual([]);
+  });
+  it("Cancel stops the server operation even when the response stream stays open", async () => {
+    vi.useFakeTimers();
+    await seedSettledPair();
+    remote.stepsStart = "2000-01-01";
+    const route = await import("../src/app/api/sync/route");
+    const response = await route.POST(
+      new Request("http://localhost/api/sync", {
+        method: "POST",
+        body: JSON.stringify({ intent: "discover" }),
+      }),
+    );
+    const stream = response.text();
+    await vi.advanceTimersByTimeAsync(3_000);
+    const composition = await import("../src/lib/garmin/composition");
+    expect(composition.isGarminSyncRunning()).toBe(true);
+    expect(await (await route.DELETE()).json()).toEqual({ cancelled: true });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const events = (await stream)
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    expect(events.at(-1)).toMatchObject({
+      type: "result",
+      status: "cancelled",
+    });
+    expect(composition.isGarminSyncRunning()).toBe(false);
+    expect(await (await route.DELETE()).json()).toEqual({ cancelled: false });
+  });
   it("never exposes a half-written pair when the transition commit fails", async () => {
     vi.useFakeTimers();
     const { db, pair, before } = await seedSettledPair();

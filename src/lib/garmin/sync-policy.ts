@@ -1,6 +1,7 @@
 import type { GarminDiscoveryState } from "./discovery-policy";
 import { historyDateAllowed, type GarminHistoryState } from "./history-policy";
 import {
+  automaticFloor,
   historyScope,
   reconcileToAutomatic,
   recoveryReason,
@@ -148,7 +149,7 @@ export function nextHistoricalWork(
   repairs: string[],
 ): HistoricalAction["next"] {
   // A discovered empty year bounds automatic exploration like a limit.
-  const limit = history.limit ?? discovery?.noDataBefore ?? null;
+  const limit = automaticFloor(history, discovery);
   const repair = [...history.unresolvedHealth, ...repairs]
     .filter((date) => historyDateAllowed(date, limit))
     .sort()[0];
@@ -204,7 +205,9 @@ export function historicalAction({
   const base = {
     limit,
     savedLimit: exists ? history.limit : limit,
-    noDataBefore: discovery?.noDataBefore ?? null,
+    noDataBefore: discovery?.noDataBefore
+      ? automaticFloor(history, discovery)
+      : null,
     recovery: null,
     remoteLowerBound: null,
     interrupted: exists && history.outcome === "running" && !active,
@@ -282,7 +285,7 @@ export function historicalAction({
         action: null,
         next: null,
         reason: discovery?.noDataBefore
-          ? `No older Garmin data found before ${discovery.noDataBefore}.`
+          ? `No older Garmin data found before ${automaticFloor(history, discovery)}.`
           : "Selected exploration range checked. Remote earliest history remains unknown.",
       };
 }
