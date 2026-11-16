@@ -85,7 +85,9 @@ export function executeWeeklyTool(
       status: reason === "weekly_persistence_uncertain" ? "failed" : "rejected",
       reason,
       summary:
-        "Weekly operation did not return confirmed success. Re-read current state before a future attempt; no repeated weekly save in this turn.",
+        input.toolName === "getWeeklyKpis" && reason === "kpi_set_unavailable"
+          ? "The requested saved KPI set was not found for this week. This read changed nothing. Omit setId to discover the week's canonical sets, then use an exact returned ID if needed; latest/original are not selector aliases."
+          : "Weekly operation did not return confirmed success. Re-read current state before a future attempt; no repeated weekly save in this turn.",
     };
   }
 }

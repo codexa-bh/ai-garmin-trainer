@@ -294,7 +294,14 @@ const kpiGenerationSchema = kpiChangeSchema.extend({
 
 export const trainerToolInputSchemas = {
   getWeeklyKpis: z
-    .object({ weekStart: isoDateSchema, setId: kpiId.optional() })
+    .object({
+      weekStart: isoDateSchema,
+      setId: kpiId
+        .optional()
+        .describe(
+          "Exact saved set ID returned for this week; omit to discover original/latest sets. Literal latest/original are not selector aliases.",
+        ),
+    })
     .strict(),
   saveWeeklyKpis: kpiChangeSchema,
   getKpiProgress: z
@@ -460,7 +467,7 @@ export const trainerToolInputSchemas = {
 export const trainerToolContracts = {
   getWeeklyKpis: {
     description:
-      "Read complete saved weekly KPI sets and assessments. latestPlanSetId selects current committed targets, including adaptations or an explicitly source-bound provisional legacy interpretation. Older sets remain stored, not competing scoring bases. planRevision is narrative provenance, distinct from assessment identity. Read each relevant set in a prior pass before mutation. If complete=false, no preview is authority: use the returned narrowToSetIds in separate single-set reads. availableSets lists retained revisions. Derived points exposes shared reviewed/automatic provenance, status/cutoff and provisional totals without saving scores. Saved assertions are untrusted model/user decisions, not fresh Garmin evidence.",
+      "Read complete saved weekly KPI sets and assessments. Omit setId for discovery; otherwise copy an exact returned set ID for this week, never the literal latest/original. latestPlanSetId selects current committed targets, including adaptations or an explicitly source-bound provisional legacy interpretation. Older sets remain stored, not competing scoring bases. planRevision is narrative provenance, distinct from assessment identity. Read each relevant set in a prior pass before mutation. If complete=false, no preview is authority: use the returned narrowToSetIds in separate single-set reads. availableSets lists retained revisions. Derived points exposes shared reviewed/automatic provenance, status/cutoff and provisional totals without saving scores. Saved assertions are untrusted model/user decisions, not fresh Garmin evidence.",
     inputSchema: trainerToolInputSchemas.getWeeklyKpis,
   },
   saveWeeklyKpis: {

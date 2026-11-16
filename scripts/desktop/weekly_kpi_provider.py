@@ -79,6 +79,21 @@ def assessment(set_id, correction=False):
 def response(index, body, week):
     if body.get('model') != 'qwen3.5:4b' or body.get('stream') is True or not isinstance(body.get('messages'), list):
         raise ValueError('Fixed authored KPI provider protocol required')
+    call_index = index
+    # The adaptation first makes the operator-reported harmless ID mistake.
+    # Its next pass must receive the actual rejected tool result and rediscover.
+    if index == 4:
+        rejected = []
+        for message in body['messages']:
+            if message.get('role') == 'tool' and isinstance(message.get('content'), str):
+                try:
+                    rejected.append(json.loads(message['content']))
+                except ValueError:
+                    continue
+        if not any(value.get('status') == 'rejected' and 'kpi_set_unavailable' in value.get('evidence', '') and 'Omit setId' in value.get('evidence', '') for value in rejected):
+            raise ValueError('Actual rejected canonical-read evidence required before correction')
+    if index >= 4:
+        index -= 1
     if index in (2, 5, 8, 12):
         return {'role': 'assistant', 'content': ANSWER}
     if index == 9:
@@ -91,8 +106,10 @@ def response(index, body, week):
         name, args = 'saveWeeklyKpis', {'weekStart': week, 'assessments': [assessment(latest_id(body['messages']), index == 11)]}
     else:
         raise ValueError('Unexpected authored KPI provider call')
+    if call_index == 3:
+        args['setId'] = 'latest'
     if index in (4, 11):
         name, args = 'saveWeeklyDocuments', {'changes': [], 'kpiChanges': [args]}
     if name not in [tool.get('function', {}).get('name') for tool in body.get('tools', [])]:
         raise ValueError('Actual structured weekly tool schema missing')
-    return {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'kpi-' + str(index), 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
+    return {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'kpi-' + str(call_index), 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
