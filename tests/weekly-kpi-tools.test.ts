@@ -69,6 +69,57 @@ afterEach(() => {
   db.close();
   vi.useRealTimers();
 });
+it.each([
+  ["saveWeeklyKpis", ""],
+  ["saveWeeklyKpis", " \t "],
+  ["saveWeeklyDocuments", ""],
+  ["saveWeeklyDocuments", " \t "],
+] as const)(
+  "saves schema-valid optional blank scoring through %s without requiring a prose rubric (%j)",
+  async (toolName, scoring) => {
+    const minimal = {
+      origin: "planned" as const,
+      items: [
+        {
+          id: "volume",
+          conceptId: "volume",
+          label: "Volume",
+          scoring,
+          tracks: [
+            {
+              key: "minutes",
+              kind: "numeric" as const,
+              unit: "min",
+              meaning: "Agreed volume",
+              target: { comparator: "at-least" as const, value: 90 },
+              availablePoints: 100,
+            },
+          ],
+        },
+      ],
+    };
+    const input =
+      toolName === "saveWeeklyKpis"
+        ? { weekStart, commitment: minimal }
+        : { changes: [], kpiChanges: [{ weekStart, commitment: minimal }] };
+    expect(
+      trainerToolContracts[toolName].inputSchema.safeParse(input).success,
+    ).toBe(true);
+    const { result } = await run([
+      [{ toolName: "getWeeklyPlan", input: { weekStart } }],
+      [{ toolName, input }],
+    ]);
+    expect(
+      result.toolSteps.map((step) => [step.tool, step.status, step.reason]),
+    ).toEqual([
+      ["getWeeklyPlan", "succeeded", undefined],
+      [toolName, "succeeded", undefined],
+    ]);
+    expect(app.readKpis(weekStart).sets[0].items[0].scoring).toBe(scoring);
+    expect(app.readKpis(weekStart).assessments).toEqual([]);
+  },
+);
+
 it.each(["saveWeeklyKpis", "saveWeeklyDocuments"] as const)(
   "refreshes only a committed current-week set after %s, preserving success on refresh failure",
   async (toolName) => {

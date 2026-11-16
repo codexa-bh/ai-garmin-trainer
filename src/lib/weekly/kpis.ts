@@ -82,12 +82,9 @@ export function validateKpiSet(set: KpiSetInput) {
         optionalText(item.definition) &&
         optionalText(item.selection) &&
         optionalText(item.evidenceRequired) &&
-        optionalText(
-          item.scoring,
-          !item.tracks?.some(
-            (track) => typeof track.availablePoints === "number",
-          ),
-        ),
+        // Scoring prose is optional even on scored tracks. Empty optional
+        // text carries no rubric, just like omission; the tool schema permits it.
+        optionalText(item.scoring, true),
     );
     requireValid(
       !("availablePoints" in item) || item.availablePoints == null,
