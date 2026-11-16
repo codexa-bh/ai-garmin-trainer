@@ -7,7 +7,7 @@ import subprocess
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
-from history_connector import SENTINEL, REVIEWED_ARGS, admitted, reply
+from history_connector import SENTINEL, REVIEWED_ARGS, admitted, reply, preset, record_call
 from history_smoke import HistoryRun, prepare_synthetic_history
 from native_smoke import private_json
 
@@ -44,7 +44,7 @@ class SyntheticHistoryContracts(unittest.TestCase):
             self.prepare()
         tree = ast.parse((self.root / 'synthetic_history_connector.py').read_text())
         imports = {node.names[0].name for node in ast.walk(tree) if isinstance(node, ast.Import)}
-        self.assertEqual(imports, {'datetime', 'json', 'os', 'stat', 'sys'})
+        self.assertEqual(imports, {'datetime', 'json', 'os', 'stat', 'sys', 'time'})
         self.assertFalse(any(isinstance(node, ast.ImportFrom) and node.module not in ('pathlib',) for node in ast.walk(tree)))
 
     def test_actual_executable_keeps_reviewed_argv_and_refuses_unknown_launch(self):
@@ -80,6 +80,70 @@ class SyntheticHistoryContracts(unittest.TestCase):
         token.write_bytes(SENTINEL)
         os.link(token, self.root / 'hardlink')
         self.assertFalse(admitted(self.root))
+
+    def test_primary_presets_are_finite_private_stopped_and_keep_originals(self):
+        from history_smoke import prepare_latest_preset
+        from datetime import datetime
+        self.prepare()
+        original = (self.root / 'config/settings-v3.json').read_bytes()
+        def devices(scenario):
+            return json.loads(reply({'method':'tools/call', 'params':{'name':'get_devices', 'arguments':{}}}, scenario)['content'][0]['text'])
+        self.assertEqual(preset(self.root), 'delayed')
+        known = devices('known')
+        delayed = devices('delayed')
+        self.assertTrue(known[0]['is_primary'])
+        self.assertFalse(known[1]['is_primary'])
+        self.assertGreater((datetime.fromisoformat(known[0]['last_sync_time']) - datetime.fromisoformat(delayed[0]['last_sync_time'])).total_seconds(), 4 * 86400)
+        self.assertIsNone(devices('unknown')[0]['last_sync_time'])
+        with patch('history_smoke.listening', return_value=False):
+            for scenario in ('known', 'unknown', 'delayed', 'new-activity'):
+                prepare_latest_preset(self.run, scenario)
+                self.assertEqual(preset(self.root), scenario)
+            with self.assertRaises(ValueError):
+                prepare_latest_preset(self.run, 'private-input')
+            self.run.child = object()
+            with self.assertRaises(ValueError):
+                prepare_latest_preset(self.run, 'known')
+        self.assertEqual((self.root / 'config/settings-v3.json').read_bytes(), original)
+        path = self.root / 'synthetic-latest-preset.json'
+        path.chmod(0o644)
+        with self.assertRaises(ValueError):
+            preset(self.root)
+        path.chmod(0o600)
+        alias = self.root / 'alias.json'
+        path.rename(alias)
+        path.symlink_to(alias)
+        with self.assertRaises(OSError):
+            preset(self.root)
+
+    def test_call_evidence_contains_only_names_and_records_boolean_not_payloads(self):
+        self.prepare()
+        message = {'params':{'name':'get_devices', 'arguments':{}}}
+        record_call(self.root, message)
+        path = self.root / 'synthetic-calls.jsonl'
+        self.assertEqual(json.loads(path.read_text()), {'name':'get_devices', 'records':None})
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        from history_smoke import synthetic_calls
+        self.assertEqual(synthetic_calls(self.root), [{'name':'get_devices', 'records':None}])
+        before = path.read_bytes()
+        with self.assertRaises(ValueError):
+            record_call(self.root, {'params':{'name':'get_activity_fit_data','arguments':{'include_records':'private-canary'}}})
+        self.assertEqual(path.read_bytes(), before)
+        path.write_text('{"name":"get_devices","records":"private-canary"}\n')
+        with self.assertRaises(ValueError):
+            synthetic_calls(self.root)
+        path.write_bytes(before)
+        path.chmod(0o644)
+        with self.assertRaises(ValueError):
+            record_call(self.root, message)
+        with self.assertRaises(ValueError):
+            synthetic_calls(self.root)
+        path.chmod(0o600)
+        target = path.with_name('preserved-calls.jsonl')
+        path.rename(target)
+        path.symlink_to(target)
+        with self.assertRaises(ValueError):
+            synthetic_calls(self.root)
 
     def test_closed_protocol_and_fit_reply_cannot_trigger_real_supplements(self):
         def tool(name, args):
@@ -152,24 +216,33 @@ class SyntheticHistoryContracts(unittest.TestCase):
             for preset in ('wide', 'narrow'):
                 run.sync_captures.append({'scenario':f'backend-only-busy-{preset}', 'ok':True, 'capture':'unit-only.png'})
             return result
+        probes = 0
+        def latest_probe(backend=False):
+            nonlocal probes
+            probes += 1
+            result = backend_latest() if backend else latest_only()
+            return {**result, 'dataAfter': {'mutableDays':6 if probes <= 2 else 1}, 'fitBaselineCalls':1 if probes == 6 else 0,
+                    'requestCounts':{'get_devices':1, 'get_stats':1, 'get_sleep_summary':1, 'get_body_battery':1, 'get_activities_by_date':1, 'get_body_composition':1, 'get_weigh_ins':1}}
         run = SimpleNamespace(root=self.root, config={'source':'unit'}, boot='unit', binary=Path('/unit'), command=command,
+                              latest_probe=Mock(side_effect=latest_probe),
                               latest_only=Mock(side_effect=latest_only), backend_latest=Mock(side_effect=backend_latest), wait=Mock(), wait_sync=Mock(side_effect=lambda *args: settlement_order.append('observe')), summary=summary,
                               settle_claim=Mock(side_effect=lambda: settlement_order.append('settle')), stop=Mock(), start=Mock(),
                               automatic_discovery=Mock(return_value={'unit':'automatic'}))
-        with patch('history_smoke.prepare_mixed_sync_presentation', side_effect=seed_mixed) as seed:
+        with patch('history_smoke.prepare_mixed_sync_presentation', side_effect=seed_mixed) as seed, patch('history_smoke.prepare_latest_preset') as presets:
             HistoryRun.synthetic_sync(run)
         self.assertEqual([call.args[1] for call in seed.call_args_list], ['settled', 'failed'])
-        self.assertEqual(run.latest_only.call_count, 2)
-        self.assertEqual(run.backend_latest.call_count, 1)
+        self.assertEqual([call.args[1] for call in presets.call_args_list], ['unknown', 'known', 'new-activity'])
+        self.assertEqual(run.latest_probe.call_count, 6)
+        self.assertEqual(probes, 6)
         cancelled = settlement_order.index('cancel')
         self.assertEqual(settlement_order[cancelled:cancelled+3], ['cancel', 'settle', 'observe'])
         self.assertEqual(sum(value.get('action') == 'continue' for value in commands), 2)
         self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 1)
         self.assertEqual(sum(value.get('action') == 'details' for value in commands), 6)
-        self.assertEqual(run.stop.call_count, 4)
+        self.assertEqual(run.stop.call_count, 7)
         evidence = json.loads((self.root / 'synthetic-sync.json').read_text())
         self.assertFalse(evidence['realGarminCertified'])
-        self.assertEqual(evidence['maxInvocations'], 9)
+        self.assertEqual(evidence['maxInvocations'], 12)
         self.assertEqual(evidence['automaticDiscovery'], {'unit':'automatic'})
         run.automatic_discovery.assert_called_once_with()
         self.assertEqual(len(evidence['captures']), 26)

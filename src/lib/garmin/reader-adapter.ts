@@ -1,4 +1,5 @@
 import type { GarminReader } from "./import-ports";
+import { primaryUpload } from "./primary-upload";
 import {
   SyncPause,
   UnrecognizedHealthReply,
@@ -153,6 +154,30 @@ export function createGarminReader({
     close,
     profile: () => read("get_user_profile"),
     cyclingFtp: () => read("get_cycling_ftp"),
+    async primaryUpload() {
+      const text = await bounded(() => connector.callTool("get_devices", {}));
+      if (text.trim() === "No devices found.")
+        return { kind: "unknown", reason: "no-devices" };
+      // Missing/malformed device evidence is non-final, but genuine auth/rate
+      // failures retain the same fatal admission semantics as other reads.
+      if (!text.trim().startsWith("[")) {
+        if (
+          ["auth", "rate-limit"].includes(
+            historyFailureClass(new Error(safeConnectorFailure(text))),
+          )
+        ) {
+          const error = new Error(safeConnectorFailure(text));
+          control?.failed?.(error);
+          throw error;
+        }
+        return { kind: "unknown", reason: "unrecognized-reply" };
+      }
+      try {
+        return primaryUpload(JSON.parse(text), new Date());
+      } catch {
+        return { kind: "unknown", reason: "unrecognized-reply" };
+      }
+    },
     async weeklySteps(endDate, weeks) {
       if (
         !discoveryDate(endDate) ||

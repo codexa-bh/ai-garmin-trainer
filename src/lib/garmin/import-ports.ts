@@ -37,6 +37,7 @@ export interface GarminReader {
   }>;
   activityEffort(garminId: string): Promise<NormalizedActivity | null>;
   fitBaseline(garminIds: string[]): Promise<unknown>;
+  primaryUpload?(): Promise<import("./primary-upload").PrimaryUpload>;
   weeklySteps?(
     endDate: string,
     weeks: number,
@@ -63,6 +64,7 @@ export interface BaselineStore {
   recordGarminAthleteBaselineFailure(input: RefreshFailure): void;
   recordGarminBodyMetricsFailure(input: RefreshFailure): void;
   writeGarminAthleteBaselineRefresh(input: {
+    preserveAttempt?: boolean;
     snapshot: GarminAthleteBaselineSnapshot | null;
     status: GarminAthleteBaselineSnapshot["availability"];
     attemptedAt: Date;
@@ -117,6 +119,7 @@ export interface GarminImportStore extends BaselineStore, DetailStore {
   /** Atomic: all entries commit together or none do. */
   saveCheckpoints(entries: [key: string, value: string][]): void;
   listRecentActivities(limit: number): { garminId: string }[];
+  listStoredDailyHealthDates(): string[];
   listDailyHealthMissingGapDates(input: DateRange): string[];
   listDailyHealthRepairCandidateDates(input: DateRange): string[];
   listDailyHealthIntensityRepairCandidateDates(input: DateRange): string[];

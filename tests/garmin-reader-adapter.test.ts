@@ -41,6 +41,38 @@ function fixture() {
 }
 
 describe("concrete Garmin wire/FIT/archive adapter", () => {
+  it("reads only curated primary evidence, never archives devices and reports conservative unknown/fatal failures", async () => {
+    const f = fixture();
+    vi.mocked(f.ports.connector.callTool).mockResolvedValue(
+      '[{"device_id":1,"is_primary":true,"last_sync_time":"2020-01-02T12:00:00Z","serial_number":"private"}]',
+    );
+    expect(await f.reader.primaryUpload!()).toEqual({
+      kind: "known",
+      primaryId: "1",
+      uploadedAt: "2020-01-02T12:00:00.000Z",
+    });
+    expect(f.ports.connector.callTool).toHaveBeenLastCalledWith(
+      "get_devices",
+      {},
+    );
+    expect(f.ports.archive).not.toHaveBeenCalled();
+    for (const text of [
+      "No devices found.",
+      "[invalid",
+      "{}",
+      "unexpected private reply",
+      '[{"device_id":1}]',
+    ]) {
+      vi.mocked(f.ports.connector.callTool).mockResolvedValue(text);
+      const evidence = await f.reader.primaryUpload!();
+      expect(evidence.kind).toBe("unknown");
+      expect(JSON.stringify(evidence)).not.toContain("private");
+    }
+    for (const text of ["401 token private", "429 rate limit private"]) {
+      vi.mocked(f.ports.connector.callTool).mockResolvedValue(text);
+      await expect(f.reader.primaryUpload!()).rejects.toThrow(/Garmin/);
+    }
+  });
   it("fetches all health endpoints before parsing and archives only after all parse successfully", async () => {
     const f = fixture();
     vi.mocked(f.ports.connector.callTool).mockImplementation(async (name) => {

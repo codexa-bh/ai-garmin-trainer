@@ -11,6 +11,10 @@ const state = vi.hoisted(() => ({
   failStart: false,
   dependency: null as "launcher-unavailable" | "startup-unknown" | null,
   failDetail: false,
+  newest: "123",
+  upload: "2026-09-21T10:00:00Z" as string | null,
+  failProfile: false,
+  healthDates: [] as string[],
   calls: [] as string[],
 }));
 vi.mock("../src/lib/garmin/client", () => ({
@@ -36,16 +40,33 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
     close() {
       state.closes += 1;
     }
-    async callTool(operation: string) {
+    async callTool(operation: string, args: Record<string, unknown>) {
       state.calls.push(operation);
+      if (operation === "get_devices")
+        return JSON.stringify([
+          { device_id: 1, is_primary: true, last_sync_time: state.upload },
+        ]);
+      if (operation === "get_stats") {
+        state.healthDates.push(String(args.date));
+        return "{}";
+      }
+      if (operation === "get_user_profile") {
+        if (state.failProfile) throw new Error("profile failed");
+        return '{"userData":{"availableTrainingDays":["monday"],"weight":70,"height":180}}';
+      }
+      if (operation === "get_cycling_ftp")
+        return '{"functional_threshold_power_watts":250,"sport":"cycling"}';
       if (operation === "get_activities_by_date")
         return JSON.stringify({
           activities: [
             {
-              activityId: "123",
+              activityId: state.newest,
               activityType: "running",
               activityName: "Fixture",
-              startTimeLocal: "2026-09-21T08:00:00",
+              startTimeLocal:
+                state.newest === "123"
+                  ? "2026-09-21T08:00:00"
+                  : "2026-09-21T09:00:00",
               trainingEffect: 2,
             },
           ],
@@ -55,6 +76,7 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
       if (operation === "get_activity_fit_data") {
         if (state.failDetail) throw new Error("detail timeout");
         return JSON.stringify({
+          zones_target: { max_heart_rate: 190 },
           records: [
             {
               timestamp: "2026-09-21T08:00:00Z",
@@ -102,6 +124,10 @@ beforeEach(() => {
     failStart: false,
     dependency: null,
     failDetail: false,
+    newest: "123",
+    upload: "2026-09-21T10:00:00Z",
+    failProfile: false,
+    healthDates: [],
     calls: [],
   });
   vi.resetModules();
@@ -225,6 +251,98 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     expect(
       repo.getActivityDetailForAnalytics("123").availability?.recordCount,
     ).toBe(1);
+  });
+
+  it("reconciles legacy data and durable cadence through actual HTTP/reader/SQLite without changing history or non-null facts", async () => {
+    vi.stubEnv("TZ", "UTC");
+    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-01");
+    const sync = await import("../src/app/api/sync/route");
+    const repo = await import("../src/lib/db/repository");
+    const { normalizeDailyHealth } =
+      await import("../src/lib/garmin/normalize");
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const { FRESHNESS_CHECKPOINT } =
+      await import("../src/lib/garmin/latest-policy");
+    repo.upsertDailyHealth([
+      normalizeDailyHealth("2026-09-01", { stats: { total_steps: 1234 } }),
+      normalizeDailyHealth("2026-09-20", { stats: { total_steps: 4321 } }),
+    ]);
+    repo.saveCheckpoints([
+      ["garmin_history_v1", '{"retained":"unsupported-history"}'],
+      ["garmin_discovery_v1", '{"retained":"unsupported-discovery"}'],
+    ]);
+    const before = [
+      repo.getCheckpoint("garmin_history_v1"),
+      repo.getCheckpoint("garmin_discovery_v1"),
+    ];
+    const run = async () => {
+      const response = await sync.POST(
+        new Request("http://localhost/api/sync", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: '{"intent":"latest"}',
+        }),
+      );
+      expect(response.status).toBe(200);
+      const events = (await response.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(events.at(-1)).toMatchObject({
+        type: "result",
+        status: "completed",
+      });
+    };
+    await run();
+    const fresh = JSON.parse(repo.getCheckpoint(FRESHNESS_CHECKPOINT)!);
+    expect(fresh.days["2026-09-01"]).toEqual({ final: true, source: "legacy" });
+    expect(fresh.days["2026-09-20"].final).toBe(true);
+    expect(state.healthDates).toHaveLength(14);
+    expect(state.healthDates).not.toContain("2026-09-01");
+    const athlete = repo.getGarminAthleteBaseline();
+    expect(athlete.values).toMatchObject({
+      configuredMaxHeartRateBpm: 190,
+      cyclingFtpWatts: 250,
+      availableTrainingDays: ["monday"],
+    });
+    expect(fresh.fitActivity).toBe("123");
+    const beforeCalls = state.calls.length;
+    state.healthDates = [];
+    await run();
+    expect(state.healthDates).toEqual(["2026-09-21"]);
+    const repeated = state.calls.slice(beforeCalls);
+    expect(
+      repeated.filter((name) => name === "get_activities_by_date"),
+    ).toHaveLength(1);
+    expect(repeated).not.toContain("get_activity_fit_data");
+    expect(repeated).not.toContain("get_user_profile");
+    expect(repeated).not.toContain("get_cycling_ftp");
+    expect(repo.getGarminAthleteBaseline()).toEqual(athlete);
+    expect(
+      getDatabase()
+        .prepare("select steps from daily_health where date='2026-09-20'")
+        .get(),
+    ).toEqual({ steps: 4321 });
+    state.newest = "456";
+    await run();
+    expect(
+      JSON.parse(repo.getCheckpoint(FRESHNESS_CHECKPOINT)!).fitActivity,
+    ).toBe("456");
+    expect(
+      state.calls.filter((name) => name === "get_user_profile"),
+    ).toHaveLength(1);
+    expect(
+      state.calls.filter((name) => name === "get_cycling_ftp"),
+    ).toHaveLength(1);
+    expect(repo.getGarminAthleteBaseline().values).toEqual(athlete.values);
+    expect([
+      repo.getCheckpoint("garmin_history_v1"),
+      repo.getCheckpoint("garmin_discovery_v1"),
+    ]).toEqual(before);
+    expect(getDatabase().pragma("integrity_check")).toEqual([
+      { integrity_check: "ok" },
+    ]);
+    expect(getDatabase().pragma("foreign_key_check")).toEqual([]);
   });
 
   it("rejects missing/unknown IDs before connector access and retains detail status/force/error contracts", async () => {

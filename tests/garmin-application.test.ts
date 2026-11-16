@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createGarminImports } from "../src/lib/garmin/sync-import";
+import {
+  FRESHNESS_CHECKPOINT,
+  type LatestFreshness,
+} from "../src/lib/garmin/latest-policy";
 import { createGarminReader } from "../src/lib/garmin/reader-adapter";
 import {
   DISCOVERY_CHECKPOINT,
@@ -87,6 +91,7 @@ function fixture() {
     }),
     listActivityIdsNeedingEffortBackfill: vi.fn(() => []),
     listRecentActivities: vi.fn(() => []),
+    listStoredDailyHealthDates: vi.fn(() => []),
     listDailyHealthMissingGapDates: vi.fn(() => []),
     listDailyHealthRepairCandidateDates: vi.fn(() => []),
     listDailyHealthIntensityRepairCandidateDates: vi.fn(() => []),
@@ -277,6 +282,171 @@ function operationFixture() {
   };
 }
 
+function latestFixture() {
+  const f = fixture();
+  const stored = new Set<string>(["2026-01-01", "2026-09-19"]);
+  vi.mocked(f.store.listStoredDailyHealthDates).mockImplementation(() => [
+    ...stored,
+  ]);
+  vi.mocked(f.store.upsertDailyHealth).mockImplementation((days) => {
+    for (const day of days) stored.add(day.date);
+    return days.length;
+  });
+  f.reader.primaryUpload = vi.fn(async () => ({
+    kind: "known" as const,
+    primaryId: "watch",
+    uploadedAt: "2026-09-21T10:00:00.000Z",
+  }));
+  const read = () =>
+    JSON.parse(f.checkpoints.get(FRESHNESS_CHECKPOINT)!) as LatestFreshness;
+  const run = () =>
+    createGarminImports(f.ports).runGarminSync(undefined, { intent: "latest" });
+  return { ...f, stored, read, run };
+}
+
+describe("durable latest finality and supplements", () => {
+  it("finalizes partial/empty ended days only after normalized writes and skips them across restart", async () => {
+    const f = latestFixture();
+    expect((await f.run()).healthDaysRefreshed).toBe(3);
+    expect(f.read().days["2026-01-01"]).toEqual({
+      final: true,
+      source: "legacy",
+    });
+    expect(f.read().days["2026-09-19"]).toMatchObject({
+      final: true,
+      source: "download",
+      primaryId: "watch",
+    });
+    expect(f.read().days["2026-09-21"].final).toBe(false);
+    vi.mocked(f.reader.dailyHealth).mockClear();
+    expect((await f.run()).healthDaysRefreshed).toBe(1);
+    expect(f.reader.dailyHealth).toHaveBeenCalledExactlyOnceWith("2026-09-21");
+    expect(
+      f.store.listDailyHealthTrailingCandidateDates,
+    ).not.toHaveBeenCalled();
+    expect(f.reader.activityPage).toHaveBeenLastCalledWith(
+      "2026-09-19",
+      "2026-09-21",
+      0,
+    );
+    expect(f.checkpoints.has(HISTORY_CHECKPOINT)).toBe(false);
+  });
+  it("retains all unknown/delayed days, then reads them after new primary evidence instead of finalizing an old download", async () => {
+    const f = latestFixture();
+    f.reader.primaryUpload = vi.fn(async () => ({
+      kind: "unknown" as const,
+      reason: "ambiguous-primary" as const,
+    }));
+    expect((await f.run()).detail).toContain("ambiguous-primary");
+    expect((await f.run()).healthDaysRefreshed).toBe(3);
+    expect(f.read().days["2026-09-19"].final).toBe(false);
+    f.reader.primaryUpload = vi.fn(async () => ({
+      kind: "known" as const,
+      primaryId: "replacement",
+      uploadedAt: "2026-09-20T10:00:00.000Z",
+    }));
+    expect((await f.run()).healthDaysRefreshed).toBe(3);
+    expect(f.read().days["2026-09-19"]).toMatchObject({
+      final: true,
+      primaryId: "replacement",
+    });
+    expect(f.read().days["2026-09-20"].final).toBe(false);
+    expect((await f.run()).healthDaysRefreshed).toBe(2);
+  });
+  it.each(["read", "write", "cancel"])(
+    "never finalizes a failed %s",
+    async (failure) => {
+      const f = latestFixture();
+      if (failure === "read")
+        vi.mocked(f.reader.dailyHealth).mockRejectedValue(
+          new Error("malformed health"),
+        );
+      if (failure === "write")
+        vi.mocked(f.store.upsertDailyHealth).mockImplementation(() => {
+          throw new Error("storage failed");
+        });
+      let cancelled = false;
+      if (failure === "cancel")
+        vi.mocked(f.reader.dailyHealth).mockImplementation(async (date) => {
+          cancelled = true;
+          return normalizeDailyHealth(date, {});
+        });
+      const result = await f.app.runGarminSync(undefined, {
+        intent: "latest",
+        cancelled: () => cancelled,
+      });
+      expect(result.status).not.toBe("completed");
+      expect(f.read().days["2026-09-19"]).toBeUndefined();
+      expect(f.read().days["2026-09-21"]).toBeUndefined();
+    },
+  );
+  it("replays durable data after a crash before freshness commits", async () => {
+    const f = latestFixture();
+    const save = f.store.saveCheckpoints;
+    vi.mocked(f.store.saveCheckpoints).mockImplementation((entries) => {
+      if (f.stored.has("2026-09-21"))
+        throw new Error("interrupted metadata storage");
+      for (const [key, value] of entries) f.checkpoints.set(key, value);
+    });
+    await expect(f.run()).rejects.toThrow("interrupted metadata storage");
+    expect(f.stored.has("2026-09-21")).toBe(true);
+    expect(f.read().days["2026-09-21"]).toBeUndefined();
+    vi.mocked(save).mockImplementation((entries) => {
+      for (const [key, value] of entries) f.checkpoints.set(key, value);
+    });
+    expect((await f.run()).healthDaysRefreshed).toBe(3);
+  });
+  it("shares profile/body reads, persists failed daily attempts, skips empty activity FIT and permits a new local day", async () => {
+    const f = latestFixture();
+    await f.run();
+    await f.run();
+    expect(f.reader.profile).toHaveBeenCalledTimes(1);
+    expect(f.reader.cyclingFtp).toHaveBeenCalledTimes(1);
+    expect(f.reader.fitBaseline).not.toHaveBeenCalled();
+    expect(f.reader.bodyComposition).toHaveBeenCalledTimes(2);
+    expect(f.reader.weighIns).toHaveBeenCalledTimes(2);
+    f.ports.clock = () => new Date("2026-09-22T12:00:00Z");
+    vi.mocked(f.reader.profile).mockRejectedValue(new Error("profile failed"));
+    vi.mocked(f.reader.cyclingFtp).mockRejectedValue(new Error("ftp failed"));
+    await f.run();
+    await f.run();
+    expect(f.reader.profile).toHaveBeenCalledTimes(2);
+    expect(f.reader.cyclingFtp).toHaveBeenCalledTimes(2);
+    expect(f.read()).toMatchObject({
+      profileDay: "2026-09-22",
+      ftpDay: "2026-09-22",
+    });
+    expect(f.store.recordGarminAthleteBaselineFailure).toHaveBeenCalled();
+  });
+  it("records only applicable successful FIT identity, retries failure and never re-reads same-day profile/FTP for new FIT", async () => {
+    const f = latestFixture();
+    let newest = "1";
+    vi.mocked(f.store.listRecentActivities).mockImplementation(() => [
+      { garminId: newest },
+    ]);
+    vi.mocked(f.reader.fitBaseline)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ zones_target: {} })
+      .mockResolvedValue({ zones_target: { max_heart_rate: 190 } });
+    await f.run();
+    expect(f.read().fitActivity).toBeNull();
+    await f.run();
+    expect(f.read().fitActivity).toBeNull();
+    await f.run();
+    expect(f.read().fitActivity).toBe("1");
+    await f.run();
+    expect(f.reader.fitBaseline).toHaveBeenCalledTimes(3);
+    newest = "2";
+    await f.run();
+    expect(f.read().fitActivity).toBe("2");
+    expect(f.reader.profile).toHaveBeenCalledTimes(1);
+    expect(f.reader.cyclingFtp).toHaveBeenCalledTimes(1);
+    expect(f.store.writeGarminAthleteBaselineRefresh).toHaveBeenLastCalledWith(
+      expect.objectContaining({ preserveAttempt: true }),
+    );
+  });
+});
+
 function pendingDetails(f: ReturnType<typeof fixture>, count: number) {
   const pending = new Set(
     Array.from({ length: count }, (_, index) => String(index + 1)),
@@ -331,7 +501,7 @@ describe("required detail exhaustion and truthful settlement", () => {
     },
   );
 
-  it("continues across pre-dispatch internal batches under one real adapter/claim/clock", async () => {
+  it("continues latest across pre-dispatch internal batches without artificial pacing under one adapter/claim/clock", async () => {
     const f = operationFixture();
     pendingDetails(f, 55);
     const result = await f.app.runGarminSync(undefined, {
@@ -347,9 +517,7 @@ describe("required detail exhaustion and truthful settlement", () => {
     expect(f.calls.length).toBeGreaterThan(96);
     expect(f.calls.length).toBeLessThanOrEqual(DISCOVERY_LIMITS.operations);
     expect(
-      f.calls
-        .slice(1)
-        .every((call, index) => call.at - f.calls[index].at >= 1000),
+      f.calls.slice(1).every((call, index) => call.at === f.calls[index].at),
     ).toBe(true);
   });
 
