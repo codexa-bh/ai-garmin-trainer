@@ -189,6 +189,14 @@ export function upsertActivities(activities: NormalizedActivity[]): number {
   return activities.length;
 }
 
+export function listStoredDailyHealthDates(): string[] {
+  return (
+    getDatabase()
+      .prepare("select date from daily_health order by date")
+      .all() as { date: string }[]
+  ).map((row) => row.date);
+}
+
 export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
   const db = getDatabase();
   const byDate = db.prepare(`
@@ -779,6 +787,7 @@ function parseJsonArray(value: string | null): string[] {
 }
 
 export function writeGarminAthleteBaselineRefresh(input: {
+  preserveAttempt?: boolean;
   snapshot: GarminAthleteBaselineSnapshot | null;
   status: Exclude<GarminAthleteBaselineAvailability, "failed">;
   attemptedAt: Date;
@@ -811,6 +820,7 @@ export function writeGarminAthleteBaselineRefresh(input: {
         JSON.stringify(values.preferredLongTrainingDays),
       );
     }
+    if (input.preserveAttempt) return;
     db.prepare(
       `insert into garmin_athlete_baseline_attempt (id, attempted_at, completed_at, status, error_message, preserved_previous)
        values ('default', ?, ?, ?, ?, ?)

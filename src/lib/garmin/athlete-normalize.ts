@@ -234,6 +234,46 @@ export function normalizeGarminAthleteBaseline(input: {
   };
 }
 
+/** Missing/skipped/failed sources never erase usable facts from other sources. */
+export function mergeGarminAthleteBaseline(
+  previous: GarminAthleteBaselineValues,
+  incoming: GarminAthleteBaselineSnapshot,
+): GarminAthleteBaselineSnapshot {
+  const next = incoming.values;
+  const values: GarminAthleteBaselineValues = {
+    configuredMaxHeartRateBpm:
+      next.configuredMaxHeartRateBpm ?? previous.configuredMaxHeartRateBpm,
+    heartRateZones:
+      next.heartRateZones.status === "unavailable"
+        ? previous.heartRateZones
+        : next.heartRateZones,
+    cyclingFtpWatts: next.cyclingFtpWatts ?? previous.cyclingFtpWatts,
+    cyclingFtpMeasuredOn:
+      next.cyclingFtpWatts === null
+        ? previous.cyclingFtpMeasuredOn
+        : next.cyclingFtpMeasuredOn,
+    cyclingFtpSourceStale:
+      next.cyclingFtpWatts === null
+        ? previous.cyclingFtpSourceStale
+        : next.cyclingFtpSourceStale,
+    availableTrainingDays: next.availableTrainingDays.length
+      ? next.availableTrainingDays
+      : previous.availableTrainingDays,
+    preferredLongTrainingDays: next.preferredLongTrainingDays.length
+      ? next.preferredLongTrainingDays
+      : previous.preferredLongTrainingDays,
+  };
+  return {
+    ...incoming,
+    values,
+    availability: hasAllCoreFacts(values)
+      ? "complete"
+      : hasApprovedFact(values)
+        ? "partial"
+        : "unavailable",
+  };
+}
+
 export function hasUsableGarminAthleteBaseline(
   snapshot: GarminAthleteBaselineSnapshot,
 ): boolean {

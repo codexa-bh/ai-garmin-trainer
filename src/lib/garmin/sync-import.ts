@@ -29,6 +29,14 @@ import {
 import type { GarminSyncResult, ProgressReporter } from "./import-contracts";
 import { isoDate } from "./import-policy";
 import {
+  FRESHNESS_CHECKPOINT,
+  downloadedHealth,
+  latestFreshness,
+  latestHealthDates,
+  localDate,
+} from "./latest-policy";
+import type { PrimaryUpload } from "./primary-upload";
+import {
   GarminDependencyError,
   garminDependencyReason,
 } from "./dependency-error";
@@ -220,6 +228,19 @@ export function createGarminImports({
     const recentStart =
       limit && limit > shiftDate(today, -13) ? limit : shiftDate(today, -13);
     const historical = options.intent !== "latest";
+    const healthToday = historical ? today : localDate(clock());
+    const freshness = historical
+      ? null
+      : latestFreshness(
+          store.getCheckpoint(FRESHNESS_CHECKPOINT),
+          store.listStoredDailyHealthDates(),
+          healthToday,
+          limit,
+        );
+    let upload: PrimaryUpload = {
+      kind: "unknown",
+      reason: "unrecognized-reply",
+    };
     // Unknown versions are preserved and refuse mutation, never silently reset.
     syncOperation(store.getCheckpoint(SYNC_CHECKPOINT));
     if (!historical) latestSyncState(store.getCheckpoint(LATEST_CHECKPOINT));
@@ -346,7 +367,7 @@ export function createGarminImports({
         : undefined,
       async admit() {
         checkStop(true);
-        if (interactive && lastDispatch !== null) {
+        if (interactive && historical && lastDispatch !== null) {
           const delay = Math.max(
             0,
             DISCOVERY_LIMITS.dispatchIntervalMs -
@@ -369,17 +390,39 @@ export function createGarminImports({
       },
     };
     const rawClient = createReader(control);
+    const refreshSources = {
+      profile: !freshness || freshness.profileDay !== healthToday,
+      ftp: !freshness || freshness.ftpDay !== healthToday,
+    };
+    const attempted = (source: "profileDay" | "ftpDay") => {
+      if (!freshness) return;
+      // Persist before dispatch: even failure/cancellation consumes today's
+      // attempt, without pretending that it refreshed any normalized facts.
+      freshness[source] = localDate(clock());
+      store.saveCheckpoints([
+        [FRESHNESS_CHECKPOINT, JSON.stringify(freshness)],
+      ]);
+    };
     // Common profile/FTP data is immutable for this explicit operation, not a
     // global cache. In particular a FIT supplement must not refetch them.
     let profile: ReturnType<typeof rawClient.profile> | undefined;
     let ftp: ReturnType<typeof rawClient.cyclingFtp> | undefined;
-    const client = interactive
-      ? {
-          ...rawClient,
-          profile: () => (profile ??= rawClient.profile()),
-          cyclingFtp: () => (ftp ??= rawClient.cyclingFtp()),
-        }
-      : rawClient;
+    const client =
+      interactive || freshness
+        ? {
+            ...rawClient,
+            profile: () =>
+              (profile ??= (async () => {
+                attempted("profileDay");
+                return rawClient.profile();
+              })()),
+            cyclingFtp: () =>
+              (ftp ??= (async () => {
+                attempted("ftpDay");
+                return rawClient.cyclingFtp();
+              })()),
+          }
+        : rawClient;
     let closed = false;
     const close = () => {
       if (!closed) {
@@ -404,6 +447,8 @@ export function createGarminImports({
       state.operations = operations;
       state.updatedAt = clock().toISOString();
       const entries: [string, string][] = [];
+      if (freshness)
+        entries.push([FRESHNESS_CHECKPOINT, JSON.stringify(freshness)]);
       entries.push([
         SYNC_CHECKPOINT,
         JSON.stringify({
@@ -477,6 +522,9 @@ export function createGarminImports({
         const day = await client.dailyHealth(date);
         checkStop();
         healthDaysImported += store.upsertDailyHealth([day]);
+        // Durable normalized data first; a crash before metadata safely replays.
+        if (freshness)
+          freshness.days[date] = downloadedHealth(date, upload, clock());
         if (historical) checked(state.health, date, healthHasMetrics(day));
         if (
           healthHasMetrics(day) &&
@@ -521,11 +569,20 @@ export function createGarminImports({
           "Starting one bounded, explicit read-only Garmin sync…",
         );
         await client.start();
-        // Make current health/activity/body facts available before old history or
-        // detail supplements. Existing freshness policy selects older trailing days.
-        for (const date of [today, shiftDate(today, -1)].filter(
-          (date) => date >= recentStart,
-        ))
+        if (freshness) {
+          upload = (await client.primaryUpload?.()) ?? upload;
+          checkStop();
+          if (upload.kind === "unknown")
+            progress(
+              "health",
+              `Primary upload evidence unavailable (${upload.reason}); daily health remains mutable.`,
+            );
+        }
+        // Latest health has its own local calendar; activity/history UTC ranges
+        // and their existing recent-first ordering remain unchanged.
+        for (const date of historical
+          ? [today, shiftDate(today, -1)].filter((date) => date >= recentStart)
+          : [healthToday].filter((date) => !limit || date >= limit))
           await health(date);
         const recentActivities = await client.activityPage(
           recentStart,
@@ -544,19 +601,28 @@ export function createGarminImports({
           client,
           recentStart,
           today,
+          false,
+          refreshSources.profile,
         );
         progress(
           "body_metrics",
           `Body metrics ${bodyMetrics.availability}; weigh-ins ${bodyMetrics.weighInAvailability ?? "not attempted"}.`,
         );
-        const trailing = store
-          .listDailyHealthTrailingCandidateDates({
-            startDate: recentStart,
-            endDate: today,
-          })
-          .sort()
-          .reverse()
-          .slice(0, 14);
+        const trailing = freshness
+          ? latestHealthDates(
+              freshness,
+              store.listStoredDailyHealthDates(),
+              healthToday,
+              limit,
+            )
+          : store
+              .listDailyHealthTrailingCandidateDates({
+                startDate: recentStart,
+                endDate: today,
+              })
+              .sort()
+              .reverse()
+              .slice(0, 14);
         for (const date of trailing) await health(date);
         // Selected limit, or the start automatic discovery found.
         const floor = () =>
@@ -824,7 +890,11 @@ export function createGarminImports({
             "athlete",
             "Refreshing Garmin athlete baselines once for this operation…",
           );
-          athleteBaseline = await baseline.fetchAndStoreAthleteBaseline(client);
+          athleteBaseline = await baseline.fetchAndStoreAthleteBaseline(
+            client,
+            undefined,
+            refreshSources,
+          );
           for (const id of store.listActivityIdsNeedingEffortBackfill(1)) {
             checkStop();
             if (await details.fetchAndStoreActivityEffort(client, id))
@@ -832,14 +902,25 @@ export function createGarminImports({
           }
           await drainDetails();
           checkStop();
-          const fit = await client.fitBaseline(
-            store.listRecentActivities(1).map((activity) => activity.garminId),
-          );
-          if (fit)
-            athleteBaseline = await baseline.fetchAndStoreAthleteBaseline(
-              client,
-              fit,
-            );
+          const newestIds = store
+            .listRecentActivities(1)
+            .map((activity) => activity.garminId);
+          const newest = newestIds[0];
+          if (!freshness || (newest && freshness.fitActivity !== newest)) {
+            const fit = await client.fitBaseline(newestIds);
+            checkStop();
+            if (freshness) {
+              if (fit && baseline.storeFitBaseline(fit)) {
+                freshness.fitActivity = newest;
+                save();
+                athleteBaseline = store.getGarminAthleteBaseline();
+              }
+            } else if (fit)
+              athleteBaseline = await baseline.fetchAndStoreAthleteBaseline(
+                client,
+                fit,
+              );
+          }
           checkStop();
         }
         const refreshedWindows = new Set<string>();
@@ -997,7 +1078,7 @@ export function createGarminImports({
         history: historical ? state : summary.history,
         ...(discovery ? { discovery } : {}),
         continuationAvailable: remaining,
-        detail: `${failure ?? (historical ? "Historical invocation settled." : "Latest refresh settled; saved history preserved.")} ${summary.sync.historical.reason} Remote earliest-health boundary is unknown. ${operations}/${operationLimits.operations} remote-operation attempts (not HTTP requests).`,
+        detail: `${failure ?? (historical ? "Historical invocation settled." : "Latest refresh settled; saved history preserved.")} ${freshness && upload.kind === "unknown" ? `Primary upload evidence unavailable (${upload.reason}); health dates remain non-final. ` : ""}${summary.sync.historical.reason} Remote earliest-health boundary is unknown. ${operations}/${operationLimits.operations} remote-operation attempts (not HTTP requests).`,
       };
       close();
       progress(outcome === "settled" ? "completed" : outcome, result.detail);
