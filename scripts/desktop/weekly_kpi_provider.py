@@ -85,11 +85,16 @@ def response(index, body, week):
     if index == 4:
         rejected = []
         for message in body['messages']:
-            if message.get('role') == 'tool' and isinstance(message.get('content'), str):
+            raw = message.get('content', '')
+            if not isinstance(raw, str):
+                continue
+            if message.get('role') == 'tool':
                 try:
-                    rejected.append(json.loads(message['content']))
+                    rejected.append(json.loads(raw))
                 except ValueError:
                     continue
+            elif message.get('role') == 'system' and 'Current-turn server-authored prior tool evidence context' in raw and 'getWeeklyKpis rejected' in raw:
+                rejected.append({'status': 'rejected', 'evidence': raw})
         if not any(value.get('status') == 'rejected' and 'kpi_set_unavailable' in value.get('evidence', '') and 'Omit setId' in value.get('evidence', '') for value in rejected):
             raise ValueError('Actual rejected canonical-read evidence required before correction')
     if index >= 4:

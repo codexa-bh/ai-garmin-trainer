@@ -80,6 +80,13 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         self.assertEqual(corrected['function']['name'], 'getWeeklyKpis')
         self.assertEqual(json.loads(corrected['function']['arguments']), {'weekStart': '2026-11-09'})
         self.assertNotEqual(corrected['id'], bad['id'])
+        legacy = 'Current-turn server-authored prior tool evidence context\nEvidence step 1: getWeeklyKpis rejected. Reason: kpi_set_unavailable. Omit setId to discover canonical sets.'
+        body['messages'] = [{'role': 'system', 'content': legacy}]
+        self.assertEqual(json.loads(response(4, body, '2026-11-09')['tool_calls'][0]['function']['arguments']), {'weekStart': '2026-11-09'})
+        for raw in [legacy.split('\n', 1)[1], legacy.replace('getWeeklyKpis rejected', 'getWeeklyKpis succeeded')]:
+            body['messages'] = [{'role': 'system', 'content': raw}]
+            with self.assertRaises(ValueError):
+                response(4, body, '2026-11-09')
 
     def test_null_zero_compound_and_corrected_scores_remain_authored_not_calculated(self):
         self.assertEqual(len(commitment()['items'][0]['tracks']), 2)
