@@ -255,11 +255,11 @@ def windows_producer_inventory(repo, bundle, workspace):
     version = release_metadata.check(repo)[0]
     installer = windows_package.installer_path(repo, version)
     seven_zip = windows_package.extractor()
-    _, payload = windows_package.payload(seven_zip, installer, workspace)
-    resources = resources_of(bundle)
-    windows_package.check_payload(payload, bundle, resources)
-    # The ordinary audit covers the program files that actually ship.
-    inventory = audit(bundle / windows_package.BINARY, extra=resources)
+    extracted, payload = windows_package.payload(seven_zip, installer, workspace)
+    windows_package.check_payload(payload, bundle, resources_of(bundle))
+    # Audit the program files that actually ship: the extracted installer
+    # payload (Cargo's build directory hard-links its uplifted binary).
+    inventory = audit(extracted / windows_package.BINARY, extra=extracted / 'resources')
     inventory['installer:' + installer.name] = windows_package.digest(installer)
     return inventory
 

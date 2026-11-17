@@ -44,7 +44,7 @@ def audit(app, extra=None):
                 raise ValueError('Unexpected production artifact object')
             continue
         if file.stat().st_nlink != 1:
-            raise ValueError('Hardlinked production artifact refused')
+            raise ValueError('Hardlinked production artifact refused: ' + file.relative_to(base).as_posix())
         data = file.read_bytes()
         if any(marker in data for marker in MARKERS):
             raise ValueError('Debug/probe surface marker in ordinary production artifact: ' + str(file.relative_to(base)))
