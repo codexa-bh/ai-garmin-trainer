@@ -69,7 +69,7 @@ jobs:
 
       - name: Release and identity contract tests
         working-directory: scripts/desktop
-        run: python -m unittest platform_files_test platform_target_test release_set_test release_test
+        run: python -m unittest platform_files_test platform_target_test release_set_test release_test windows_release_test redistribution_test
 
       - name: Production backend and Windows resources (pinned Node/SQLite probe)
         run: npm run desktop:resources
