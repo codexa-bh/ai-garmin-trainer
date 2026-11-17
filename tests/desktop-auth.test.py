@@ -72,10 +72,16 @@ class AuthTests(unittest.TestCase):
             self.run_auth(root, events)
             self.assertEqual(events, ["verifying", "verified"])
             self.assertEqual(Vendor.calls, ["credential-login", "token-verification"])
-            self.assertEqual(Vendor.created_modes, [0o600])
-            self.assertEqual(Path(root).stat().st_mode & 0o777, 0o700)
+            # POSIX creation/final modes. On Windows the native owner creates the
+            # staging directory with an inheritable owner-only DACL instead, and
+            # native publication re-checks every token's privacy before commit.
+            if os.name != "nt":
+                self.assertEqual(Vendor.created_modes, [0o600])
+                self.assertEqual(Path(root).stat().st_mode & 0o777, 0o700)
+                for name in ["garmin_tokens.json", "garmin_tokens.base64"]:
+                    self.assertEqual((Path(root) / name).stat().st_mode & 0o777, 0o600)
             for name in ["garmin_tokens.json", "garmin_tokens.base64"]:
-                self.assertEqual((Path(root) / name).stat().st_mode & 0o777, 0o600)
+                self.assertTrue((Path(root) / name).is_file())
             self.assertNotIn("sentinel", json.dumps(events))
             self.assertNotIn("private-profile", json.dumps(events))
 
