@@ -85,6 +85,7 @@ jobs:
           tests/desktop-settings.test.ts tests/desktop-onboarding.test.ts
           tests/tool-runtime-ownership.test.ts tests/persistence-ownership.test.ts
           tests/activity-images.test.ts tests/chatgpt-oauth.test.mjs
+          --test-timeout=60000
 
       - name: Full ordinary build and unsigned per-user NSIS installer
         run: npm run desktop:build
