@@ -77,7 +77,10 @@ def build_inputs(repo, source, mode):
     environment = {key: value for key, value in os.environ.items() if re.match(
         r'^(PATH$|SDKROOT$|DEVELOPER_DIR$|TOOLCHAINS$|MACOSX_DEPLOYMENT_TARGET$|SOURCE_DATE_EPOCH$|ARCHFLAGS$|CC$|CXX$|CFLAGS$|CXXFLAGS$|CPPFLAGS$|LDFLAGS$|CCACHE|CMAKE|PKG_CONFIG|RUST|CARGO|NODE_|NEXT_|TAURI_|TRAINER_|npm_config_|CI$|PYTHON|UV_|BABEL_ENV$|BROWSERSLIST|LANG$|LC_|TZ$|TMPDIR$|'
         # Windows MSVC/SDK selection inputs (rustc locates MSVC itself otherwise).
-        r'VCToolsVersion$|VCINSTALLDIR$|WindowsSdkVersion$|WindowsSDKVersion$|INCLUDE$|LIB$|LIBPATH$|Platform$)', key, re.I if platform_files.WINDOWS else 0)}
+        r'VCToolsVersion$|VCINSTALLDIR$|WindowsSdkVersion$|WindowsSDKVersion$|INCLUDE$|LIB$|LIBPATH$|Platform$)', key, re.I if platform_files.WINDOWS else 0)
+        # npm's Windows .cmd shim exports its own node path to children only;
+        # it is a launcher detail (nested npm.cmd sets it, PowerShell npm does not).
+        and not (platform_files.WINDOWS and key.upper() == 'NODE_EXE')}
     if 'PATH' in environment:
         # Nested npm run prepends the same search directories repeatedly. Removing
         # later exact duplicates preserves resolution/order, unlike dropping PATH.
