@@ -50,32 +50,43 @@ def _windows_owner_is_current_user(fd):
     import msvcrt
     advapi32 = ctypes.WinDLL('advapi32', use_last_error=True)
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-    owner = ctypes.c_void_p()
-    descriptor = ctypes.c_void_p()
+    PVOID = ctypes.c_void_p
+    advapi32.GetSecurityInfo.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD, ctypes.POINTER(PVOID),
+                                         ctypes.POINTER(PVOID), ctypes.POINTER(PVOID), ctypes.POINTER(PVOID),
+                                         ctypes.POINTER(PVOID)]
+    advapi32.GetSecurityInfo.restype = wintypes.DWORD
+    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, PVOID, wintypes.DWORD,
+                                             ctypes.POINTER(wintypes.DWORD)]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.EqualSid.argtypes = [PVOID, PVOID]
+    advapi32.EqualSid.restype = wintypes.BOOL
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.LocalFree.argtypes = [PVOID]
+    kernel32.LocalFree.restype = PVOID
+    owner, descriptor = PVOID(), PVOID()
     OWNER_SECURITY_INFORMATION, SE_FILE_OBJECT = 1, 1
-    advapi32.GetSecurityInfo.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD,
-                                         ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p,
-                                         ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
-    if advapi32.GetSecurityInfo(msvcrt.get_osfhandle(fd), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION,
-                                ctypes.byref(owner), None, None, None, ctypes.byref(descriptor)) != 0:
+    handle = wintypes.HANDLE(msvcrt.get_osfhandle(fd))
+    if advapi32.GetSecurityInfo(handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, ctypes.byref(owner),
+                                None, None, None, ctypes.byref(descriptor)) != 0:
         return False
     try:
         token = wintypes.HANDLE()
-        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
         if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)):
             return False
         try:
-            matches = False
-            for token_class in (1, 4):  # TokenUser, TokenOwner
+            for token_class in (1, 4):  # TokenUser, TokenOwner: SID pointer is the first field.
                 size = wintypes.DWORD()
                 advapi32.GetTokenInformation(token, token_class, None, 0, ctypes.byref(size))
                 buffer = ctypes.create_string_buffer(size.value)
                 if not advapi32.GetTokenInformation(token, token_class, buffer, size, ctypes.byref(size)):
                     return False
-                sid = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_void_p))[0]
-                advapi32.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-                matches = matches or bool(advapi32.EqualSid(owner, sid))
-            return matches
+                sid = ctypes.cast(buffer, ctypes.POINTER(PVOID))[0]
+                if advapi32.EqualSid(owner, sid):
+                    return True
+            return False
         finally:
             kernel32.CloseHandle(token)
     finally:
@@ -109,4 +120,9 @@ def exclusive(fd):
     else:
         import fcntl
         fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
+        try:
+            yield
+        finally:
+            # The caller closes the fd right after; explicit unlock also covers
+            # callers that keep the descriptor open.
+            fcntl.flock(fd, fcntl.LOCK_UN)

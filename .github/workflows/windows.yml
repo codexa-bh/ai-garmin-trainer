@@ -67,6 +67,10 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-fund
 
+      - name: Release and identity contract tests
+        working-directory: scripts/desktop
+        run: python -m unittest platform_files_test platform_target_test release_set_test release_test
+
       - name: Production backend and Windows resources (pinned Node/SQLite probe)
         run: npm run desktop:resources
 
@@ -79,10 +83,6 @@ jobs:
           tests/desktop-settings.test.ts tests/desktop-onboarding.test.ts
           tests/tool-runtime-ownership.test.ts tests/persistence-ownership.test.ts
           tests/activity-images.test.ts tests/chatgpt-oauth.test.mjs
-
-      - name: Release and identity contract tests
-        working-directory: scripts/desktop
-        run: python -m unittest release_test release_set_test platform_target_test
 
       - name: Full ordinary build and unsigned per-user NSIS installer
         run: npm run desktop:build
