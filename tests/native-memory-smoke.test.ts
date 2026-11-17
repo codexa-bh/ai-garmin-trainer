@@ -112,6 +112,60 @@ it("admits only canonical disclosure states and refuses extra fields or private 
     false,
   );
 });
+it("only toggles and captures exact authored closed failure details; unknown content and extra controls refuse", async () => {
+  const panel = document.querySelector(".memory-root-card")!;
+  panel.querySelector("textarea")?.remove();
+  const details = document.createElement("details");
+  details.className = "memory-failure-details";
+  const pairs = [
+    ["Category", "incomplete_sdk_decoding"],
+    ["Stage", "sdk_decode"],
+    ["HTTP status", "200"],
+    ["Elapsed", "12 ms"],
+    ["Request ID", "req_authored"],
+    ["Response ID (response.created)", "resp_67bd65392a088191a3b802a61f4fba14"],
+    ["Receipt", "present"],
+    ["Text comparison", "different"],
+    ["Call comparison", "mismatch; observed 0, receipt 1; differences: count"],
+    ["SDK discarded response.output_item.added", "1"],
+    ["SDK discarded response.output_item.done", "1"],
+  ];
+  details.innerHTML =
+    "<summary>Provider failure details</summary><dl>" +
+    pairs.map(([key, value]) => `<dt>${key}</dt><dd>${value}</dd>`).join("") +
+    "</dl>";
+  panel.append(details);
+  expect(
+    (await command({ type: "memory", action: "failure-show", text: "private" }))
+      .ok,
+  ).toBe(false);
+  expect((await command({ type: "memory", action: "failure-show" })).ok).toBe(
+    true,
+  );
+  expect(details.open).toBe(true);
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(true);
+  expect(details.querySelector("dd")!.hasAttribute("data-smoke-reveal")).toBe(
+    true,
+  );
+  window.__trainerSmokeRestore();
+  expect(details.querySelector("dd")!.hasAttribute("data-smoke-reveal")).toBe(
+    false,
+  );
+  expect((await command({ type: "memory", action: "failure-hide" })).ok).toBe(
+    true,
+  );
+  details.querySelector("dd")!.textContent = "private-sentinel";
+  expect((await command({ type: "memory", action: "failure-show" })).ok).toBe(
+    false,
+  );
+  expect(
+    (await command({ type: "captureView", view: "memory", preset: "wide" })).ok,
+  ).toBe(false);
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+});
+
 it("returns closed booleans, uses only fixed run draft and preserves exact confirmation ownership", async () => {
   expect(await command({ type: "memory", action: "observe" })).toEqual({
     ok: true,

@@ -27,6 +27,7 @@ afterEach(() => {
 });
 it.each([
   "keyless",
+  "diagnostics",
   "live",
   "integrated",
   "controls",
@@ -37,11 +38,15 @@ it.each([
   "finite %s producer seed uses current production completion/eligibility on only a stopped private run and refuses replay",
   (mode) => {
     const task =
-      mode === "capacity"
-        ? "T0274"
-        : ["integrated", "controls", "correction", "compaction"].includes(mode)
-          ? "T0272"
-          : "T0270";
+      mode === "diagnostics"
+        ? "T0343"
+        : mode === "capacity"
+          ? "T0274"
+          : ["integrated", "controls", "correction", "compaction"].includes(
+                mode,
+              )
+            ? "T0272"
+            : "T0270";
     const completed =
       mode === "capacity"
         ? 1
@@ -86,19 +91,21 @@ it.each([
       providerCalls: 0,
       schema: LATEST_SCHEMA_VERSION,
       variant:
-        mode === "capacity"
-          ? "memory-capacity"
-          : mode === "compaction"
-            ? "integrated-compaction"
-            : mode === "correction"
-              ? "integrated-correction"
-              : mode === "controls"
-                ? "integrated-controls"
-                : mode === "integrated"
-                  ? "integrated-summary"
-                  : mode === "live"
-                    ? "live-summary"
-                    : "keyless",
+        mode === "diagnostics"
+          ? "keyless-diagnostics"
+          : mode === "capacity"
+            ? "memory-capacity"
+            : mode === "compaction"
+              ? "integrated-compaction"
+              : mode === "correction"
+                ? "integrated-correction"
+                : mode === "controls"
+                  ? "integrated-controls"
+                  : mode === "integrated"
+                    ? "integrated-summary"
+                    : mode === "live"
+                      ? "live-summary"
+                      : "keyless",
     });
     const seeded = new Database(path, { readonly: true });
     expect(
@@ -133,7 +140,31 @@ it.each([
     expect(seeded.prepare("select count(*) as n from message").get()).toEqual({
       n: originalMessages + completed * 2 + 1,
     });
-    if (mode !== "keyless") {
+    if (mode === "diagnostics") {
+      expect(
+        seeded.prepare("select reason,retry_at from summary_control").get(),
+      ).toEqual({
+        reason: "summary_provider_failure",
+        retry_at: Number.MAX_SAFE_INTEGER,
+      });
+      const row = seeded
+        .prepare("select outcome,reserved,usage_json from summary_attempt")
+        .get() as { outcome: string; reserved: number; usage_json: string };
+      expect(row.outcome).toBe("summary_provider_failure");
+      expect(row.reserved).toBe(0);
+      expect(JSON.parse(row.usage_json)).toMatchObject({
+        providerFailure: {
+          category: "incomplete_sdk_decoding",
+          stage: "sdk_decode",
+          dropped: [
+            { kind: "response.output_item.added", count: 1 },
+            { kind: "response.output_item.done", count: 1 },
+          ],
+        },
+      });
+      expect(JSON.parse(row.usage_json)).not.toHaveProperty("input");
+    }
+    if (mode !== "keyless" && mode !== "diagnostics") {
       expect(
         seeded
           .prepare(

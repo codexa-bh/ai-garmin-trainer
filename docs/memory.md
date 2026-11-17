@@ -138,6 +138,14 @@ Holding a pin alone is not evidence that an answer consumed it. Full memory is i
 on the configured chat routes without a second projection ceiling; provider capacity
 refusal remains explicit. Conversation-local continuity does not depend on global memory.
 
+### Paused summary recovery
+
+Memory overview distinguishes **paused** processing after a provider failure from ordinary pending updates, running work and a finite retry delay. Pending count and saved summary remain separate; a parked retry sentinel is never displayed as a future date. Old failures can show the truthful paused state without invented diagnostics.
+
+Use the existing **Retry summary processing** deliberately when ready. It schedules eligible work through the same scheduler, may consume subscription plan/credits or provider charges, and does not guarantee repair or immediate completion. Timed backoff retains its existing policy; there is no automatic unpark/replay on panel open, disclosure, refresh or restart. Off and active history updates keep their existing precedence and action restrictions.
+
+**Provider failure details** is keyboard-accessible and initially collapsed. It shows only validated closed category/stage, available status/timing/correlation, receipt comparisons and known SDK-discard counts, never raw errors, response text or full debug traces. These are observations, not a confirmed cause. Missing historical details say they were not recorded. Details must belong to the current configuration/failure; Retry or a newer outcome removes them from current presentation while historical attempt metadata remains. Passive refresh preserves the open disclosure and existing drafts/focus/scroll.
+
 ## Preserved legacy records and explicit historical transition
 
 Legacy semantic facts/vectors, trainer-memory records, markers, inactive settings and

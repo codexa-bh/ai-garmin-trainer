@@ -12,6 +12,23 @@ from smoke_resources import preserve_failure
 
 
 PRICE_BASIS = 'luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input'
+AUTHORED_FAILURE = {
+    'category': 'incomplete_sdk_decoding', 'stage': 'sdk_decode', 'status': 200, 'elapsedMs': 12,
+    'requestId': 'req_authored',
+    'responseCorrelation': {'source': 'response.created', 'id': 'resp_67bd65392a088191a3b802a61f4fba14'},
+    'receipt': {'receipt': 'present', 'text': 'different', 'calls': 'mismatch', 'observedCalls': 0, 'receiptCalls': 1, 'callDifferences': ['count']},
+    'dropped': [{'kind': 'response.output_item.added', 'count': 1}, {'kind': 'response.output_item.done', 'count': 1}],
+}
+
+
+def validate_processing(value):
+    if not isinstance(value, dict) or value.get('state') not in ('inactive', 'running', 'parked', 'delayed', 'eligible'):
+        raise ValueError('Unknown summary scheduling observation')
+    if value['state'] == 'delayed':
+        if set(value) != {'state', 'retryAt'} or type(value['retryAt']) is not int or not 0 <= value['retryAt'] < 9007199254740991:
+            raise ValueError('Invalid finite summary delay')
+    elif set(value) != {'state'}:
+        raise ValueError('Unknown summary scheduling fields')
 
 
 def prepare_summary(run):
@@ -28,7 +45,7 @@ def prepare_summary(run):
         'chatCatalog': {'version': 1, 'entries': [], 'defaultEntryId': None},
         'selectionCompatibility': {'database': None, 'catalog': {'version': 1, 'entries': [], 'defaultEntryId': None}},
     })
-    result = subprocess.run(['npm', 'run', '--silent', 'smoke:summary:seed', '--', str(run.root)],
+    result = subprocess.run(['npm', 'run', '--silent', 'smoke:summary:seed', '--', str(run.root), 'diagnostics'],
                             cwd=Path(__file__).resolve().parents[2], capture_output=True, timeout=30, check=True)
     if len(result.stdout) > 2048:
         raise ValueError('Summary seed output bound exceeded')
@@ -53,8 +70,11 @@ def status(run, action=None):
         if response.status != 200 or len(raw) > 4096:
             raise ValueError('Summary status/control refused or output exceeded bound')
         value = json.loads(raw)
-        if set(value) != {'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'coverageLost', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd', 'unpricedAttempts', 'priceBasis', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
+        if set(value) - {'providerFailure'} != {'processing', 'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'coverageLost', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd', 'unpricedAttempts', 'priceBasis', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
             raise ValueError('Unknown summary telemetry; no raw content accepted')
+        validate_processing(value['processing'])
+        if 'providerFailure' in value and value['providerFailure'] != AUTHORED_FAILURE:
+            raise ValueError('Only the exact authored diagnostic is allowed; no private telemetry')
         if type(value['coverageLost']) is not bool:
             raise ValueError('Unknown summary coverage status')
         if type(value['unpricedAttempts']) is not int or value['unpricedAttempts'] < 0:
@@ -373,14 +393,52 @@ def history_presentations(run, action, capture, images):
     return images
 
 
-def scenario(run, presentation_families=None, *, native_copy=False):
+def diagnostic_recovery(run, attempts_before):
+    """Actual storage/restart/Retry lifecycle; authored failure, never real inference."""
+    run.command({'type': 'setViewport', 'preset': 'wide'})
+    run.command({'type': 'memory', 'action': 'open'})
+    memory_wait(run, lambda value: value['loaded'], 'parked inspection loaded')
+    captures = []
+    for label, action in [('failure-collapsed', None), ('failure-expanded', 'failure-show')]:
+        if action:
+            run.command({'type': 'memory', 'action': action})
+        run.capture_state = label
+        for preset in ('wide', 'narrow'):
+            run.command({'type': 'setViewport', 'preset': preset})
+            capture = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
+            captures.append({'state': label, 'preset': preset, **capture})
+    # Disclosure/refresh are passive; no new attempt or accounting change.
+    run.command({'type': 'memory', 'action': 'reload'})
+    memory_wait(run, lambda value: value['loaded'], 'passive failure refresh')
+    run.command({'type': 'memory', 'action': 'failure-hide'})  # Refresh kept it open.
+    with contextlib.closing(readonly(run.database)) as db:
+        if db.execute('select count(*) from summary_attempt').fetchone()[0] != attempts_before:
+            raise ValueError('Passive disclosure/refresh created an attempt')
+    run.command({'type': 'memory', 'action': 'retry'})  # Exactly one deliberate action.
     deadline = time.monotonic() + 45
+    after = status(run)
+    while after['reason'] != 'summary_missing_key' and time.monotonic() < deadline:
+        time.sleep(.25)
+        after = status(run)
+    if after['reason'] != 'summary_missing_key' or 'providerFailure' in after or after['processing'] != {'state': 'parked'} or after['pending'] != 4 or after['frontier'] != 0 or after['attemptsToday'] != 0:
+        raise ValueError('Explicit Retry did not reach truthful keyless failure')
+    with contextlib.closing(readonly(run.database)) as db:
+        if db.execute('select count(*) from summary_attempt').fetchone()[0] != attempts_before + 1 or db.execute("select count(*) from summary_attempt where json_valid(usage_json) and json_extract(usage_json,'$.providerFailure.category')='incomplete_sdk_decoding'").fetchone()[0] != 1:
+            raise ValueError('Retry duplicated work or lost historical diagnostic')
+    private_json(run.root / 'summary-diagnostic-recovery.json', {
+        'task': 'T0343', 'runId': run.id, 'source': run.config['source'], 'captures': captures,
+        'passiveReadsDisclosureRefreshRestartNoReplay': True, 'explicitRetryOneKeylessAttempt': True,
+        'historicalDiagnosticRetained': True, 'providerCalls': 0,
+        'evidenceClass': 'actual authored attempt persistence, native Memory/Retry and keyless scheduler; not SDK or service inference',
+    })
+    run.command({'type': 'memory', 'action': 'close'})
+    run.command({'type': 'setViewport', 'preset': 'wide'})
+
+
+def scenario(run, presentation_families=None, *, native_copy=False):
     observed = status(run)
-    while observed['reason'] != 'summary_missing_key' and time.monotonic() < deadline:
-        time.sleep(.25)  # Read-only local due-work observation, never a mutation retry.
-        observed = status(run)
-    if observed['reason'] != 'summary_missing_key' or observed['frontier'] != 0 or observed['pending'] != 4 or observed['model'] != 'gpt-6-luna' or observed['attemptsToday'] != 0:
-        raise ValueError('Actual keyless scheduler/missing-key/coverage contract failed')
+    if observed['reason'] != 'summary_provider_failure' or observed['providerFailure'] != AUTHORED_FAILURE or observed['processing'] != {'state': 'parked'} or observed['frontier'] != 0 or observed['pending'] != 4 or observed['model'] != 'gpt-6-luna' or observed['attemptsToday'] != 0:
+        raise ValueError('Authored parked diagnostic/coverage contract failed')
     with contextlib.closing(readonly(run.database)) as db:
         attempts_before = db.execute('select count(*) from summary_attempt').fetchone()[0]
         messages_before = db.execute('select count(*) from message').fetchone()[0]
@@ -390,8 +448,9 @@ def scenario(run, presentation_families=None, *, native_copy=False):
     with contextlib.closing(readonly(run.database)) as db:
         if db.execute('select count(*) from summary_attempt').fetchone()[0] != attempts_before:
             raise ValueError('Restart silently replayed deterministic failure')
-    if recovered['reason'] != 'summary_missing_key' or recovered['pending'] != 4:
+    if recovered['reason'] != 'summary_provider_failure' or recovered.get('providerFailure') != AUTHORED_FAILURE or recovered['pending'] != 4:
         raise ValueError('Durable summary backlog/failure lost across native restart')
+    diagnostic_recovery(run, attempts_before)
     if presentation_families is None:
         memory_controls(run, native_copy=native_copy)  # Direct callers retain full UI coverage, no clipboard effect by default.
     else:
@@ -416,6 +475,7 @@ def scenario(run, presentation_families=None, *, native_copy=False):
         'sharedSummaryTitleSelection': True, 'scheduledMissingKeyObserved': True,
         'inactiveLegacyEnabledWithoutEmbeddingKeyOrDaemonControl': True,
         'backlogAndFailureSurviveRestart': True, 'noBlindReplay': True,
+        'authoredDiagnosticReopenAndExplicitRetry': True,
         'clearIncludesIncompleteSource': True, 'offSurvivesRestart': True, 'explicitEnableRecovery': True,
         'originalMessagesPreserved': True, 'providerCalls': 0,
         'generationSuccess': 'unavailable: no separately authorized opaque native provider credential',

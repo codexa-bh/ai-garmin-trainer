@@ -143,7 +143,12 @@ const groups = [
       "weekly-repository",
     ],
   ],
-  ["diagnostics", "domain", "lib/diagnostics", ["redaction"]],
+  [
+    "diagnostics",
+    "domain",
+    "lib/diagnostics",
+    ["redaction", "provider-failure"],
+  ],
   ["diagnostics", "adapter", "lib/diagnostics", ["doctor"]],
   [
     "garmin",

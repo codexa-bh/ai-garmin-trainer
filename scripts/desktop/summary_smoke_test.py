@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import tempfile
+import sqlite3
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
@@ -69,7 +70,7 @@ class SummarySmokeTests(unittest.TestCase):
         client.close.assert_called_once()
 
     def test_versioned_mutation_reads_metadata_once_and_refuses_stale_without_retry(self):
-        value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'coverageLost':False,'model':'gpt-6-luna','usedByChat':False,'attemptsToday':0,'unpricedAttempts':0,'reservedUsdToday':0,'estimatedUsdToday':0,'unknownReservedUsd':0,'priceBasis':smoke.PRICE_BASIS,'cap':6000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
+        value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'coverageLost':False,'model':'gpt-6-luna','usedByChat':False,'processing':{'state':'eligible'},'attemptsToday':0,'unpricedAttempts':0,'reservedUsdToday':0,'estimatedUsdToday':0,'unknownReservedUsd':0,'priceBasis':smoke.PRICE_BASIS,'cap':6000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
         run=SimpleNamespace(child=object(),origin='http://127.0.0.1:1')
         client=Mock();client.getresponse.side_effect=[SimpleNamespace(status=200,read=Mock(return_value=json.dumps(value).encode())),SimpleNamespace(status=409,read=Mock(return_value=b'{}'))]
         with patch.object(smoke.http.client,'HTTPConnection',return_value=client):
@@ -80,7 +81,7 @@ class SummarySmokeTests(unittest.TestCase):
         self.assertEqual(json.loads(body),{'version':2,'expected':value['expected'],'action':'clear'})
 
     def test_cost_metadata_accepts_only_finite_nonnegative_values_and_the_reviewed_basis(self):
-        value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'coverageLost':False,'model':'gpt-6-luna','usedByChat':False,'attemptsToday':12,'unpricedAttempts':2,'reservedUsdToday':0.03,'estimatedUsdToday':0.001,'unknownReservedUsd':0.02,'priceBasis':smoke.PRICE_BASIS,'cap':20000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
+        value = {'version':1,'state':'fresh','reason':None,'revision':3,'frontier':4,'pending':0,'items':0,'characters':0,'enabled':True,'coverageLost':False,'model':'gpt-6-luna','usedByChat':False,'processing':{'state':'eligible'},'attemptsToday':12,'unpricedAttempts':2,'reservedUsdToday':0.03,'estimatedUsdToday':0.001,'unknownReservedUsd':0.02,'priceBasis':smoke.PRICE_BASIS,'cap':20000,'publishedAt':1,'expected':{'revision':3,'privacy':0,'control':1,'manual':0}}
         run=SimpleNamespace(child=object(),origin='http://127.0.0.1:1')
         for key,replacement in [(None,None),('estimatedUsdToday',-1),('unknownReservedUsd',float('nan')),('reservedUsdToday','private'),('priceBasis','unreviewed'),('privateText','forbidden'),('unpricedAttempts',-1),('unpricedAttempts','private')]:
             candidate={**value, **({key:replacement} if key else {})}
@@ -89,6 +90,36 @@ class SummarySmokeTests(unittest.TestCase):
                 if key:
                     with self.assertRaises(ValueError):smoke.status(run)
                 else:self.assertEqual(smoke.status(run),value)
+
+    def test_scheduling_is_closed_and_parking_is_never_a_timestamp(self):
+        for candidate in ({'state':'parked'}, {'state':'running'}, {'state':'inactive'}, {'state':'eligible'}, {'state':'delayed','retryAt':123}):
+            smoke.validate_processing(candidate)
+        for candidate in (None, {'state':'private'}, {'state':'parked','retryAt':9007199254740991}, {'state':'eligible','private':'x'}, {'state':'delayed','retryAt':True}, {'state':'delayed','retryAt':9007199254740991}, {'state':'delayed','retryAt':-1}):
+            with self.assertRaises(ValueError): smoke.validate_processing(candidate)
+
+    def test_diagnostic_recovery_is_passive_until_one_retry_and_retains_history(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder); database=root/'trainer.sqlite'
+            with sqlite3.connect(database) as db:
+                db.execute('create table summary_attempt(usage_json text)')
+                db.execute('insert into summary_attempt values(?)', (json.dumps({'providerFailure':smoke.AUTHORED_FAILURE}),))
+            database.chmod(0o600)
+            def command(value):
+                if value.get('action') == 'retry':
+                    with sqlite3.connect(database) as db: db.execute('insert into summary_attempt values(null)')
+                return {'ok':True}
+            run=SimpleNamespace(root=root,database=database,id='unit',config={'source':'source'},command=Mock(side_effect=command))
+            status={'reason':'summary_missing_key','processing':{'state':'parked'},'pending':4,'frontier':0,'attemptsToday':0}
+            with patch.object(smoke,'memory_wait'), patch.object(smoke,'status',return_value=status):
+                smoke.diagnostic_recovery(run,1)
+            actions=[call.args[0].get('action') for call in run.command.call_args_list]
+            self.assertEqual(actions.count('retry'),1)
+            self.assertLess(actions.index('reload'),actions.index('retry'))
+            self.assertLess(actions.index('failure-hide'),actions.index('retry'))
+            receipt=json.loads((root/'summary-diagnostic-recovery.json').read_text())
+            self.assertEqual(len(receipt['captures']),4)
+            self.assertTrue(receipt['historicalDiagnosticRetained'])
+            self.assertEqual(receipt['providerCalls'],0)
 
     def test_memory_controls_are_one_finite_sequence_with_owned_restart_and_preservation(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -270,12 +301,13 @@ class SummarySmokeTests(unittest.TestCase):
     def test_scenario_proves_restart_no_replay_clear_cutoff_and_preservation_without_generation_claim(self):
         with tempfile.TemporaryDirectory() as folder:
             run=SimpleNamespace(root=Path(folder), id='run', config={'source':'source'}, binary=Path('/synthetic-app'), database=Path('/unit-copy'), stop=Mock(), start=Mock())
-            missing={'reason':'summary_missing_key','frontier':0,'pending':4,'model':'gpt-6-luna','attemptsToday':0}
+            missing={'reason':'summary_provider_failure','providerFailure':smoke.AUTHORED_FAILURE,'processing':{'state':'parked'},'frontier':0,'pending':4,'model':'gpt-6-luna','attemptsToday':0}
             rows=iter([(1,), (20,), (1,), (5,), (20,)])
             db=Mock(); db.execute.return_value.fetchone.side_effect=lambda:next(rows)
-            with patch.object(smoke, 'status', side_effect=[missing,missing,{'items':0,'characters':0},{'enabled':False},{'state':'disabled','items':0},{'enabled':True},{'enabled':False}]), patch.object(smoke,'readonly',return_value=db), patch.object(smoke,'memory_controls') as controls:
+            with patch.object(smoke, 'status', side_effect=[missing,missing,{'items':0,'characters':0},{'enabled':False},{'state':'disabled','items':0},{'enabled':True},{'enabled':False}]), patch.object(smoke,'readonly',return_value=db), patch.object(smoke,'memory_controls') as controls, patch.object(smoke,'diagnostic_recovery') as recovery:
                 smoke.scenario(run)
             controls.assert_called_once_with(run, native_copy=False)
+            recovery.assert_called_once_with(run, 1)
             self.assertEqual(run.stop.call_count,2)
             self.assertEqual(run.start.call_count,2)
             receipt=json.loads(next(run.root.glob('summary-keyless-*.json')).read_text())

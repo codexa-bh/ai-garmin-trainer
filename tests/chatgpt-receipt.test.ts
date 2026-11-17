@@ -1,4 +1,6 @@
 import { expect, it, vi } from "vitest";
+import { createOpenAI } from "@ai-sdk/openai";
+import { chatgptText } from "../src/lib/ai/chatgpt-generation";
 import { chatgptModel, receiptMismatch } from "../src/lib/ai/chatgpt-transport";
 import { createTrainerGeneration } from "../src/lib/ai/provider-generation";
 import {
@@ -79,8 +81,12 @@ function textOutput(streamed: string, done: Item): Output {
     done,
   };
 }
-function stream(outputs: Output[], terminal = outputs.map((o) => o.done)) {
-  const values: unknown[] = [
+function stream(
+  outputs: Output[],
+  terminal = outputs.map((o) => o.done),
+  change: (events: Item[]) => void = () => {},
+) {
+  const values: Item[] = [
     {
       type: "response.created",
       sequence_number: 0,
@@ -111,6 +117,7 @@ function stream(outputs: Output[], terminal = outputs.map((o) => o.done)) {
       usage: { input_tokens: 40, output_tokens: 6 },
     },
   });
+  change(values);
   // Multibyte UTF-8 and CRLF framing split at arbitrary byte boundaries.
   const bytes = new TextEncoder().encode(
     values
@@ -148,6 +155,61 @@ function projected(error: unknown) {
     failure: providerFailureDiagnostic("chatgpt", error),
   });
 }
+
+it.each([
+  [
+    "missing message ID",
+    () => {
+      const output = textOutput("Hi", message("Hi"));
+      delete output.added.id;
+      return output;
+    },
+  ],
+  [
+    "unsupported message phase",
+    () => {
+      const output = textOutput("Hi", message("Hi"));
+      output.added.phase = privateMarker;
+      return output;
+    },
+  ],
+  [
+    "rotating message identity",
+    () => {
+      const output = textOutput("Hi", message("Hi"));
+      output.added.id = `msg_${privateMarker}`;
+      return output;
+    },
+  ],
+] as const)(
+  "locked SDK %s has closed lifecycle evidence",
+  async (_label, output) => {
+    const { result, network } = await generate(() => stream([output()]));
+    const error = (result as { error: unknown }).error;
+    expect(projected(error).failure).toMatchObject({
+      category: "sdk_text_lifecycle_failed",
+      stage: "sdk_decode",
+      status: 200,
+    });
+    expect(JSON.stringify(projected(error))).not.toContain(privateMarker);
+    expect(network).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("counts actual SDK fallback of known kinds independently of receipt differences", async () => {
+  const output = toolOutput(call({ id: 7 }));
+  const { result } = await generate(() => stream([output], [call()]));
+  expect(projected((result as { error: unknown }).error).failure).toMatchObject(
+    {
+      category: "incomplete_sdk_decoding",
+      dropped: [
+        { kind: "response.output_item.added", count: 1 },
+        { kind: "response.output_item.done", count: 1 },
+      ],
+      receipt: { calls: "mismatch", callDifferences: ["count"] },
+    },
+  );
+});
 
 it.each([
   ["added and done", true],
@@ -330,6 +392,238 @@ it.each([
     expect(network).toHaveBeenCalledTimes(1);
   },
 );
+
+it.each([
+  "response.output_item.added",
+  "response.output_item.done",
+  "response.output_text.delta",
+])("actual SDK handler oracle for %s fallback", async (kind) => {
+  const model = createOpenAI({
+    apiKey: "authored",
+    fetch: async () =>
+      stream([textOutput("Hi", message("Hi"))], undefined, (events) => {
+        for (const event of events)
+          if (event.type === kind) {
+            if (kind === "response.output_text.delta") event.delta = 7;
+            else (event.item as Item).id = 7;
+          }
+      }),
+  }).responses(admission.model);
+  const result = await model.doStream({
+    prompt: [{ role: "user", content: [{ type: "text", text: "Question" }] }],
+    includeRawChunks: true,
+  });
+  let pending = false,
+    emitted = false,
+    drops = 0;
+  const reader = result.stream.getReader();
+  for (;;) {
+    const next = await reader.read();
+    if (next.done) break;
+    const part = next.value;
+    if (part.type === "raw") {
+      if (pending && !emitted) drops++;
+      pending = (part.rawValue as Item).type === kind;
+      emitted = false;
+    } else emitted = true;
+  }
+  expect(drops).toBe(kind === "response.output_text.delta" ? 2 : 1);
+});
+
+it("repeated malformed deltas count actual fallback, not valid ignored or future events", async () => {
+  const { result } = await generate(() =>
+    stream([textOutput("Hi", message("Hi"))], undefined, (events) => {
+      for (const event of events)
+        if (event.type === "response.output_text.delta")
+          event.delta = { privateMarker };
+      events.splice(
+        1,
+        0,
+        { type: "response.content_part.added", privateMarker },
+        { type: `future_${privateMarker}`, privateMarker },
+      );
+    }),
+  );
+  expect(projected((result as { error: unknown }).error).failure).toMatchObject(
+    {
+      dropped: [{ kind: "response.output_text.delta", count: 2 }],
+      receipt: { text: "observed_empty" },
+    },
+  );
+  expect(
+    JSON.stringify(projected((result as { error: unknown }).error)),
+  ).not.toContain(privateMarker);
+});
+
+it("retains actual drops before a typed upstream error without replacing its precedence", async () => {
+  let release!: () => void;
+  const consumed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const network = vi.fn(async () => {
+    const invalid = {
+      added: { type: "message", id: 7 },
+      done: { type: "message", id: 7 },
+      deltas: [],
+    };
+    const wire = await stream(
+      [invalid, textOutput("Hi", message("Hi"))],
+      undefined,
+      (events) => {
+        events[events.length - 1] = {
+          type: "response.failed",
+          response: {
+            error: { code: "private-error", message: privateMarker },
+          },
+        };
+      },
+    ).text();
+    const at = wire.lastIndexOf("event: x");
+    return new Response(
+      new ReadableStream({
+        start(out) {
+          out.enqueue(new TextEncoder().encode(wire.slice(0, at)));
+          // Fail only once actual SDK text consumption proves preceding handlers ran.
+          consumed
+            .then(() => {
+              out.enqueue(new TextEncoder().encode(wire.slice(at)));
+              out.close();
+            })
+            .catch((error: unknown) => out.error(error));
+        },
+      }),
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  const error = await chatgptText({
+    model: chatgptModel(admission, undefined, network, async () => ({
+      accessToken: privateMarker,
+    })),
+    system: "Policy",
+    prompt: "Question",
+    onChunk: ({ chunk }: { chunk: { type: string } }) => {
+      if (chunk.type === "text-delta") release();
+    },
+    onError: () => {},
+  }).catch((error: unknown) => error);
+  const failure = projected(error).failure;
+  expect(failure).toMatchObject({
+    category: "request_failed",
+    stage: "stream_validation",
+    status: 200,
+    dropped: [
+      { kind: "response.output_item.added", count: 1 },
+      { kind: "response.output_item.done", count: 1 },
+    ],
+  });
+  expect(JSON.stringify(failure)).not.toContain(privateMarker);
+});
+
+it("empty message identity remains an existing SDK success, not a new rejection", async () => {
+  const { result } = await generate(() =>
+    stream([textOutput("Hi", message("Hi", ""))]),
+  );
+  expect(result).toMatchObject({ text: "Hi", toolCalls: [] });
+  expect(result).not.toHaveProperty("error");
+});
+
+it("observed drops alone do not reject an otherwise exact successful result", async () => {
+  const { result, network } = await generate(() =>
+    stream([textOutput("Hi", message("Hi"))], undefined, (events) => {
+      events.splice(2, 0, {
+        type: "response.output_text.delta",
+        item_id: "msg_1",
+        delta: 7,
+      });
+    }),
+  );
+  expect(result).toMatchObject({
+    text: "Hi",
+    toolCalls: [],
+    tokenUsage: { inputTokens: 40, outputTokens: 6 },
+  });
+  expect(result).not.toHaveProperty("error");
+  expect(network).toHaveBeenCalledTimes(1);
+});
+
+const responseId = "resp_67bd65392a088191a3b802a61f4fba14";
+it.each([
+  responseId,
+  undefined,
+  `resp_${privateMarker}`,
+  `${responseId}\n`,
+  `${responseId}extra`,
+  "resp_" + "a".repeat(129),
+  7,
+])(
+  "projects whole created correlation only for the supported format: %s",
+  async (id) => {
+    const { result } = await generate(() => {
+      const response = stream(
+        [textOutput("Hi", message("Other"))],
+        undefined,
+        (events) => {
+          (events[0].response as Item).id = id;
+        },
+      );
+      response.headers.set("x-request-id", "req_safe");
+      return response;
+    });
+    const failure = projected((result as { error: unknown }).error).failure;
+    expect(failure?.requestId).toBe("req_safe");
+    expect(failure?.responseCorrelation).toEqual(
+      id === responseId ? { source: "response.created", id } : undefined,
+    );
+  },
+);
+it("contradictory created identities suppress correlation without changing receipt rejection", async () => {
+  const { result } = await generate(() =>
+    stream([textOutput("Hi", message("Other"))], undefined, (events) => {
+      (events[0].response as Item).id = responseId;
+      events.splice(1, 0, {
+        type: "response.created",
+        response: {
+          id: "resp_" + "a".repeat(32),
+          created_at: 1,
+          model: admission.model,
+        },
+      });
+    }),
+  );
+  expect(projected((result as { error: unknown }).error).failure).toMatchObject(
+    { category: "incomplete_sdk_decoding" },
+  );
+  expect(
+    projected((result as { error: unknown }).error).failure
+      ?.responseCorrelation,
+  ).toBeUndefined();
+});
+it("optional closed dimensions omit invalid nested values whole, retaining independent facts", () => {
+  const base = {
+    category: "sdk_text_lifecycle_failed",
+    stage: "sdk_decode",
+    status: 200,
+  };
+  const valid = [{ kind: "response.output_text.delta", count: 2 }];
+  for (const dropped of [
+    [],
+    [{ kind: privateMarker, count: 1 }],
+    [{ kind: "response.output_text.delta", count: -1 }],
+    [{ kind: "response.output_text.delta", count: 131073 }],
+    [{ kind: "response.output_text.delta", count: Infinity }],
+    [{ kind: "response.output_text.delta", count: 1, privateMarker }],
+    [...valid, ...valid],
+  ])
+    expect(safeFailureDiagnostic({ ...base, dropped })).toEqual(base);
+  for (const responseCorrelation of [
+    { source: privateMarker, id: responseId },
+    { source: "response.created", id: responseId, privateMarker },
+    { source: "response.created", id: responseId + "\n" },
+  ])
+    expect(
+      safeFailureDiagnostic({ ...base, dropped: valid, responseCorrelation }),
+    ).toEqual({ ...base, dropped: valid });
+});
 
 it("hostile values in text, arguments, IDs and credentials never enter receipt diagnostics", async () => {
   const hostile = call({

@@ -9,7 +9,11 @@ import {
   type SummaryValueDiagnostic,
 } from "./summary-policy";
 
+import type { ProviderFailureDiagnostic } from "../ai/debug-types";
+
 export type SummaryGeneration = {
+  /** Adapter-owned projection; engine policy never inspects SDK errors. */
+  failure?(error: unknown): ProviderFailureDiagnostic | undefined;
   generate(
     system: string,
     prompt: string,
@@ -206,6 +210,7 @@ export function createSummaryEngine(ports: {
               : reason === "summary_publication_conflict"
                 ? 300000
                 : undefined,
+            ports.generation?.failure?.(error),
           );
         }
       } finally {
