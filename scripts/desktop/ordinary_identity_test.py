@@ -47,6 +47,8 @@ class OrdinaryIdentityTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch('smoke_build.subprocess.check_output', side_effect=output).start()
         patch('ordinary_identity.run_build', side_effect=self.command).start()
+        # The macOS producer contract on any test host; host selection has its own tests.
+        patch('platform_target.host', return_value='macos-arm64').start()
 
     def command(self, command, **kwargs):
         self.calls.append(command)

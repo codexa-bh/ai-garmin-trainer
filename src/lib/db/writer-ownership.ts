@@ -2,15 +2,16 @@ import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import {
   closeSync,
+  constants,
   existsSync,
   lstatSync,
   openSync,
   readFileSync,
-  realpathSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { realLocalPath } from "./local-path";
 
 // A cooperative admission lease, not a SQLite transaction or a multi-user lock.
 // Never steal a stale lease: PID reuse and delayed writers make that unsafe.
@@ -45,6 +46,21 @@ export function releaseDatabaseWritersForProcessExit(): void {
   leases.clear();
 }
 
+function exclusiveProbe(database: string): void {
+  // libuv UV_FS_O_EXLOCK (include/uv/win.h) opens with a zero Windows share
+  // mode. Reading only; never truncates, creates or locks beyond this instant.
+  const EXCLUSIVE = 0x10000000;
+  let fd: number;
+  try {
+    fd = openSync(database, constants.O_RDONLY | EXCLUSIVE);
+  } catch {
+    throw new Error(
+      "Database is open elsewhere or writer ownership could not be verified. Quit its owner first.",
+    );
+  }
+  closeSync(fd);
+}
+
 export function acquireDatabaseWriter(databasePath: string): () => void {
   const requested = resolve(databasePath);
   const exists = existsSync(requested);
@@ -54,11 +70,12 @@ export function acquireDatabaseWriter(databasePath: string): () => void {
       throw new Error("Database must be a regular, unaliased local file.");
   }
   // Source mode retains conventional /var -> /private/var parent semantics;
-  // canonicalizing the lease prevents alias-based concurrent writer admission.
+  // canonicalizing the lease prevents alias-based concurrent writer admission
+  // (Windows: case, 8.3, junction and subst spellings share one lease).
   // Desktop's stricter explicit-reference preflight remains independent.
   const database = exists
-    ? realpathSync(requested)
-    : join(realpathSync(dirname(requested)), basename(requested));
+    ? realLocalPath(requested)
+    : join(realLocalPath(dirname(requested)), basename(requested));
   const path = `${database}.trainer-writer`;
   const leases = processLeases();
   const prior = leases.get(path);
@@ -88,6 +105,11 @@ export function acquireDatabaseWriter(databasePath: string): () => void {
     if (leases.get(path) === identity) leases.delete(path);
   };
   try {
+    // Windows has no lsof: an exclusive no-sharing probe open fails while any
+    // other process holds the database open (SQLite always shares handles),
+    // and never modifies or locks the file beyond this instant.
+    if (process.platform === "win32" && existsSync(database))
+      exclusiveProbe(database);
     if (process.platform === "darwin" && existsSync(database)) {
       const result = spawnSync("/usr/sbin/lsof", ["-t", "--", database], {
         encoding: "utf8",

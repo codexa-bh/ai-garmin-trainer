@@ -1,5 +1,6 @@
 //! Explicit ordinary-artifact admission. No ambient enabling environment or default-state lookup.
 //! Only the named, separately authorized provider preset delegates opaque key use to its native owner.
+use crate::private_fs::{self, FileId};
 use crate::{private_store, settings};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -7,7 +8,6 @@ use std::{
     collections::BTreeMap,
     fs::{self, File},
     io::Read,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 pub const CONTRACT: &str = "trainer-ordinary-isolated/v2";
@@ -51,9 +51,9 @@ pub struct Admission {
     pub descriptor: Descriptor,
     pub boot: String,
     directories: Vec<private_store::PinnedDirectory>,
-    database: std::sync::Mutex<Option<(u64, u64)>>,
-    descriptor_capture: (u64, u64, Vec<u8>),
-    owner_capture: (u64, u64, Vec<u8>),
+    database: std::sync::Mutex<Option<FileId>>,
+    descriptor_capture: private_store::Capture,
+    owner_capture: private_store::Capture,
     provider_source: std::sync::Mutex<Option<crate::provider_smoke::Capture>>,
 }
 
@@ -117,18 +117,30 @@ pub fn wait_for_owner_loss(input: &mut impl Read) {
     }
 }
 
-fn database_identity(path: &Path) -> Result<(u64, u64), &'static str> {
-    let meta = fs::symlink_metadata(path).map_err(|_| DENIED)?;
-    if !meta.is_file()
-        || meta.nlink() != 1
-        || meta.len() == 0
-        || meta.uid() != unsafe { libc::getuid() }
-        || meta.mode() & 0o777 != 0o600
-        || fs::canonicalize(path).ok().as_deref() != Some(path)
-    {
+fn database_identity(path: &Path) -> Result<FileId, &'static str> {
+    let meta = private_fs::path_meta(path).map_err(|_| DENIED)?;
+    if !meta.private_file() || !meta.exact || meta.len == 0 || !private_fs::canonical(path) {
         return Err(DENIED);
     }
-    Ok((meta.dev(), meta.ino()))
+    Ok(meta.id)
+}
+
+/// History/provider automation must retain a real ownership pipe on stdin, not a
+/// terminal, file, environment marker or stored parent PID.
+#[cfg(unix)]
+fn stdin_is_pipe() -> bool {
+    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(libc::STDIN_FILENO, metadata.as_mut_ptr()) } != 0 {
+        return false;
+    }
+    unsafe { metadata.assume_init() }.st_mode & libc::S_IFMT == libc::S_IFIFO
+}
+#[cfg(windows)]
+fn stdin_is_pipe() -> bool {
+    use windows_sys::Win32::Storage::FileSystem::{GetFileType, FILE_TYPE_PIPE};
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
+    let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    !handle.is_null() && unsafe { GetFileType(handle) } == FILE_TYPE_PIPE
 }
 
 pub fn private_directory(path: &Path) -> Result<(), String> {
@@ -160,11 +172,11 @@ fn inventory(
     for item in fs::read_dir(directory).map_err(|_| DENIED)? {
         let item = item.map_err(|_| DENIED)?;
         let path = item.path();
-        let meta = fs::symlink_metadata(&path).map_err(|_| DENIED)?;
-        if meta.is_dir() {
+        let meta = private_fs::path_meta(&path).map_err(|_| DENIED)?;
+        if meta.kind == private_fs::Kind::Directory {
             inventory(root, &path, files, bytes)?;
-        } else if meta.is_file() && meta.nlink() == 1 {
-            *bytes = bytes.checked_add(meta.len()).ok_or(DENIED)?;
+        } else if meta.kind == private_fs::Kind::File && meta.links == 1 {
+            *bytes = bytes.checked_add(meta.len).ok_or(DENIED)?;
             if files.len() >= 50_000 || *bytes > 8 * 1024 * 1024 * 1024 {
                 return Err(DENIED);
             }
@@ -291,12 +303,7 @@ impl Admission {
         if admission.descriptor.history_setup.is_some()
             || admission.descriptor.provider_smoke.is_some()
         {
-            // History/provider automation must retain a real ownership pipe, not a terminal,
-            // file, environment marker or stored parent PID.
-            let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
-            if unsafe { libc::fstat(libc::STDIN_FILENO, metadata.as_mut_ptr()) } != 0
-                || unsafe { metadata.assume_init() }.st_mode & libc::S_IFMT != libc::S_IFIFO
-            {
+            if !stdin_is_pipe() {
                 return Err(DENIED);
             }
         }
@@ -307,18 +314,18 @@ impl Admission {
         artifact: impl FnOnce(&Descriptor) -> Result<(), &'static str>,
     ) -> Result<Self, &'static str> {
         let descriptor_capture = private_store::capture(path)?;
-        let bytes = &descriptor_capture.2;
+        let bytes = &descriptor_capture.1;
         if bytes.len() > 16 * 1024 {
             return Err(DENIED);
         }
         let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|_| DENIED)?;
         descriptor.validate(path)?;
-        let root = private_store::PinnedDirectory::open(&descriptor.root)?;
+        let mut root = private_store::PinnedDirectory::open(&descriptor.root)?;
         root.lock_exclusive()?;
         // Read again after taking the lifetime lease, refusing a descriptor swap.
         let owner_capture = private_store::capture(&descriptor.root.join("owner"))?;
         if private_store::capture(path)? != descriptor_capture
-            || owner_capture.2 != descriptor.run_id.as_bytes()
+            || owner_capture.1 != descriptor.run_id.as_bytes()
         {
             return Err(DENIED);
         }
@@ -544,13 +551,8 @@ impl Admission {
         }
         for sidecar in ["trainer.sqlite-wal", "trainer.sqlite-shm"] {
             let path = self.descriptor.root.join(sidecar);
-            match fs::symlink_metadata(&path) {
-                Ok(meta)
-                    if meta.is_file()
-                        && meta.nlink() == 1
-                        && meta.uid() == unsafe { libc::getuid() }
-                        && meta.mode() & 0o077 == 0
-                        && fs::canonicalize(&path).ok().as_deref() == Some(path.as_path()) => {}
+            match private_fs::path_meta(&path) {
+                Ok(meta) if meta.private_file() && private_fs::canonical(&path) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 _ => return Err(DENIED),
             }
@@ -618,8 +620,9 @@ impl Admission {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
+    use crate::private_fs::testing::{make_private, make_shared, symlink};
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     #[test]
     fn finite_provider_scope_never_combines_with_history_setup() {
         let (_root, path) = fixture();
@@ -640,26 +643,24 @@ mod tests {
     }
     fn fixture() -> (PathBuf, PathBuf) {
         let id = uuid::Uuid::new_v4().to_string();
-        let root = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
+        let root = crate::private_fs::testing::temp_root()
             .join(format!("ordinary-{id}"));
         fs::create_dir(&root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        make_private(&root);
         for name in DIRECTORIES {
             fs::create_dir(root.join(name)).unwrap();
-            fs::set_permissions(root.join(name), fs::Permissions::from_mode(0o700)).unwrap();
+            make_private(root.join(name));
         }
         let write = |path: PathBuf, bytes: Vec<u8>| {
             fs::write(&path, bytes).unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+            make_private(path);
         };
         write(root.join("owner"), id.as_bytes().to_vec());
         write(
             root.join("trainer.sqlite"),
             b"identity-only fixture; production DB validators still bind".to_vec(),
         );
-        write(root.join("config/settings-v2.json"), serde_json::to_vec(&serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap());
+        write(root.join("config").join("settings-v2.json"), serde_json::to_vec(&serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap());
         let path = root.join("launch.json");
         write(path.clone(), serde_json::to_vec(&serde_json::json!({"schemaVersion":2,"runId":id,"root":root,"sourceFingerprint":"a".repeat(64),"buildSourceFingerprint":"d".repeat(64),"buildContext":"e".repeat(64),"artifactInventoryHash":"b".repeat(64),"controlPort":23567,"capability":"c".repeat(64)})).unwrap());
         (root, path)
@@ -704,8 +705,8 @@ mod tests {
 
     #[test]
     fn owner_loss_is_bounded_and_does_not_need_a_saved_pid() {
-        use std::os::unix::net::UnixStream;
-        let (mut reader, owner) = UnixStream::pair().unwrap();
+        // A real OS pipe on every platform (Windows: anonymous pipe).
+        let (mut reader, owner) = std::io::pipe().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let thread = std::thread::spawn(move || {
             wait_for_owner_loss(&mut reader);
@@ -721,7 +722,7 @@ mod tests {
     #[test]
     fn missing_settings_and_fresh_database_need_exact_explicit_history_scope() {
         let (root, path) = fixture();
-        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
         let mut descriptor: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -729,16 +730,16 @@ mod tests {
         fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
         let existing = Admission::admit(&path, |_| Ok(())).unwrap();
         assert!(existing.verify_settings().is_ok());
-        let newest = root.join("config/settings-v3.json");
+        let newest = root.join("config").join("settings-v3.json");
         assert_eq!(existing.settings(), newest);
         let saved = serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":crate::chat_catalog::Catalog::default()});
         fs::write(&newest, serde_json::to_vec(&saved).unwrap()).unwrap();
-        fs::set_permissions(&newest, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&newest);
         assert!(existing.verify_settings().is_ok());
         fs::remove_file(&newest).unwrap();
-        let conflict = root.join("config/settings-v2.json");
+        let conflict = root.join("config").join("settings-v2.json");
         fs::write(&conflict, serde_json::to_vec(&saved).unwrap()).unwrap();
-        fs::set_permissions(&conflict, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&conflict);
         assert!(existing.verify_settings().is_err()); // Filename/version guard remains binding.
         fs::remove_file(conflict).unwrap();
         drop(existing);
@@ -790,9 +791,9 @@ mod tests {
         ]);
         let authored_catalog: crate::chat_catalog::Catalog = serde_json::from_value(serde_json::json!({"version":1,"entries":[{"id":"entry_summary_local","provider":"ollama","modelId":"synthetic-memory:small"},{"id":"entry_summary_cloud","provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null})).unwrap();
         let saved = serde_json::json!({"version":3,"fields":fields,"keys":{},"chatCatalog":authored_catalog.clone()});
-        let v3 = root.join("config/settings-v3.json");
+        let v3 = root.join("config").join("settings-v3.json");
         fs::write(&v3, serde_json::to_vec(&saved).unwrap()).unwrap();
-        fs::set_permissions(&v3, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&v3);
         let admission = Admission::admit(&path, |_| Ok(())).unwrap();
         let mut input = settings::SaveInput {
             fields,
@@ -847,7 +848,7 @@ mod tests {
     #[test]
     fn native_creation_and_identity_binding_are_one_observed_transition() {
         let (root, path) = fixture();
-        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
         fs::remove_file(root.join("trainer.sqlite")).unwrap();
         let mut descriptor: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -868,11 +869,7 @@ mod tests {
                         b"owned native publication fixture",
                     )
                     .unwrap();
-                    fs::set_permissions(
-                        creator_root.join("trainer.sqlite"),
-                        fs::Permissions::from_mode(0o600),
-                    )
-                    .unwrap();
+                    make_private(creator_root.join("trainer.sqlite"));
                     owned = Some(crate::onboarding::OwnedDatabase::capture_test_publication(
                         &creator_root.join("trainer.sqlite"),
                     ));
@@ -906,7 +903,7 @@ mod tests {
             .initialize_created_database(|| panic!("Out-of-scope mutation"))
             .is_err());
         drop(existing);
-        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
         fs::remove_file(root.join("trainer.sqlite")).unwrap();
         let mut descriptor: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -969,16 +966,16 @@ mod tests {
     #[test]
     fn newest_file_backed_authority_stays_confined_without_invalid_or_legacy_fallback() {
         let (root, path) = fixture();
-        let prior = fs::read(root.join("config/settings-v2.json")).unwrap();
+        let prior = fs::read(root.join("config").join("settings-v2.json")).unwrap();
         let admission = Admission::admit(&path, |_| Ok(())).unwrap();
-        let next = root.join("config/settings-v3.json");
+        let next = root.join("config").join("settings-v3.json");
         let mut value = serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":crate::chat_catalog::Catalog::default()});
         fs::write(&next, serde_json::to_vec(&value).unwrap()).unwrap();
-        fs::set_permissions(&next, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&next);
         assert_eq!(admission.settings(), next);
         assert!(admission.verify_settings().is_ok());
         assert_eq!(
-            fs::read(root.join("config/settings-v2.json")).unwrap(),
+            fs::read(root.join("config").join("settings-v2.json")).unwrap(),
             prior
         );
         value["fields"]["DATABASE_PATH"] = serde_json::json!("/normal/trainer.sqlite");
@@ -990,14 +987,14 @@ mod tests {
         drop(admission);
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
         assert_eq!(
-            fs::read(root.join("config/settings-v2.json")).unwrap(),
+            fs::read(root.join("config").join("settings-v2.json")).unwrap(),
             prior
         );
         fs::remove_file(next).unwrap();
-        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
-        let legacy = root.join("config/settings-v1.json");
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
+        let legacy = root.join("config").join("settings-v1.json");
         fs::write(&legacy, serde_json::to_vec(&serde_json::json!({"version":1,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap()).unwrap();
-        fs::set_permissions(&legacy, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&legacy);
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
         assert!(legacy.exists());
         fs::remove_dir_all(root).unwrap();
@@ -1023,7 +1020,7 @@ mod tests {
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
         fs::remove_file(root.join("linked.sqlite")).unwrap();
         let alias = root.join("alias.json");
-        std::os::unix::fs::symlink(&path, &alias).unwrap();
+        symlink(&path, &alias).unwrap();
         assert!(Admission::admit(&alias, |_| Ok(())).is_err());
         fs::remove_dir_all(root).unwrap();
     }
@@ -1031,9 +1028,9 @@ mod tests {
     fn aliases_swaps_insecure_objects_and_artifact_claims_refuse() {
         let (root, path) = fixture();
         assert!(Admission::admit(&path, |_| Err("artifact mismatch")).is_err());
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        make_shared(&path);
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&path);
         let admission = Admission::admit(&path, |_| Ok(())).unwrap();
         fs::rename(root.join("config"), root.join("old-config")).unwrap();
         fs::create_dir(root.join("config")).unwrap();

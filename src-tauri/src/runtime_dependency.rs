@@ -1,12 +1,33 @@
 //! Action-time uv diagnostic only. No package/script execution, network or downloads.
+use crate::process_tree::{self, Tree};
 use std::io::Read;
-use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 pub const UV_UNAVAILABLE: &str = "dependency-uv-unavailable";
+
+/// Fixed GUI uv locations (no PATH or shell search). Windows uses only the
+/// official installer's per-user locations and `.exe` executables.
+pub fn uv_candidates() -> Vec<std::path::PathBuf> {
+    #[cfg(windows)]
+    return std::env::var_os("USERPROFILE")
+        .map(std::path::PathBuf::from)
+        .filter(|home| home.is_absolute())
+        .map(|home| {
+            vec![
+                home.join(r".local\bin\uv.exe"),
+                home.join(r".cargo\bin\uv.exe"),
+            ]
+        })
+        .unwrap_or_default();
+    #[cfg(unix)]
+    ["/opt/homebrew/bin/uv", "/usr/local/bin/uv", "/usr/bin/uv"]
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect()
+}
 pub const PYTHON_UNAVAILABLE: &str = "dependency-python-unavailable";
 
 #[derive(Debug, PartialEq)]
@@ -55,19 +76,17 @@ pub fn check_auth_uv(executable: &Path) -> Result<(), &'static str> {
             "--no-python-downloads",
         ])
         .env_clear()
-        .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        .env(
+            "PATH",
+            process_tree::search_path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"),
+        )
         .env("UV_PYTHON_DOWNLOADS", "never")
         .env("PYTHONDONTWRITEBYTECODE", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .process_group(0);
-    for key in ["HOME", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "LANG"] {
-        if let Some(value) = std::env::var_os(key) {
-            command.env(key, value);
-        }
-    }
-    let mut child = match command.spawn() {
+        .stderr(Stdio::null());
+    process_tree::user_environment(&mut command);
+    let mut child = match Tree::spawn(&mut command) {
         Ok(child) => child,
         Err(error)
             if matches!(
@@ -89,19 +108,15 @@ pub fn check_auth_uv(executable: &Path) -> Result<(), &'static str> {
     });
     let output = rx.recv_timeout(Duration::from_secs(3));
     if !matches!(&output, Ok((true, bytes)) if bytes.len() <= 32768) {
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
+        child.kill();
     }
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break Ok(status),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
             _ => {
-                // Reap only the diagnostic's exact owned group on timeout/error.
-                unsafe {
-                    libc::kill(-(child.id() as i32), libc::SIGKILL);
-                }
+                // Reap only the diagnostic's exact owned tree on timeout/error.
+                child.kill();
                 break child.wait();
             }
         }
@@ -121,6 +136,7 @@ pub fn check_auth_uv(executable: &Path) -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     #[test]
     fn selected_override_is_bounded_noninstalling_and_failures_stay_unknown() {
         use std::os::unix::fs::PermissionsExt;
@@ -146,12 +162,13 @@ mod tests {
     #[test]
     fn only_valid_successful_empty_inventory_proves_missing_python() {
         assert_eq!(installed_python(b"[]"), Python::Missing);
-        assert_eq!(
-            installed_python(
-                br#"[{"version_parts":{"major":3,"minor":12},"path":"/synthetic/python"}]"#
-            ),
-            Python::Available
-        );
+        // uv reports host-absolute interpreter paths.
+        let synthetic = if cfg!(windows) {
+            br#"[{"version_parts":{"major":3,"minor":12},"path":"C:\\synthetic\\python.exe"}]"#.as_slice()
+        } else {
+            br#"[{"version_parts":{"major":3,"minor":12},"path":"/synthetic/python"}]"#.as_slice()
+        };
+        assert_eq!(installed_python(synthetic), Python::Available);
         for bytes in [
             b"private stderr Python not found".as_slice(),
             b"null",
@@ -162,7 +179,7 @@ mod tests {
             assert_eq!(installed_python(bytes), Python::Unknown);
         }
         assert_eq!(
-            check_auth_uv(Path::new("/nonexistent-trainer-uv")),
+            check_auth_uv(&std::env::temp_dir().join("nonexistent-trainer-uv.exe")),
             Err(UV_UNAVAILABLE)
         );
     }

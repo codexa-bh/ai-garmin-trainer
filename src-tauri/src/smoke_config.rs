@@ -3,7 +3,6 @@
 use serde::Deserialize;
 use std::{
     fs,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
@@ -86,13 +85,8 @@ impl Config {
             );
         }
         let db = self.root.join("trainer.sqlite");
-        let meta = fs::symlink_metadata(&db).map_err(|_| "Populated copy required")?;
-        if !meta.is_file()
-            || meta.nlink() != 1
-            || meta.uid() != unsafe { libc::getuid() }
-            || meta.mode() & 0o077 != 0
-            || db.canonicalize().ok().as_ref() != Some(&db)
-        {
+        let meta = crate::private_fs::path_meta(&db).map_err(|_| "Populated copy required")?;
+        if !meta.private_file() || !crate::private_fs::canonical(&db) {
             return Err("Unsafe copy DB".into());
         }
         Ok(())
@@ -297,12 +291,12 @@ impl Config {
             )
     }
     pub fn settings(&self) -> PathBuf {
-        let next = self.root.join("config/settings-v3.json");
+        let next = self.root.join("config").join("settings-v3.json");
         if !matches!(fs::symlink_metadata(&next), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
         {
             next
         } else {
-            self.root.join("config/settings-v2.json")
+            self.root.join("config").join("settings-v2.json")
         }
     }
     pub fn identifier(&self) -> String {
@@ -331,21 +325,17 @@ fn accepted_keys(keys: &std::collections::BTreeMap<String, String>) -> bool {
             )])
 }
 pub fn private_dir(path: &Path) -> Result<(), String> {
-    let meta = fs::symlink_metadata(path).map_err(|_| "Missing smoke directory")?;
-    if !path.is_absolute()
-        || !meta.is_dir()
-        || meta.uid() != unsafe { libc::getuid() }
-        || meta.mode() & 0o077 != 0
-        || path.canonicalize().ok().as_deref() != Some(path)
-    {
+    let meta = crate::private_fs::path_meta(path).map_err(|_| "Missing smoke directory")?;
+    if !path.is_absolute() || !meta.private_dir() || !crate::private_fs::canonical(path) {
         return Err("Smoke directory must be canonical owner-private, not an alias".into());
     }
     Ok(())
 }
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
+    use crate::private_fs::testing::{make_private, make_shared, symlink};
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     #[test]
     fn synthetic_keys_are_finite_and_never_accept_private_or_partial_states() {
         assert!(accepted_keys(&initial_keys()));
@@ -368,17 +358,15 @@ mod tests {
     #[test]
     fn admission_requires_exact_copy_settings_no_keys_and_private_paths() {
         let id = uuid::Uuid::new_v4().to_string();
-        let root = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
+        let root = crate::private_fs::testing::temp_root()
             .join(format!("native-{id}"));
         fs::create_dir(&root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        make_private(&root);
         let names = ["home", "tmp", "profile", "config", "screenshots"];
         for name in names {
             let path = root.join(name);
             fs::create_dir(&path).unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+            make_private(path);
         }
         let config = Config {
             run_id: id.clone(),
@@ -389,7 +377,7 @@ mod tests {
         };
         let write = |path: &Path, bytes: &[u8]| {
             fs::write(path, bytes).unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+            make_private(path);
         };
         write(&root.join("owner"), id.as_bytes());
         write(
@@ -418,7 +406,7 @@ mod tests {
             write(&marker,serde_json::json!({"version":1,"runId":id,"token":"private"}).to_string().as_bytes());
             assert!(crate::setup_smoke::chatgpt_metadata(&config).is_err());
             fs::remove_file(&marker).unwrap();
-            std::os::unix::fs::symlink(config.settings(),&marker).unwrap();
+            symlink(config.settings(),&marker).unwrap();
             assert!(crate::setup_smoke::chatgpt_metadata(&config).is_err());
             fs::remove_file(&marker).unwrap();
             assert!(crate::setup_smoke::chatgpt_metadata(&config).unwrap().is_none());
@@ -620,7 +608,7 @@ mod tests {
             assert!(!config.accepts_fields(&provider_fields));
             fs::remove_file(root.join("live-provider")).unwrap();
         }
-        let next = root.join("config/settings-v3.json");
+        let next = root.join("config").join("settings-v3.json");
         let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());
         let version3 = serde_json::json!({"version":3,"keys":{},"fields":input.fields,"chatCatalog":projected});
         write(&next, version3.to_string().as_bytes());
@@ -639,11 +627,7 @@ mod tests {
         assert!(config.validate().is_err());
         settings["fields"]["DATABASE_PATH"] = serde_json::json!(root.join("trainer.sqlite"));
         write(&config.settings(), settings.to_string().as_bytes());
-        fs::set_permissions(
-            root.join("trainer.sqlite"),
-            fs::Permissions::from_mode(0o644),
-        )
-        .unwrap();
+        make_shared(root.join("trainer.sqlite"));
         assert!(config.validate().is_err());
         for file in [
             root.join("owner"),
@@ -660,15 +644,13 @@ mod tests {
     #[test]
     fn refuses_invalid_identity_and_aliased_directory() {
         let id = uuid::Uuid::new_v4().to_string();
-        let path = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
+        let path = crate::private_fs::testing::temp_root()
             .join(format!("config-test-{id}"));
         fs::create_dir(&path).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        make_private(&path);
         assert!(private_dir(&path).is_ok());
         let alias = path.with_extension("alias");
-        std::os::unix::fs::symlink(&path, &alias).unwrap();
+        symlink(&path, &alias).unwrap();
         assert!(private_dir(&alias).is_err());
         let config = Config {
             run_id: id,
@@ -678,7 +660,7 @@ mod tests {
             port: 12345,
         };
         assert!(config.validate().is_err());
-        fs::remove_file(alias).unwrap();
+        crate::private_fs::testing::remove_link(&alias);
         fs::remove_dir(path).unwrap();
     }
 }

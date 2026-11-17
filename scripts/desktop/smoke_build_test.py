@@ -129,6 +129,14 @@ class PreparationTests(unittest.TestCase):
                     self.assertNotEqual(ordered, key())
             with patch.object(smoke_build.subprocess, 'check_output', return_value=b'tool v2'):
                 self.assertNotEqual(initial, key())
+            with patch.object(smoke_build.platform_files, 'WINDOWS', True):
+                windows = key()
+                # npm.cmd's own child-only launcher variable is not a build input...
+                with patch.dict(os.environ, {'NODE_EXE': 'C:\\node\\node.exe'}):
+                    self.assertEqual(windows, key())
+                # ...while other Node configuration still is.
+                with patch.dict(os.environ, {'NODE_OPTIONS': '--max-old-space-size=1'}):
+                    self.assertNotEqual(windows, key())
             alias = dependencies / 'foreign'
             alias.symlink_to(self.scratch, target_is_directory=True)
             with self.assertRaisesRegex(ValueError, 'alias'):

@@ -1,5 +1,5 @@
 import { constants, accessSync, lstatSync, realpathSync } from "node:fs";
-import { delimiter, isAbsolute, join } from "node:path";
+import { delimiter, isAbsolute, join, win32 } from "node:path";
 import { updateInitialEnv } from "@next/env";
 import { activationEnvironment } from "./settings";
 import type { NextConfig } from "next";
@@ -37,15 +37,37 @@ export function configureDesktopNext(
   return configuration;
 }
 
-export function resolveExecutable(command: string): string | undefined {
-  const candidates = isAbsolute(command)
+// Fixed reviewed tool locations; never the inherited PATH or a shell.
+function toolDirectories(platform: NodeJS.Platform): string[] {
+  if (platform !== "win32")
+    return ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+  // Official per-user uv installer locations only.
+  const home = process.env.USERPROFILE;
+  return home && win32.isAbsolute(home) && /^[A-Za-z]:\\/.test(home)
+    ? [win32.join(home, ".local", "bin"), win32.join(home, ".cargo", "bin")]
+    : [];
+}
+
+export function resolveExecutable(
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  const windows = platform === "win32";
+  const absolute = windows
+    ? /^[A-Za-z]:\\/.test(command) && win32.isAbsolute(command)
+    : isAbsolute(command);
+  const candidates = absolute
     ? [command]
-    : command.includes("/")
+    : command.includes("/") || command.includes("\\")
       ? []
-      : ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map((dir) =>
-          join(dir, command),
-        );
+      : /^[A-Za-z0-9_-]+$/.test(command)
+        ? toolDirectories(platform).map((dir) =>
+            windows ? win32.join(dir, `${command}.exe`) : join(dir, command),
+          )
+        : [];
   return candidates.find((path) => {
+    // Windows executes only real .exe images (no .cmd/.bat shell interpreters).
+    if (windows && !/\.exe$/i.test(path)) return false;
     try {
       accessSync(path, constants.X_OK);
       return lstatSync(realpathSync(path)).isFile();
@@ -53,6 +75,17 @@ export function resolveExecutable(command: string): string | undefined {
       return false;
     }
   });
+}
+
+// An absolute path that can never exist, so no inherited PATH fallback applies.
+function unavailable(tool: string): string {
+  return process.platform === "win32"
+    ? win32.join(
+        process.env.SystemRoot ?? "C:\\Windows",
+        "unavailable-trainer-tool",
+        `${tool}.exe`,
+      )
+    : `/unavailable-trainer-tool/${tool}`;
 }
 
 export function adoptConfiguration(snapshot: unknown): {
@@ -65,7 +98,9 @@ export function adoptConfiguration(snapshot: unknown): {
   // GUI launches may inherit umask022. Keep backend and connector/FIT-created
   // files private from creation (GHSA-wjhr-76vg-2hvc), not only after chmod.
   // This owned child-process policy never changes permissions of existing files.
-  process.umask(0o077);
+  // Windows has no umask: native creates private directories with inheritable
+  // owner-only DACLs, so files created inside them are private from creation.
+  if (process.platform !== "win32") process.umask(0o077);
   const env = getOptionalEnv();
   const reviewedArgs =
     JSON.stringify(garminMcpArgs(env.GARMIN_MCP_ARGS)) ===
@@ -75,7 +110,7 @@ export function adoptConfiguration(snapshot: unknown): {
     : undefined;
   // Missing integrations do not prevent offline/persisted views. Set an absolute
   // non-existent command so no inherited PATH fallback can choose another tool.
-  process.env.GARMIN_MCP_COMMAND = uvx ?? "/unavailable-trainer-tool/uvx";
+  process.env.GARMIN_MCP_COMMAND = uvx ?? unavailable("uvx");
   const uv = resolveExecutable("uv");
   for (const key of [
     "GARMIN_FIT_BASELINE_COMMAND",
@@ -85,15 +120,16 @@ export function adoptConfiguration(snapshot: unknown): {
   ]) {
     const configured = process.env[key];
     process.env[key] =
-      (configured ? resolveExecutable(configured) : uv) ??
-      "/unavailable-trainer-tool/uv";
+      (configured ? resolveExecutable(configured) : uv) ?? unavailable("uv");
   }
-  process.env.PATH = [
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-  ].join(delimiter);
+  process.env.PATH = (
+    process.platform === "win32"
+      ? [
+          win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32"),
+          process.env.SystemRoot ?? "C:\\Windows",
+        ]
+      : ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+  ).join(delimiter);
   process.env.UV_PYTHON_DOWNLOADS = "never";
   process.env.PYTHONDONTWRITEBYTECODE = "1";
   process.env.TRAINER_DESKTOP = "1";

@@ -2,7 +2,6 @@
 """Owned real-native representative smoke. No OS input, secrets, server substitute or stale-PID kills."""
 import argparse
 import contextlib
-import fcntl
 import hashlib
 import http.client
 import json
