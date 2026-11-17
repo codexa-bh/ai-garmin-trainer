@@ -148,7 +148,15 @@ class LifecycleContracts(unittest.TestCase):
             root = Path(name).resolve()
             secret = 'private-capability-do-not-print'
             (root / 'native-1.log').write_text('Isolated admission refused at root-directory\nIsolated ordinary-run admission refused; no normal-state fallback.\n' + secret + '\nC:\\private\\settings.json\n')
+            with (root / 'native-1.log').open('a') as log:
+                log.write('Isolated runtime startup refused: Cannot create desktop window.\n')
+                log.write('Isolated runtime startup refused: ' + secret + '\n')
+                log.write('Isolated desktop window hresult: -2147024809\nIsolated desktop window hresult: 123456\n')
             value = app.startup_diagnostic(root, 1, 1)
+            self.assertEqual(value['runtimeStartupCodes'], ['desktop-window'])
+            self.assertEqual(value['windowHresults'], [-2147024809])
+            self.assertTrue(value['runtimeStartupFailure'])
+            self.assertGreater(value['nativeLogBytes'], 0)
             self.assertEqual(value['admissionStages'], ['root-directory'])
             self.assertTrue(value['admissionRefused'])
             self.assertNotIn(secret, json.dumps(value))

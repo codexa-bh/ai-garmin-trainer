@@ -38,7 +38,33 @@ def startup_diagnostic(root, launch, exit_code):
     stages = {'mode', 'descriptor-file', 'descriptor-json', 'descriptor-fields', 'root-directory', 'root-lease',
               'owner-file', 'owner-binding', 'config', 'app-data', 'profile', 'setup-profile', 'tmp', 'screenshots',
               'tokens', 'database-file', 'artifact-executable', 'artifact-layout', 'artifact-files',
-              'artifact-inventory-digest', 'compiled-resource-identity', 'artifact', 'settings', 'owner-pipe'}
+              'artifact-inventory-digest', 'compiled-resource-identity', 'artifact', 'settings', 'owner-pipe', 'state-binding'}
+    # Exact source-owned launch errors -> finite public enums. Unknown text is never forwarded.
+    runtime_errors = {
+        b'Isolated ordinary-run admission refused; no normal-state fallback.': 'isolation-integrity',
+        b'Bundle resources unavailable.': 'resource-location',
+        b'Private file missing or unreadable.': 'private-file-read',
+        b'Private file must be bounded, owner-private, regular and unaliased.': 'private-file-safety',
+        b'Private settings invalid; preserve originals and use a compatible build.': 'private-settings',
+        b'Settings revision unavailable; reload before saving.': 'settings-revision',
+        b'Settings validator resources unavailable. Rebuild the desktop app.': 'settings-validator-spawn',
+        b'Settings invalid. Check existing current-schema database, absolute private paths, date, endpoints and advanced values.': 'settings-validator-rejected',
+        b'Settings validation timed out; settings unchanged.': 'settings-validator-timeout',
+        b'Settings validation failed.': 'settings-validator-protocol',
+        b'Settings invalid.': 'settings-validator-invalid',
+        b'Bundled Node/resources missing or not executable.': 'backend-spawn',
+        b'Backend ownership could not be established.': 'backend-ownership',
+        b'Backend activation interrupted.': 'backend-activation',
+        b'Backend exited before readiness. Check config, schema, ownership and resources.': 'backend-exited',
+        b'Backend startup exceeded 90 seconds. Check config, DB schema/ownership and resources.': 'backend-timeout',
+        b'Settings or Keychain activation refused. Check required provider keys, existing database and private absolute paths; no env file is loaded.': 'backend-configuration',
+        b'Database preflight refused. Check existing target, integrity and supported schema with source db:status; never auto-upgrade the primary.': 'backend-database',
+        b'Database writer admission refused. Quit the other backend and inspect the exact lease/open-file owner; never steal a live lease.': 'backend-writer',
+        b'Packaged resources failed. Rebuild the desktop resources and verify bundled Node/SQLite; do not install/sign to bypass this error.': 'backend-resources',
+        b'Local backend startup refused. Check source doctor/status and owned listener readiness; no unrelated service was loaded.': 'backend-refused',
+        b'Cannot create desktop window.': 'desktop-window',
+        b'Isolated result capability unavailable': 'result-capability',
+    }
     try:
         raw = state.read_file(root / f'native-{launch}.log', 64 * 1024)
     except (OSError, ValueError):
@@ -47,10 +73,16 @@ def startup_diagnostic(root, launch, exit_code):
         available = True
     found = re.findall(rb'Isolated admission refused at ([a-z-]{1,48})', raw)
     lower = raw.lower()
+    runtime = re.findall(rb'Isolated runtime startup refused: ([^\r\n]{1,320})', raw)
+    hresults = re.findall(rb'(?m)^Isolated desktop window hresult: (-?[0-9]{1,11})\r?$', raw)
     return {'layer': 'native-startup', 'exitCode': exit_code, 'nativeLogAvailable': available,
+            'nativeLogBytes': len(raw) if available else None,
+            'runtimeStartupCodes': sorted({runtime_errors[value] for value in runtime if value in runtime_errors}),
+            'windowHresults': sorted({int(value) for value in hresults if -2147483648 <= int(value) < 0}),
             'admissionStages': sorted({value.decode('ascii') for value in found if value.decode('ascii') in stages}),
             'admissionRefused': b'Isolated ordinary-run admission refused' in raw,
-            'runtimeStartupFailure': b'isolated startup:' in raw, 'panic': b'panicked at' in lower,
+            'runtimeStartupFailure': b'isolated startup:' in raw or b'Isolated runtime startup refused:' in raw,
+            'panic': b'panicked at' in lower,
             'webviewMentioned': b'webview' in lower, 'consoleMentioned': b'console' in lower,
             'loaderDllMissing': exit_code in (0xc0000135, -1073741515)}
 

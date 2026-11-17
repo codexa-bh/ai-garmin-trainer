@@ -561,8 +561,8 @@ impl Admission {
         )
     }
     pub fn verify(&self) -> Result<(), &'static str> {
-        for directory in &self.directories {
-            directory.verify()?;
+        for (directory, name) in self.directories.iter().zip(DIRECTORIES) {
+            directory.verify().map_err(|_| refusal(name))?;
         }
         let identity = *self.database.lock().map_err(|_| DENIED)?;
         let database_ok = match identity {
@@ -579,7 +579,7 @@ impl Admission {
                 != self.descriptor_capture
             || private_store::capture(&self.descriptor.root.join("owner"))? != self.owner_capture
         {
-            return Err(DENIED);
+            return Err(refusal("state-binding"));
         }
         for sidecar in ["trainer.sqlite-wal", "trainer.sqlite-shm"] {
             let path = self.descriptor.root.join(sidecar);
@@ -687,34 +687,54 @@ mod tests {
     use super::*;
     #[cfg(windows)]
     #[test]
-    fn python_private_state_and_live_pin_are_accepted_without_relaxing_native_admission() {
+    fn window_failure_diagnostic_extracts_only_typed_numeric_hresult() {
+        let code = windows_core::HRESULT(0x80070057u32 as i32);
+        let error = windows_core::Error::from_hresult(code);
+        assert_eq!(crate::window_hresult(&error), Some(code.0));
+        let private = std::io::Error::new(std::io::ErrorKind::Other, "private path/key text");
+        assert_eq!(crate::window_hresult(&private), None);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn python_private_state_live_pin_and_keyless_backend_pass_without_relaxing_native_admission() {
         use std::io::BufRead;
         use std::process::{Command, Stdio};
         let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/desktop");
+        let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
         let code = r#"import json,os,sys,uuid
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
 import windows_smoke_state as state
+from windows_backend_smoke import run_initializer
+resources=Path(sys.argv[2])
 identity=str(uuid.uuid4())
 root=state.mkdir(Path(os.environ['RUNNER_TEMP']).resolve(strict=True)/('ordinary-'+identity))
 for name in ['config','app-data','profile','setup-profile','tmp','screenshots']:
  state.mkdir(root/name)
 state.write_file(root/'owner',identity.encode())
-state.write_file(root/'trainer.sqlite',b'identity-only fixture; no app launch')
-state.write_file(root/'config/settings-v2.json',json.dumps({'version':2,'keys':{},'fields':{'DATABASE_PATH':str(root/'trainer.sqlite')}}).encode())
+state.write_file(root/'trainer.sqlite',run_initializer(resources/'node.exe',resources/'runtime'))
+state.write_file(root/'config/settings-v2.json',json.dumps({'version':2,'keys':{},'fields':{'DATABASE_PATH':str(root/'trainer.sqlite'),'AI_PROVIDER':'ollama','MEMORY_ENABLED':'false'}}).encode())
 state.write_file(root/'launch.json',json.dumps({'schemaVersion':2,'runId':identity,'root':str(root),'sourceFingerprint':'a'*64,'buildSourceFingerprint':'d'*64,'buildContext':'e'*64,'artifactInventoryHash':'b'*64,'controlPort':23567,'capability':'c'*64}).encode())
 pin=state.PinnedRoot(root)
 print(root,flush=True)
 sys.stdin.buffer.read(1)
 pin.close()
 "#;
-        let mut child = Command::new("python").args(["-c", code]).arg(scripts)
+        let mut child = Command::new("python").args(["-c", code]).arg(scripts).arg(&resources)
             .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         let mut line = String::new();
         std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
         let root = PathBuf::from(line.trim());
         let admitted = Admission::admit(&root.join("launch.json"), |_| Ok(()));
         let accepted = admitted.is_ok();
+        let backend = if accepted {
+            crate::settings::activation(&root.join("config/settings-v2.json")).and_then(|mut frame| {
+                let result = crate::supervisor::Service::start(&resources, &mut frame,
+                    &std::sync::atomic::AtomicBool::new(false), &std::sync::atomic::AtomicBool::new(false));
+                frame.fill(0);
+                result.map(|mut service| service.stop())
+            })
+        } else { Err("Private admission failed") };
         drop(admitted);
         drop(child.stdin.take());
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -731,6 +751,7 @@ pin.close()
         assert!(root.file_name().unwrap().to_string_lossy().starts_with("ordinary-"));
         fs::remove_dir_all(root).unwrap();
         assert!(accepted, "Python-created private run refused; consult static admission stage code");
+        assert!(backend.is_ok(), "Python-state native keyless backend refused: {:?}", backend.err());
     }
     #[test]
     fn finite_provider_scope_never_combines_with_history_setup() {

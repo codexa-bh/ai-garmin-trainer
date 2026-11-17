@@ -246,6 +246,20 @@ fn status(app: &tauri::AppHandle, message: &str) {
     let _ = app.emit_to("setup", "desktop-status", message);
 }
 
+#[cfg(windows)]
+fn window_hresult(error: &(dyn std::error::Error + 'static)) -> Option<i32> {
+    // Typed numeric COM failure only; never format framework errors/paths.
+    let mut current = Some(error);
+    for _ in 0..12 {
+        let error = current?;
+        if let Some(error) = error.downcast_ref::<windows_core::Error>() {
+            return Some(error.code().0);
+        }
+        current = error.source();
+    }
+    None
+}
+
 fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     let runtime = app.state::<Runtime>();
     let mut guard = runtime
@@ -381,7 +395,15 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
         })
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
         .build()
-        .map_err(|_| "Cannot create desktop window.")?;
+        .map_err(|_error| {
+            #[cfg(windows)]
+            if app.try_state::<std::sync::Arc<isolated_run::Admission>>().is_some() {
+                if let Some(code) = window_hresult(&_error) {
+                    eprintln!("Isolated desktop window hresult: {code}");
+                }
+            }
+            "Cannot create desktop window."
+        })?;
     *guard = Some(service);
     if let Some(setup) = app.get_webview_window("setup") {
         let _ = setup.hide();
@@ -1079,6 +1101,11 @@ fn main() {
                         match launch(&handle) {
                             Ok(message) => status(&handle, &message),
                             Err(message) => {
+                                // launch errors are source-owned &'static str, never caller/framework payloads.
+                                #[cfg(windows)]
+                                if handle.try_state::<std::sync::Arc<isolated_run::Admission>>().is_some() {
+                                    eprintln!("Isolated runtime startup refused: {message}");
+                                }
                                 status(&handle, message);
                                 if handle.try_state::<std::sync::Arc<isolated_run::Admission>>().is_some() { stop_runtime(&handle); handle.exit(1); }
                             }
