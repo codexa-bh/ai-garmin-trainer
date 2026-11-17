@@ -97,7 +97,7 @@ describe("Tauri-only product launch contract", () => {
       "npm run desktop:resources && tauri dev",
     );
     expect(scripts["desktop:build"]).toBe(
-      "python3 scripts/desktop/ordinary_identity.py",
+      "node scripts/desktop/python.mjs scripts/desktop/ordinary_identity.py",
     );
     const ordinaryBuild = readFileSync(
       join(root, "scripts/desktop/ordinary_identity.py"),

@@ -60,15 +60,39 @@ describe("economical CI profiles", () => {
     expect(nightly.match(/actions: read/g)).toHaveLength(1);
   });
 
+  it("adds an exact-source Windows x64 job without uploads, secrets or Windows 11 claims", () => {
+    const windows = read(".github/workflows/windows.yml");
+    expect(windows).toContain("runs-on: windows-2025");
+    expect(windows).toContain("name: Windows x64 build foundation");
+    expect(windows).toContain(
+      "TESTED_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}",
+    );
+    expect(windows).toContain(
+      "throw 'Checked-out source differs from tested source'",
+    );
+    expect(windows).toContain("npm run desktop:build");
+    expect(windows).toContain("--platform windows-x64");
+    expect(windows).toContain("cargo test --locked");
+    expect(windows).toContain("Windows Server, not Windows 11");
+    expect(windows).toMatch(/timeout-minutes: \d+/);
+    expect(windows).not.toMatch(
+      /upload-artifact|actions\/cache@|secrets\.|write-all|contents: write|pull_request_target|Start-Process[^\n]*setup\.exe/,
+    );
+    // The Ubuntu Validate identity and macOS nightly stay unchanged.
+    expect(read(".github/workflows/ci.yml")).not.toContain("windows");
+  });
+
   it("pins reviewed actions, locked installs and npm-download-only cache", () => {
-    for (const name of ["ci.yml", "nightly-macos.yml"]) {
+    for (const name of ["ci.yml", "nightly-macos.yml", "windows.yml"]) {
       const yaml = read(`.github/workflows/${name}`);
       const actions = [...yaml.matchAll(/uses: ([^\s]+)/g)].map(
         (match) => match[1],
       );
       expect(actions.length).toBeGreaterThan(0);
       for (const action of actions)
-        expect(action).toMatch(/^actions\/(checkout|setup-node)@[0-9a-f]{40}$/);
+        expect(action).toMatch(
+          /^actions\/(checkout|setup-node|setup-python)@[0-9a-f]{40}$/,
+        );
       expect(yaml).toContain("contents: read");
       expect(yaml).toContain("persist-credentials: false");
       expect(yaml).toContain("npm ci --no-fund");
