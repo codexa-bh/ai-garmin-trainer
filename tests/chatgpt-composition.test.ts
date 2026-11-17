@@ -20,6 +20,7 @@ import {
   completeConversationTitle,
 } from "../src/lib/chat/composition";
 import { summaryStorage } from "../src/lib/db/summary-storage";
+import { listRecentChatMessages } from "../src/lib/db/conversation-repository";
 import { conversationHistory } from "../src/lib/db/conversation-history";
 import {
   tickCrossChatSummary,
@@ -519,4 +520,330 @@ it("native disconnect invalidates captured generation before tools and copied-tu
   );
   expect(modelSettings.read().available).toBe(false);
   expect(getOptionalEnv().OPENAI_API_KEY).toBe("");
+});
+
+// T0342: realistic Responses shapes through the actual locked SDK and the
+// production chat composition, storage owner and application readback.
+const hostile = "private_token_prompt_account_https_path";
+type WireItem = Record<string, unknown>;
+function wireCall(over: WireItem = {}): WireItem {
+  const value: WireItem = {
+    type: "function_call",
+    call_id: "call_1",
+    name: "getSyncStatus",
+    namespace: "trainer",
+    arguments: '{"availabilityLimit":4}',
+    status: "completed",
+    ...over,
+  };
+  return value;
+}
+function wireMessage(text: string, phase?: string): WireItem {
+  return {
+    type: "message",
+    id: "msg_1",
+    role: "assistant",
+    status: "completed",
+    ...(phase ? { phase } : {}),
+    content: [{ type: "output_text", text, annotations: [] }],
+  };
+}
+/** Stream `streamed` items; terminal output defaults to the same items. */
+function wire(
+  streamed: { item: WireItem; text?: string }[],
+  terminal: WireItem[] | null = streamed.map(({ item }) => item),
+): Response {
+  const events: unknown[] = [
+    {
+      type: "response.created",
+      response: { id: "resp_1", created_at: 1, model: entry.modelId },
+    },
+  ];
+  streamed.forEach(({ item, text }, index) => {
+    events.push({
+      type: "response.output_item.added",
+      output_index: index,
+      item:
+        item.type === "message"
+          ? { ...item, status: "in_progress", content: [] }
+          : { ...item, arguments: "", status: "in_progress" },
+    });
+    if (item.type === "message")
+      for (const delta of [...(text ?? "")])
+        events.push({
+          type: "response.output_text.delta",
+          item_id: item.id,
+          output_index: index,
+          content_index: 0,
+          delta,
+        });
+    else
+      events.push({
+        type: "response.function_call_arguments.delta",
+        item_id: item.id ?? "unidentified",
+        output_index: index,
+        delta: item.arguments,
+      });
+    events.push({
+      type: "response.output_item.done",
+      output_index: index,
+      item,
+    });
+  });
+  events.push({
+    type: "response.completed",
+    response: {
+      status: "completed",
+      // null models the subscription backend's terminal event without output.
+      ...(terminal ? { output: terminal } : {}),
+      usage: { input_tokens: 120, output_tokens: 12 },
+    },
+  });
+  return new Response(
+    events.map((event) => `data: ${JSON.stringify(event)}\r\n\r\n`).join(""),
+    { headers: { "content-type": "text/event-stream" } },
+  );
+}
+function routeUpstream(planner: () => Response, synthesisTerminal = true) {
+  const originalFetch = fetch;
+  const bodies: Record<string, unknown>[] = [];
+  const syncStatus = vi.fn();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).startsWith("http://127.0.0.1:"))
+        return originalFetch(url, init);
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      const evidence = body.input.find(
+        (item: { type?: string }) => item.type === "function_call_output",
+      );
+      if (body.text?.format?.name) return response('{"title":"Sync"}');
+      if (evidence) {
+        syncStatus(evidence.call_id);
+        const prose =
+          "Your local sync status was checked; no login was needed.";
+        const item = wireMessage(prose, "final_answer");
+        return wire([{ item, text: prose }], synthesisTerminal ? [item] : null);
+      }
+      return planner();
+    }),
+  );
+  return { bodies, syncStatus };
+}
+async function persistedTurn(conversationId: string) {
+  const turn = prepareChatTurn(conversationId, "Compare my recent sync state.");
+  const result = await generateChatTurn(turn, { debugTraceEnabled: true });
+  if (result.kind !== "generated") throw Error("Expected generated response");
+  await completeChatTurn(turn, result);
+  const stored = listRecentChatMessages(conversationId);
+  return { result, stored, assistant: stored.at(-1)! };
+}
+it.each([
+  ["id-less", (call: WireItem) => ({ ...call }), true],
+  ["identified", (call: WireItem) => ({ ...call, id: "fc_1" }), true],
+  [
+    "terminal-without-output (subscription)",
+    (call: WireItem) => ({ ...call, id: "fc_1" }),
+    false,
+  ],
+] as const)(
+  "production %s namespaced tool turn executes the read-only tool once and reaches prose",
+  async (_label, shape, terminalOutput) => {
+    initializeLiveConfiguration(boot);
+    modelSettings.save({ modelId: entry.id });
+    const preamble = "Checking your local sync status 🏃.";
+    const upstream = routeUpstream(() => {
+      const streamed = [
+        { item: wireMessage(preamble, "commentary"), text: preamble },
+        { item: shape(wireCall()) },
+      ];
+      return wire(
+        streamed,
+        terminalOutput ? streamed.map(({ item }) => item) : null,
+      );
+    }, terminalOutput);
+    const { result, assistant } = await persistedTurn("receipt-tool-chat");
+    expect(result.toolSteps).toEqual([
+      expect.objectContaining({ tool: "getSyncStatus", status: "succeeded" }),
+    ]);
+    expect(result.progressCounters?.modelCalls).toBe(2);
+    expect(
+      upstream.bodies.filter((b) => !(b.text as { format?: unknown })?.format),
+    ).toHaveLength(2);
+    // The serialized evidence exchange carries the provider's exact call identity.
+    expect(upstream.syncStatus.mock.calls).toEqual([["call_1"]]);
+    expect(upstream.bodies[1].input).toContainEqual(
+      expect.objectContaining({
+        type: "function_call",
+        call_id: "call_1",
+        name: "getSyncStatus",
+        namespace: "trainer",
+        arguments: '{"availabilityLimit":4}',
+      }),
+    );
+    expect(result.text).toContain("local sync status was checked");
+    expect(result.grounding?.debugTrace?.finalAnswerSource).toBe("provider");
+    expect(assistant.role).toBe("assistant");
+    expect(assistant.grounding?.debugTrace?.providerCalls).toHaveLength(2);
+    expect(
+      assistant.grounding?.debugTrace?.providerCalls.every(
+        (call) => call.failure === undefined,
+      ),
+    ).toBe(true);
+    expect(
+      assistant.grounding?.debugTrace?.providerCalls.map(
+        (call) => call.tokenUsage?.inputTokens,
+      ),
+    ).toEqual([120, 120]);
+  },
+);
+it.each([
+  [
+    "absent tool namespace",
+    () => wire([{ item: wireCall({ namespace: undefined }) }]),
+    undefined,
+  ],
+  [
+    "tool missing from a nonempty terminal receipt",
+    () => wire([{ item: wireCall({ id: "fc_1" }) }], [wireMessage("")]),
+    {
+      receipt: "present",
+      text: "match",
+      calls: "mismatch",
+      observedCalls: 1,
+      receiptCalls: 0,
+      callDifferences: ["count", "id"],
+    },
+  ],
+  [
+    "simultaneous text and same-length argument differences",
+    () =>
+      wire(
+        [
+          { item: wireMessage(`${hostile} Ann`), text: `${hostile} Ann` },
+          {
+            item: wireCall({
+              id: "fc_1",
+              call_id: `call_${hostile.slice(0, 20)}`,
+              arguments: '{"availabilityLimit":4}',
+            }),
+          },
+        ],
+        [
+          wireMessage(`${hostile} Bob`),
+          wireCall({
+            id: "fc_1",
+            call_id: `call_${hostile.slice(0, 20)}`,
+            arguments: '{"availabilityLimit":5}',
+          }),
+        ],
+      ),
+    {
+      receipt: "present",
+      text: "different",
+      calls: "mismatch",
+      observedCalls: 1,
+      receiptCalls: 1,
+      callDifferences: ["arguments"],
+    },
+  ],
+  [
+    "SDK-dropped call",
+    () => wire([{ item: wireCall({ id: 7 }) }], [wireCall({ id: "fc_1" })]),
+    {
+      receipt: "present",
+      text: "match",
+      calls: "mismatch",
+      observedCalls: 0,
+      receiptCalls: 1,
+      callDifferences: ["count"],
+    },
+  ],
+] as const)(
+  "production %s executes zero tools and saves only closed receipt evidence",
+  async (_label, planner, receipt) => {
+    initializeLiveConfiguration(boot);
+    modelSettings.save({ modelId: entry.id });
+    const upstream = routeUpstream(planner);
+    const { result, assistant, stored } =
+      await persistedTurn("receipt-fail-chat");
+    expect(upstream.bodies).toHaveLength(1);
+    expect(upstream.syncStatus).not.toHaveBeenCalled();
+    expect(result.toolSteps).toEqual([]);
+    expect(result.progressCounters?.modelCalls).toBe(1);
+    expect(result.text).toContain("No Garmin tool was executed");
+    expect(stored.map((message) => message.content)).toContain(
+      "Compare my recent sync state.",
+    );
+    const call = assistant.grounding?.debugTrace?.providerCalls[0];
+    expect(assistant.grounding?.debugTrace?.finalAnswerSource).toBe(
+      "deterministic_fallback",
+    );
+    expect(call?.tokenUsage).toBeUndefined();
+    if (receipt)
+      expect(call?.failure).toEqual({
+        category: "incomplete_sdk_decoding",
+        stage: "sdk_decode",
+        elapsedMs: expect.any(Number),
+        status: 200,
+        receipt,
+      });
+    else expect(call?.failure?.receipt).toBeUndefined();
+    const raw = db
+      .prepare(
+        "select grounding_json as value from message where role='assistant'",
+      )
+      .get() as { value: string };
+    expect(raw.value).not.toContain(hostile);
+    expect(raw.value).not.toContain("authored-native-token");
+    expect(raw.value.length).toBeLessThanOrEqual(24000);
+  },
+);
+it("readback keeps pre-receipt rows readable and omits the whole trace when the grounding cap requires it", async () => {
+  initializeLiveConfiguration(boot);
+  modelSettings.save({ modelId: entry.id });
+  routeUpstream(() =>
+    wire([{ item: wireCall({ id: 7 }) }], [wireCall({ id: "fc_1" })]),
+  );
+  const { assistant } = await persistedTurn("receipt-cap-chat");
+  const stored = assistant.grounding!;
+  // Old rows (pre-T0342) have no receipt and stay readable unchanged.
+  const legacyCall = { ...stored.debugTrace!.providerCalls[0] };
+  delete legacyCall.failure?.receipt;
+  // An oversized trace is compacted; when even compaction cannot fit, the
+  // whole debug trace (and so every diagnostic) is omitted, never truncated.
+  const huge = "x".repeat(30000);
+  for (const [conversation, grounding] of [
+    [
+      "legacy-row",
+      {
+        ...stored,
+        debugTrace: { ...stored.debugTrace!, providerCalls: [legacyCall] },
+      },
+    ],
+    [
+      "capped-row",
+      {
+        ...stored,
+        summary: huge,
+      },
+    ],
+  ] as [string, typeof stored][]) {
+    conversationHistory.complete(
+      conversationHistory.admit(conversation, "Question").admission,
+      { content: "Answer", grounding },
+    );
+    const read = listRecentChatMessages(conversation).at(-1)!.grounding;
+    if (conversation === "legacy-row") {
+      expect(read?.debugTrace?.providerCalls[0].failure).toEqual({
+        category: "incomplete_sdk_decoding",
+        stage: "sdk_decode",
+        elapsedMs: expect.any(Number),
+        status: 200,
+      });
+    } else {
+      expect(read?.debugTrace).toBeUndefined();
+    }
+  }
 });
