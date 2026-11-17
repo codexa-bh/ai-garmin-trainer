@@ -702,8 +702,8 @@ mod tests {
         use std::io::BufRead;
         use std::process::{Command, Stdio};
         let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/desktop");
-        let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
-        let code = r#"import contextlib,json,os,subprocess,sys,uuid
+        let producer_resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let code = r#"import contextlib,json,os,shutil,subprocess,sys,uuid
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
 import windows_smoke_state as state
@@ -720,16 +720,19 @@ state.write_file(root/'trainer.sqlite',seed.stdout)
 with contextlib.closing(readonly(root/'trainer.sqlite')) as database: fingerprint(database)
 private_json(root/'config/settings-v2.json',{'version':2,'keys':{},'fields':{'DATABASE_PATH':str(root/'trainer.sqlite'),'AI_PROVIDER':'ollama','MEMORY_ENABLED':'false'}})
 state.write_file(root/'launch.json',json.dumps({'schemaVersion':2,'runId':identity,'root':str(root),'sourceFingerprint':'a'*64,'buildSourceFingerprint':'d'*64,'buildContext':'e'*64,'artifactInventoryHash':'b'*64,'controlPort':23567,'capability':'c'*64}).encode())
+shutil.copytree(Path(sys.argv[2]),root/'portable-resources')
 pin=state.PinnedRoot(root)
 print(root,flush=True)
 sys.stdin.buffer.read(1)
 pin.close()
 "#;
-        let mut child = Command::new("python").args(["-c", code]).arg(scripts)
+        let mut child = Command::new("python").args(["-c", code]).arg(scripts).arg(producer_resources)
             .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         let mut line = String::new();
         std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
         let root = PathBuf::from(line.trim());
+        // Outside the checkout: ancestor node_modules must not mask missing packaged dependencies.
+        let resources = root.join("portable-resources");
         let admitted = Admission::admit(&root.join("launch.json"), |_| Ok(()));
         let accepted = admitted.is_ok();
         let backend = if accepted {

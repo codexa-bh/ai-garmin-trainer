@@ -80,8 +80,14 @@ def startup_diagnostic(root, launch, exit_code):
                         b'canonical-path', b'database-file', b'database-schema', b'database-integrity',
                         b'database-compatibility', b'database-control', b'unavailable'}
     validation = re.findall(rb'(?m)^Desktop settings validation: (fields|database) ([A-Za-z_-]{1,48})\r?$', raw)
+    modules = {b'next', b'better-sqlite3', b'@next/env', b'@resvg/resvg-wasm', b'react', b'react-dom', b'react-is',
+               b'styled-jsx', b'bindings', b'file-uri-to-path', b'@swc/helpers', b'postcss', b'caniuse-lite',
+               b'baseline-browser-mapping', b'@opentelemetry/api', b'scheduler', b'client-only', b'server-only', b'unavailable'}
+    loaders = re.findall(rb'(?m)^Desktop settings loader: (MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|ERR_REQUIRE_ESM) ([A-Za-z0-9@/._-]{1,96})\r?$', raw)
     return {'layer': 'native-startup', 'exitCode': exit_code, 'nativeLogAvailable': available,
             'nativeLogBytes': len(raw) if available else None,
+            'settingsLoader': [{'code': code.decode('ascii'), 'module': (module if module in modules else b'unavailable').decode('ascii')}
+                               for code, module in loaders[:4]],
             'settingsValidation': [{'stage': stage.decode('ascii'), 'code': (code if code in validation_codes else b'unavailable').decode('ascii')}
                                    for stage, code in validation[:4]],
             'runtimeStartupCodes': sorted({runtime_errors[value] for value in runtime if value in runtime_errors}),
