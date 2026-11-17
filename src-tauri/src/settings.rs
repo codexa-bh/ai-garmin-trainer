@@ -533,7 +533,7 @@ fn validation_diagnostic(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
 #[cfg(any(windows, test))]
 fn validation_loader_diagnostic(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     let text = std::str::from_utf8(bytes).ok()?;
-    let code = ["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND", "ERR_DLOPEN_FAILED", "ERR_REQUIRE_ESM"].into_iter().find(|code| text.contains(&format!("code: '{code}'")))?;
+    let code = ["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND", "ERR_DLOPEN_FAILED", "ERR_REQUIRE_ESM", "EINVAL", "EBADF", "EPIPE", "ENOENT", "ENOTDIR", "ENOTSOCK", "EPERM", "EACCES", "ERR_INVALID_HANDLE_TYPE", "ERR_INVALID_FD_TYPE", "ERR_INVALID_ARG_VALUE", "ERR_INVALID_ARG_TYPE", "ERR_UNSUPPORTED_ESM_URL_SCHEME", "ERR_UNKNOWN_FILE_EXTENSION"].into_iter().find(|code| text.contains(&format!("code: '{code}'")))?;
     let specifier = text.split_once("Cannot find module '").and_then(|(_, tail)| tail.split('\'').next()).unwrap_or("");
     let module = ["next", "better-sqlite3", "@next/env", "@resvg/resvg-wasm", "react", "react-dom", "react-is", "styled-jsx", "bindings", "file-uri-to-path", "@swc/helpers", "postcss", "caniuse-lite", "baseline-browser-mapping", "@opentelemetry/api", "scheduler", "client-only", "server-only"]
         .into_iter().find(|module| specifier == *module || specifier.starts_with(&format!("{module}/"))).unwrap_or("unavailable");
@@ -664,6 +664,7 @@ mod tests {
     fn loader_diagnostics_discard_raw_paths_and_unknown_module_names() {
         assert_eq!(validation_loader_diagnostic(b"Error: Cannot find module 'styled-jsx/package.json'\ncode: 'MODULE_NOT_FOUND'\nprivate-path-key"), Some(("MODULE_NOT_FOUND", "styled-jsx")));
         assert_eq!(validation_loader_diagnostic(b"Error: Cannot find module '../private-key'\ncode: 'MODULE_NOT_FOUND'"), Some(("MODULE_NOT_FOUND", "unavailable")));
+        assert_eq!(validation_loader_diagnostic(b"Error: invalid argument\ncode: 'EINVAL'\nprivate-path-key"), Some(("EINVAL", "unavailable")));
         assert!(validation_loader_diagnostic(b"private-path-key").is_none());
     }
     struct Fake {

@@ -246,6 +246,10 @@ fn status(app: &tauri::AppHandle, message: &str) {
     let _ = app.emit_to("setup", "desktop-status", message);
 }
 
+fn ordinary_setup_window_needed(history_setup: bool) -> bool {
+    !cfg!(windows) || history_setup
+}
+
 #[cfg(windows)]
 fn window_hresult(error: &(dyn std::error::Error + 'static)) -> Option<i32> {
     // Typed numeric COM failure only; never format framework errors/paths.
@@ -1032,6 +1036,9 @@ fn main() {
                     run_id: run.descriptor.run_id.clone(), token: run.descriptor.capability.clone(), root: run.descriptor.root.clone(),
                     source: run.descriptor.source_fingerprint.clone(), port: run.descriptor.control_port, ordinary: Some(run.clone()),
                 })?;
+                // Windows core ordinary runs need no private Settings WebView before
+                // backend startup. Keep normal Settings and explicit history setup unchanged.
+                if ordinary_setup_window_needed(run.descriptor.history_setup.is_some()) {
                 let mut setup = WebviewWindowBuilder::new(app, "setup", WebviewUrl::App("index.html".into()))
                     .title("Garmin Trainer — isolated Settings").inner_size(900.0, 820.0)
                     .visible(false).focused(false).incognito(true).data_directory(run.descriptor.root.join("setup-profile"))
@@ -1043,6 +1050,7 @@ fn main() {
                         .on_navigation(history_setup::document);
                 }
                 setup.build()?;
+                }
             }
             let settings = settings_path(app.handle()).map_err(std::io::Error::other)?;
             let root = if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {

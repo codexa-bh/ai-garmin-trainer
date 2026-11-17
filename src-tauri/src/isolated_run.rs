@@ -824,6 +824,11 @@ pin.close()
         (root, path)
     }
     #[test]
+    fn windows_core_ordinary_does_not_boot_an_unneeded_private_settings_webview() {
+        assert_eq!(crate::ordinary_setup_window_needed(false), !cfg!(windows));
+        assert!(crate::ordinary_setup_window_needed(true));
+    }
+    #[test]
     fn optional_token_directory_is_revalidated_after_admission() {
         let (root, path) = fixture();
         let admitted = Admission::admit(&path, |_| Ok(())).unwrap();
