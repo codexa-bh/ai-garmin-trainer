@@ -11,7 +11,9 @@ mod keychain;
 mod live_settings;
 mod memory_status;
 mod onboarding;
+mod private_fs;
 mod private_store;
+mod process_tree;
 mod provider_smoke;
 mod runtime_dependency;
 mod settings;
@@ -20,6 +22,7 @@ mod setup_smoke;
 #[cfg(any(debug_assertions, feature = "release-probe"))]
 mod smoke_config;
 mod supervisor;
+mod system_open;
 
 use std::path::PathBuf;
 use std::sync::{
@@ -148,7 +151,7 @@ async fn chatgpt_action(app: tauri::AppHandle, window: tauri::WebviewWindow, act
         let runtime = app.state::<Runtime>();
         if runtime.quitting.load(Ordering::SeqCst) || runtime.chatgpt_context.load(Ordering::SeqCst) != context { return Err("Connection context changed; reload before another action.".into()); }
         if action == "usage" {
-            std::process::Command::new("/usr/bin/open").arg("https://chatgpt.com/settings/usage").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().map_err(|_| "Usage settings could not open.".to_string())?;
+            system_open::usage_page().map_err(|_| "Usage settings could not open.".to_string())?;
             return Ok("Opened ChatGPT usage settings.".into());
         }
         if !["models","disclose","disconnect","activate"].contains(&action.as_str()) { return Err("Unsupported ChatGPT action.".into()); }
@@ -360,17 +363,16 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
                 if let Some(config) = probe_app.try_state::<smoke_config::Config>() {
                     let denied = matches!(url.host_str(), Some("not-found" | "permission-refused"));
                     let report = serde_json::json!({"runId":config.run_id,"releaseMode":true,"debugCommandDenied":denied,"denialKind":url.host_str(),"instrumentation":"launch-only; not ordinary artifact launch"});
-                    use std::os::unix::fs::OpenOptionsExt;
                     use std::io::Write;
-                    if let Ok(mut file) = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(config.root.join("release-denial.json")) {
+                    if let Ok(mut file) = private_fs::create_private_file(&config.root.join("release-denial.json")) {
                         let _=file.write_all(report.to_string().as_bytes());
                     }
                     probe_app.exit(if denied{0}else{1});
                 }
                 return false;
             }
-            if subscription_allowed && url.as_str() == "https://chatgpt.com/settings/usage" {
-                let _ = std::process::Command::new("/usr/bin/open").arg("https://chatgpt.com/settings/usage").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+            if subscription_allowed && url.as_str() == system_open::USAGE_PAGE {
+                std::thread::spawn(|| { let _ = system_open::usage_page(); });
                 return false;
             }
             url.origin().ascii_serialization() == expected
@@ -768,9 +770,8 @@ async fn start_auth(
         let executable = if let Some(path) = configured.filter(|path| path != "uv") {
             PathBuf::from(path)
         } else {
-            ["/opt/homebrew/bin/uv", "/usr/local/bin/uv", "/usr/bin/uv"]
-                .iter()
-                .map(PathBuf::from)
+            runtime_dependency::uv_candidates()
+                .into_iter()
                 .find(|path| path.is_file())
                 .ok_or(runtime_dependency::UV_UNAVAILABLE)?
         };
@@ -853,10 +854,19 @@ fn main() {
         }
     };
     if let Some(run) = &ordinary {
+        // Windows has no umask: run-owned directories carry inheritable private
+        // DACLs, so descendants' files there are private from creation.
+        #[cfg(unix)]
         unsafe {
             libc::umask(0o077);
         }
-        std::env::set_var("TMPDIR", run.descriptor.root.join("tmp"));
+        let tmp = run.descriptor.root.join("tmp");
+        #[cfg(windows)]
+        {
+            std::env::set_var("TEMP", &tmp);
+            std::env::set_var("TMP", &tmp);
+        }
+        std::env::set_var("TMPDIR", tmp);
     }
     #[allow(unused_mut)]
     let mut context = tauri::generate_context!();
@@ -1019,14 +1029,27 @@ fn main() {
             let launch_saved = !state.eligible;
             *app.state::<Runtime>().onboarding_id.lock().map_err(|_| std::io::Error::other("Setup identity unavailable"))? = state.id.clone();
             *app.state::<Runtime>().onboarding.lock().map_err(|_| std::io::Error::other("Setup state unavailable"))? = Some(state);
-            let app_menu = tauri::menu::SubmenuBuilder::new(app, "Garmin Trainer")
-                .text("configuration", "Settings…").separator().quit().build()?;
-            // Predefined items keep macOS editing in the focused native responder,
-            // including WKWebView textareas; no renderer shortcut/clipboard proxy.
-            let edit_menu = tauri::menu::SubmenuBuilder::new(app, "Edit")
-                .undo().redo().separator().cut().copy().paste().select_all().build()?;
-            let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).item(&edit_menu).build()?;
-            app.set_menu(menu)?;
+            // Predefined items keep editing in the focused native responder,
+            // including WebView textareas; no renderer shortcut/clipboard proxy.
+            // macOS needs an app menu for shortcuts; Windows windows get one
+            // window menu with Settings and Exit, and WebView2 keeps its native
+            // editing keys (Ctrl+Z/Y/X/C/V/A) without a menu proxy.
+            #[cfg(target_os = "macos")]
+            {
+                let app_menu = tauri::menu::SubmenuBuilder::new(app, "Garmin Trainer")
+                    .text("configuration", "Settings…").separator().quit().build()?;
+                let edit_menu = tauri::menu::SubmenuBuilder::new(app, "Edit")
+                    .undo().redo().separator().cut().copy().paste().select_all().build()?;
+                let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).item(&edit_menu).build()?;
+                app.set_menu(menu)?;
+            }
+            #[cfg(windows)]
+            {
+                let file_menu = tauri::menu::SubmenuBuilder::new(app, "File")
+                    .text("configuration", "Settings…").separator().quit().build()?;
+                let menu = tauri::menu::MenuBuilder::new(app).item(&file_menu).build()?;
+                app.set_menu(menu)?;
+            }
             app.on_menu_event(|app, event| {
                 if event.id().as_ref() == "configuration" {
                     if let Some(setup) = app.get_webview_window("setup") { let _ = setup.show(); let _ = setup.set_focus(); }

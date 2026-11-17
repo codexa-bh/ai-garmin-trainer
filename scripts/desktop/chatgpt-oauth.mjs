@@ -453,16 +453,35 @@ export async function models(registration, transport = fetch) {
       return { slug: model.slug, displayName: model.display_name };
     });
 }
-export function openSystemBrowser(url, launch = spawn) {
-  if (
-    !(url instanceof URL) ||
-    url.origin !== ISSUER ||
-    url.pathname !== "/api/accounts/authorize" ||
-    url.username ||
-    url.password ||
-    url.hash
-  )
-    return Promise.reject(new Error("browser"));
+function officialAuthorization(url) {
+  return (
+    url instanceof URL &&
+    url.origin === ISSUER &&
+    url.pathname === "/api/accounts/authorize" &&
+    !url.username &&
+    !url.password &&
+    !url.hash
+  );
+}
+// Windows: no helper-spawned shell/argv/file may carry the URL. One bounded
+// frame goes over the native owner's private stdout pipe; the native host
+// re-validates the single official route and opens it in-process.
+export function requestNativeBrowser(
+  url,
+  write = (line) => process.stdout.write(line),
+) {
+  if (!officialAuthorization(url)) return Promise.reject(new Error("browser"));
+  write(`${JSON.stringify({ type: "browser", url: url.href })}\n`);
+  return Promise.resolve();
+}
+export function openSystemBrowser(
+  url,
+  launch = spawn,
+  platform = process.platform,
+) {
+  if (!officialAuthorization(url)) return Promise.reject(new Error("browser"));
+  if (platform === "win32") return requestNativeBrowser(url);
+  if (platform !== "darwin") return Promise.reject(new Error("browser"));
   return new Promise((resolve, reject) => {
     // NSWorkspace is the native URL-opening API. Use the OS Objective-C bridge,
     // not AppleEvents/UI automation, and send its fixed program over stdin: an

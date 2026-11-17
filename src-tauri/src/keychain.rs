@@ -1,13 +1,26 @@
 //! Read-only legacy adoption adapter. Only explicit local setup may call get.
-//! Never enumerate, write or delete original Keychain items.
-use std::ffi::c_void;
-use std::ptr;
-
-const SERVICE: &str = "com.codexa.garmin-trainer.desktop.provider.v1";
+//! Never enumerate, write or delete original Keychain items. The Security
+//! framework is linked only on macOS; other platforms never had Keychain-backed
+//! settings, so adoption refuses and explains private re-entry.
 pub trait Secrets {
     fn get(&self, account: &str) -> Result<String, &'static str>;
 }
 pub struct Keychain;
+
+#[cfg(not(target_os = "macos"))]
+impl Secrets for Keychain {
+    fn get(&self, _account: &str) -> Result<String, &'static str> {
+        Err("Legacy macOS Keychain references cannot be adopted on this platform. Privately re-enter configured slots; originals unchanged.")
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+use super::{Keychain, Secrets};
+use std::ffi::c_void;
+use std::ptr;
+
+const SERVICE: &str = "com.codexa.garmin-trainer.desktop.provider.v1";
 
 #[link(name = "Security", kind = "framework")]
 extern "C" {
@@ -62,4 +75,5 @@ impl Secrets for Keychain {
         }
         value.ok_or("Keychain value invalid; replace the key explicitly.")
     }
+}
 }

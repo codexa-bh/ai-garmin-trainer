@@ -12,16 +12,20 @@ import {
 } from "./activity-visuals";
 
 // resvg does not map generic families to loaded fonts reliably, so name them.
-const SANS = "Helvetica, DejaVu Sans, sans-serif";
-const MONOSPACE = "Menlo, DejaVu Sans Mono, monospace";
-// Fonts are read from the OS, never redistributed or downloaded. macOS is the
-// product platform; the DejaVu pair only serves Linux CI test hosts.
-const FONT_FILES = [
-  "/System/Library/Fonts/Helvetica.ttc",
-  "/System/Library/Fonts/Menlo.ttc",
-  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-  "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-];
+const SANS = "Helvetica, Segoe UI, DejaVu Sans, sans-serif";
+const MONOSPACE = "Menlo, Consolas, DejaVu Sans Mono, monospace";
+// Fonts are read from the OS, never redistributed or downloaded. macOS and
+// Windows are the product platforms; the DejaVu pair serves Linux CI hosts.
+const windowsFonts = join(process.env.SystemRoot ?? "C:\\Windows", "Fonts");
+const FONT_FILES =
+  process.platform === "win32"
+    ? [join(windowsFonts, "segoeui.ttf"), join(windowsFonts, "consola.ttf")]
+    : [
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/Menlo.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+      ];
 let fonts: Promise<Uint8Array[]> | undefined;
 // The Wasm package is a server-external singleton that refuses a second
 // initWasm(), so share its initialization across re-evaluated modules.

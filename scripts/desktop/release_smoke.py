@@ -28,10 +28,15 @@ REQUIRED = [b'trainer-ordinary-isolated/v2', b'allow-isolated-result', b'__train
 APP = REPO / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 
 
-def audit(app):
+def audit(app, extra=None):
+    """Ordinary production inventory: a macOS .app tree, or a Windows binary
+    plus its resource tree (`extra`). Keys are portable relative paths."""
     inventory = {}
     admitted = set()
-    for file in sorted(app.rglob('*')):
+    base = app if extra is None else app.parent
+    files = [app] if extra is not None else []
+    files += sorted((extra or app).rglob('*'))
+    for file in files:
         if file.is_symlink():
             raise ValueError('Unexpected alias in production artifact')
         if not file.is_file():
@@ -39,12 +44,12 @@ def audit(app):
                 raise ValueError('Unexpected production artifact object')
             continue
         if file.stat().st_nlink != 1:
-            raise ValueError('Hardlinked production artifact refused')
+            raise ValueError('Hardlinked production artifact refused: ' + file.relative_to(base).as_posix())
         data = file.read_bytes()
         if any(marker in data for marker in MARKERS):
-            raise ValueError('Debug/probe surface marker in ordinary production artifact: ' + str(file.relative_to(app)))
+            raise ValueError('Debug/probe surface marker in ordinary production artifact: ' + str(file.relative_to(base)))
         admitted.update(marker for marker in REQUIRED if marker in data)
-        inventory[str(file.relative_to(app))] = hashlib.sha256(data).hexdigest()
+        inventory[file.relative_to(base).as_posix()] = hashlib.sha256(data).hexdigest()
     if not inventory or admitted != set(REQUIRED):
         raise ValueError('Missing ordinary artifact or supported admission/control markers; static audit is not launch evidence')
     return inventory

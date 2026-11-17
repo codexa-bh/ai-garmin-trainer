@@ -1,126 +1,70 @@
-//! Bounded native private documents. All IO is relative to a pinned parent fd.
+//! Bounded native private documents. All IO is relative to a pinned parent handle.
 //! Values and IO errors must never be formatted into diagnostics.
-use std::ffi::CString;
-use std::fs::{self, File};
+use crate::private_fs::{self, FileId};
+use std::ffi::{OsStr, OsString};
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 const LIMIT: usize = 128 * 1024;
 const UNSAFE: &str = "Private settings unsafe or inaccessible; preserve originals and check owner, permissions and canonical path.";
-fn name(part: &std::ffi::OsStr) -> Result<CString, &'static str> {
-    CString::new(part.as_bytes()).map_err(|_| UNSAFE)
+fn name(part: &OsStr) -> Result<OsString, &'static str> {
+    private_fs::valid_name(part)
+        .then(|| part.to_owned())
+        .ok_or(UNSAFE)
 }
-fn same(a: &fs::Metadata, b: &fs::Metadata) -> bool {
-    a.dev() == b.dev() && a.ino() == b.ino()
-}
-fn private(meta: &fs::Metadata) -> bool {
-    meta.is_file()
-        && meta.nlink() == 1
-        && meta.uid() == unsafe { libc::getuid() }
-        && meta.mode() & 0o777 == 0o600
-        && meta.len() <= LIMIT as u64
+fn private(meta: &private_fs::Meta) -> bool {
+    meta.private_file() && meta.exact && meta.len <= LIMIT as u64
 }
 struct Parent {
     file: File,
     path: PathBuf,
+    lock: Option<private_fs::Lock>,
 }
 impl Parent {
     fn open(path: &Path, create: bool) -> Result<Self, &'static str> {
-        if !path.is_absolute() || path.as_os_str().len() > 4096 {
-            return Err(UNSAFE);
-        }
-        let mut file = File::open("/").map_err(|_| UNSAFE)?;
-        for component in path.components() {
-            let Component::Normal(part) = component else {
-                if matches!(component, Component::RootDir) {
-                    continue;
-                }
-                return Err(UNSAFE);
-            };
-            let part = name(part)?;
-            let open = |fd| unsafe {
-                libc::openat(
-                    fd,
-                    part.as_ptr(),
-                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-                )
-            };
-            let mut fd = open(file.as_raw_fd());
-            if fd < 0
-                && create
-                && std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound
-            {
-                if unsafe { libc::mkdirat(file.as_raw_fd(), part.as_ptr(), 0o700) } != 0 {
-                    return Err(UNSAFE);
-                }
-                fd = open(file.as_raw_fd());
-            }
-            if fd < 0 {
-                return Err(UNSAFE);
-            }
-            let next = unsafe { File::from_raw_fd(fd) };
-            let meta = next.metadata().map_err(|_| UNSAFE)?;
-            let sticky = meta.uid() == 0 && meta.mode() & u32::from(libc::S_ISVTX) != 0;
-            if (meta.uid() != 0 && meta.uid() != unsafe { libc::getuid() })
-                || (meta.mode() & 0o022 != 0 && !sticky)
-            {
-                return Err(UNSAFE);
-            }
-            file = next;
-        }
+        let file = private_fs::walk(path, create).map_err(|_| UNSAFE)?;
         let parent = Self {
             file,
             path: path.into(),
+            lock: None,
         };
         parent.verify()?;
         Ok(parent)
     }
     fn verify(&self) -> Result<(), &'static str> {
-        let meta = self.file.metadata().map_err(|_| UNSAFE)?;
-        if meta.uid() != unsafe { libc::getuid() }
-            || meta.mode() & 0o777 != 0o700
-            || fs::canonicalize(&self.path).ok().as_deref() != Some(self.path.as_path())
-            || !fs::symlink_metadata(&self.path)
-                .map(|m| same(&meta, &m))
-                .unwrap_or(false)
+        let meta = private_fs::meta(&self.file).map_err(|_| UNSAFE)?;
+        if !meta.private_dir()
+            || !meta.exact
+            || !private_fs::canonical(&self.path)
+            || !private_fs::same_object(&self.path, &self.file)
         {
             return Err(UNSAFE);
         }
         Ok(())
     }
-    fn open_file(&self, part: &CString) -> Result<Option<File>, &'static str> {
-        let fd = unsafe {
-            libc::openat(
-                self.file.as_raw_fd(),
-                part.as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-            )
+    fn lock(&mut self) -> bool {
+        self.lock = private_fs::try_lock(&self.file);
+        self.lock.is_some()
+    }
+    fn open_file(&self, part: &OsStr) -> Result<Option<File>, &'static str> {
+        let file = match private_fs::open_at(&self.file, part) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(UNSAFE),
         };
-        if fd < 0 {
-            return if std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound {
-                Ok(None)
-            } else {
-                Err(UNSAFE)
-            };
-        }
-        let file = unsafe { File::from_raw_fd(fd) };
-        if !private(&file.metadata().map_err(|_| UNSAFE)?) {
+        if !private(&private_fs::meta(&file).map_err(|_| UNSAFE)?) {
             return Err(UNSAFE);
         }
         Ok(Some(file))
     }
-    fn identity(&self, part: &CString, file: &File) -> bool {
-        match (self.open_file(part), file.metadata()) {
-            (Ok(Some(current)), Ok(meta)) => {
-                current.metadata().map(|m| same(&m, &meta)).unwrap_or(false)
-            }
+    fn identity(&self, part: &OsStr, file: &File) -> bool {
+        match (self.open_file(part), private_fs::id(file)) {
+            (Ok(Some(current)), Ok(id)) => private_fs::id(&current).map(|c| c == id).unwrap_or(false),
             _ => false,
         }
     }
-    fn read(&self, part: &CString) -> Result<Option<Vec<u8>>, &'static str> {
+    fn read(&self, part: &OsStr) -> Result<Option<Vec<u8>>, &'static str> {
         let Some(mut file) = self.open_file(part)? else {
             return Ok(None);
         };
@@ -136,16 +80,14 @@ impl Parent {
         Ok(Some(bytes))
     }
 }
-// Explicit unlock matters when another thread forks while a transaction owns
-// the fd: CLOEXEC closes inherited fds only after exec, not at parent close.
 impl Drop for Parent {
     fn drop(&mut self) {
-        unsafe {
-            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        if self.lock.take().is_some() {
+            private_fs::unlock(&self.file);
         }
     }
 }
-/// A run keeps these descriptors alive, so path replacement cannot transfer authority.
+/// A run keeps these handles alive, so path replacement cannot transfer authority.
 /// Directory locks are additional run ownership, never a replacement DB writer lease.
 pub struct PinnedDirectory(Parent);
 impl PinnedDirectory {
@@ -155,22 +97,25 @@ impl PinnedDirectory {
     pub fn verify(&self) -> Result<(), &'static str> {
         self.0.verify()
     }
-    pub fn lock_exclusive(&self) -> Result<(), &'static str> {
+    pub fn lock_exclusive(&mut self) -> Result<(), &'static str> {
         self.verify()?;
-        if unsafe { libc::flock(self.0.file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        if !self.0.lock() {
             return Err("Isolated run already owned; no lease stealing or fallback.");
         }
         Ok(())
     }
 }
 
-pub fn capture(path: &Path) -> Result<(u64, u64, Vec<u8>), &'static str> {
+/// Exact private object identity plus its bounded bytes.
+pub type Capture = (FileId, Vec<u8>);
+
+pub fn capture(path: &Path) -> Result<Capture, &'static str> {
     let parent = Parent::open(path.parent().ok_or(UNSAFE)?, false)?;
     let part = name(path.file_name().ok_or(UNSAFE)?)?;
     let mut file = parent
         .open_file(&part)?
         .ok_or("Private settings missing; no fallback. Preserve recovery inputs.")?;
-    let meta = file.metadata().map_err(|_| UNSAFE)?;
+    let id = private_fs::id(&file).map_err(|_| UNSAFE)?;
     let mut bytes = Vec::new();
     Read::by_ref(&mut file)
         .take(LIMIT as u64 + 1)
@@ -180,10 +125,10 @@ pub fn capture(path: &Path) -> Result<(u64, u64, Vec<u8>), &'static str> {
         return Err(UNSAFE);
     }
     parent.verify()?;
-    Ok((meta.dev(), meta.ino(), bytes))
+    Ok((id, bytes))
 }
 pub fn read(path: &Path) -> Result<Vec<u8>, &'static str> {
-    capture(path).map(|(_, _, bytes)| bytes)
+    capture(path).map(|(_, bytes)| bytes)
 }
 
 /// Rename is the commit point. false means committed, but verification/durability
@@ -201,8 +146,8 @@ fn publish_with(
     if bytes.len() > LIMIT {
         return Err("Private settings too large.");
     }
-    let parent = Parent::open(path.parent().ok_or(UNSAFE)?, true)?;
-    if unsafe { libc::flock(parent.file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+    let mut parent = Parent::open(path.parent().ok_or(UNSAFE)?, true)?;
+    if !parent.lock() {
         return Err("Another settings transaction is active; do not retry until it settles.");
     }
     let target = name(path.file_name().ok_or(UNSAFE)?)?;
@@ -210,25 +155,15 @@ fn publish_with(
     if parent.read(&target)?.as_deref() != expected {
         return Err("Settings changed; reload and reconcile before saving.");
     }
-    let tmp =
-        CString::new(format!(".provider-{}.tmp", uuid::Uuid::new_v4())).map_err(|_| UNSAFE)?;
-    let fd = unsafe {
-        libc::openat(
-            parent.file.as_raw_fd(),
-            tmp.as_ptr(),
-            libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            0o600,
-        )
-    };
-    if fd < 0 {
+    let tmp = OsString::from(format!(".provider-{}.tmp", uuid::Uuid::new_v4()));
+    let Ok(mut file) = private_fs::create_at(&parent.file, &tmp) else {
         return Err("Cannot stage private settings; prior state unchanged.");
-    }
-    let mut file = unsafe { File::from_raw_fd(fd) };
+    };
     let result = (|| {
         file.write_all(bytes)
             .and_then(|_| file.sync_all())
             .map_err(|_| "Cannot persist private settings; prior state unchanged.")?;
-        // Verify the staged bytes through the same descriptor before selecting
+        // Verify the staged bytes through the same handle before selecting
         // this document as authority. A postrename failure is never rollback.
         file.seek(SeekFrom::Start(0))
             .map_err(|_| "Cannot verify staged settings; prior state unchanged.")?;
@@ -253,32 +188,20 @@ fn publish_with(
         {
             return Err("Settings identity changed; publication refused.");
         }
-        let result = unsafe {
-            libc::renameatx_np(
-                parent.file.as_raw_fd(),
-                tmp.as_ptr(),
-                parent.file.as_raw_fd(),
-                target.as_ptr(),
-                if expected.is_none() {
-                    libc::RENAME_EXCL
-                } else {
-                    0
-                },
-            )
-        };
-        if result != 0 {
+        // Windows refuses replacing a file another handle has open without
+        // delete sharing; release our verification handle first.
+        drop(prior);
+        if private_fs::rename_at(&parent.file, &tmp, &file, &target, expected.is_some()).is_err() {
             return Err("Private settings publication refused; prior state preserved.");
         }
         Ok(!deny_sync
-            && parent.file.sync_all().is_ok()
+            && private_fs::sync_dir(&parent.file)
             && parent.verify().is_ok()
             && parent.identity(&target, &file)
             && parent.read(&target).ok().flatten().as_deref() == Some(bytes))
     })();
     if result.is_err() && parent.identity(&tmp, &file) {
-        unsafe {
-            libc::unlinkat(parent.file.as_raw_fd(), tmp.as_ptr(), 0);
-        }
+        let _ = private_fs::remove_at(&parent.file, &tmp, &file);
     }
     result
 }
@@ -286,19 +209,18 @@ fn publish_with(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::{symlink, PermissionsExt};
+    use crate::private_fs::testing::{make_private, make_shared, private_dir, private_root, symlink};
+    use std::fs;
     fn root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("trainer-private-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&path).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::canonicalize(path).unwrap()
+        private_root("trainer-private")
     }
     #[test]
     fn publication_is_private_exclusive_and_compare_before_replace() {
         let root = root();
         let path = root.join("settings.json");
         assert!(publish(&path, b"first", None).unwrap());
-        assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+        let meta = private_fs::path_meta(&path).unwrap();
+        assert!(meta.private_file() && meta.exact);
         assert!(publish(&path, b"collision", None).is_err());
         assert!(publish(&path, b"stale", Some(b"other")).is_err());
         assert!(publish(&path, b"second", Some(b"first")).unwrap());
@@ -353,8 +275,7 @@ mod tests {
             Some(b"original"),
             |_| {
                 fs::rename(&path, root.join("preserved")).unwrap();
-                fs::write(&path, b"original").unwrap();
-                fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+                crate::private_fs::testing::write_private(&path, b"original");
                 Ok(())
             },
             false
@@ -368,8 +289,7 @@ mod tests {
     fn parent_swap_refuses_publication_and_preserves_both_paths() {
         let root = root();
         let parent = root.join("private");
-        fs::create_dir(&parent).unwrap();
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        private_dir(&parent);
         let path = parent.join("settings.json");
         publish(&path, b"original", None).unwrap();
         let retained = root.join("retained");
@@ -378,30 +298,34 @@ mod tests {
             b"next",
             Some(b"original"),
             |_| {
-                fs::rename(&parent, &retained).unwrap();
-                fs::create_dir(&parent).unwrap();
-                fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
-                Ok(())
+                if crate::private_fs::testing::try_swap_dir(&parent, &retained) {
+                    private_dir(&parent);
+                    Ok(())
+                } else {
+                    Err("Windows refused swapping the pinned parent")
+                }
             },
             false
         )
         .is_err());
-        assert!(!path.exists());
-        assert_eq!(read(&retained.join("settings.json")).unwrap(), b"original");
-        assert_eq!(fs::read_dir(&retained).unwrap().count(), 1);
+        if retained.exists() {
+            assert!(!path.exists());
+            assert_eq!(read(&retained.join("settings.json")).unwrap(), b"original");
+            assert_eq!(fs::read_dir(&retained).unwrap().count(), 1);
+        } else {
+            // Windows: the swap itself was refused; the original stays authoritative.
+            assert_eq!(read(&path).unwrap(), b"original");
+            assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+        }
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn transaction_unlocks_even_with_a_duplicated_descriptor() {
         let root = root();
-        let parent = Parent::open(&root, false).unwrap();
-        assert_eq!(
-            unsafe { libc::flock(parent.file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
-            0
-        );
-        let duplicate = unsafe { libc::dup(parent.file.as_raw_fd()) };
-        assert!(duplicate >= 0);
-        let duplicate = unsafe { File::from_raw_fd(duplicate) };
+        let mut parent = Parent::open(&root, false).unwrap();
+        assert!(parent.lock());
+        assert!(publish(&root.join("settings.json"), b"held", None).is_err());
+        let duplicate = parent.file.try_clone().unwrap();
         drop(parent);
         assert!(publish(&root.join("settings.json"), b"new", None).unwrap());
         drop(duplicate);
@@ -419,17 +343,19 @@ mod tests {
         fs::hard_link(&path, &hard).unwrap();
         assert!(read(&path).is_err());
         fs::remove_file(hard).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        make_shared(&path);
         assert!(read(&path).is_err());
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&path);
         fs::write(&path, vec![b'x'; LIMIT + 1]).unwrap();
         assert!(read(&path).is_err());
         assert!(read(&root).is_err());
         let alias = root.join("parent-alias");
         symlink(&root, &alias).unwrap();
         assert!(read(&alias.join("settings.json")).is_err());
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::private_fs::testing::remove_link(&alias);
+        make_shared(&root);
         assert!(read(&path).is_err());
+        make_private(&root);
         fs::remove_dir_all(root).unwrap();
     }
 }

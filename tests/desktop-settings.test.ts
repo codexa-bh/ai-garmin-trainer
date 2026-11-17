@@ -22,8 +22,14 @@ import { getOptionalEnv } from "../src/lib/env";
 import fields from "../src-tauri/ui/settings-fields.json";
 
 const roots: string[] = [];
+const windows = process.platform === "win32";
+// Host Python for deterministic helper regressions (Windows: python on PATH).
+const python = process.platform === "win32" ? "python" : "/usr/bin/python3";
 function baseline() {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "trainer-settings-")));
+  // The canonical final-path spelling the desktop validators require.
+  const root = realpathSync.native(
+    mkdtempSync(join(tmpdir(), "trainer-settings-")),
+  );
   roots.push(root);
   chmodSync(root, 0o700);
   const path = join(root, "existing ü.sqlite");
@@ -153,10 +159,14 @@ describe("desktop editable settings", () => {
       validateSettings({ ...base.fields, GARMIN_MCP_TOKEN_DIR: base.root })
         .GARMIN_MCP_TOKEN_DIR,
     ).toBe(base.root);
-    chmodSync(base.root, 0o755);
-    expect(() =>
-      validateSettings({ ...base.fields, GARMIN_MCP_TOKEN_DIR: base.root }),
-    ).toThrow();
+    // POSIX mode privacy is checked here; Windows DACL privacy is enforced by
+    // the native private_fs owner (exercised by the Windows native tests).
+    if (!windows) {
+      chmodSync(base.root, 0o755);
+      expect(() =>
+        validateSettings({ ...base.fields, GARMIN_MCP_TOKEN_DIR: base.root }),
+      ).toThrow();
+    }
   });
   it("keeps secrets out of non-secret validation and rejects missing/unknown/placeholder activation slots without fallback", () => {
     const base = baseline();
@@ -414,19 +424,18 @@ describe("desktop editable settings", () => {
     );
   });
   it("runs deterministic Python auth API/privacy/challenge regressions without a network login", () => {
-    const result = spawnSync(
-      "/usr/bin/python3",
-      ["tests/desktop-auth.test.py"],
-      {
-        encoding: "utf8",
-        env: {
-          NODE_ENV: "test",
-          PATH: "/usr/bin:/bin",
-          PYTHONDONTWRITEBYTECODE: "1",
-        },
-        timeout: 15000,
+    const result = spawnSync(python, ["tests/desktop-auth.test.py"], {
+      encoding: "utf8",
+      env: {
+        NODE_ENV: "test",
+        PATH: windows ? process.env.PATH : "/usr/bin:/bin",
+        ...(windows
+          ? { SystemRoot: process.env.SystemRoot, PYTHONUTF8: "1" }
+          : {}),
+        PYTHONDONTWRITEBYTECODE: "1",
       },
-    );
+      timeout: 15000,
+    });
     expect(result.stderr).not.toContain("sentinel-password");
     expect(result.status, result.stderr).toBe(0);
   });
@@ -437,9 +446,12 @@ describe("desktop editable settings", () => {
     expect(auth).toContain("env_clear()");
     expect(auth).not.toMatch(/\.arg\(&?(email|password|code)\)/);
     expect(auth).toContain("Duration::from_secs(180)");
-    expect(auth).toContain("RENAME_EXCL");
+    // Token publication is an exclusive (never replacing) handle-relative rename.
+    expect(auth).toMatch(
+      /private_fs::rename_at\(&parent\.file, source, staging_file, target, false\)/,
+    );
     // Also parse the worker without importing/network/dependency acquisition.
-    execFileSync("/usr/bin/python3", [
+    execFileSync(python, [
       "-c",
       "import ast;ast.parse(open('scripts/desktop/garmin_auth.py').read())",
     ]);

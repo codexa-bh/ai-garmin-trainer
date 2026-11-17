@@ -12,6 +12,7 @@ import {
   revoke,
   signIn,
   openSystemBrowser,
+  requestNativeBrowser,
   ISSUER,
   RESOURCE,
 } from "../scripts/desktop/chatgpt-oauth.mjs";
@@ -720,7 +721,7 @@ test("native browser opening keeps retained token hints out of argv and uses no 
   const url = new URL(
     `${ISSUER}/api/accounts/authorize?id_token_hint=authored-private-hint`,
   );
-  await openSystemBrowser(url, launch);
+  await openSystemBrowser(url, launch, "darwin");
   assert.deepEqual(calls[0].slice(0, 2), [
     "/usr/bin/osascript",
     ["-l", "JavaScript"],
@@ -730,10 +731,52 @@ test("native browser opening keeps retained token hints out of argv and uses no 
   assert.equal(program.includes("authored-private-hint"), true);
   assert.equal(program.includes("Application("), false);
   await assert.rejects(
-    openSystemBrowser(new URL("https://foreign.invalid/authorize"), launch),
+    openSystemBrowser(
+      new URL("https://foreign.invalid/authorize"),
+      launch,
+      "darwin",
+    ),
     /browser/,
   );
   assert.equal(calls.length, 1);
+  // Unsupported platforms never fall back to a generic opener.
+  await assert.rejects(openSystemBrowser(url, launch, "linux"), /browser/);
+  assert.equal(calls.length, 1);
+});
+
+test("Windows browser opening sends one bounded native frame and never spawns a process", async () => {
+  const url = new URL(
+    `${ISSUER}/api/accounts/authorize?id_token_hint=authored-private-hint`,
+  );
+  const lines = [];
+  await requestNativeBrowser(url, (line) => lines.push(line));
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].endsWith("\n"), true);
+  assert.deepEqual(Object.keys(JSON.parse(lines[0])), ["type", "url"]);
+  assert.deepEqual(JSON.parse(lines[0]), { type: "browser", url: url.href });
+  for (const foreign of [
+    "https://foreign.invalid/api/accounts/authorize",
+    `${ISSUER}/api/accounts/authorize#fragment`,
+    `${ISSUER}/other`,
+  ])
+    await assert.rejects(
+      requestNativeBrowser(new URL(foreign), (line) => lines.push(line)),
+      /browser/,
+    );
+  assert.equal(lines.length, 1);
+  const launch = () => assert.fail("Windows must not spawn a browser opener");
+  const original = process.stdout.write;
+  const written = [];
+  process.stdout.write = (line) => written.push(line);
+  try {
+    await openSystemBrowser(url, launch, "win32");
+  } finally {
+    process.stdout.write = original;
+  }
+  assert.deepEqual(
+    written.map((line) => JSON.parse(line).type),
+    ["browser"],
+  );
 });
 
 test("identity-only grant can remain connected without offline permission or a refresh token", async () => {

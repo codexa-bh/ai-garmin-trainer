@@ -567,7 +567,7 @@ it("reports render_failed instead of label-less images when no system font is av
     return {
       ...actual,
       readFile: (path: string, ...rest: unknown[]) =>
-        /\/fonts\//i.test(String(path))
+        /[\\/]fonts[\\/]/i.test(String(path))
           ? Promise.reject(new Error("absent"))
           : (actual.readFile as (...args: unknown[]) => unknown)(path, ...rest),
     };

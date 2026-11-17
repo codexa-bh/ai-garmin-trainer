@@ -122,6 +122,7 @@ const groups = [
     [
       "connection",
       "desktop-preflight",
+      "local-path",
       "writer-ownership",
       "conversation-lifecycle",
       "conversation-summary-pin",

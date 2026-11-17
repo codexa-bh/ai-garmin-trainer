@@ -1,8 +1,7 @@
 //! Only this instance's actual WKWebView, after an admitted fixed privacy mask.
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::Write,
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
 };
 use tauri::WebviewWindow;
@@ -21,20 +20,19 @@ pub fn publish(parent: &Path, id: &str, bytes: &[u8]) -> Result<PathBuf, String>
     }
     let path = parent.join(format!("capture-{id}.png"));
     let tmp = parent.join(format!(".capture-{id}.tmp"));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)
-        .map_err(|_| "Exclusive capture temporary")?;
+    let mut file =
+        crate::private_fs::create_private_file(&tmp).map_err(|_| "Exclusive capture temporary")?;
     // Only an exclusive-open success owns this temporary and permits its cleanup.
-    let result = (|| {
+    let staged = tmp.clone();
+    let result = (move || {
         file.write_all(bytes)
             .and_then(|_| file.sync_all())
             .map_err(|_| "Complete capture write")?;
+        // Close before unlinking: Windows refuses deleting an open file.
+        drop(file);
         // Exclusive hard-link publication is atomic and cannot replace an existing destination.
-        fs::hard_link(&tmp, &path).map_err(|_| "Exclusive atomic capture publication")?;
-        fs::remove_file(&tmp).map_err(|_| "Capture temporary cleanup")?;
+        fs::hard_link(&staged, &path).map_err(|_| "Exclusive atomic capture publication")?;
+        fs::remove_file(&staged).map_err(|_| "Capture temporary cleanup")?;
         Ok(path)
     })();
     if result.is_err() {
@@ -88,6 +86,7 @@ pub fn png(_window: &WebviewWindow) -> Result<Vec<u8>, String> {
 }
 #[cfg(test)]
 mod tests {
+    use crate::private_fs::testing::symlink;
     use super::*;
     #[test]
     fn refuses_invalid_bytes_and_paths() {
@@ -95,13 +94,7 @@ mod tests {
     }
     #[test]
     fn publication_is_private_atomic_exclusive_and_confined() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let parent = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
-            .join(format!("capture-test-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&parent).unwrap();
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        let parent = crate::private_fs::testing::private_root("capture-test");
         let id = uuid::Uuid::new_v4().to_string();
         // Bounded header/end framing fixture only, not visual screenshot evidence.
         let mut bytes = vec![0; 45];
@@ -113,7 +106,7 @@ mod tests {
         assert!(publish(&parent, "../escape", &bytes).is_err());
         let path = publish(&parent, &id, &bytes).unwrap();
         assert_eq!(fs::read(&path).unwrap(), bytes);
-        assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+        assert!(crate::private_fs::path_meta(&path).unwrap().private_file());
         assert!(publish(&parent, &id, &bytes).is_err());
         assert_eq!(fs::read(&path).unwrap(), bytes);
         let next = uuid::Uuid::new_v4().to_string();
@@ -122,8 +115,11 @@ mod tests {
         assert!(publish(&parent, &next, &bytes).is_err());
         assert!(tmp.exists());
         let alias = parent.with_extension("alias");
-        std::os::unix::fs::symlink(&parent, &alias).unwrap();
+        symlink(&parent, &alias).unwrap();
         assert!(publish(&alias, &next, &bytes).is_err());
+        #[cfg(windows)]
+        fs::remove_dir(alias).unwrap();
+        #[cfg(unix)]
         fs::remove_file(alias).unwrap();
         fs::remove_file(tmp).unwrap();
         fs::remove_file(path).unwrap();

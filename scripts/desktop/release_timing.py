@@ -38,7 +38,7 @@ class Recorder:
             return
         try:
             temporary = self.path.with_suffix('.partial')
-            with open(temporary, 'w', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as output:
+            with open(temporary, 'w', opener=lambda p, flags: os.open(p, flags | getattr(os, 'O_NOFOLLOW', 0), 0o600)) as output:
                 json.dump(self.value, output, indent=2)
                 output.write('\n')
             os.replace(temporary, self.path)
@@ -73,7 +73,7 @@ def attach(directory):
         return
     path = directory / ('release-timing-' + recorder.value['action'] + '-' + str(uuid.uuid4()) + '.json')
     try:
-        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600))
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600))
     except OSError as error:
         print('Release timing evidence unavailable: ' + type(error).__name__, file=sys.stderr)
         return

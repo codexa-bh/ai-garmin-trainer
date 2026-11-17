@@ -10,9 +10,9 @@ Do not change signing, trust or OS security policy to run a modified build. The 
 
 ## Material accompanying the actual app
 
-Under `Garmin Trainer.app/Contents/Resources/resources/`:
+Under `Garmin Trainer.app/Contents/Resources/resources/` (Windows x64: `resources\` beside the installed `garmin-trainer-desktop.exe`, carried inside the NSIS installer):
 
-- `NODE-LICENSE.txt` is the **actual complete LICENSE from the checksum-pinned official Node archive**, including its embedded third-party notices. Node is not represented solely by its MIT package metadata.
+- `NODE-LICENSE.txt` is the **actual complete LICENSE from the checksum-pinned official Node archive for that platform** (`darwin-arm64` or `win-x64`), including its embedded third-party notices. Node is not represented solely by its MIT package metadata.
 - `THIRD-PARTY-NOTICES.txt` is a navigation/lock-metadata index, intentionally a conservative superset rather than a certification of every object.
 - `redistribution/NOTICES.txt` contains actual copyright/LICENSE/NOTICE/attribution texts collected from installed production npm packages (including Next's compiled components), checksum-verified vendored native crate sources, and the separately reviewed upstream source inputs. Source-archive notices can cover unbuilt portions; each original per-file license remains controlling.
 - `redistribution/index.json` records exact npm/Cargo lock digests, installed production package identities/source URLs/integrities, native package licenses/checksums/source URLs, and names/sizes/SHA-256 for the reviewed extra sources. It contains no build-machine paths or environment values.

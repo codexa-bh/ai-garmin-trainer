@@ -28,7 +28,10 @@ import { SUMMARY_DEADLINE_MS } from "../src/lib/memory/summary-policy";
 const directories: string[] = [];
 const releases: Array<() => void> = [];
 function directory(): string {
-  const path = realpathSync(mkdtempSync(join(tmpdir(), "trainer-desktop-")));
+  // The canonical final-path spelling the desktop validators require.
+  const path = realpathSync.native(
+    mkdtempSync(join(tmpdir(), "trainer-desktop-")),
+  );
   directories.push(path);
   return path;
 }
@@ -160,17 +163,21 @@ describe("desktop reference boundary", () => {
       pythonBytecode: "1",
     });
   });
-  it("clamps permissive GUI creation masks for backend descendants without adopting existing files", () => {
-    const base = directory();
-    const database = join(base, "synthetic.sqlite");
-    writeFileSync(database, "test-only-path-validation");
-    const snapshot = JSON.stringify({
-      version: 1,
-      fields: { DATABASE_PATH: database, AI_PROVIDER: "openai" },
-      secrets: { OPENAI_API_KEY: "test-only-no-network" },
-    });
-    const parentMask = process.umask();
-    const script = `
+  // POSIX creation masks; on Windows the native owner creates private
+  // directories with inheritable owner-only DACLs instead (native tests).
+  it.skipIf(process.platform === "win32")(
+    "clamps permissive GUI creation masks for backend descendants without adopting existing files",
+    () => {
+      const base = directory();
+      const database = join(base, "synthetic.sqlite");
+      writeFileSync(database, "test-only-path-validation");
+      const snapshot = JSON.stringify({
+        version: 1,
+        fields: { DATABASE_PATH: database, AI_PROVIDER: "openai" },
+        secrets: { OPENAI_API_KEY: "test-only-no-network" },
+      });
+      const parentMask = process.umask();
+      const script = `
       const fs=require('node:fs');
       const {join}=require('node:path');
       const {execFileSync}=require('node:child_process');
@@ -184,26 +191,27 @@ describe("desktop reference boundary", () => {
         process.argv[2]],{encoding:'utf8'});
       process.stdout.write(JSON.stringify({mask:process.umask(),existing:fs.statSync(existing).mode&511,descendant:JSON.parse(descendant)}));
     `;
-    const result = execFileSync(
-      process.execPath,
-      ["--import", "tsx", "-e", script, snapshot, base],
-      {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        env: {
-          PATH: process.env.PATH,
-          HOME: process.env.HOME,
-          NODE_ENV: "production",
+      const result = execFileSync(
+        process.execPath,
+        ["--import", "tsx", "-e", script, snapshot, base],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          env: {
+            PATH: process.env.PATH,
+            HOME: process.env.HOME,
+            NODE_ENV: "production",
+          },
         },
-      },
-    );
-    expect(JSON.parse(result)).toEqual({
-      mask: 0o077,
-      existing: 0o644,
-      descendant: { mask: 0o077, directory: 0o700, file: 0o600 },
-    });
-    expect(process.umask()).toBe(parentMask);
-  });
+      );
+      expect(JSON.parse(result)).toEqual({
+        mask: 0o077,
+        existing: 0o644,
+        descendant: { mask: 0o077, directory: 0o700, file: 0o600 },
+      });
+      expect(process.umask()).toBe(parentMask);
+    },
+  );
   it("never resolves relative commands, shell text or unavailable tools through inherited PATH", () => {
     expect(resolveExecutable("./uv")).toBeUndefined();
     expect(resolveExecutable("uv; echo unsafe")).toBeUndefined();

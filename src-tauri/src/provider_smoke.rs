@@ -145,15 +145,15 @@ pub fn activation(
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
+    use crate::private_fs::testing::{make_private, make_shared, symlink};
     use super::*;
-    use std::{fs, os::unix::fs::PermissionsExt};
+    use std::fs;
     fn directory() -> PathBuf {
-        let path = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
+        let path = crate::private_fs::testing::temp_root()
             .join(format!("provider-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir(&path).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        make_private(&path);
         path
     }
     fn publish(root: &Path, name: &str, value: &serde_json::Value) -> PathBuf {
@@ -176,7 +176,7 @@ mod tests {
         let config = run.join("config");
         for path in [&config, &run.join("tokens")] {
             fs::create_dir(path).unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+            make_private(path);
         }
         let source = publish(
             &production,
@@ -253,7 +253,7 @@ mod tests {
             assert!(activation(&path, &production, mode).is_err(), "{mutation}");
         }
         fs::write(&path, serde_json::to_vec(&base).unwrap()).unwrap();
-        fs::write(run.join("tokens/unexpected"), b"synthetic").unwrap();
+        fs::write(run.join("tokens").join("unexpected"), b"synthetic").unwrap();
         assert!(activation(&path, &production, mode).is_err());
         assert_eq!(fs::read(&source).unwrap(), before);
         assert!(serde_json::from_value::<Mode>(serde_json::json!(
@@ -273,7 +273,7 @@ mod tests {
         let config = run.join("config");
         for path in [&config, &run.join("tokens")] {
             fs::create_dir(path).unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
+            make_private(path);
         }
         let source = publish(
             &production,
@@ -308,7 +308,7 @@ mod tests {
             assert_eq!(fs::read(&source).unwrap(), before);
         }
         fs::write(&path, serde_json::to_vec(&base).unwrap()).unwrap();
-        fs::write(run.join("tokens/unexpected"), b"synthetic-not-a-token").unwrap();
+        fs::write(run.join("tokens").join("unexpected"), b"synthetic-not-a-token").unwrap();
         assert!(activation(&path, &production, Mode::SummaryLuna100).is_err());
         assert_eq!(fs::read(&source).unwrap(), before);
         assert!(
@@ -323,9 +323,9 @@ mod tests {
         let config = run.join("config");
         let tokens = run.join("tokens");
         fs::create_dir(&tokens).unwrap();
-        fs::set_permissions(&tokens, fs::Permissions::from_mode(0o700)).unwrap();
+        make_private(&tokens);
         fs::create_dir(&config).unwrap();
-        fs::set_permissions(&config, fs::Permissions::from_mode(0o700)).unwrap();
+        make_private(&config);
         let source = publish(
             &production,
             "settings-v2.json",

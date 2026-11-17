@@ -1,6 +1,6 @@
-import { lstatSync, realpathSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { lstatSync } from "node:fs";
 import { configuredSecret, getOptionalEnv } from "../../src/lib/env";
+import { isCanonicalLocalPath } from "../../src/lib/db/local-path";
 import fields from "../../src-tauri/ui/settings-fields.json";
 import { validateChatgptDescriptor } from "../../src/lib/ai/chatgpt-connection";
 import {
@@ -17,11 +17,10 @@ export const SECRET_SLOTS = [
 
 function literalPath(value: string, directory: boolean): string {
   if (
-    !isAbsolute(value) ||
     value !== value.trim() ||
-    /[~$]/.test(value) ||
+    /[~$%]/.test(value) ||
     [...value].some((character) => character.charCodeAt(0) < 32) ||
-    realpathSync(value) !== value
+    !isCanonicalLocalPath(value)
   )
     throw new Error(
       "Select a canonical absolute local path, without aliases or expansion.",
@@ -29,7 +28,13 @@ function literalPath(value: string, directory: boolean): string {
   const stat = lstatSync(value);
   if (directory ? !stat.isDirectory() : !stat.isFile())
     throw new Error("Selected path has the wrong type.");
-  if (directory && (stat.uid !== process.getuid?.() || stat.mode & 0o077))
+  // Windows owner/DACL privacy is not visible to Node; the native settings owner
+  // enforces it (private_fs) before any save or activation on every platform.
+  if (
+    directory &&
+    process.platform !== "win32" &&
+    (stat.uid !== process.getuid?.() || stat.mode & 0o077)
+  )
     throw new Error("Token directory must be owner-private.");
   return value;
 }
