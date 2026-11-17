@@ -15,6 +15,46 @@ export const SECRET_SLOTS = [
   "OPENROUTER_API_KEY",
 ] as const;
 
+/** Closed failure metadata only; never forward exception text, paths or values. */
+export function desktopValidationFailureCode(error: unknown): string {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? error.code
+      : undefined;
+  if (
+    typeof code === "string" &&
+    [
+      "SQLITE_BUSY",
+      "SQLITE_LOCKED",
+      "SQLITE_CANTOPEN",
+      "SQLITE_CORRUPT",
+      "SQLITE_NOTADB",
+      "SQLITE_READONLY",
+      "SQLITE_ERROR",
+      "SQLITE_IOERR",
+      "MODULE_NOT_FOUND",
+      "ERR_DLOPEN_FAILED",
+    ].includes(code)
+  )
+    return code;
+  const known: Record<string, string> = {
+    "Select a canonical absolute local path, without aliases or expansion.":
+      "canonical-path",
+    "Select an existing regular database, not an empty file or alias.":
+      "database-file",
+    "Database schema is not supported. Back up and explicitly upgrade a disposable copy using the source tools first.":
+      "database-schema",
+    "Database integrity check failed.": "database-integrity",
+    "Database compatibility structure is incomplete; repair a backed-up copy before adoption.":
+      "database-compatibility",
+    "Database conversation control is inconsistent; preserve data and use compatible recovery.":
+      "database-control",
+  };
+  return error instanceof Error && Object.hasOwn(known, error.message)
+    ? known[error.message]!
+    : "unavailable";
+}
+
 function literalPath(value: string, directory: boolean): string {
   if (
     value !== value.trim() ||

@@ -94,9 +94,6 @@ jobs:
       - name: Production backend and Windows resources (pinned Node/SQLite probe)
         run: npm run desktop:resources
 
-      - name: Locked native Windows tests
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
-
       - name: Focused Windows JS/TS tests
         run: >-
           npx vitest run tests/desktop-platform.test.ts tests/desktop-runtime.test.ts
@@ -105,6 +102,9 @@ jobs:
           tests/activity-images.test.ts tests/chatgpt-oauth.test.mjs
           tests/ci-profiles.test.ts tests/windows-app-smoke.test.ts tests/native-smoke-dom.test.tsx
           --test-timeout=60000
+
+      - name: Locked native Windows tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
       - name: Full ordinary build and unsigned per-user NSIS installer
         id: build

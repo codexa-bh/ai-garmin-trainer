@@ -75,8 +75,15 @@ def startup_diagnostic(root, launch, exit_code):
     lower = raw.lower()
     runtime = re.findall(rb'Isolated runtime startup refused: ([^\r\n]{1,320})', raw)
     hresults = re.findall(rb'(?m)^Isolated desktop window hresult: (-?[0-9]{1,11})\r?$', raw)
+    validation_codes = {b'SQLITE_BUSY', b'SQLITE_LOCKED', b'SQLITE_CANTOPEN', b'SQLITE_CORRUPT', b'SQLITE_NOTADB',
+                        b'SQLITE_READONLY', b'SQLITE_ERROR', b'SQLITE_IOERR', b'MODULE_NOT_FOUND', b'ERR_DLOPEN_FAILED',
+                        b'canonical-path', b'database-file', b'database-schema', b'database-integrity',
+                        b'database-compatibility', b'database-control', b'unavailable'}
+    validation = re.findall(rb'(?m)^Desktop settings validation: (fields|database) ([A-Za-z_-]{1,48})\r?$', raw)
     return {'layer': 'native-startup', 'exitCode': exit_code, 'nativeLogAvailable': available,
             'nativeLogBytes': len(raw) if available else None,
+            'settingsValidation': [{'stage': stage.decode('ascii'), 'code': (code if code in validation_codes else b'unavailable').decode('ascii')}
+                                   for stage, code in validation[:4]],
             'runtimeStartupCodes': sorted({runtime_errors[value] for value in runtime if value in runtime_errors}),
             'windowHresults': sorted({int(value) for value in hresults if -2147483648 <= int(value) < 0}),
             'admissionStages': sorted({value.decode('ascii') for value in found if value.decode('ascii') in stages}),

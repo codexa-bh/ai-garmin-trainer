@@ -517,6 +517,19 @@ pub fn activation(path: &Path) -> Result<Vec<u8>, &'static str> {
     frame(&settings)
 }
 
+#[cfg(any(windows, test))]
+fn validation_diagnostic(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let object = value.as_object()?;
+    if object.len() != 3 || value["ok"] != false || !object.contains_key("stage") || !object.contains_key("code") {
+        return None;
+    }
+    let stage = match value["stage"].as_str()? { "fields" => "fields", "database" => "database", _ => return None };
+    let code = ["SQLITE_BUSY", "SQLITE_LOCKED", "SQLITE_CANTOPEN", "SQLITE_CORRUPT", "SQLITE_NOTADB", "SQLITE_READONLY", "SQLITE_ERROR", "SQLITE_IOERR", "MODULE_NOT_FOUND", "ERR_DLOPEN_FAILED", "canonical-path", "database-file", "database-schema", "database-integrity", "database-compatibility", "database-control", "unavailable"]
+        .into_iter().find(|known| value["code"].as_str() == Some(*known)).unwrap_or("unavailable");
+    Some((stage, code))
+}
+
 pub fn validate(
     resources: &Path,
     fields: &BTreeMap<String, String>,
@@ -575,6 +588,12 @@ pub fn validate(
     }
     let _ = child.wait();
     let (read, bytes) = reader.join().map_err(|_| "Settings result interrupted.")?;
+    #[cfg(windows)]
+    if result.is_err() {
+        if let Some((stage, code)) = validation_diagnostic(&bytes) {
+            eprintln!("Desktop settings validation: {stage} {code}");
+        }
+    }
     result?;
     read.map_err(|_| "Settings result unavailable.")?;
     if bytes.len() > 128 * 1024 {
@@ -597,6 +616,14 @@ pub fn validate(
 mod tests {
     use super::*;
     use std::cell::Cell;
+    #[test]
+    fn validation_failure_metadata_never_forwards_unknown_text_paths_or_fields() {
+        assert_eq!(validation_diagnostic(br#"{"ok":false,"stage":"database","code":"SQLITE_CANTOPEN"}"#), Some(("database", "SQLITE_CANTOPEN")));
+        assert_eq!(validation_diagnostic(br#"{"ok":false,"stage":"fields","code":"private-key-path"}"#), Some(("fields", "unavailable")));
+        assert!(validation_diagnostic(br#"{"ok":false,"stage":"private-key","code":"unavailable"}"#).is_none());
+        assert!(validation_diagnostic(br#"{"ok":false,"stage":"database","code":"unavailable","path":"private-key"}"#).is_none());
+        assert!(validation_diagnostic(br#"{"ok":true,"fields":{}}"#).is_none());
+    }
     struct Fake {
         calls: Cell<usize>,
         deny: bool,

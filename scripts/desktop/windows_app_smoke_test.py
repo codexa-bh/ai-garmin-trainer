@@ -151,9 +151,12 @@ class LifecycleContracts(unittest.TestCase):
             with (root / 'native-1.log').open('a') as log:
                 log.write('Isolated runtime startup refused: Cannot create desktop window.\n')
                 log.write('Isolated runtime startup refused: ' + secret + '\n')
+                log.write('Desktop settings validation: database SQLITE_CANTOPEN\n')
+                log.write('Desktop settings validation: fields ' + secret + '\n')
                 log.write('Isolated desktop window hresult: -2147024809\nIsolated desktop window hresult: 123456\n')
             value = app.startup_diagnostic(root, 1, 1)
             self.assertEqual(value['runtimeStartupCodes'], ['desktop-window'])
+            self.assertEqual(value['settingsValidation'], [{'stage': 'database', 'code': 'SQLITE_CANTOPEN'}, {'stage': 'fields', 'code': 'unavailable'}])
             self.assertEqual(value['windowHresults'], [-2147024809])
             self.assertTrue(value['runtimeStartupFailure'])
             self.assertGreater(value['nativeLogBytes'], 0)

@@ -561,7 +561,9 @@ impl Admission {
         )
     }
     pub fn verify(&self) -> Result<(), &'static str> {
-        for (directory, name) in self.directories.iter().zip(DIRECTORIES) {
+        for (index, directory) in self.directories.iter().enumerate() {
+            // The root precedes DIRECTORIES; never zip away the final optional token pin.
+            let name = if index == 0 { "root-directory" } else { DIRECTORIES[index - 1] };
             directory.verify().map_err(|_| refusal(name))?;
         }
         let identity = *self.database.lock().map_err(|_| DENIED)?;
@@ -701,26 +703,29 @@ mod tests {
         use std::process::{Command, Stdio};
         let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/desktop");
         let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
-        let code = r#"import json,os,sys,uuid
+        let code = r#"import contextlib,json,os,subprocess,sys,uuid
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
 import windows_smoke_state as state
-from windows_backend_smoke import run_initializer
-resources=Path(sys.argv[2])
+from native_smoke import readonly,fingerprint,private_json
+repo=Path(sys.argv[1]).parent.parent
 identity=str(uuid.uuid4())
 root=state.mkdir(Path(os.environ['RUNNER_TEMP']).resolve(strict=True)/('ordinary-'+identity))
 for name in ['config','app-data','profile','setup-profile','tmp','screenshots']:
  state.mkdir(root/name)
 state.write_file(root/'owner',identity.encode())
-state.write_file(root/'trainer.sqlite',run_initializer(resources/'node.exe',resources/'runtime'))
-state.write_file(root/'config/settings-v2.json',json.dumps({'version':2,'keys':{},'fields':{'DATABASE_PATH':str(root/'trainer.sqlite'),'AI_PROVIDER':'ollama','MEMORY_ENABLED':'false'}}).encode())
+seed=subprocess.run([str(repo/'node_modules/.bin/tsx.cmd'),str(repo/'scripts/desktop/windows_smoke_seed.ts'),'2026-11-17'],cwd=repo,capture_output=True,timeout=60)
+assert seed.returncode==0 and seed.stdout.startswith(b'SQLite format 3\0')
+state.write_file(root/'trainer.sqlite',seed.stdout)
+with contextlib.closing(readonly(root/'trainer.sqlite')) as database: fingerprint(database)
+private_json(root/'config/settings-v2.json',{'version':2,'keys':{},'fields':{'DATABASE_PATH':str(root/'trainer.sqlite'),'AI_PROVIDER':'ollama','MEMORY_ENABLED':'false'}})
 state.write_file(root/'launch.json',json.dumps({'schemaVersion':2,'runId':identity,'root':str(root),'sourceFingerprint':'a'*64,'buildSourceFingerprint':'d'*64,'buildContext':'e'*64,'artifactInventoryHash':'b'*64,'controlPort':23567,'capability':'c'*64}).encode())
 pin=state.PinnedRoot(root)
 print(root,flush=True)
 sys.stdin.buffer.read(1)
 pin.close()
 "#;
-        let mut child = Command::new("python").args(["-c", code]).arg(scripts).arg(&resources)
+        let mut child = Command::new("python").args(["-c", code]).arg(scripts)
             .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
         let mut line = String::new();
         std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
@@ -794,6 +799,18 @@ pin.close()
         let path = root.join("launch.json");
         write(path.clone(), serde_json::to_vec(&serde_json::json!({"schemaVersion":2,"runId":id,"root":root,"sourceFingerprint":"a".repeat(64),"buildSourceFingerprint":"d".repeat(64),"buildContext":"e".repeat(64),"artifactInventoryHash":"b".repeat(64),"controlPort":23567,"capability":"c".repeat(64)})).unwrap());
         (root, path)
+    }
+    #[test]
+    fn optional_token_directory_is_revalidated_after_admission() {
+        let (root, path) = fixture();
+        let admitted = Admission::admit(&path, |_| Ok(())).unwrap();
+        fs::rename(root.join("tokens"), root.join("prior-tokens")).unwrap();
+        fs::create_dir(root.join("tokens")).unwrap();
+        make_private(root.join("tokens"));
+        let refused = admitted.verify().is_err();
+        drop(admitted);
+        fs::remove_dir_all(root).unwrap();
+        assert!(refused, "Every pinned directory, including optional tokens, must be checked");
     }
     #[test]
     fn separated_build_identity_requires_exact_versioned_compiled_resource_descriptor_agreement() {
