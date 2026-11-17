@@ -10,7 +10,7 @@ none of those gates or deterministic tests is removed by the fast profile.
 
 ## Windows x64 job
 
-The `Windows x64` workflow runs **only on explicit `workflow_dispatch`**, on a selected ref's immutable SHA, using a hosted Windows Server 2025 x64 runner (not Windows 11). PR updates and pushes never allocate it; Windows remains non-required. See [dispatch and SHA verification](windows.md#on-demand-execution). It records exact source, image, OS build and toolchain, then runs Python release/identity contract tests, `desktop:resources` with the pinned Windows Node/SQLite probe, locked native tests (Windows private ACL/handle/rename/lock and Job Object process-tree tests), focused JS/TS tests, `desktop:build` (unsigned per-user NSIS installer), non-installing `release.py package/verify --platform windows-x64` and the synthetic `windows_backend_smoke.py`. No artifacts are uploaded and no credentials, private data or real services are used. Installer execution, native window/input and Windows 11 qualification remain unexercised; see [Windows evidence limits](windows.md#evidence-and-deferred-qualification).
+The `Windows x64` workflow runs **only on explicit `workflow_dispatch`**, on a selected ref's immutable SHA, using a hosted Windows Server 2025 x64 runner (not Windows 11). PR updates and pushes never allocate it; Windows remains non-required. See [dispatch and SHA verification](windows.md#on-demand-execution). It records exact source, image, OS build and toolchain, then runs Python release/identity contract tests, `desktop:resources` with the pinned Windows Node/SQLite probe, locked native tests (Windows private ACL/handle/rename/lock and Job Object process-tree tests), focused JS/TS tests, `desktop:build` (unsigned per-user NSIS installer), non-installing `release.py package/verify --platform windows-x64` and the synthetic `windows_backend_smoke.py`. It additionally runs the finite installed-app navigation/Goals restart/capture/data-preserving-uninstall scenario. Only its six validated synthetic masked PNGs and sanitized manifest have a task-scoped three-day upload exception; no other artifacts, credentials, private inputs or real services are used. Downloaded images still require individual inspection; trusted native input/menu/focus, full chrome, Windows 11 and upgrade/downgrade qualification remain unavailable. See [scenario and publication boundary](windows.md#installed-app-scenario-and-narrow-evidence-exception) and [evidence limits](windows.md#evidence-and-deferred-qualification).
 
 ## Change-gated native nightly
 
@@ -59,7 +59,9 @@ Without that flag `smoke:quick` builds resources itself. Existing `desktop:resou
 Routine superseded PR/ref runs cancel; nightly runs serialize without cancelling
 an allocated native attempt. Actions are SHA-pinned, installs locked, and the only
 shared cache is npm download tarballs keyed by lockfile. No node_modules/build/app
-state cache or binary/SQLite/image uploads. Fresh synthetic state is job-private,
+state cache or binary/SQLite uploads. macOS images remain local-only; the separate
+Windows scenario has only the narrow three-day synthetic masked-image exception
+linked above. Fresh synthetic state is job-private,
 disposed only through [verified invocation ownership](dev-bridge.md#preparation-reuse-and-owned-disposal) after final settlement/evidence; retained diagnostics expire with the runner or local task scratch.
 Failures retain bounded receipt/source/owned shutdown facts; never dump private
 config, DOM or database contents. Pivan registers PR/main CI asynchronously;

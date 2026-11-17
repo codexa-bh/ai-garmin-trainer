@@ -188,7 +188,8 @@ fn inventory(
             if relative.contains(['\n', '\r', '\0']) {
                 return Err(DENIED);
             }
-            files.insert(relative.to_owned(), sha_file(&path)?);
+            let relative = if cfg!(windows) { relative.replace('\\', "/") } else { relative.to_owned() };
+            if files.insert(relative, sha_file(&path)?).is_some() { return Err(DENIED); }
         } else {
             return Err(DENIED);
         }
@@ -222,8 +223,8 @@ fn verify_build_identity(
     Ok(())
 }
 
-fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
-    let executable = std::env::current_exe().map_err(|_| DENIED)?;
+#[cfg(target_os = "macos")]
+fn artifact_layout(executable: &Path) -> Result<(PathBuf, String), &'static str> {
     if executable.file_name().and_then(|p| p.to_str()) != Some("garmin-trainer-desktop") {
         return Err(DENIED);
     }
@@ -239,8 +240,31 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
     {
         return Err(DENIED);
     }
+    Ok((bundle.to_owned(), "Contents/Resources/resources".to_owned()))
+}
+#[cfg(windows)]
+fn artifact_layout(executable: &Path) -> Result<(PathBuf, String), &'static str> {
+    if executable.file_name().and_then(|p| p.to_str()) != Some("garmin-trainer-desktop.exe") {
+        return Err(DENIED);
+    }
+    let program = executable.parent().ok_or(DENIED)?;
+    if !private_fs::canonical(program) || !private_fs::canonical(executable) {
+        return Err(DENIED);
+    }
+    // The orchestration owner separately binds these installed bytes to the
+    // verified installer. Native admits only this exact compiled layout/identity.
+    let uninstaller = program.join("uninstall.exe");
+    let meta = private_fs::path_meta(&uninstaller).map_err(|_| DENIED)?;
+    if meta.kind != private_fs::Kind::File || meta.links != 1 || meta.len == 0 {
+        return Err(DENIED);
+    }
+    Ok((program.to_owned(), "resources".to_owned()))
+}
+fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
+    let executable = std::env::current_exe().map_err(|_| DENIED)?;
+    let (bundle, resource_prefix) = artifact_layout(&executable)?;
     let mut files = BTreeMap::new();
-    inventory(bundle, bundle, &mut files, &mut 0)?;
+    inventory(&bundle, &bundle, &mut files, &mut 0)?;
     let mut digest = Sha256::new();
     for (path, hash) in &files {
         digest.update(path.as_bytes());
@@ -251,7 +275,7 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
     if format!("{:x}", digest.finalize()) != descriptor.artifact_inventory_hash {
         return Err(DENIED);
     }
-    let resources = contents.join("Resources/resources");
+    let resources = bundle.join(&resource_prefix);
     let path = resources.join("provenance.json");
     if fs::metadata(&path).map_err(|_| DENIED)?.len() > 16 * 1024 * 1024 {
         return Err(DENIED);
@@ -281,7 +305,7 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
             return Err(DENIED);
         }
         if files
-            .get(&format!("Contents/Resources/resources/{path}"))
+            .get(&format!("{resource_prefix}/{path}"))
             .map(String::as_str)
             != entry["sha256"].as_str()
         {
@@ -300,7 +324,7 @@ impl Admission {
             return Err(DENIED);
         }
         let admission = Self::admit(path, verify_artifact)?;
-        if admission.descriptor.history_setup.is_some()
+        if cfg!(windows) || admission.descriptor.history_setup.is_some()
             || admission.descriptor.provider_smoke.is_some()
         {
             if !stdin_is_pipe() {
@@ -620,6 +644,36 @@ impl Admission {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inventory_uses_portable_components_and_refuses_links() {
+        let root = crate::private_fs::testing::private_root("ordinary-inventory");
+        std::fs::create_dir(root.join("resources")).unwrap();
+        std::fs::write(root.join("resources/provenance.json"), b"authored").unwrap();
+        let mut files = std::collections::BTreeMap::new();
+        super::inventory(&root, &root, &mut files, &mut 0).unwrap();
+        assert!(files.contains_key("resources/provenance.json"));
+        assert!(!files.keys().any(|path| path.contains('\\')));
+        std::fs::hard_link(root.join("resources/provenance.json"), root.join("alias")).unwrap();
+        assert!(super::inventory(&root, &root, &mut Default::default(), &mut 0).is_err());
+        std::fs::remove_file(root.join("alias")).unwrap();
+        std::fs::remove_file(root.join("resources/provenance.json")).unwrap();
+        std::fs::remove_dir(root.join("resources")).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+    #[cfg(windows)]
+    #[test]
+    fn installed_layout_requires_known_binary_and_generated_uninstaller() {
+        let root = crate::private_fs::testing::private_root("installed-layout");
+        let exe = root.join("garmin-trainer-desktop.exe");
+        std::fs::write(&exe, b"binary").unwrap();
+        assert!(super::artifact_layout(&exe).is_err());
+        std::fs::write(root.join("uninstall.exe"), b"generated").unwrap();
+        assert_eq!(super::artifact_layout(&exe).unwrap(), (root.clone(), "resources".to_owned()));
+        assert!(super::artifact_layout(&root.join("foreign.exe")).is_err());
+        std::fs::remove_file(root.join("uninstall.exe")).unwrap();
+        std::fs::remove_file(exe).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
     #[allow(unused_imports)]
     use crate::private_fs::testing::{make_private, make_shared, symlink};
     use super::*;

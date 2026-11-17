@@ -23,6 +23,8 @@ mod setup_smoke;
 mod smoke_config;
 mod supervisor;
 mod system_open;
+#[cfg(windows)]
+mod windows_webview;
 
 use std::path::PathBuf;
 use std::sync::{
@@ -1057,7 +1059,7 @@ fn main() {
             });
             let signal_handle = app.handle().clone();
             ctrlc::set_handler(move || { stop_runtime(&signal_handle); signal_handle.exit(0); })?;
-            if app.try_state::<std::sync::Arc<isolated_run::Admission>>().map(|run| run.descriptor.history_setup.is_some() || run.descriptor.provider_smoke.is_some()).unwrap_or(false) {
+            if app.try_state::<std::sync::Arc<isolated_run::Admission>>().map(|run| cfg!(windows) || run.descriptor.history_setup.is_some() || run.descriptor.provider_smoke.is_some()).unwrap_or(false) {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
                     // A retained runner pipe owns this instance. EOF/invalid data means

@@ -64,13 +64,37 @@ gh run view <run-id> --repo codexa-bh/ai-garmin-trainer --json headSha,event,sta
 
 The selected ref is resolved to the dispatch's immutable `github.sha`; checkout and the recorded `TESTED_SOURCE` use that SHA, and the job refuses a different HEAD. Compare the observed run `headSha` with the intended PR head before relying on evidence. A later branch push does not update an earlier dispatch's evidence; explicitly request a new run when needed. Missing automatic Windows PR checks are expected, not a green Windows result.
 
+## Installed-app scenario and narrow evidence exception
+
+After the existing build/package/verify/backend stages, `npm run smoke:windows` consumes that exact verified release record and installer. It refuses non-hosted/non-Windows, dirty or mismatched source, existing registration/program/app-data/shortcuts, aliases, changed payloads and missing WebView2. NSIS runs directly with `/S /NS /D=<exclusive-runner-program-directory>` (`/D` last); it never elevates or downloads prerequisites. The installed executable/resources must match the verified payload exactly, with only NSIS's generated `uninstall.exe` additionally allowed and bound into native admission's complete installed inventory.
+
+The installed ordinary app uses schema-v2 native admission and run-local private ACL/file-ID/namespace owners, explicit settings/app-data/WebView/temp/DB roots, and an ownership stdin pipe. HOME/USERPROFILE and the normal singleton/settings are never replaced or selected. The existing authored representative recipe is serialized in memory, with no private input. Actual hydrated round trips precede Trainer/Sync/Profile navigation, synthetic controlled-input Goals Save, owned pipe shutdown and restart/readback with fresh capability/boot. Wrong-run/stale-boot access refuses; unrelated Profile fields must remain unchanged.
+
+Six fixed Trainer/Sync/Profile × wide (1280×850) and narrow (420×850) **logical own-WebView** captures use WebView2 `CapturePreview`, the existing hide-by-default geometry-preserving masks and confirmed restoration before private publication. Native diagnostic and image dimensions must agree; unsupported DPI/geometry fails rather than stretching pixels. Every PNG is fully bounded/CRC/deflate/filter-decoded and checked for nonuniform pixels; **these checks do not replace individual visual inspection**. Failure or timeout cannot publish raw pixels.
+
+Only after owned native/backend/profile-WebView/endpoints/writer/namespace settlement does the installed uninstaller run. The scenario verifies program and uninstall-registration removal, no shortcuts under `/NS`, unchanged saved synthetic DB/settings and an exact marker in the newly owned real `%APPDATA%\\com.codexa.garmin-trainer.desktop` boundary. Stock NSIS retains the manufacturer `Software\\codexa\\Garmin Trainer` install-location metadata; it is inventoried and must remain unchanged, not falsely reported deleted. No unrelated registration/data is adopted or removed. Synthetic state remains only until runner expiry; no primary access or copy-back.
+
+**Task-scoped publication exception:** GitHub Actions may retain exactly the six already-masked synthetic PNGs plus one closed sanitized source/runtime/scenario manifest for **three days**. The pinned upload step names all seven files explicitly. No binaries/installers, DBs/sidecars, settings/keys/tokens, descriptors/capabilities, raw/unverified captures or logs are eligible. A failed/incomplete scenario uploads nothing. This public repository's artifacts must be safe to disclose; three days is requested retention, not guaranteed private access or immediate erasure. All other smoke images, including macOS captures, retain their no-upload rule. No release, image mirror or broader standing exception follows.
+
+Download the exact run/attempt/source artifact, treat the archive/manifest as untrusted, verify the exact allowlist/hashes/identity, then **open each of the six images individually** and record durable textual state/layout/masking/defect findings before expiry. Missing or expired images need fresh evidence, never an invented inspection. Masked blanks conceal chats/facts/paths/diagnostics; own-WebView pixels do not prove window chrome, focus, trusted input or real services.
+
+For an artifact ZIP downloaded from that exact Actions run (use the Actions artifact download API, not an image mirror), validate before inspecting:
+
+```bash
+python3 scripts/desktop/windows_smoke_evidence.py --archive <downloaded.zip> \
+  --directory <new-task-evidence-directory> --source <40-char-tested-SHA> \
+  --run <GitHub-run-id> --attempt <run-attempt>
+```
+
+The destination must not already exist. This validates member paths/types/bounds before exclusive extraction and then checks the closed manifest, hashes and PNGs; it still reports visual inspection as required separately. Retain source/run/boot/view/preset/hash plus actual per-image findings in task/PR text, never copy these images into public Git or a long-lived mirror.
+
 ## Evidence and deferred qualification
 
-The `Windows x64` GitHub Actions job runs on a hosted **Windows Server 2025** x64 image. It records the exact source, image, OS build and toolchain, then runs the Windows-native private-state/process tests, focused JS/TS and release tests, the full build, non-installing package/verify and a synthetic packaged-backend smoke (fresh initialization, nonce-bound readiness, writer lease and second-writer refusal, graceful stop and restart). It uploads nothing and uses no credentials, private data or real services.
+The `Windows x64` job uses hosted **Windows Server 2025** x64. Its summary reports actual separate prerequisite/build/package/backend/installed/upload outcomes; skipped or failed stages are not covered. The installed scenario above must succeed on the intended current head, and downloaded captures must be individually inspected, before relying on installed-render evidence. Builds or backend-only health are not equivalent. No credentials, private data or real services are used.
 
 Not yet covered, and deferred to a later explicitly requested qualification:
 
 1. Install, upgrade and uninstall the unsigned installer on a real **Windows 11 x64** machine (per-user, SmartScreen, WebView2 present/missing, data preserved on uninstall).
 2. Native window, Settings/onboarding UI, menus, editing keys, focus and image labels on Windows 11.
 3. Real provider, ChatGPT browser sign-in, Garmin sign-in and uv/Python integrations on Windows.
-4. Isolated ordinary-artifact launch smoke and trusted input on Windows (the current smoke runners are macOS-specific).
+4. Trusted native input/menu/focus behavior remains unavailable to this finite ordinary controller. Navigation, controlled inputs and save/restart are synthetic DOM actions in the actual installed app, not OS keyboard/mouse/menu evidence. The separate full ordinary macOS runner remains macOS-specific; Windows has only the finite installed scenario above.

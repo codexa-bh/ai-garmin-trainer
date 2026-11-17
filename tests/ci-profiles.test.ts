@@ -65,7 +65,7 @@ describe("economical CI profiles", () => {
     const events = windows.split("on:\n")[1]?.split("\npermissions:")[0];
     expect(events?.trim()).toBe("workflow_dispatch:");
     expect(windows).not.toMatch(
-      /pull_request|workflow_call|schedule:|\n  push:/,
+      /pull_request|workflow_call|schedule:|\n {2}push:/,
     );
     expect(windows).toContain("TESTED_SOURCE: ${{ github.sha }}");
     expect(windows).toContain("ref: ${{ env.TESTED_SOURCE }}");
@@ -77,7 +77,7 @@ describe("economical CI profiles", () => {
     );
   });
 
-  it("retains exact-source Windows x64 build checks without secrets or Windows 11 claims", () => {
+  it("retains exact-source Windows x64 build checks and only finite synthetic-image uploads", () => {
     const windows = read(".github/workflows/windows.yml");
     expect(windows).toContain("runs-on: windows-2025");
     expect(windows).toContain("name: Windows x64 build foundation");
@@ -91,10 +91,34 @@ describe("economical CI profiles", () => {
     expect(windows).toContain("Windows Server, not Windows 11");
     expect(windows).toMatch(/timeout-minutes: \d+/);
     expect(windows).not.toMatch(
-      /upload-artifact|actions\/cache@|secrets\.|write-all|contents: write|pull_request_target|Start-Process[^\n]*setup\.exe/,
+      /actions\/cache@|secrets\.|write-all|contents: write|pull_request_target|Start-Process[^\n]*setup\.exe/,
     );
+    expect(windows).toContain("npm run smoke:windows -- --producer");
+    expect(windows).toContain("retention-days: 3");
+    expect(windows).toContain("if-no-files-found: error");
+    const upload = windows
+      .split("      - name: Upload only validated synthetic masked evidence")[1]
+      ?.split("      - name:")[0];
+    expect(upload).not.toMatch(
+      /always\(\)|\*|\.sqlite|\.log|\.exe|include-hidden-files: true/,
+    );
+    const paths = [
+      ...(upload ?? "").matchAll(/outputs\.evidence\s*\}\}\/([^\n]+)/g),
+    ].map((match) => match[1]);
+    expect(paths.sort()).toEqual([
+      "manifest.json",
+      "profile-narrow.png",
+      "profile-wide.png",
+      "sync-narrow.png",
+      "sync-wide.png",
+      "trainer-narrow.png",
+      "trainer-wide.png",
+    ]);
     // The Ubuntu Validate identity and macOS nightly stay unchanged.
     expect(read(".github/workflows/ci.yml")).not.toContain("windows");
+    expect(read(".github/workflows/nightly-macos.yml")).not.toContain(
+      "upload-artifact",
+    );
   });
 
   it("pins reviewed actions, locked installs and npm-download-only cache", () => {
@@ -106,7 +130,7 @@ describe("economical CI profiles", () => {
       expect(actions.length).toBeGreaterThan(0);
       for (const action of actions)
         expect(action).toMatch(
-          /^actions\/(checkout|setup-node|setup-python)@[0-9a-f]{40}$/,
+          /^actions\/(checkout|setup-node|setup-python|upload-artifact)@[0-9a-f]{40}$/,
         );
       expect(yaml).toContain("contents: read");
       expect(yaml).toContain("persist-credentials: false");

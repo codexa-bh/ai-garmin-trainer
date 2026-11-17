@@ -1,4 +1,4 @@
-//! Only this instance's actual WKWebView, after an admitted fixed privacy mask.
+//! Only this instance's actual WKWebView/WebView2, after an admitted fixed privacy mask.
 use std::{
     fs,
     io::Write,
@@ -13,8 +13,8 @@ pub fn publish(parent: &Path, id: &str, bytes: &[u8]) -> Result<PathBuf, String>
         || !bytes.starts_with(b"\x89PNG\r\n\x1a\n")
         || &bytes[12..16] != b"IHDR"
         || !bytes.ends_with(b"\0\0\0\0IEND\xaeB`\x82")
-        || u32::from_be_bytes(bytes[16..20].try_into().unwrap()) > 4096
-        || u32::from_be_bytes(bytes[20..24].try_into().unwrap()) > 4096
+        || !(1..=4096).contains(&u32::from_be_bytes(bytes[16..20].try_into().unwrap()))
+        || !(1..=4096).contains(&u32::from_be_bytes(bytes[20..24].try_into().unwrap()))
     {
         return Err("Invalid bounded PNG".into());
     }
@@ -80,9 +80,9 @@ pub fn png(window: &WebviewWindow) -> Result<Vec<u8>, String> {
     rx.recv_timeout(Duration::from_secs(4))
         .map_err(|_| "Capture deadline")?
 }
-#[cfg(not(target_os = "macos"))]
-pub fn png(_window: &WebviewWindow) -> Result<Vec<u8>, String> {
-    Err("macOS capture required".into())
+#[cfg(windows)]
+pub fn png(window: &WebviewWindow) -> Result<Vec<u8>, String> {
+    crate::windows_webview::png(window)
 }
 #[cfg(test)]
 mod tests {
@@ -104,6 +104,9 @@ mod tests {
         bytes[23] = 1;
         bytes[33..].copy_from_slice(b"\0\0\0\0IEND\xaeB`\x82");
         assert!(publish(&parent, "../escape", &bytes).is_err());
+        let mut zero = bytes.clone();
+        zero[19] = 0;
+        assert!(publish(&parent, &id, &zero).is_err());
         let path = publish(&parent, &id, &bytes).unwrap();
         assert_eq!(fs::read(&path).unwrap(), bytes);
         assert!(crate::private_fs::path_meta(&path).unwrap().private_file());

@@ -49,6 +49,15 @@ settings/schema/preflight/ownership checks still bind. Synthetic Goals/seed/copy
 are task/run-attributed under the same owned-disposal/diagnostic-retention contract, never back-synced.
 No production schema or data-shape change means primary back-sync is a verified no-op.
 
+The finite hosted Windows installed scenario reuses this authored recipe through
+an in-memory serialization adapter, with private exclusive runner state. Its
+synthetic Goals/DB/settings and real app-data preservation marker are retained
+only until runner expiry, never copied back. This is not a durable fixture
+framework or authority to adopt existing product registration/data. Only the
+[explicit Windows three-day masked-image exception](windows.md#installed-app-scenario-and-narrow-evidence-exception)
+permits its six synthetic PNGs and closed sanitized manifest as Actions artifacts;
+no other images, logs or private state are publication inputs.
+
 The separately approved finite representative-smoke strategy is the additional bounded exception: `smoke:prepare` and native/ordinary defaults use authored synthetic Profile/chat/activity/Health inputs, or an explicitly applicable current private grant. It reads no personal inputs by default, retains native ownership/mode exclusions and adds no production migration, global fixture deployment or recurring nightly expansion. Standing reuse changes no owner retention or original-preservation duties. See [input contract](smoke-inputs.md).
 
 ## No new isolated fixture environment for this stage

@@ -188,7 +188,7 @@ Latest has no artificial dispatch spacing; serial cancellation, limits and fatal
 
 ## Validation
 
-Run `npm run validate` for all static/deterministic checks and the production build. Routine Ubuntu PR/main CI uses `validate:ci` without production/native builds; a `Windows x64` job builds and verifies the Windows foundation on Windows Server; a change-gated 02:17 UTC macOS ARM64 nightly adds full validation/reliability/resources/native tests and one synthetic Goals save/restart. Exact reproduction, unchanged-failure skip policy and coverage limits are documented in [validation](docs/validation.md). A successful build is not proof of working Garmin authentication, remote-provider readiness, or clean-machine setup.
+Run `npm run validate` for all static/deterministic checks and the production build. Routine Ubuntu PR/main CI uses `validate:ci` without production/native builds; a manual-only `Windows x64` workflow builds/verifies the Windows foundation and runs the finite synthetic installed-render/persistence/uninstall scenario on Windows Server (not Windows 11 qualification); a change-gated 02:17 UTC macOS ARM64 nightly adds full validation/reliability/resources/native tests and one synthetic Goals save/restart. Exact reproduction, unchanged-failure skip policy and coverage limits are documented in [validation](docs/validation.md). A successful build is not proof of working Garmin authentication, remote-provider readiness, or clean-machine setup.
 
 ## Safety and privacy
 
