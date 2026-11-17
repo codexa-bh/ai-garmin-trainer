@@ -1,4 +1,7 @@
-import type { ProviderFailureDiagnostic } from "./debug-types";
+import type {
+  ProviderFailureDiagnostic,
+  ReceiptMismatchDiagnostic,
+} from "./debug-types";
 
 // Closed semantic values: syntactically harmless provider text can still be private.
 const categories = new Set([
@@ -55,6 +58,104 @@ const stages = new Set<ProviderFailureDiagnostic["stage"]>([
   "aborted",
   "generation",
 ]);
+const receiptTextStates = new Set([
+  "match",
+  "observed_empty",
+  "receipt_empty",
+  "observed_prefix",
+  "different",
+]);
+/** Canonical order; also the closed set of call mismatch dimensions. */
+export const RECEIPT_CALL_DIFFERENCES = [
+  "count",
+  "order",
+  "id",
+  "name",
+  "arguments",
+] as const;
+/**
+ * The validated stream is capped at 4 MiB and every function_call needs well
+ * over 128 serialized bytes, so no admissible receipt has more calls.
+ */
+const MAX_RECEIPT_CALLS = 32768;
+const callCount = (value: unknown): value is number =>
+  Number.isSafeInteger(value) &&
+  (value as number) >= 0 &&
+  (value as number) <= MAX_RECEIPT_CALLS;
+const exactKeys = (value: object, allowed: string[]) =>
+  Object.keys(value).every((key) => allowed.includes(key));
+/** Validate the whole closed receipt value; anything else is omitted whole. */
+export function safeReceiptDiagnostic(
+  value: unknown,
+): ReceiptMismatchDiagnostic | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return undefined;
+  const v = value as Record<string, unknown>;
+  if (v.receipt === "absent")
+    return exactKeys(v, ["receipt"]) ? { receipt: "absent" } : undefined;
+  if (
+    v.receipt !== "present" ||
+    !exactKeys(v, [
+      "receipt",
+      "text",
+      "calls",
+      "observedCalls",
+      "receiptCalls",
+      "callDifferences",
+    ]) ||
+    typeof v.text !== "string" ||
+    !receiptTextStates.has(v.text) ||
+    (v.calls !== "match" && v.calls !== "mismatch") ||
+    !callCount(v.observedCalls) ||
+    !callCount(v.receiptCalls)
+  )
+    return undefined;
+  const differences = v.callDifferences;
+  if (v.calls === "match") {
+    // A diagnostic exists only for a failed comparison.
+    if (
+      v.text === "match" ||
+      differences !== undefined ||
+      v.observedCalls !== v.receiptCalls
+    )
+      return undefined;
+  } else {
+    // Exactly the canonical subsequence of known dimensions: no duplicates,
+    // unknown values or unstable ordering.
+    const canonical = Array.isArray(differences)
+      ? RECEIPT_CALL_DIFFERENCES.filter((item) => differences.includes(item))
+      : [];
+    if (
+      !Array.isArray(differences) ||
+      !canonical.length ||
+      canonical.length !== differences.length ||
+      canonical.some((item, index) => differences[index] !== item) ||
+      canonical.includes("count") !== (v.observedCalls !== v.receiptCalls)
+    )
+      return undefined;
+  }
+  return {
+    receipt: "present",
+    text: v.text as Extract<
+      ReceiptMismatchDiagnostic,
+      { receipt: "present" }
+    >["text"],
+    calls: v.calls,
+    observedCalls: v.observedCalls as number,
+    receiptCalls: v.receiptCalls as number,
+    ...(v.calls === "mismatch"
+      ? {
+          callDifferences: [
+            ...(differences as (typeof RECEIPT_CALL_DIFFERENCES)[number][]),
+          ],
+        }
+      : {}),
+  };
+}
+const receiptField = (value: unknown) => {
+  const receipt = safeReceiptDiagnostic(value);
+  return receipt ? { receipt } : {};
+};
 /** Copy only the finite diagnostic contract, never an error/cause or arbitrary detail. */
 export function safeFailureDiagnostic(
   value: unknown,
@@ -76,6 +177,9 @@ export function safeFailureDiagnostic(
     ...(typeof v.requestId === "string" &&
     fullMatch(/^[A-Za-z0-9_-]{1,128}$/, v.requestId)
       ? { requestId: v.requestId }
+      : {}),
+    ...(v.category === "incomplete_sdk_decoding" && v.stage === "sdk_decode"
+      ? receiptField(v.receipt)
       : {}),
   };
 }

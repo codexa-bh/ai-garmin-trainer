@@ -1,3 +1,24 @@
+/**
+ * Closed structural comparison of the locked-SDK output against the validated
+ * terminal receipt. Never carries text, arguments, IDs or hashes.
+ */
+export type ReceiptMismatchDiagnostic =
+  | { receipt: "absent" }
+  | {
+      receipt: "present";
+      text:
+        | "match"
+        | "observed_empty"
+        | "receipt_empty"
+        | "observed_prefix"
+        | "different";
+      calls: "match" | "mismatch";
+      observedCalls: number;
+      receiptCalls: number;
+      /** Canonical order; present only for a call mismatch. */
+      callDifferences?: Array<"count" | "order" | "id" | "name" | "arguments">;
+    };
+
 export type ProviderFailureDiagnostic = {
   category: string;
   stage:
@@ -14,6 +35,7 @@ export type ProviderFailureDiagnostic = {
   elapsedMs?: number;
   status?: number;
   requestId?: string;
+  receipt?: ReceiptMismatchDiagnostic;
 };
 
 export type TrainerTokenUsage = {

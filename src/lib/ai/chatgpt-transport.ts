@@ -1,8 +1,15 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { nativeChatgptCredential } from "./chatgpt-connection";
 import { trainerToolContracts } from "./tool-contracts";
-import { safeFailureCategory, safeFailureDiagnostic } from "./provider-errors";
-import type { ProviderFailureDiagnostic } from "./debug-types";
+import {
+  RECEIPT_CALL_DIFFERENCES,
+  safeFailureCategory,
+  safeFailureDiagnostic,
+} from "./provider-errors";
+import type {
+  ProviderFailureDiagnostic,
+  ReceiptMismatchDiagnostic,
+} from "./debug-types";
 
 export const CHATGPT_NAMESPACE = "trainer";
 export type ChatgptAdmission = {
@@ -37,12 +44,69 @@ export class ChatgptRequestError extends Error {
 }
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
+type ReceiptCall = { id: string; name: string; input: string };
 type Receipt = {
   failure?: ProviderFailureDiagnostic;
   usage: Record<string, unknown>;
   text: string;
-  calls: { id: string; name: string; input: string }[];
+  calls: ReceiptCall[];
 };
+/**
+ * Closed structural explanation of an SDK/receipt disagreement, or undefined
+ * when both agree exactly. Values are compared internally only; the result
+ * carries no text, arguments, IDs or hashes.
+ */
+export function receiptMismatch(
+  receipt: Pick<Receipt, "text" | "calls"> | undefined,
+  text: string,
+  calls: ReceiptCall[],
+): ReceiptMismatchDiagnostic | undefined {
+  if (!receipt) return { receipt: "absent" };
+  const textState =
+    text === receipt.text
+      ? "match"
+      : !text
+        ? "observed_empty"
+        : !receipt.text
+          ? "receipt_empty"
+          : receipt.text.startsWith(text)
+            ? "observed_prefix"
+            : "different";
+  const differences = new Set<string>();
+  if (calls.length !== receipt.calls.length) differences.add("count");
+  // Receipt call IDs are already unique; pair observed calls by ID.
+  const positions = new Map(receipt.calls.map((call, i) => [call.id, i]));
+  const seen = new Set<string>();
+  let previous = -1;
+  for (const call of calls) {
+    const position = positions.get(call.id);
+    if (position === undefined || seen.has(call.id)) {
+      differences.add("id");
+      continue;
+    }
+    seen.add(call.id);
+    if (position <= previous) differences.add("order");
+    previous = position;
+    if (receipt.calls[position].name !== call.name) differences.add("name");
+    if (receipt.calls[position].input !== call.input)
+      differences.add("arguments");
+  }
+  if (textState === "match" && !differences.size) return undefined;
+  return {
+    receipt: "present",
+    text: textState,
+    calls: differences.size ? "mismatch" : "match",
+    observedCalls: calls.length,
+    receiptCalls: receipt.calls.length,
+    ...(differences.size
+      ? {
+          callDifferences: RECEIPT_CALL_DIFFERENCES.filter((item) =>
+            differences.has(item),
+          ),
+        }
+      : {}),
+  };
+}
 const counter = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0
     ? value
@@ -215,6 +279,18 @@ function validatedStream(
             value.item.status !== "completed"))
       )
         throw new ChatgptRequestError("unsupported_tool_call");
+      // The Responses protocol makes a function_call item `id` optional
+      // (call_id/name/arguments stay required), but the locked SDK schema
+      // requires it and otherwise silently drops the whole call. The item id
+      // is only SDK reference metadata (unused with store=false), so supply
+      // the decoder its own call_id; identity, name and arguments still come
+      // solely from the provider and are compared against the receipt.
+      if (
+        value.item.type === "function_call" &&
+        value.item.id === undefined &&
+        typeof value.item.call_id === "string"
+      )
+        value.item = { ...value.item, id: value.item.call_id };
     }
     if (value.type === "response.completed") {
       if (!record(value.response) || value.response.status !== "completed")
@@ -645,11 +721,8 @@ export function chatgptModel(
                 input: part.input,
               });
             if (part.type === "finish") {
-              if (
-                !receipt ||
-                text !== receipt.text ||
-                JSON.stringify(calls) !== JSON.stringify(receipt.calls)
-              )
+              const mismatch = receiptMismatch(receipt, text, calls);
+              if (!receipt || mismatch)
                 throw new ChatgptRequestError(
                   "incomplete_sdk_decoding",
                   receipt?.failure?.status,
@@ -658,6 +731,7 @@ export function chatgptModel(
                     ...receipt?.failure,
                     stage: "sdk_decode",
                     elapsedMs: Math.floor(performance.now() - started),
+                    receipt: mismatch,
                   },
                 );
               const raw = receipt.usage;
