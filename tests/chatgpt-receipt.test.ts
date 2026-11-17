@@ -229,8 +229,12 @@ it.each([
     { text: "observed_prefix", calls: "match" },
   ],
   [
-    "streamed text absent from the receipt",
-    () => stream([textOutput("Hi", message("Hi"))], []),
+    "streamed text contradicted by a nonempty terminal output",
+    () =>
+      stream(
+        [textOutput("Hi", message("Hi"))],
+        [{ ...message(""), content: [] }],
+      ),
     { text: "receipt_empty", calls: "match" },
   ],
   [
@@ -502,4 +506,101 @@ it("id-less call still fails a stale final native current check", async () => {
     stage: "native_final_current",
   });
   expect(JSON.stringify(projected(error))).not.toContain(privateMarker);
+});
+
+it.each([
+  [
+    "text",
+    () => [textOutput("Recovery 🏃 first.", message("Recovery 🏃 first."))],
+  ],
+  [
+    "reasoning, preamble and id-less namespaced call",
+    () => [
+      {
+        added: { type: "reasoning", id: "rs_1", summary: [] },
+        deltas: [],
+        done: {
+          type: "reasoning",
+          id: "rs_1",
+          summary: [],
+          encrypted_content: null,
+        },
+      },
+      textOutput("Checking.", message("Checking.", "msg_1", "commentary")),
+      toolOutput(withoutId(call({ arguments: '{"availabilityLimit":4}' }))),
+    ],
+  ],
+] as const)(
+  "subscription completed without terminal output uses completed output items as receipt: %s",
+  async (label, outputs) => {
+    for (const terminal of [undefined, []]) {
+      const { result, network } = await generate(() => {
+        const items = outputs() as Output[];
+        const response = stream(items, terminal as unknown as Item[]);
+        return response;
+      });
+      expect(result).not.toHaveProperty("error");
+      if (label === "text")
+        expect(result).toMatchObject({
+          text: "Recovery 🏃 first.",
+          toolCalls: [],
+        });
+      else
+        expect(result).toMatchObject({
+          text: "Checking.",
+          toolCalls: [
+            {
+              toolCallId: "call_1",
+              toolName: "getSyncStatus",
+              input: { availabilityLimit: 4 },
+            },
+          ],
+        });
+      expect(network).toHaveBeenCalledTimes(1);
+    }
+  },
+);
+
+it.each([
+  ["wrong namespace", { namespace: "foreign" }, "unsupported_tool_call"],
+  ["malformed arguments", { arguments: "{" }, "malformed_tool_arguments"],
+] as const)(
+  "item-derived receipt still refuses a %s call",
+  async (_label, over, code) => {
+    // added passes the stream check; only the done item is invalid.
+    const done = call(over);
+    const { result } = await generate(() =>
+      stream(
+        [
+          {
+            ...toolOutput(done),
+            added: { ...call(), arguments: "", status: "in_progress" },
+          },
+        ],
+        [],
+      ),
+    );
+    expect((result as { error: { code?: string } }).error.code).toBe(code);
+  },
+);
+
+it("duplicate or out-of-range output_index is refused, never merged", async () => {
+  for (const index of [0, -1, 5000]) {
+    const network = vi.fn(async () => {
+      const text = await stream([textOutput("Hi", message("Hi"))], []).text();
+      const extra = `data: ${JSON.stringify({ type: "response.output_item.done", output_index: index, item: message("Hi") })}\n\n`;
+      const at = text.lastIndexOf("event: x");
+      return new Response(text.slice(0, at) + extra + text.slice(at), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    const error = await createTrainerGeneration(
+      chatgptModel(admission, undefined, network, async () => ({
+        accessToken: privateMarker,
+      })),
+    )({ purpose: "planner", system: "Policy", prompt: "Question" }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toMatchObject({ code: "malformed_stream" });
+  }
 });

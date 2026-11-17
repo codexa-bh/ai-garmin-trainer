@@ -226,6 +226,11 @@ function validatedStream(
   let pending = "",
     total = 0,
     completed = false;
+  // Completed output items in output_index order. The subscription backend's
+  // terminal event may omit `output` (the official Codex client also builds
+  // its result only from output_item.done), so these provider-supplied items
+  // are the receipt when the terminal output is empty.
+  const done: Record<string, unknown>[] = [];
   function event(text: string): string {
     const lines = text.split(/\r?\n/);
     const data = lines
@@ -291,16 +296,34 @@ function validatedStream(
         typeof value.item.call_id === "string"
       )
         value.item = { ...value.item, id: value.item.call_id };
+      if (value.type === "response.output_item.done") {
+        if (
+          !Number.isSafeInteger(value.output_index) ||
+          (value.output_index as number) < 0 ||
+          (value.output_index as number) > 4096 ||
+          done[value.output_index as number] !== undefined
+        )
+          throw new ChatgptRequestError("malformed_stream");
+        done[value.output_index as number] = value.item as Record<
+          string,
+          unknown
+        >;
+      }
     }
     if (value.type === "response.completed") {
       if (!record(value.response) || value.response.status !== "completed")
         throw new ChatgptRequestError("malformed_completion");
-      validateCalls(value.response.output, names);
-      const output = value.response.output as Record<string, unknown>[];
+      const terminal = value.response.output;
+      const output =
+        terminal === undefined || (Array.isArray(terminal) && !terminal.length)
+          ? done.filter((item) => item !== undefined)
+          : terminal;
+      validateCalls(output, names);
       const usage = record(value.response.usage) ? value.response.usage : {};
+      const items = output as Record<string, unknown>[];
       receipt({
         usage,
-        text: output
+        text: items
           .filter((item) => item.type === "message")
           .flatMap((item) => (Array.isArray(item.content) ? item.content : []))
           .filter(
@@ -310,7 +333,7 @@ function validatedStream(
             typeof part.text === "string" ? part.text : "",
           )
           .join(""),
-        calls: output
+        calls: items
           .filter((item) => item.type === "function_call")
           .map((item) => ({
             id: item.call_id as string,

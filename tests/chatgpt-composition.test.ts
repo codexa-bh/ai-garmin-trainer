@@ -551,7 +551,7 @@ function wireMessage(text: string, phase?: string): WireItem {
 /** Stream `streamed` items; terminal output defaults to the same items. */
 function wire(
   streamed: { item: WireItem; text?: string }[],
-  terminal: WireItem[] = streamed.map(({ item }) => item),
+  terminal: WireItem[] | null = streamed.map(({ item }) => item),
 ): Response {
   const events: unknown[] = [
     {
@@ -594,7 +594,8 @@ function wire(
     type: "response.completed",
     response: {
       status: "completed",
-      output: terminal,
+      // null models the subscription backend's terminal event without output.
+      ...(terminal ? { output: terminal } : {}),
       usage: { input_tokens: 120, output_tokens: 12 },
     },
   });
@@ -603,7 +604,7 @@ function wire(
     { headers: { "content-type": "text/event-stream" } },
   );
 }
-function routeUpstream(planner: () => Response) {
+function routeUpstream(planner: () => Response, synthesisTerminal = true) {
   const originalFetch = fetch;
   const bodies: Record<string, unknown>[] = [];
   const syncStatus = vi.fn();
@@ -622,9 +623,8 @@ function routeUpstream(planner: () => Response) {
         syncStatus(evidence.call_id);
         const prose =
           "Your local sync status was checked; no login was needed.";
-        return wire([
-          { item: wireMessage(prose, "final_answer"), text: prose },
-        ]);
+        const item = wireMessage(prose, "final_answer");
+        return wire([{ item, text: prose }], synthesisTerminal ? [item] : null);
       }
       return planner();
     }),
@@ -640,20 +640,29 @@ async function persistedTurn(conversationId: string) {
   return { result, stored, assistant: stored.at(-1)! };
 }
 it.each([
-  ["id-less", (call: WireItem) => ({ ...call })],
-  ["identified", (call: WireItem) => ({ ...call, id: "fc_1" })],
-])(
+  ["id-less", (call: WireItem) => ({ ...call }), true],
+  ["identified", (call: WireItem) => ({ ...call, id: "fc_1" }), true],
+  [
+    "terminal-without-output (subscription)",
+    (call: WireItem) => ({ ...call, id: "fc_1" }),
+    false,
+  ],
+] as const)(
   "production %s namespaced tool turn executes the read-only tool once and reaches prose",
-  async (_label, shape) => {
+  async (_label, shape, terminalOutput) => {
     initializeLiveConfiguration(boot);
     modelSettings.save({ modelId: entry.id });
     const preamble = "Checking your local sync status 🏃.";
-    const upstream = routeUpstream(() =>
-      wire([
+    const upstream = routeUpstream(() => {
+      const streamed = [
         { item: wireMessage(preamble, "commentary"), text: preamble },
         { item: shape(wireCall()) },
-      ]),
-    );
+      ];
+      return wire(
+        streamed,
+        terminalOutput ? streamed.map(({ item }) => item) : null,
+      );
+    }, terminalOutput);
     const { result, assistant } = await persistedTurn("receipt-tool-chat");
     expect(result.toolSteps).toEqual([
       expect.objectContaining({ tool: "getSyncStatus", status: "succeeded" }),
@@ -682,6 +691,11 @@ it.each([
         (call) => call.failure === undefined,
       ),
     ).toBe(true);
+    expect(
+      assistant.grounding?.debugTrace?.providerCalls.map(
+        (call) => call.tokenUsage?.inputTokens,
+      ),
+    ).toEqual([120, 120]);
   },
 );
 it.each([
@@ -691,8 +705,8 @@ it.each([
     undefined,
   ],
   [
-    "tool missing from the terminal receipt",
-    () => wire([{ item: wireCall({ id: "fc_1" }) }], []),
+    "tool missing from a nonempty terminal receipt",
+    () => wire([{ item: wireCall({ id: "fc_1" }) }], [wireMessage("")]),
     {
       receipt: "present",
       text: "match",
