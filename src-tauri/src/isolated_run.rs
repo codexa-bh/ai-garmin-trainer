@@ -688,8 +688,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn window_failure_diagnostic_extracts_only_typed_numeric_hresult() {
-        let code = windows_core::HRESULT(0x80070057u32 as i32);
-        let error = windows_core::Error::from_hresult(code);
+        let code = windows::core::HRESULT(0x80070057u32 as i32);
+        let error = windows::core::Error::from_hresult(code);
         assert_eq!(crate::window_hresult(&error), Some(code.0));
         let private = std::io::Error::new(std::io::ErrorKind::Other, "private path/key text");
         assert_eq!(crate::window_hresult(&private), None);

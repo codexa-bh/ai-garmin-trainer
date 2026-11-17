@@ -252,7 +252,7 @@ fn window_hresult(error: &(dyn std::error::Error + 'static)) -> Option<i32> {
     let mut current = Some(error);
     for _ in 0..12 {
         let error = current?;
-        if let Some(error) = error.downcast_ref::<windows_core::Error>() {
+        if let Some(error) = error.downcast_ref::<windows::core::Error>() {
             return Some(error.code().0);
         }
         current = error.source();
