@@ -44,11 +44,11 @@ The installer installs for the current user under `%LOCALAPPDATA%\Garmin Trainer
 
 ```powershell
 $REL = "$PWD\src-tauri\target\x86_64-pc-windows-msvc\release"
-python scripts/desktop/release.py package --platform windows-x64 --execute --bundle $REL --scratch <private-scratch>
-python scripts/desktop/release.py verify  --platform windows-x64 --bundle $REL --scratch <private-scratch> --record <printed release-windows-x64.json>
+npm run release -- package --platform windows-x64 --execute --bundle $REL --scratch <private-scratch>
+npm run release -- verify  --platform windows-x64 --bundle $REL --scratch <private-scratch> --record <printed release-windows-x64.json>
 ```
 
-Package copies the stamped installer (never rebuilds or relabels it) to `Garmin-Trainer-<version>-windows-x64-setup.exe`, writes its SHA-256 file and a `release-windows-x64.json` record. Package and verify extract the installer payload with 7-Zip into owned scratch after validating every member name, require exactly the producer's binary and resources, x64 PE binaries, the Node license and notices, and the excluded/private-content refusals. The installer is never executed. No macOS size budget applies to Windows.
+Use the same `npm run` entry as `npm run desktop:build`: the bound build context includes npm's environment, so invoking `release.py` directly refuses with a context mismatch. Package copies the stamped installer (never rebuilds or relabels it) to `Garmin-Trainer-<version>-windows-x64-setup.exe`, writes its SHA-256 file and a `release-windows-x64.json` record. Package and verify extract the installer payload with 7-Zip into owned scratch after validating every member name, require exactly the producer's binary and resources, x64 PE binaries, the Node license and notices, and the excluded/private-content refusals. The installer is never executed. No macOS size budget applies to Windows.
 
 ## Evidence and deferred qualification
 
