@@ -1,4 +1,5 @@
 import type { SummaryInspection } from "./use-memory";
+import { safeFailureDiagnostic } from "@/lib/diagnostics/provider-failure";
 
 export function memoryStatus(memory: SummaryInspection) {
   if (!memory.enabled)
@@ -8,6 +9,23 @@ export function memoryStatus(memory: SummaryInspection) {
     memory.reason === "summary_unsupported_model"
   )
     return "Choose a memory model in Settings.";
+  if (memory.rebuild?.operation?.state === "active")
+    return "Updating memory from chat history";
+  if (memory.processing?.state === "running")
+    return "Updating memory from recent conversations";
+  if (
+    memory.processing?.state === "parked" &&
+    memory.reason === "summary_provider_failure" &&
+    canRetrySummary(memory)
+  )
+    return "Memory updates are paused after a provider failure. Retry summary processing when ready.";
+  if (
+    memory.processing?.state === "delayed" &&
+    !["interrupted", "invalidated"].includes(
+      memory.rebuild?.operation?.state ?? "",
+    )
+  )
+    return "Memory updates are waiting before another attempt. Saved memory is unchanged.";
   const reasons: Record<string, string> = {
     summary_missing_key: "Add the provider key in Settings to process memory.",
     summary_provider_failure: "The provider could not finish a memory update.",
@@ -39,6 +57,92 @@ export function memoryStatus(memory: SummaryInspection) {
         ? "Saved memory available"
         : "No saved memories"
       : "Saved memory unavailable · check again";
+}
+
+export function SummaryFailureDetails({
+  memory,
+}: {
+  memory: SummaryInspection;
+}) {
+  if (
+    !memory.enabled ||
+    !memory.reason ||
+    memory.processing?.state === "running" ||
+    memory.rebuild?.operation?.state === "active"
+  )
+    return null;
+  const failure = safeFailureDiagnostic(memory.providerFailure);
+  if (!failure && memory.reason !== "summary_provider_failure") return null;
+  return (
+    <details className="memory-failure-details">
+      <summary>Provider failure details</summary>
+      {failure ? (
+        <dl>
+          <dt>Category</dt>
+          <dd>{failure.category}</dd>
+          <dt>Stage</dt>
+          <dd>{failure.stage}</dd>
+          {failure.status !== undefined && (
+            <>
+              <dt>HTTP status</dt>
+              <dd>{failure.status}</dd>
+            </>
+          )}
+          {failure.elapsedMs !== undefined && (
+            <>
+              <dt>Elapsed</dt>
+              <dd>{failure.elapsedMs} ms</dd>
+            </>
+          )}
+          {failure.requestId && (
+            <>
+              <dt>Request ID</dt>
+              <dd>{failure.requestId}</dd>
+            </>
+          )}
+          {failure.responseCorrelation && (
+            <>
+              <dt>Response ID (response.created)</dt>
+              <dd>{failure.responseCorrelation.id}</dd>
+            </>
+          )}
+          {failure.receipt && (
+            <>
+              <dt>Receipt</dt>
+              <dd>{failure.receipt.receipt}</dd>
+            </>
+          )}
+          {failure.receipt?.receipt === "present" && (
+            <>
+              <dt>Text comparison</dt>
+              <dd>{failure.receipt.text}</dd>
+              <dt>Call comparison</dt>
+              <dd>
+                {failure.receipt.calls}; observed{" "}
+                {failure.receipt.observedCalls}, receipt{" "}
+                {failure.receipt.receiptCalls}
+                {failure.receipt.callDifferences
+                  ? `; differences: ${failure.receipt.callDifferences.join(", ")}`
+                  : ""}
+              </dd>
+            </>
+          )}
+          {failure.dropped?.map(({ kind, count }) => (
+            <div key={kind}>
+              <dt>SDK discarded {kind}</dt>
+              <dd>{count}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p>Diagnostic details were not recorded for this attempt.</p>
+      )}
+      <p className="secondary-copy">
+        Closed observations only, not a confirmed cause. No response text or
+        error body is shown.
+      </p>
+    </details>
+  );
 }
 
 /** Durable lost-coverage fact, shown independently of transient reasons. */

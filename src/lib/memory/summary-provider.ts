@@ -2,6 +2,7 @@ import { generateText, NoObjectGeneratedError, Output } from "ai";
 import { z } from "zod";
 import { selectedModel } from "../ai/providers";
 import { chatgptText } from "../ai/chatgpt-generation";
+import { providerFailureDiagnostic } from "../ai/provider-errors";
 import { getOptionalEnv, type AppEnv } from "../env";
 import {
   summaryConfiguration,
@@ -65,6 +66,8 @@ export function createSummaryGeneration(
   const model = selectedModel(selected.env, undefined, guardedFetch)
     .model as Parameters<typeof generateText>[0]["model"];
   return {
+    failure: (error) =>
+      providerFailureDiagnostic(selected.entry.provider, error),
     async generate(system, prompt, signal, format = "replacement") {
       const schema =
         purpose === "title"

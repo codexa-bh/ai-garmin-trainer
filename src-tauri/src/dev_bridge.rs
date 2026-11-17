@@ -299,6 +299,8 @@ impl Command {
             ]
             .contains(&action.as_str()),
             Self::Memory { action } => [
+                "failure-show",
+                "failure-hide",
                 "summary-edit",
                 "summary-show",
                 "summary-hide",
@@ -1650,6 +1652,8 @@ mod tests {
     #[test]
     fn memory_controls_are_finite_ordinary_only_and_never_accept_or_return_content() {
         for action in [
+            "failure-show",
+            "failure-hide",
             "summary-edit",
             "summary-show",
             "summary-hide",
@@ -1778,6 +1782,8 @@ mod tests {
             json!({"type":"memory","action":"native-copy","key":"a"}),
             json!({"type":"memory","action":"native-copy","clipboard":true}),
             json!({"type":"memory","action":"editor-check","height":600}),
+            json!({"type":"memory","action":"failure-show","text":"private"}),
+            json!({"type":"memory","action":"failure-hide","selector":"body"}),
             json!({"type":"memory","action":"densify-model-alternative","model":"private"}),
             json!({"type":"memory","action":"fixture-densify-unavailable","options":[]}),
         ] {

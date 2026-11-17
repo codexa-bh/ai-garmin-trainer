@@ -30,6 +30,7 @@ export {
 } from "@/lib/chat/conversation-policy";
 import { getDatabase } from "./connection";
 import { adoptSummaryPin } from "./conversation-summary-pin";
+import { safeFailureDiagnostic } from "../diagnostics/provider-failure";
 
 let lastChatMessageTimestamp = 0;
 
@@ -57,10 +58,25 @@ type StoredConversationRow = {
   titlePending?: number;
 };
 
+/** Revalidate just the closed failure contract; full debug context remains private. */
+function projectFailures(grounding: ChatGrounding): ChatGrounding {
+  if (!Array.isArray(grounding?.debugTrace?.providerCalls)) return grounding;
+  return {
+    ...grounding,
+    debugTrace: {
+      ...grounding.debugTrace!,
+      providerCalls: grounding.debugTrace!.providerCalls.map((call) =>
+        call && typeof call === "object" && call.failure !== undefined
+          ? { ...call, failure: safeFailureDiagnostic(call.failure) }
+          : call,
+      ),
+    },
+  };
+}
 function parseGrounding(value: string | null): ChatGrounding | null {
   if (!value) return null;
   try {
-    return JSON.parse(value) as ChatGrounding;
+    return projectFailures(JSON.parse(value) as ChatGrounding);
   } catch {
     return null;
   }
@@ -107,7 +123,7 @@ function groundingJsonForStorage(
   grounding: ChatGrounding | null | undefined,
 ): string | null {
   if (!grounding) return null;
-  let candidate: ChatGrounding = grounding;
+  let candidate: ChatGrounding = projectFailures(grounding);
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const json = JSON.stringify(candidate);
     if (json.length <= MAX_GROUNDING_JSON_CHARS) return json;

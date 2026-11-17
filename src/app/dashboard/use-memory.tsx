@@ -17,6 +17,7 @@ import { parseRebuildSelection } from "@/lib/memory/summary-controls";
 import type { SummaryPin } from "@/lib/chat/summary-pin";
 import type { DensifyReview } from "@/lib/memory/summary-densify";
 import { readJsonResponse } from "./transport";
+import { safeFailureDiagnostic } from "@/lib/diagnostics/provider-failure";
 
 export type SummaryInspection = Omit<SummaryStatus, "usedByChat"> & {
   usedByChat: boolean;
@@ -160,6 +161,24 @@ export function useMemoryFeature({
             cache: "no-store",
           }),
         );
+        // Optional diagnostics are projected independently of usable historical rows.
+        result.providerFailure = safeFailureDiagnostic(result.providerFailure);
+        const processing = result.processing;
+        if (
+          processing &&
+          (!["inactive", "running", "parked", "delayed", "eligible"].includes(
+            processing.state,
+          ) ||
+            Object.keys(processing).some(
+              (key) => !["state", "retryAt"].includes(key),
+            ) ||
+            (processing.state === "delayed"
+              ? !Number.isSafeInteger(processing.retryAt) ||
+                processing.retryAt! < 0 ||
+                processing.retryAt === Number.MAX_SAFE_INTEGER
+              : processing.retryAt !== undefined))
+        )
+          result.processing = undefined;
         if (
           result.version !== 1 ||
           ![

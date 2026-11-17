@@ -527,6 +527,41 @@ body::before {
   flex: 1;
   min-width: 160px;
 }
+.memory-failure-details {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.memory-failure-details summary {
+  cursor: pointer;
+}
+.memory-failure-details dl {
+  display: grid;
+  gap: 4px 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  margin: 12px 0;
+}
+.memory-failure-details dl > div {
+  display: contents;
+}
+.memory-failure-details dt {
+  color: var(--muted);
+}
+.memory-failure-details dd {
+  margin: 0;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .memory-failure-details dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .memory-failure-details dd {
+    margin-bottom: 8px;
+  }
+}
 .memory-notice,
 .memory-confirm,
 .memory-editor,

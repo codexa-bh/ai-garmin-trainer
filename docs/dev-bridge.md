@@ -239,6 +239,14 @@ one exact reviewed price basis, never arbitrary text/private fields. Existing
 paid T0272 boot reservations and authority do not transfer to the faster T0274
 scheduler/larger allowances; requalify exact cumulative worst-case costs before use.
 
+### Authored paused-summary diagnostic recovery (T0343)
+
+The existing summary lifecycle preparation now selects the finite `diagnostics` seed variant: the same four completed/one incomplete sources, plus one explicitly authored **unreserved** failed attempt settled through production storage after the real debounce. Its fixed closed diagnostic is not fabricated SDK/service evidence; no provider was called and no token usage is invented. Unknown/replayed/active targets still refuse.
+
+Before ordinary Memory controls, lifecycle smoke verifies parked state and exact closed readback, owned restart with no replay, then wide/narrow collapsed and expanded details. Two ordinary-only finite actions, `failure-show` / `failure-hide`, require the exact authored diagnostic and expected disclosure state; caller text/selectors and fixture-mode use refuse. Results retain the existing boolean-only schema. Masks reveal only the independently enumerated authored category/stage/status/timing/correlation/receipt/count pairs; other diagnostic values refuse capture rather than broadening private readback. Restore/expiry and native run/boot/origin/request admission are unchanged.
+
+Disclosure and Refresh must leave the attempt count unchanged and keep disclosure open. One click on the existing **Retry summary processing** must admit exactly one new keyless attempt, settle as `summary_missing_key` without provider dispatch, preserve pending/frontier/accounting and retain the historical diagnostic while removing it from current status. This proves actual native storage/recovery/UI and existing scheduler behavior, not subscription inference or repair success. Locked-SDK production regressions supply that separate mechanical evidence. Native/controller/mask changes require full two-instance ordinary coverage plus summary lifecycle; validate native/DOM/seed/runner privacy/refusal contracts before use. No clipboard, credentials, normal-app controls or real-service grant is added.
+
 ### Integrated keyless Memory controls
 
 The content-first sheet has one Generated summary with Edit summary / Save summary,

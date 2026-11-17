@@ -11,6 +11,7 @@ import {
   HistoryReview,
   memoryStatus,
   memoryCoverageNote,
+  SummaryFailureDetails,
 } from "./memory-presentation";
 
 type View = "overview" | "history" | "manage";
@@ -318,6 +319,31 @@ export function MemoryContent({
                       {memory.enabled ? "Turn Off" : "Turn On"}
                     </button>
                   </div>
+                  {memory.pending > 0 && (
+                    <p className="secondary-copy">
+                      {memory.pending} conversation updates pending · not
+                      necessarily running
+                    </p>
+                  )}
+                  {canRetrySummary(memory) && (
+                    <div>
+                      <button
+                        type="button"
+                        disabled={isMemoryLoading}
+                        onClick={() =>
+                          runInBackground(changeMemory({ action: "retry" }))
+                        }
+                      >
+                        Retry summary processing
+                      </button>
+                      <p className="secondary-copy">
+                        Schedules eligible work; it does not guarantee repair or
+                        immediate completion. Processing may use your
+                        subscription plan or credits, or incur provider charges.
+                      </p>
+                    </div>
+                  )}
+                  <SummaryFailureDetails memory={memory} />
                   {memoryCoverageNote(memory) && (
                     <p className="helper-text" role="status">
                       {memoryCoverageNote(memory)}
@@ -757,17 +783,6 @@ export function MemoryContent({
                       {isMemoryReadUnavailable ? "Retry connection" : "Refresh"}
                     </button>
                   </nav>
-                  {canRetrySummary(memory) && (
-                    <button
-                      type="button"
-                      disabled={isMemoryLoading}
-                      onClick={() =>
-                        runInBackground(changeMemory({ action: "retry" }))
-                      }
-                    >
-                      Retry summary processing
-                    </button>
-                  )}
                 </>
               )}
             </>
