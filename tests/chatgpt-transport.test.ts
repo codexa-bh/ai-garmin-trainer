@@ -11,12 +11,24 @@ import {
 import { chatgptText } from "../src/lib/ai/chatgpt-generation";
 import { Output, TypeValidationError } from "ai";
 import { z } from "zod";
+import {
+  providerFailureDiagnostic,
+  providerFailureMessage,
+  safeFailureDiagnostic,
+} from "../src/lib/ai/provider-errors";
+import { debugProviderCall } from "../src/lib/ai/debug-trace";
 
 it("retains only bounded safe request correlation, never raw diagnostic content", () => {
   expect(
     new ChatgptRequestError("request_failed", 403, "req-safe_1").requestId,
   ).toBe("req-safe_1");
-  for (const value of ["private\nvalue", "private value", "x".repeat(129)])
+  for (const value of [
+    "private\nvalue",
+    "private value",
+    "x".repeat(129),
+    "req-safe\n",
+    "req-safe\r",
+  ])
     expect(
       new ChatgptRequestError("request_failed", 403, value).requestId,
     ).toBeUndefined();
@@ -423,7 +435,14 @@ it("still rejects a malformed delta that would otherwise lose SDK text", async (
       system: "Policy",
       prompt: "Question",
     }),
-  ).rejects.toMatchObject({ code: "incomplete_sdk_decoding" });
+  ).rejects.toMatchObject({
+    code: "incomplete_sdk_decoding",
+    failure: {
+      stage: "sdk_decode",
+      status: 200,
+      elapsedMs: expect.any(Number),
+    },
+  });
   expect(network).toHaveBeenCalledTimes(1);
 });
 it("classifies native credential refusal before a provider request without leaking detail", async () => {
@@ -521,4 +540,230 @@ it("sanitizes nonstandard admission errors and never echoes private detail", asy
   expect(error).toBeInstanceOf(ChatgptRequestError);
   expect(String(error)).not.toContain("PRIVATE");
   expect(String(error)).toContain("http_403");
+});
+
+const privateMarker = "private_token_prompt_account_https_path";
+const question = {
+  purpose: "planner" as const,
+  system: "Policy",
+  prompt: "Question",
+};
+function projected(error: unknown) {
+  return debugProviderCall({
+    index: 1,
+    purpose: "planner",
+    error: providerFailureMessage("chatgpt", error),
+    failure: providerFailureDiagnostic("chatgpt", error),
+  });
+}
+it.each([
+  "upstream_request",
+  "upstream_read",
+  "native_credential",
+  "native_final_current",
+  "local_admission",
+  "stream_validation",
+] as const)(
+  "locked SDK retains safe observed %s boundary with no replay",
+  async (stage) => {
+    const network = vi.fn(async () => {
+      if (stage === "upstream_request") throw Error(privateMarker);
+      if (stage === "upstream_read")
+        return new Response(
+          new ReadableStream({
+            pull(c) {
+              c.error(Error(privateMarker));
+            },
+          }),
+          {
+            headers: {
+              "content-type": "text/event-stream",
+              "x-request-id": "req-safe_1",
+            },
+          },
+        );
+      const result = sse(
+        stage === "stream_validation"
+          ? [{ type: "error", code: privateMarker, message: privateMarker }]
+          : events(),
+      );
+      result.headers.set("x-request-id", "req-safe_1");
+      return result;
+    });
+    const credential = vi.fn(async (operation: string) => {
+      if (
+        stage === "native_credential" ||
+        (stage === "native_final_current" && operation === "current")
+      )
+        throw Error(privateMarker);
+      return { accessToken: privateMarker };
+    });
+    const model = chatgptModel(
+      admission,
+      () => {
+        if (stage === "local_admission") throw privateMarker;
+      },
+      network,
+      credential,
+    );
+    const error = await createTrainerGeneration(model)(question).catch(
+      (e: unknown) => e,
+    );
+    const call = projected(error);
+    expect(call.failure).toMatchObject({
+      stage,
+      elapsedMs: expect.any(Number),
+    });
+    if (
+      ["upstream_read", "native_final_current", "stream_validation"].includes(
+        stage,
+      )
+    )
+      expect(call.failure).toMatchObject({
+        status: 200,
+        requestId: "req-safe_1",
+      });
+    expect(JSON.stringify(call)).not.toContain(privateMarker);
+    expect(call.tokenUsage).toBeUndefined();
+    expect(network).toHaveBeenCalledTimes(
+      ["native_credential", "local_admission"].includes(stage) ? 0 : 1,
+    );
+  },
+);
+it.each([0, 1, 4])(
+  "read failure after %i authored events remains an upstream read, never accepted partial success",
+  async (count) => {
+    const bytes = new TextEncoder().encode(
+      events()
+        .slice(0, count)
+        .map((e) => `data: ${JSON.stringify(e)}\n\n`)
+        .join(""),
+    );
+    let sent = false;
+    const network = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream({
+            pull(c) {
+              if (!sent) {
+                sent = true;
+                c.enqueue(bytes);
+              } else c.error(privateMarker);
+            },
+          }),
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const error = await createTrainerGeneration(
+      chatgptModel(admission, undefined, network, async () => ({
+        accessToken: privateMarker,
+      })),
+    )(question).catch((e: unknown) => e);
+    expect(projected(error).failure?.stage).toBe("upstream_read");
+    expect(network).toHaveBeenCalledTimes(1);
+  },
+);
+it.each([false, true])(
+  "idle polling invalidation and caller-abort race, caller first=%s",
+  async (callerFirst) => {
+    vi.useFakeTimers();
+    try {
+      const caller = new AbortController();
+      let rejectPoll!: (e: unknown) => void;
+      const credential = vi.fn(async (operation: string) => {
+        if (operation === "current")
+          await new Promise((_, reject) => {
+            rejectPoll = reject;
+          });
+        return { accessToken: privateMarker };
+      });
+      const network = vi.fn(
+        async (_url: unknown, init?: RequestInit) =>
+          new Response(
+            new ReadableStream({
+              start(c) {
+                init!.signal!.addEventListener(
+                  "abort",
+                  () => c.error(Error(privateMarker)),
+                  { once: true },
+                );
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          ),
+      );
+      const result = chatgptText({
+        model: chatgptModel(admission, undefined, network, credential),
+        system: "Policy",
+        prompt: "Question",
+        abortSignal: caller.signal,
+      }).catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(1000);
+      if (callerFirst) caller.abort();
+      rejectPoll(Error(privateMarker));
+      await vi.advanceTimersByTimeAsync(0);
+      const error = await result;
+      // The SDK can settle caller cancellation without an error event; still fail closed.
+      expect(projected(error).failure?.stage).toBe(
+        callerFirst ? "aborted" : "native_poll",
+      );
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(projected(error))).not.toContain(privateMarker);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+it.each(["x".repeat(129), "req safe", "req\tbad"])(
+  "rejects the entire invalid request id rather than accepting a truncated prefix: %s",
+  async (id) => {
+    const network = vi.fn(async () => {
+      const r = sse([{ type: "error", code: privateMarker }]);
+      r.headers.set("x-request-id", id);
+      return r;
+    });
+    const error = await createTrainerGeneration(
+      chatgptModel(admission, undefined, network, async () => ({
+        accessToken: privateMarker,
+      })),
+    )(question).catch((e: unknown) => e);
+    expect(projected(error).failure?.requestId).toBeUndefined();
+    expect(projected(error).failure?.category).toBe("request_failed");
+    expect(JSON.stringify(projected(error))).not.toContain(privateMarker);
+  },
+);
+it("neutral diagnostic projection rejects hostile fields and invalid bounds without trusting legacy message text", () => {
+  const failure = safeFailureDiagnostic({
+    category: privateMarker,
+    stage: "upstream_read",
+    status: 999,
+    elapsedMs: Infinity,
+    requestId: "x".repeat(129),
+    message: privateMarker,
+    cause: { token: privateMarker },
+  });
+  expect(failure).toEqual({
+    category: "request_failed",
+    stage: "upstream_read",
+  });
+  for (const category of ["http_403\n", "unsupported_response_200_json\n"])
+    expect(new ChatgptRequestError(category).code).toBe("request_failed");
+  expect(
+    safeFailureDiagnostic({ category: "request_failed", stage: privateMarker }),
+  ).toBeUndefined();
+  for (const elapsedMs of [-1, 0.5, NaN, 86400001])
+    expect(
+      safeFailureDiagnostic({
+        category: "request_failed",
+        stage: "generation",
+        elapsedMs,
+      })?.elapsedMs,
+    ).toBeUndefined();
+  expect(
+    providerFailureMessage(
+      "chatgpt",
+      Error(`ChatGPT plan request unavailable (${privateMarker}).`),
+    ),
+  ).not.toContain(privateMarker);
 });

@@ -1,6 +1,8 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { nativeChatgptCredential } from "./chatgpt-connection";
 import { trainerToolContracts } from "./tool-contracts";
+import { safeFailureCategory, safeFailureDiagnostic } from "./provider-errors";
+import type { ProviderFailureDiagnostic } from "./debug-types";
 
 export const CHATGPT_NAMESPACE = "trainer";
 export type ChatgptAdmission = {
@@ -9,24 +11,34 @@ export type ChatgptAdmission = {
   model: string;
 };
 export class ChatgptRequestError extends Error {
+  readonly code: string;
+  readonly status?: number;
   readonly requestId?: string;
+  readonly failure: ProviderFailureDiagnostic;
   constructor(
-    readonly code: string,
-    readonly status?: number,
+    code: string,
+    status?: number,
     requestId?: string,
+    context: Partial<ProviderFailureDiagnostic> = {},
   ) {
-    super(
-      `ChatGPT plan request unavailable (${code}). Manage usage in ChatGPT settings or reconnect when required; no paid fallback.`,
-    );
-    this.requestId =
-      requestId && /^[A-Za-z0-9_-]{1,128}$/.test(requestId)
-        ? requestId
-        : undefined;
+    const category = safeFailureCategory(code);
+    super(`ChatGPT plan request unavailable (${category}). No paid fallback.`);
+    this.code = category;
+    this.failure = safeFailureDiagnostic({
+      ...context,
+      category,
+      stage: context.stage ?? "generation",
+      status,
+      requestId,
+    })!;
+    this.status = this.failure.status;
+    this.requestId = this.failure.requestId;
   }
 }
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 type Receipt = {
+  failure?: ProviderFailureDiagnostic;
   usage: Record<string, unknown>;
   text: string;
   calls: { id: string; name: string; input: string }[];
@@ -35,10 +47,7 @@ const counter = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0
     ? value
     : undefined;
-const safeCode = (value: unknown): string =>
-  typeof value === "string" && /^[a-z][a-z0-9_]{0,95}$/.test(value)
-    ? value
-    : "request_failed";
+const safeCode = safeFailureCategory;
 async function unsupportedResponse(
   response: Response,
 ): Promise<ChatgptRequestError> {
@@ -144,6 +153,10 @@ function validatedStream(
   names: Set<string>,
   current: () => void,
   receipt: (value: Receipt) => void,
+  failure: (
+    error: unknown,
+    stage: ProviderFailureDiagnostic["stage"],
+  ) => ChatgptRequestError,
 ): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let pending = "",
@@ -183,7 +196,7 @@ function validatedStream(
           ? "response_incomplete"
           : safeCode(error.code),
         response.status,
-        response.headers.get("x-request-id")?.slice(0, 128),
+        response.headers.get("x-request-id") ?? undefined,
       );
     }
     if (
@@ -241,7 +254,22 @@ function validatedStream(
     }
     return `data: ${JSON.stringify(value)}\n\n`;
   }
-  return response.body!.pipeThrough(
+  const source = response.body!.getReader();
+  const observed = new ReadableStream<Uint8Array>({
+    async pull(out) {
+      try {
+        const next = await source.read();
+        if (next.done) out.close();
+        else out.enqueue(next.value);
+      } catch (error) {
+        out.error(failure(error, "upstream_read"));
+      }
+    },
+    async cancel() {
+      await source.cancel().catch(() => {});
+    },
+  });
+  return observed.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         current();
@@ -277,6 +305,42 @@ export function chatgptFetch(
   receipt: (value: Receipt) => void = () => {},
 ): typeof fetch {
   return async (url, init) => {
+    const started = performance.now();
+    let responseStatus: number | undefined;
+    let requestId: string | undefined;
+    let invalidation: ChatgptRequestError | undefined;
+    const failure = (
+      error: unknown,
+      stage: ProviderFailureDiagnostic["stage"],
+    ) => {
+      const typed = error instanceof ChatgptRequestError ? error : undefined;
+      const origin =
+        typed?.failure.stage !== "generation"
+          ? typed?.failure.stage
+          : undefined;
+      return new ChatgptRequestError(
+        typed?.code ??
+          (stage === "upstream_read"
+            ? "stream_interrupted"
+            : "request_interrupted"),
+        typed?.status ?? responseStatus,
+        typed?.requestId ?? requestId,
+        {
+          stage: origin ?? stage,
+          elapsedMs: Math.floor(performance.now() - started),
+        },
+      );
+    };
+    const admissionCurrent = () => {
+      try {
+        assertCurrent();
+      } catch {
+        throw failure(
+          new ChatgptRequestError("admission_invalidated"),
+          "local_admission",
+        );
+      }
+    };
     if (
       String(url) !== "https://api.openai.com/v1/responses" ||
       init?.method !== "POST" ||
@@ -352,7 +416,7 @@ export function chatgptFetch(
       )
         throw new ChatgptRequestError("unsupported_tool_call");
     }
-    assertCurrent();
+    admissionCurrent();
     const controller = new AbortController();
     const signal = AbortSignal.any([
       controller.signal,
@@ -360,8 +424,12 @@ export function chatgptFetch(
     ]);
     let polling = false;
     const current = () => {
-      signal.throwIfAborted();
-      assertCurrent();
+      if (signal.aborted)
+        throw (
+          invalidation ??
+          failure(new ChatgptRequestError("request_aborted"), "aborted")
+        );
+      admissionCurrent();
     };
     let accessToken: string | undefined;
     try {
@@ -372,7 +440,11 @@ export function chatgptFetch(
         signal,
       ));
     } catch {
-      throw new ChatgptRequestError("connection_unavailable");
+      if (signal.aborted) current();
+      throw failure(
+        new ChatgptRequestError("connection_unavailable"),
+        "native_credential",
+      );
     }
     current();
     // Disconnect/reconnect must cancel even a response whose remote socket is idle.
@@ -380,9 +452,14 @@ export function chatgptFetch(
       if (polling) return;
       polling = true;
       credential("current", admission.registrationId, admission.epoch, signal)
-        .catch(() =>
-          controller.abort(new ChatgptRequestError("connection_invalidated")),
-        )
+        .catch(() => {
+          if (signal.aborted) return;
+          invalidation = failure(
+            new ChatgptRequestError("connection_invalidated"),
+            "native_poll",
+          );
+          controller.abort(invalidation);
+        })
         .finally(() => {
           polling = false;
         });
@@ -402,6 +479,8 @@ export function chatgptFetch(
         body: init.body,
         signal,
       });
+      responseStatus = response.status;
+      requestId = response.headers.get("x-request-id") ?? undefined;
       current();
       if (!response.ok) {
         stop();
@@ -432,7 +511,7 @@ export function chatgptFetch(
         throw new ChatgptRequestError(
           code,
           response.status,
-          response.headers.get("x-request-id")?.slice(0, 128),
+          response.headers.get("x-request-id") ?? undefined,
         );
       }
       const media = response.headers
@@ -449,19 +528,41 @@ export function chatgptFetch(
         response,
         names,
         current,
-        receipt,
+        (value) =>
+          receipt({
+            ...value,
+            failure: failure(
+              new ChatgptRequestError("incomplete_sdk_decoding"),
+              "sdk_decode",
+            ).failure,
+          }),
+        (error, stage) =>
+          signal.aborted
+            ? failure(
+                invalidation ?? new ChatgptRequestError("request_aborted"),
+                "aborted",
+              )
+            : failure(error, stage),
       ).getReader();
       const stream = new ReadableStream<Uint8Array>({
         async pull(out) {
           try {
             const next = await reader.read();
             if (next.done) {
-              await credential(
-                "current",
-                admission.registrationId,
-                admission.epoch,
-                signal,
-              );
+              try {
+                await credential(
+                  "current",
+                  admission.registrationId,
+                  admission.epoch,
+                  signal,
+                );
+              } catch {
+                if (signal.aborted) current();
+                throw failure(
+                  new ChatgptRequestError("connection_invalidated"),
+                  "native_final_current",
+                );
+              }
               current();
               stop();
               out.close();
@@ -470,9 +571,12 @@ export function chatgptFetch(
             stop();
             await reader.cancel().catch(() => {});
             out.error(
-              error instanceof ChatgptRequestError
-                ? error
-                : new ChatgptRequestError("stream_interrupted"),
+              signal.aborted
+                ? failure(
+                    invalidation ?? new ChatgptRequestError("request_aborted"),
+                    "aborted",
+                  )
+                : failure(error, "stream_validation"),
             );
           }
         },
@@ -490,9 +594,12 @@ export function chatgptFetch(
       });
     } catch (error) {
       stop();
-      throw error instanceof ChatgptRequestError
-        ? error
-        : new ChatgptRequestError("request_interrupted");
+      throw signal.aborted
+        ? failure(
+            invalidation ?? new ChatgptRequestError("request_aborted"),
+            "aborted",
+          )
+        : failure(error, "upstream_request");
     }
   };
 }
@@ -507,6 +614,7 @@ export function chatgptModel(
     apiKey: "native-owned-not-an-api-key",
   }).responses(admission.model);
   const doStream: typeof identity.doStream = async (options) => {
+    const started = performance.now();
     let receipt: Receipt | undefined;
     const model = createOpenAI({
       name: "chatgpt",
@@ -542,7 +650,16 @@ export function chatgptModel(
                 text !== receipt.text ||
                 JSON.stringify(calls) !== JSON.stringify(receipt.calls)
               )
-                throw new ChatgptRequestError("incomplete_sdk_decoding");
+                throw new ChatgptRequestError(
+                  "incomplete_sdk_decoding",
+                  receipt?.failure?.status,
+                  receipt?.failure?.requestId,
+                  {
+                    ...receipt?.failure,
+                    stage: "sdk_decode",
+                    elapsedMs: Math.floor(performance.now() - started),
+                  },
+                );
               const raw = receipt.usage;
               const details = record(raw.input_tokens_details)
                 ? raw.input_tokens_details

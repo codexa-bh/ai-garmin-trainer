@@ -1,3 +1,21 @@
+export type ProviderFailureDiagnostic = {
+  category: string;
+  stage:
+    | "upstream_request"
+    | "upstream_read"
+    | "stream_validation"
+    | "sdk_decode"
+    | "native_credential"
+    | "native_poll"
+    | "native_final_current"
+    | "local_admission"
+    | "aborted"
+    | "generation";
+  elapsedMs?: number;
+  status?: number;
+  requestId?: string;
+};
+
 export type TrainerTokenUsage = {
   inputTokens?: number;
   cacheReadTokens?: number;
@@ -18,6 +36,7 @@ export type LlmDebugProviderCall = {
   text?: string;
   unavailable?: string[];
   error?: string;
+  failure?: ProviderFailureDiagnostic;
   truncated?: boolean;
 };
 

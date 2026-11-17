@@ -17,7 +17,12 @@ function generationFailure(error: unknown): ChatgptRequestError {
       TypeValidationError.isInstance(current) ||
       JSONParseError.isInstance(current)
     )
-      return new ChatgptRequestError("response_decoding_failed");
+      return new ChatgptRequestError(
+        "response_decoding_failed",
+        undefined,
+        undefined,
+        { stage: "sdk_decode" },
+      );
     if (!APICallError.isInstance(current)) break;
     if (current.cause) current = current.cause;
     else
@@ -25,6 +30,9 @@ function generationFailure(error: unknown): ChatgptRequestError {
         Number.isInteger(current.statusCode)
           ? `http_${current.statusCode}`
           : "provider_transport_failed",
+        current.statusCode,
+        undefined,
+        { stage: "upstream_request" },
       );
   }
   return new ChatgptRequestError("generation_failed");
@@ -53,6 +61,7 @@ export async function chatgptText(options: Record<string, unknown>): Promise<{
   usage: LanguageModelUsage;
   finishReason: string;
 }> {
+  const started = performance.now();
   const result = streamText({
     ...options,
     maxRetries: 0,
@@ -66,8 +75,27 @@ export async function chatgptText(options: Record<string, unknown>): Promise<{
     },
   } as unknown as Parameters<typeof streamText>[0]);
   // Explicit consumption surfaces stream errors, not just HTTP200/first text/EOF.
-  for await (const event of result.fullStream) {
-    if (event.type === "error") throw generationFailure(event.error);
+  try {
+    for await (const event of result.fullStream) {
+      if (event.type === "error") throw generationFailure(event.error);
+    }
+    // SDK cancellation may settle without an error event; never accept it as completion.
+    if ((options.abortSignal as AbortSignal | undefined)?.aborted)
+      throw new ChatgptRequestError("request_aborted", undefined, undefined, {
+        stage: "aborted",
+      });
+  } catch (error) {
+    const failure = generationFailure(error);
+    throw new ChatgptRequestError(
+      failure.code,
+      failure.status,
+      failure.requestId,
+      {
+        ...failure.failure,
+        elapsedMs:
+          failure.failure.elapsedMs ?? Math.floor(performance.now() - started),
+      },
+    );
   }
   const calls = await result.toolCalls;
   const ids = new Set();

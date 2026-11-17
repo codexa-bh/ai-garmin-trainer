@@ -6,6 +6,7 @@ import type {
   LlmDebugTrace,
 } from "./debug-types";
 export type { LlmDebugProviderCall, LlmDebugTrace } from "./debug-types";
+import { safeFailureDiagnostic } from "./provider-errors";
 
 const LLM_DEBUG_TRACE_CAPS = {
   string: 1200,
@@ -87,6 +88,7 @@ export function debugProviderCall(input: {
   toolCalls?: TrainerToolCall[];
   text?: string;
   error?: string;
+  failure?: LlmDebugProviderCall["failure"];
 }): LlmDebugProviderCall {
   let truncated = false;
   const text = input.text
@@ -128,6 +130,7 @@ export function debugProviderCall(input: {
     ...(text ? { text: text.value as string } : {}),
     unavailable: ["raw provider request", "raw provider response"],
     ...(error ? { error: error.value as string } : {}),
+    ...(input.failure ? { failure: safeFailureDiagnostic(input.failure) } : {}),
     ...(truncated ? { truncated: true } : {}),
   };
 }
