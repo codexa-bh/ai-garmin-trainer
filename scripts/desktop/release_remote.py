@@ -60,17 +60,34 @@ class GitHub:
 
     def _download_hash(self, endpoint, expected_size):
         import os
-        import select
+        import queue
+        import threading
         child = subprocess.Popen(['gh', 'api', endpoint, '--header', 'Accept: application/octet-stream'],
                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         value, count = hashlib.sha256(), 0
         deadline = time.monotonic() + 180
+        # Bounded blocks from a reader thread: pipes are not select()-able on Windows.
+        blocks = queue.Queue(maxsize=4)
+
+        def pump():
+            try:
+                while True:
+                    block = os.read(child.stdout.fileno(), 1024 * 1024)
+                    blocks.put(block)
+                    if not block:
+                        return
+            except OSError:
+                blocks.put(b'')
+        threading.Thread(target=pump, daemon=True).start()
         try:
             while True:
                 remaining = deadline - time.monotonic()
-                if remaining <= 0 or not select.select([child.stdout], [], [], remaining)[0]:
-                    raise TimeoutError('Remote digest download deadline')
-                block = os.read(child.stdout.fileno(), 1024 * 1024)
+                try:
+                    if remaining <= 0:
+                        raise queue.Empty
+                    block = blocks.get(timeout=remaining)
+                except queue.Empty:
+                    raise TimeoutError('Remote digest download deadline') from None
                 if not block:
                     break
                 count += len(block)

@@ -99,7 +99,8 @@ def npm_notices(root, excluded=()):
         packages.append({'path': relative, 'name': installed['name'],
                          'version': installed['version'], 'license': package.get('license'),
                          'source': package.get('resolved'), 'integrity': package.get('integrity')})
-        for path in sorted(directory.rglob('*')):
+        # Portable "/" ordering so notices are identical on every build host.
+        for path in sorted(directory.rglob('*'), key=lambda item: item.relative_to(directory).as_posix()):
             local = path.relative_to(directory)
             if ('node_modules' in local.parts or not notice_name(path.name)
                     or any((relative + '/' + local.as_posix()).startswith(item + '/') for item in excluded)):
