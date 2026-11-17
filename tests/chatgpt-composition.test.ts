@@ -421,6 +421,82 @@ it("authenticated native refusal updates availability without credential grant, 
   expect(requests).toHaveLength(0);
   expect(getOptionalEnv().OPENAI_API_KEY).toBe("");
 });
+it.each([false, true])(
+  "production first-call failure persists only safe diagnostics, hostile upstream code=%s",
+  async (hostileCode) => {
+    initializeLiveConfiguration(boot);
+    modelSettings.save({ modelId: entry.id });
+    const originalFetch = fetch;
+    let upstream = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (url, init) => {
+        if (String(url).startsWith("http://127.0.0.1:"))
+          return originalFetch(url, init);
+        upstream += 1;
+        if (hostileCode)
+          return new Response(
+            'data: {"type":"error","code":"private_token_prompt_account_path","message":"private_token_prompt_account_path"}\n\n',
+            {
+              headers: {
+                "content-type": "text/event-stream",
+                "x-request-id": "req-safe_1",
+              },
+            },
+          );
+        return new Response(
+          new ReadableStream({
+            pull(c) {
+              c.error(Error("private_token_prompt_account_path"));
+            },
+          }),
+          {
+            headers: {
+              "content-type": "text/event-stream",
+              "x-request-id": "req-safe_1",
+            },
+          },
+        );
+      }),
+    );
+    const turn = prepareChatTurn("safe-failure-chat", "Check local status.");
+    const result = await generateChatTurn(turn, { debugTraceEnabled: true });
+    expect(upstream).toBe(1);
+    expect(result.kind).toBe("generated");
+    if (result.kind !== "generated")
+      throw Error("Expected generated failure response");
+    expect(result.progressCounters?.modelCalls).toBe(1);
+    expect(result.toolSteps).toEqual([]);
+    expect(result.text).toContain("No Garmin tool was executed");
+    expect(result.grounding?.debugTrace).toMatchObject({
+      finalAnswerSource: "deterministic_fallback",
+      providerCalls: [
+        {
+          failure: {
+            stage: hostileCode ? "stream_validation" : "upstream_read",
+            requestId: "req-safe_1",
+            status: 200,
+            elapsedMs: expect.any(Number),
+          },
+        },
+      ],
+    });
+    expect(
+      result.grounding?.debugTrace?.providerCalls[0].tokenUsage,
+    ).toBeUndefined();
+    await completeChatTurn(turn, result);
+    const saved = db
+      .prepare(
+        "select grounding_json as value from message where role='assistant'",
+      )
+      .get() as { value: string };
+    expect(saved.value).not.toContain("private_token_prompt_account_path");
+    expect(saved.value.length).toBeLessThanOrEqual(24000);
+    expect(
+      JSON.parse(saved.value).debugTrace.providerCalls[0].failure.stage,
+    ).toBe(hostileCode ? "stream_validation" : "upstream_read");
+  },
+);
 it("native disconnect invalidates captured generation before tools and copied-turn completion, not unrelated API-key state", async () => {
   initializeLiveConfiguration(boot);
   modelSettings.save({ modelId: entry.id });

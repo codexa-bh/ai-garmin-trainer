@@ -113,6 +113,79 @@ describe("local chat history repository", () => {
     expect(row.groundingJson.length).toBeLessThanOrEqual(24000);
   });
 
+  it("keeps optional failure diagnostics compatible with legacy rows, compaction and whole-trace omission", async () => {
+    const repository = await import("../src/lib/db/repository");
+    const { debugProviderCall, buildLlmDebugTrace } =
+      await import("../src/lib/ai/debug-trace");
+    const call = debugProviderCall({
+      index: 1,
+      purpose: "planner",
+      failure: {
+        category: "stream_interrupted",
+        stage: "upstream_read",
+        elapsedMs: 21,
+        status: 200,
+        requestId: "req-safe_1",
+      },
+    });
+    for (const size of [0, 25000, 100000]) {
+      const trace = buildLlmDebugTrace({
+        userRequest: "Authored question",
+        providerCalls: [call],
+        toolSteps: [],
+        finalAnswer: "Authored failure",
+      });
+      // Simulate oversized adjacent historical debug material; retention caps stay authoritative.
+      trace.providerCalls.push({
+        index: 2,
+        purpose: "planner",
+        text: "x".repeat(size),
+      });
+      const saved = repository.appendChatMessage({
+        conversationId: "diagnostic-cap",
+        role: "assistant",
+        content: "Authored failure",
+        grounding: {
+          tool: "runReadOnlySql",
+          privacy: "synthetic",
+          debugTrace: trace,
+        },
+      });
+      const raw = repository
+        .getDatabase()
+        .prepare("select grounding_json as value from message where id=?")
+        .get(saved.id) as { value: string };
+      expect(raw.value.length).toBeLessThanOrEqual(24000);
+      const readback = repository
+        .listRecentChatMessages("diagnostic-cap")
+        .find((m) => m.id === saved.id)!;
+      expect(readback.grounding?.debugTrace?.providerCalls[0].failure).toEqual(
+        call.failure,
+      );
+    }
+    const trace = buildLlmDebugTrace({
+      userRequest: "Authored question",
+      providerCalls: [call],
+      toolSteps: [],
+      finalAnswer: "Authored failure",
+    });
+    trace.providerCalls[0].error = "x".repeat(30000);
+    const saved = repository.appendChatMessage({
+      conversationId: "diagnostic-cap",
+      role: "assistant",
+      content: "Authored failure",
+      grounding: {
+        tool: "runReadOnlySql",
+        privacy: "synthetic",
+        debugTrace: trace,
+      },
+    });
+    const readback = repository
+      .listRecentChatMessages("diagnostic-cap")
+      .find((m) => m.id === saved.id)!;
+    expect(readback.grounding?.debugTrace).toBeUndefined();
+  });
+
   it("reads historical checker failure diagnostics without changing their answer, reasons or saved bytes", async () => {
     const repository = await import("../src/lib/db/repository");
     const refusal =

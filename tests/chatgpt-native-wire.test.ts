@@ -1,6 +1,8 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { chatgptModel } from "../src/lib/ai/chatgpt-transport";
+import { createTrainerGeneration } from "../src/lib/ai/provider-generation";
 import {
   initializeChatgptOwner,
   nativeChatgptCredential,
@@ -12,7 +14,7 @@ const owner = process as typeof process & { __trainerChatgptOwnerV1?: unknown };
 let server: Server | undefined;
 let url: string;
 let accepted = 0;
-async function broker(responseBody?: string) {
+async function broker(responseBody?: string | ((operation: string) => string)) {
   delete owner.__trainerChatgptOwnerV1;
   accepted = 0;
   server = createServer((request, response) => {
@@ -48,7 +50,9 @@ async function broker(responseBody?: string) {
       expect(value.epoch).toBe(1);
       accepted += 1;
       const output =
-        responseBody ??
+        (typeof responseBody === "function"
+          ? responseBody(value.operation)
+          : responseBody) ??
         JSON.stringify(
           value.operation === "current"
             ? { current: true }
@@ -118,3 +122,44 @@ it("the actual private wire retains response bounds and cancellation before admi
   ).rejects.toThrow("chatgpt_connection_unavailable");
   expect(accepted).toBe(1);
 });
+it.each(["credential", "current"])(
+  "actual native wire %s refusal survives locked SDK without raw detail or replay",
+  async (failedOperation) => {
+    await broker((operation) =>
+      JSON.stringify(
+        operation === failedOperation
+          ? { private: "private-native-token-path" }
+          : { accessToken: "authored-native-token", epoch: 1 },
+      ),
+    );
+    const network = vi.fn(
+      async () =>
+        new Response(
+          'data: {"type":"response.created","response":{"id":"resp_1","created_at":1,"model":"gpt-6.1-sol"}}\n\ndata: {"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
+          { headers: { "content-type": "text/event-stream" } },
+        ),
+    );
+    const error = await createTrainerGeneration(
+      chatgptModel(
+        { registrationId, epoch: 1, model: "gpt-6.1-sol" },
+        undefined,
+        network,
+      ),
+    )({ purpose: "planner", system: "Policy", prompt: "Question" }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toMatchObject({
+      failure: {
+        stage:
+          failedOperation === "credential"
+            ? "native_credential"
+            : "native_final_current",
+      },
+    });
+    expect(network).toHaveBeenCalledTimes(
+      failedOperation === "credential" ? 0 : 1,
+    );
+    expect(accepted).toBe(failedOperation === "credential" ? 1 : 2);
+    expect(JSON.stringify(error)).not.toContain("private-native-token-path");
+  },
+);

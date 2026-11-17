@@ -12,7 +12,10 @@ import {
   type TrainerNativeExchange,
 } from "./orchestration-ports";
 import { TrainerToolExecutionContext } from "./tool-execution-context";
-import { providerFailureMessage } from "./provider-errors";
+import {
+  providerFailureMessage,
+  providerFailureDiagnostic,
+} from "./provider-errors";
 import {
   completeTrainingPlanSchema,
   renderCompleteTrainingPlan,
@@ -424,6 +427,7 @@ async function synthesizeFinalAnswer(
         index: 0,
         purpose: "final_synthesis",
         error: providerFailureMessage(input.debug?.provider, error),
+        failure: providerFailureDiagnostic(input.debug?.provider, error),
       }),
     );
     return null;
@@ -616,6 +620,7 @@ async function orchestrateTurn(
           index: 0,
           purpose: steps.length ? "failure_fallback" : "planner",
           error: providerFailureMessage(input.debug?.provider, error),
+          failure: providerFailureDiagnostic(input.debug?.provider, error),
         }),
       );
       if (steps.length) {

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isFinalSynthesis } from "./completion-fixtures";
+import { ChatgptRequestError } from "../src/lib/ai/chatgpt-transport";
 import type { TrainerProgressCounters } from "../src/lib/ai/trainer-progress";
 
 const generateText = vi.fn();
@@ -1744,44 +1745,66 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(generateText.mock.calls[1][0].tools).toBeUndefined();
   });
 
-  it("never replays a completed plan save while wrapping up after budget exhaustion", async () => {
-    const progress: { message: string; counters?: TrainerProgressCounters }[] =
-      [];
-    generateText
-      .mockResolvedValueOnce({
-        toolCalls: [
-          {
-            toolName: "saveTrainingPlan",
-            input: { contentMarkdown: "# Plan\nEasy aerobic work" },
-          },
-          ...Array.from({ length: 39 }, () => ({
-            toolName: "getSyncStatus",
-            input: {},
-          })),
-        ],
-      })
-      .mockRejectedValueOnce(new Error("synthesis unavailable"));
-    const result = await orchestrateTrainerChat({
-      model: "mock",
-      system: "system",
-      userRequest: "Save this Training Plan and check status",
-      onStatus: (message, counters) => progress.push({ message, counters }),
-    });
-    expect(progress.some((p) => p.message.startsWith("Checking whether"))).toBe(
-      false,
-    );
-    expect(progress.at(-1)).toEqual({
-      message:
-        "Preparing an answer from the available evidence, with its limits…",
-      counters: { modelCalls: 2, toolsSucceeded: 28, toolsUnsuccessful: 0 },
-    });
-    expect(result.toolSteps).toHaveLength(29); // Synthetic diagnostic is not an executed tool.
-    expect(replaceTrainingPlan).toHaveBeenCalledOnce();
-    expect(dataCounts).toHaveBeenCalledTimes(27);
-    expect(generateText).toHaveBeenCalledTimes(2);
-    expect(result.text).toContain("Completed local actions: saveTrainingPlan");
-    expect(result.text).toContain("not repeated");
-  });
+  it.each([false, true])(
+    "never replays a completed plan save while wrapping up after budget exhaustion, typed diagnostic=%s",
+    async (typed) => {
+      const progress: {
+        message: string;
+        counters?: TrainerProgressCounters;
+      }[] = [];
+      generateText
+        .mockResolvedValueOnce({
+          toolCalls: [
+            {
+              toolName: "saveTrainingPlan",
+              input: { contentMarkdown: "# Plan\nEasy aerobic work" },
+            },
+            ...Array.from({ length: 39 }, () => ({
+              toolName: "getSyncStatus",
+              input: {},
+            })),
+          ],
+        })
+        .mockRejectedValueOnce(
+          typed
+            ? new ChatgptRequestError(
+                "connection_invalidated",
+                200,
+                "req-safe_1",
+                { stage: "native_final_current", elapsedMs: 21 },
+              )
+            : new Error("synthesis unavailable"),
+        );
+      const result = await orchestrateTrainerChat({
+        model: "mock",
+        system: "system",
+        userRequest: "Save this Training Plan and check status",
+        debug: { provider: "chatgpt", enabled: true },
+        onStatus: (message, counters) => progress.push({ message, counters }),
+      });
+      expect(
+        progress.some((p) => p.message.startsWith("Checking whether")),
+      ).toBe(false);
+      expect(progress.at(-1)).toEqual({
+        message:
+          "Preparing an answer from the available evidence, with its limits…",
+        counters: { modelCalls: 2, toolsSucceeded: 28, toolsUnsuccessful: 0 },
+      });
+      expect(result.toolSteps).toHaveLength(29); // Synthetic diagnostic is not an executed tool.
+      expect(replaceTrainingPlan).toHaveBeenCalledOnce();
+      expect(dataCounts).toHaveBeenCalledTimes(27);
+      expect(generateText).toHaveBeenCalledTimes(2);
+      expect(result.text).toContain(
+        "Completed local actions: saveTrainingPlan",
+      );
+      expect(result.text).toContain("not repeated");
+      if (typed)
+        expect(result.debugTrace?.providerCalls.at(-1)?.failure).toMatchObject({
+          stage: "native_final_current",
+          requestId: "req-safe_1",
+        });
+    },
+  );
 
   it("reports the hard ceiling, soft target and synthesis reserve", async () => {
     expect(trainerOrchestrationLimits).toEqual({
