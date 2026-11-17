@@ -27,6 +27,8 @@ jobs:
       TESTED_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
       CI: "true"
       NEXT_TELEMETRY_DISABLED: "1"
+      # Python UTF-8 mode for every helper (text I/O as on macOS/Linux).
+      PYTHONUTF8: "1"
     defaults:
       run:
         shell: pwsh

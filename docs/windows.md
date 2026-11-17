@@ -25,6 +25,7 @@ The app is the same private, single-user Tauri host with its owned loopback Next
 Prerequisites: Windows x64, Git, Node.js 22 with npm, Python 3.12 (`python`), Rust 1.98 with the MSVC toolchain (Visual Studio Build Tools "Desktop development with C++"), 7-Zip installed in `Program Files\7-Zip` (used to read, never run, the installer), and the Microsoft Edge WebView2 Runtime. Runtime integrations need separately managed uv/uvx and Python 3.12, as on macOS.
 
 ```powershell
+$env:PYTHONUTF8 = "1"   # Python UTF-8 text I/O, as on macOS/Linux
 npm ci
 npm run desktop:build
 ```

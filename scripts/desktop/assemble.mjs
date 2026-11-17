@@ -29,10 +29,13 @@ if (inputs.version !== 2 || targets.length !== 1)
 const [platformId, target] = targets[0];
 const windows = platformId === "windows-x64";
 const python = windows ? "python" : "python3";
+// UTF-8 mode: Windows Python would otherwise decode text files as cp1252.
+const pythonFlags = windows ? ["-X", "utf8"] : [];
 const identity = JSON.parse(
   execFileSync(
     python,
     [
+      ...pythonFlags,
       "-c",
       "import json; from pathlib import Path; import sys; sys.path.insert(0, 'scripts/desktop'); from ordinary_identity import source_snapshot, context_identity; r=Path.cwd(); s=source_snapshot(r); c=context_identity(r,s); print(json.dumps({**s, 'context':c['key'], 'components':c['components']}))",
     ],
@@ -210,7 +213,7 @@ await cp(
   join(root, "docs/redistribution.md"),
   join(resources, "REDISTRIBUTION-REVIEW.txt"),
 );
-execFileSync(python, ["scripts/desktop/redistribution.py"], {
+execFileSync(python, [...pythonFlags, "scripts/desktop/redistribution.py"], {
   cwd: root,
   stdio: "inherit",
 });
