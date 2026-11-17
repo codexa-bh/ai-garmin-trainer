@@ -95,12 +95,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $scratch = Join-Path $env:RUNNER_TEMP ('trainer-windows-' + [guid]::NewGuid())
           New-Item -ItemType Directory $scratch | Out-Null
-          python scripts/desktop/release.py package --platform windows-x64 --execute `
+          # Same npm entry as desktop:build so the bound build context matches.
+          npm run release -- package --platform windows-x64 --execute `
             --bundle "$env:GITHUB_WORKSPACE\src-tauri\target\x86_64-pc-windows-msvc\release" --scratch $scratch
+          if ($LASTEXITCODE -ne 0) { throw 'package failed' }
           $record = Get-ChildItem -Recurse -Filter release-windows-x64.json $scratch | Select-Object -First 1
-          python scripts/desktop/release.py verify --platform windows-x64 `
+          npm run release -- verify --platform windows-x64 `
             --bundle "$env:GITHUB_WORKSPACE\src-tauri\target\x86_64-pc-windows-msvc\release" `
             --scratch $scratch --record $record.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'verify failed' }
           Get-Content $record.FullName
           "TRAINER_RECORD=$($record.FullName)" >> $env:GITHUB_ENV
 
