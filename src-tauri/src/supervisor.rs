@@ -1,9 +1,9 @@
 use serde::Deserialize;
 use std::io::{BufRead, BufReader, Read, Write};
+use crate::process_tree::{self, Tree};
 use std::net::{SocketAddr, TcpStream};
-use std::os::unix::process::CommandExt;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc,
@@ -11,7 +11,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 pub struct Service {
-    child: Child,
+    child: Tree,
     pub port: u16,
     pub tooling_available: bool,
     stopped: bool,
@@ -74,7 +74,7 @@ impl Service {
             .map_err(|_| "Startup fields invalid.")?;
         let startup_fields = crate::settings::validate(resources, &fields)?;
         let nonce = uuid::Uuid::new_v4().to_string();
-        let mut command = Command::new(resources.join("node"));
+        let mut command = Command::new(process_tree::node(resources));
         command
             .arg(resources.join("runtime/runtime.cjs"))
             .current_dir(resources.join("runtime"))
@@ -82,21 +82,25 @@ impl Service {
             .env("TRAINER_DESKTOP_NONCE", &nonce)
             .env("NODE_ENV", "production")
             .env("NEXT_TELEMETRY_DISABLED", "1")
-            .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+            .env(
+                "PATH",
+                process_tree::search_path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"),
+            )
             // Retain the write end as an ownership/liveness pipe. EOF lets the
             // backend fail closed even if the native host dies without callbacks.
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .process_group(0);
-        for key in ["HOME", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "LANG"] {
-            if let Some(value) = std::env::var_os(key) {
-                command.env(key, value);
-            }
-        }
-        let mut child = command
-            .spawn()
+            .stderr(Stdio::null());
+        process_tree::user_environment(&mut command);
+        let mut child = Tree::spawn(&mut command)
             .map_err(|_| "Bundled Node/resources missing or not executable.")?;
+        // Host loss: the backend settles its exact DB leases on stdin EOF, then
+        // its own exit ends the owned tree (no orphaned connector/FIT children).
+        if child.share_ownership_with_child().is_err() {
+            child.kill();
+            let _ = child.wait();
+            return Err("Backend ownership could not be established.");
+        }
         // One bounded activation frame, then retain stdin for parent liveness.
         // Provider keys never enter argv, inherited environment or an activation file.
         // The native owner-private settings document is their sole disk authority.
@@ -107,9 +111,7 @@ impl Service {
             .write_all(snapshot);
         snapshot.fill(0);
         if sent.is_err() {
-            unsafe {
-                libc::kill(-(child.id() as i32), libc::SIGKILL);
-            }
+            child.kill();
             let _ = child.wait();
             return Err("Backend activation interrupted.");
         }
@@ -161,7 +163,7 @@ impl Service {
                     Some("configuration") => "Settings or Keychain activation refused. Check required provider keys, existing database and private absolute paths; no env file is loaded.",
                     Some("database") => "Database preflight refused. Check existing target, integrity and supported schema with source db:status; never auto-upgrade the primary.",
                     Some("database-ownership") => "Database writer admission refused. Quit the other backend and inspect the exact lease/open-file owner; never steal a live lease.",
-                    Some("resources") => "Packaged resources failed. Rebuild the ARM64 desktop resources and verify bundled Node/SQLite; do not install/sign to bypass this error.",
+                    Some("resources") => "Packaged resources failed. Rebuild the desktop resources and verify bundled Node/SQLite; do not install/sign to bypass this error.",
                     _ => "Local backend startup refused. Check source doctor/status and owned listener readiness; no unrelated service was loaded.",
                 });
             }
@@ -258,11 +260,13 @@ impl Service {
             return;
         }
         self.stopped = true;
-        let group = -(self.child.id() as i32);
-        // The process group was created by this exact child. No name/port kills.
-        unsafe {
-            libc::kill(group, libc::SIGTERM);
-        }
+        // Only this exact owned tree. No name/port kills.
+        #[cfg(unix)]
+        self.child.terminate();
+        // Windows has no SIGTERM: closing the liveness pipe is the graceful
+        // request (the backend drains, settles leases and exits).
+        #[cfg(windows)]
+        drop(self.child.stdin.take());
         let deadline = Instant::now() + Duration::from_secs(8);
         while Instant::now() < deadline {
             if self.child.try_wait().ok().flatten().is_some() {
@@ -271,9 +275,7 @@ impl Service {
             std::thread::sleep(Duration::from_millis(50));
         }
         // Include any remaining connector/FIT descendants, even after Node exits.
-        unsafe {
-            libc::kill(group, libc::SIGKILL);
-        }
+        self.child.kill();
         let _ = self.child.wait();
         eprintln!("desktop: owned backend group stopped");
     }
@@ -287,14 +289,27 @@ impl Drop for Service {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn sleeper() -> Command {
+        #[cfg(unix)]
+        {
+            let mut command = Command::new("/bin/sleep");
+            command.arg("30");
+            command
+        }
+        #[cfg(windows)]
+        {
+            let mut command = Command::new("ping.exe");
+            command
+                .args(["-n", "30", "127.0.0.1"])
+                .stdout(Stdio::null())
+                .stdin(Stdio::piped());
+            command
+        }
+    }
     #[test]
     fn stops_only_its_owned_group_and_is_idempotent() {
-        let child = Command::new("/bin/sleep")
-            .arg("30")
-            .process_group(0)
-            .spawn()
-            .unwrap();
-        let mut unrelated = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let child = Tree::spawn(&mut sleeper()).unwrap();
+        let mut unrelated = sleeper().spawn().unwrap();
         let mut service = Service {
             child,
             port: 0,
@@ -333,11 +348,7 @@ mod tests {
             let body = r#"{"version":1,"configuredEnabled":false,"enabled":false,"model":"unselected","cap":6000,"state":"disabled","revision":0,"frontier":0,"pending":0}"#;
             write!(connection, "HTTP/1.1 200 OK\r\nx-trainer-identity: owned-test\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
         });
-        let child = Command::new("/bin/sleep")
-            .arg("30")
-            .process_group(0)
-            .spawn()
-            .unwrap();
+        let child = Tree::spawn(&mut sleeper()).unwrap();
         let mut service = Service {
             child,
             port,

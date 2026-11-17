@@ -1,15 +1,12 @@
 //! Fresh-only setup. SQLite migrations run in memory, never on a selected file.
 //! All native mutation/publication uses a pinned parent dirfd and exclusive names.
 use serde::{Deserialize, Serialize};
+use crate::private_fs::{self, FileId, Walk};
 use std::collections::BTreeMap;
-use std::ffi::CString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::process::CommandExt;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -77,11 +74,10 @@ impl State {
         }
     }
 }
-fn name(value: &std::ffi::OsStr) -> Result<CString, &'static str> {
-    CString::new(value.as_bytes()).map_err(|_| "Invalid private path.")
-}
-fn same(left: &fs::Metadata, right: &fs::Metadata) -> bool {
-    left.dev() == right.dev() && left.ino() == right.ino()
+fn name(value: &OsStr) -> Result<OsString, &'static str> {
+    private_fs::valid_name(value)
+        .then(|| value.to_owned())
+        .ok_or("Invalid private path.")
 }
 pub(crate) struct Parent {
     pub(crate) file: File,
@@ -100,45 +96,12 @@ impl Parent {
                 "Choose a canonical absolute private parent, without aliases or expansion.",
             );
         }
-        let mut file = File::open("/").map_err(|_| "Private root unavailable.")?;
-        for component in path.components() {
-            let Component::Normal(part) = component else {
-                if matches!(component, Component::RootDir) {
-                    continue;
-                }
-                return Err("Path aliases are not allowed.");
-            };
-            let part = name(part)?;
-            let open = || unsafe {
-                libc::openat(
-                    file.as_raw_fd(),
-                    part.as_ptr(),
-                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-                )
-            };
-            let mut fd = open();
-            if fd < 0
-                && create
-                && std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound
-            {
-                if unsafe { libc::mkdirat(file.as_raw_fd(), part.as_ptr(), 0o700) } != 0 {
-                    return Err("Cannot exclusively create private app storage.");
-                }
-                fd = open();
-            }
-            if fd < 0 {
-                return Err("Private parent missing, aliased or inaccessible. Choose an existing private folder.");
-            }
-            let next = unsafe { File::from_raw_fd(fd) };
-            let meta = next.metadata().map_err(|_| "Private parent unavailable.")?;
-            let root_sticky = meta.uid() == 0 && meta.mode() & u32::from(libc::S_ISVTX) != 0;
-            if (meta.uid() != 0 && meta.uid() != unsafe { libc::getuid() })
-                || (meta.mode() & 0o022 != 0 && !root_sticky)
-            {
-                return Err("Unsafe parent ownership or writable path component; no permissions were changed.");
-            }
-            file = next;
-        }
+        let file = private_fs::walk(path, create).map_err(|error| match error {
+            Walk::Alias => "Path aliases are not allowed.",
+            Walk::Create => "Cannot exclusively create private app storage.",
+            Walk::Missing => "Private parent missing, aliased or inaccessible. Choose an existing private folder.",
+            Walk::Unsafe => "Unsafe parent ownership or writable path component; no permissions were changed.",
+        })?;
         let parent = Self {
             file,
             path: path.to_owned(),
@@ -147,92 +110,52 @@ impl Parent {
         Ok(parent)
     }
     pub(crate) fn verify(&self) -> Result<(), &'static str> {
-        let meta = self
-            .file
-            .metadata()
+        let safe = private_fs::meta(&self.file)
+            .map(|meta| meta.private_dir())
             .map_err(|_| "Private parent unavailable.")?;
-        if meta.uid() != unsafe { libc::getuid() }
-            || meta.mode() & 0o077 != 0
-            || fs::canonicalize(&self.path).ok().as_deref() != Some(self.path.as_path())
-            || !fs::symlink_metadata(&self.path)
-                .map(|current| same(&meta, &current))
-                .unwrap_or(false)
+        if !safe
+            || !private_fs::canonical(&self.path)
+            || !private_fs::same_object(&self.path, &self.file)
         {
             return Err("Private parent changed or is unsafe; original inputs preserved.");
         }
         Ok(())
     }
-    fn create(&self, part: &CString) -> Result<File, &'static str> {
+    fn create(&self, part: &OsStr) -> Result<File, &'static str> {
         self.verify()?;
-        let fd = unsafe {
-            libc::openat(
-                self.file.as_raw_fd(),
-                part.as_ptr(),
-                libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-                0o600,
-            )
-        };
-        if fd < 0 {
-            return Err("Fresh destination or writer lease already exists; nothing was replaced.");
-        }
-        Ok(unsafe { File::from_raw_fd(fd) })
+        private_fs::create_at(&self.file, part)
+            .map_err(|_| "Fresh destination or writer lease already exists; nothing was replaced.")
     }
-    fn absent(&self, part: &CString) -> bool {
-        let mut meta = std::mem::MaybeUninit::<libc::stat>::uninit();
-        (unsafe {
-            libc::fstatat(
-                self.file.as_raw_fd(),
-                part.as_ptr(),
-                meta.as_mut_ptr(),
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        }) != 0
-            && std::io::Error::last_os_error().kind() == std::io::ErrorKind::NotFound
+    fn absent(&self, part: &OsStr) -> bool {
+        matches!(private_fs::exists_at(&self.file, part), Ok(false))
     }
-    fn identity(&self, part: &CString, file: &File) -> bool {
-        let fd = unsafe {
-            libc::openat(
-                self.file.as_raw_fd(),
-                part.as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
+    fn identity(&self, part: &OsStr, file: &File) -> bool {
+        let Ok(current) = private_fs::open_at(&self.file, part) else {
             return false;
-        }
-        let current = unsafe { File::from_raw_fd(fd) };
-        match (file.metadata(), current.metadata()) {
-            (Ok(a), Ok(b)) => {
-                same(&a, &b)
-                    && b.is_file()
-                    && b.nlink() == 1
-                    && b.uid() == unsafe { libc::getuid() }
-                    && b.mode() & 0o077 == 0
-            }
+        };
+        match (private_fs::id(file), private_fs::meta(&current)) {
+            (Ok(id), Ok(meta)) => id == meta.id && meta.private_file(),
             _ => false,
         }
     }
-    fn remove_owned(&self, part: &CString, file: &File) {
+    fn remove_owned(&self, part: &OsStr, file: &File) {
         if self.identity(part, file) {
-            unsafe {
-                libc::unlinkat(self.file.as_raw_fd(), part.as_ptr(), 0);
-            }
+            let _ = private_fs::remove_at(&self.file, part, file);
         }
     }
 }
 pub struct OwnedSettings {
-    dev: u64,
-    ino: u64,
+    id: FileId,
     bytes: Vec<u8>,
 }
 impl OwnedSettings {
     pub fn capture(path: &Path) -> Result<Self, &'static str> {
-        let (dev, ino, bytes) = crate::private_store::capture(path)?;
-        Ok(Self { dev, ino, bytes })
+        let (id, bytes) = crate::private_store::capture(path)?;
+        Ok(Self { id, bytes })
     }
     pub fn verify(&self, path: &Path) -> Result<(), &'static str> {
         let current = Self::capture(path)?;
-        if self.dev != current.dev || self.ino != current.ino || self.bytes != current.bytes {
+        if self.id != current.id || self.bytes != current.bytes {
             return Err("Committed settings changed outside this operation. Preserve them and reopen explicitly; retry refused.");
         }
         Ok(())
@@ -241,30 +164,23 @@ impl OwnedSettings {
 
 pub struct OwnedDatabase {
     path: PathBuf,
-    dev: u64,
-    ino: u64,
+    id: FileId,
 }
 impl OwnedDatabase {
     #[cfg(test)]
     pub(crate) fn capture_test_publication(path: &Path) -> Self {
-        let metadata = fs::symlink_metadata(path).unwrap();
         Self {
             path: path.to_owned(),
-            dev: metadata.dev(),
-            ino: metadata.ino(),
+            id: private_fs::path_meta(path).unwrap().id,
         }
     }
     pub fn verify(&self, requested: &Path) -> Result<(), &'static str> {
-        let meta = fs::symlink_metadata(&self.path)
+        let meta = private_fs::path_meta(&self.path)
             .map_err(|_| "Committed database missing; inspect it before retry.")?;
         if requested != self.path
-            || meta.dev() != self.dev
-            || meta.ino() != self.ino
-            || meta.nlink() != 1
-            || !meta.is_file()
-            || meta.uid() != unsafe { libc::getuid() }
-            || meta.mode() & 0o077 != 0
-            || fs::canonicalize(requested).ok().as_deref() != Some(requested)
+            || meta.id != self.id
+            || !meta.private_file()
+            || !private_fs::canonical(requested)
         {
             return Err("Committed database identity changed. Preserve it and select existing data explicitly after inspection.");
         }
@@ -280,7 +196,8 @@ pub fn bundled(
     cancel: &AtomicBool,
     quitting: &AtomicBool,
 ) -> Result<Vec<u8>, &'static str> {
-    let mut child = Command::new(resources.join("node"))
+    let mut command = Command::new(crate::process_tree::node(resources));
+    command
         .arg(resources.join("runtime/runtime.cjs"))
         .arg(mode)
         .current_dir(resources.join("runtime"))
@@ -288,10 +205,10 @@ pub fn bundled(
         .env("NODE_ENV", "production")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .process_group(0)
-        .spawn()
-        .map_err(|_| "Bundled setup resources unavailable. Rebuild the ARM64 app.")?;
+        .stderr(Stdio::null());
+    crate::process_tree::system_environment(&mut command);
+    let mut child = crate::process_tree::Tree::spawn(&mut command)
+        .map_err(|_| "Bundled setup resources unavailable. Rebuild the desktop app.")?;
     let stdout = child.stdout.take().ok_or("Setup result unavailable.")?;
     let reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
@@ -331,9 +248,7 @@ pub fn bundled(
     })();
     input.fill(0);
     if result.is_err() {
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
+        child.kill();
     }
     let _ = child.wait();
     let sent = sender.join().map_err(|_| "Setup input interrupted.")?;
@@ -397,7 +312,7 @@ pub fn initialize(
         .file_name()
         .ok_or("Choose a fresh database filename.")?;
     let target_name = name(leaf)?;
-    let sidecars: Vec<CString> = ["", "-wal", "-shm", "-journal"]
+    let sidecars: Vec<OsString> = ["", "-wal", "-shm", "-journal"]
         .iter()
         .map(|suffix| name(format!("{}{suffix}", leaf.to_string_lossy()).as_ref()))
         .collect::<Result<_, _>>()?;
@@ -430,7 +345,7 @@ pub fn initialize(
         let fields = BTreeMap::from([(
             "DATABASE_PATH".to_owned(),
             parent_path
-                .join(stage_name.to_str().map_err(|_| "Invalid staging.")?)
+                .join(&stage_name)
                 .to_string_lossy()
                 .into_owned(),
         )]);
@@ -448,26 +363,18 @@ pub fn initialize(
         {
             return Err("Fresh database identity or destination changed; publication refused.");
         }
-        let meta = file.metadata().map_err(|_| "Fresh identity unavailable.")?;
-        if unsafe {
-            libc::renameatx_np(
-                parent.file.as_raw_fd(),
-                stage_name.as_ptr(),
-                parent.file.as_raw_fd(),
-                target_name.as_ptr(),
-                libc::RENAME_EXCL,
-            )
-        } != 0
-        {
+        let id = private_fs::id(file).map_err(|_| "Fresh identity unavailable.")?;
+        if private_fs::rename_at(&parent.file, &stage_name, file, &target_name, false).is_err() {
             return Err("Fresh database publication refused. Existing destination preserved.");
         }
         // Record commit before durability/identity checks: failure is NOT rollback.
         *committed = Some(OwnedDatabase {
             path: target.to_owned(),
-            dev: meta.dev(),
-            ino: meta.ino(),
+            id,
         });
-        parent.file.sync_all().map_err(|_| "Database committed; directory durability confirmation unavailable. Inspect before retry.")?;
+        if !private_fs::sync_dir(&parent.file) {
+            return Err("Database committed; directory durability confirmation unavailable. Inspect before retry.");
+        }
         parent.verify()?;
         committed
             .as_ref()
@@ -484,26 +391,23 @@ pub fn initialize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::{symlink, PermissionsExt};
+    use crate::private_fs::testing::{
+        make_private, make_shared, private_dir, private_root, symlink, write_private,
+    };
     fn root() -> PathBuf {
-        let root = std::env::temp_dir().join(format!("trainer-new-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::canonicalize(root).unwrap()
+        private_root("trainer-new")
     }
     #[test]
     fn committed_settings_retry_requires_exact_identity_and_content() {
         let root = root();
         let path = root.join("settings.json");
-        fs::write(&path, "non-secret settings").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        write_private(&path, b"non-secret settings");
         let committed = OwnedSettings::capture(&path).unwrap();
         committed.verify(&path).unwrap();
         fs::write(&path, "external change").unwrap();
         assert!(committed.verify(&path).is_err());
         fs::rename(&path, root.join("preserved")).unwrap();
-        fs::write(&path, "non-secret settings").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        write_private(&path, b"non-secret settings");
         assert!(committed.verify(&path).is_err());
         fs::remove_dir_all(root).unwrap();
     }
@@ -522,17 +426,17 @@ mod tests {
         let file = parent.create(&part).unwrap();
         assert!(parent.create(&part).is_err());
         assert!(parent.identity(&part, &file));
-        let meta = file.metadata().unwrap();
         let owned = OwnedDatabase {
             path: root.join("fresh ü.sqlite"),
-            dev: meta.dev(),
-            ino: meta.ino(),
+            id: private_fs::id(&file).unwrap(),
         };
         owned.verify(&owned.path).unwrap();
+        let retained = private_fs::open_at(&parent.file, &part).unwrap();
+        drop(file);
         fs::rename(&owned.path, root.join("retained")).unwrap();
         fs::write(&owned.path, "foreign").unwrap();
         assert!(owned.verify(&owned.path).is_err());
-        parent.remove_owned(&part, &file);
+        parent.remove_owned(&part, &retained);
         assert_eq!(fs::read(&owned.path).unwrap(), b"foreign");
         fs::remove_dir_all(root).unwrap();
     }
@@ -555,7 +459,7 @@ mod tests {
         .unwrap();
         let original = fs::read(&target).unwrap();
         assert!(original.starts_with(b"SQLite format 3\0"));
-        assert_eq!(fs::metadata(&target).unwrap().mode() & 0o777, 0o600);
+        assert!(private_fs::path_meta(&target).unwrap().private_file());
         initialize(
             &resources,
             &target,
@@ -599,10 +503,7 @@ mod tests {
         }
         symlink(root.join("missing"), &target).unwrap();
         assert!(initialize(&resources, &target, &root, &mut None, &cancel, &quitting).is_err());
-        assert!(fs::symlink_metadata(&target)
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert_eq!(private_fs::path_meta(&target).unwrap().kind, private_fs::Kind::Other);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -641,18 +542,7 @@ mod tests {
         let mut file = parent.create(&stage).unwrap();
         file.write_all(b"new").unwrap();
         fs::write(root.join("raced"), "foreign").unwrap();
-        assert_ne!(
-            unsafe {
-                libc::renameatx_np(
-                    parent.file.as_raw_fd(),
-                    stage.as_ptr(),
-                    parent.file.as_raw_fd(),
-                    destination.as_ptr(),
-                    libc::RENAME_EXCL,
-                )
-            },
-            0
-        );
+        assert!(private_fs::rename_at(&parent.file, &stage, &file, &destination, false).is_err());
         assert_eq!(fs::read(root.join("raced")).unwrap(), b"foreign");
         assert!(parent.identity(&stage, &file));
         fs::remove_dir_all(root).unwrap();
@@ -666,12 +556,12 @@ mod tests {
         assert!(Parent::open(&root.join("alias"), false).is_err());
         let parent = Parent::open(&private, false).unwrap();
         fs::rename(&private, root.join("old")).unwrap();
-        fs::create_dir(&private).unwrap();
-        fs::set_permissions(&private, fs::Permissions::from_mode(0o700)).unwrap();
+        private_dir(&private);
         assert!(parent.verify().is_err());
         assert!(parent.create(&name("no-write".as_ref()).unwrap()).is_err());
-        fs::set_permissions(&private, fs::Permissions::from_mode(0o755)).unwrap();
+        make_shared(&private);
         assert!(Parent::open(&private, false).is_err());
+        make_private(&private);
         fs::remove_dir_all(root).unwrap();
     }
 }

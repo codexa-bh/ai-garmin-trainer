@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
-import { lstatSync, realpathSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { isCanonicalLocalPath } from "./local-path";
 import {
   currentSchemaVersion,
   LATEST_SCHEMA_VERSION,
@@ -15,7 +16,7 @@ export function assertDesktopDatabase(path: string): void {
     !stat.isFile() ||
     stat.size === 0 ||
     stat.nlink !== 1 ||
-    realpathSync(path) !== path
+    !isCanonicalLocalPath(path)
   )
     throw new Error(
       "Select an existing regular database, not an empty file or alias.",

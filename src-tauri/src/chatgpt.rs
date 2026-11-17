@@ -2,8 +2,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
+use crate::private_fs::FileId;
+use crate::process_tree::{self, Killer, Tree};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{
@@ -65,7 +66,7 @@ struct Store {
     source_path: PathBuf,
     document: Document,
     bytes: Vec<u8>,
-    file_identity: Option<(u64, u64)>,
+    file_identity: Option<FileId>,
     records: crate::private_store::PinnedDirectory,
     _owner: crate::private_store::PinnedDirectory,
 }
@@ -81,6 +82,7 @@ pub struct Owner {
     attempt: AtomicU64,
     attempt_gate: Mutex<()>,
     auth_pid: AtomicI32,
+    auth_killer: Mutex<Option<Killer>>,
     authorizing: AtomicBool,
     pending_client: Mutex<Option<String>>,
     stopped: AtomicBool,
@@ -130,6 +132,48 @@ fn active_id(document: &Document) -> Option<&str> {
     } else {
         document.active_registration_id.as_deref()
     }
+}
+/// Bounded helper output. A sign-in helper on Windows may first send one
+/// `{"type":"browser","url":...}` line over this private pipe; the native host
+/// re-validates the single official route and opens it in-process. Any other
+/// leading frame, or a frame on macOS (whose helper opens the browser itself),
+/// fails closed. The final document follows unchanged.
+fn read_helper(stdout: impl Read, open: impl FnOnce(&str) -> bool) -> Option<Vec<u8>> {
+    use std::io::BufRead;
+    // One bound across the frame and the document; the helper is still running
+    // (awaiting the browser callback) while its frame is handled.
+    let mut reader = std::io::BufReader::new(stdout.take(128 * 1024 + 1));
+    let mut first = Vec::new();
+    reader.read_until(b'\n', &mut first).ok()?;
+    if !first.starts_with(b"{\"type\":") {
+        reader.read_to_end(&mut first).ok()?;
+        return Some(first);
+    }
+    if !first.ends_with(b"\n") {
+        first.fill(0);
+        return None;
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Browser {
+        #[serde(rename = "type")]
+        kind: String,
+        url: String,
+    }
+    let frame = serde_json::from_slice::<Browser>(&first);
+    first.fill(0);
+    let mut frame = frame.ok()?;
+    let opened = frame.kind == "browser"
+        && crate::system_open::authorization_url(&frame.url)
+        && open(&frame.url);
+    // Clear the token-hint-bearing URL from memory regardless of outcome.
+    unsafe { frame.url.as_bytes_mut().fill(0) };
+    if !opened {
+        return None;
+    }
+    let mut rest = Vec::new();
+    reader.read_to_end(&mut rest).ok()?;
+    Some(rest)
 }
 fn present(path: &Path) -> Result<bool, &'static str> {
     match std::fs::symlink_metadata(path) {
@@ -205,10 +249,10 @@ impl Owner {
                 return Err("ChatGPT host identity committed; durability uncertain. Reopen and inspect before authorizing.");
             }
         }
-        let pinned = crate::private_store::PinnedDirectory::open(&root)?;
+        let mut pinned = crate::private_store::PinnedDirectory::open(&root)?;
         pinned.lock_exclusive()?; // Cross-process refresh exclusion; no lock stealing.
         let records = crate::private_store::PinnedDirectory::open(path.parent().ok_or(ERROR)?)?;
-        let (device, inode, bytes) = crate::private_store::capture(&source_path)?;
+        let (identity, bytes) = crate::private_store::capture(&source_path)?;
         records.verify()?;
         let document: Document = serde_json::from_slice(&bytes).map_err(|_| ERROR)?;
         if !valid(&document) || document.version != if source_path == path { 2 } else { 1 } {
@@ -221,7 +265,7 @@ impl Owner {
                 source_path,
                 document,
                 bytes,
-                file_identity: Some((device, inode)),
+                file_identity: Some(identity),
                 records,
                 _owner: pinned,
             }),
@@ -230,6 +274,7 @@ impl Owner {
             attempt: AtomicU64::new(0),
             attempt_gate: Mutex::new(()),
             auth_pid: AtomicI32::new(0),
+            auth_killer: Mutex::new(None),
             authorizing: AtomicBool::new(false),
             pending_client: Mutex::new(None),
             stopped: AtomicBool::new(false),
@@ -287,8 +332,8 @@ impl Owner {
         store._owner.verify()?;
         store.records.verify()?;
         if store.source_path != self.path && present(&self.path)? { return Err(ERROR); }
-        let (device, inode, mut current) = crate::private_store::capture(&store.source_path)?;
-        let unchanged = store.file_identity == Some((device, inode))
+        let (identity, mut current) = crate::private_store::capture(&store.source_path)?;
+        let unchanged = store.file_identity == Some(identity)
             && current == store.bytes
             && valid(&store.document);
         current.fill(0);
@@ -324,12 +369,12 @@ impl Owner {
         store.bytes.fill(0);
         store.bytes = next;
         store.file_identity = None;
-        if let Ok((device, inode, mut current)) = crate::private_store::capture(&self.path) {
+        if let Ok((identity, mut current)) = crate::private_store::capture(&self.path) {
             if current == store.bytes
                 && store._owner.verify().is_ok()
                 && store.records.verify().is_ok()
             {
-                store.file_identity = Some((device, inode));
+                store.file_identity = Some(identity);
             }
             current.fill(0);
         }
@@ -372,18 +417,19 @@ impl Owner {
         {
             return Err(ERROR);
         }
-        let mut child = Command::new(self.resources.join("node"))
+        let mut command = Command::new(process_tree::node(&self.resources));
+        command
             .arg(self.resources.join("runtime/scripts/chatgpt-oauth.mjs"))
             .env_clear()
-            .env("PATH", "/usr/bin:/bin")
+            .env("PATH", process_tree::search_path("/usr/bin:/bin"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .process_group(0)
-            .spawn()
-            .map_err(|_| ERROR)?;
+            .stderr(Stdio::null());
+        process_tree::system_environment(&mut command);
+        let mut child = Tree::spawn(&mut command).map_err(|_| ERROR)?;
         let pid = child.id() as i32;
         if auth_epoch.is_some() {
+            *self.auth_killer.lock().map_err(|_| ERROR)? = Some(child.killer());
             self.auth_pid.store(pid, Ordering::SeqCst);
         }
         drop(start);
@@ -392,12 +438,13 @@ impl Owner {
             let sent = child.stdin.take().ok_or(ERROR)?.write_all(&bytes);
             bytes.fill(0);
             sent.map_err(|_| ERROR)?;
-            let mut stdout = child.stdout.take().ok_or(ERROR)?;
+            let stdout = child.stdout.take().ok_or(ERROR)?;
             let (tx, rx) = std::sync::mpsc::channel();
+            let browser = auth_epoch.is_some();
             std::thread::spawn(move || {
-                let mut bytes = Vec::new();
-                let result = stdout.by_ref().take(128 * 1024 + 1).read_to_end(&mut bytes);
-                let _ = tx.send((result.is_ok(), bytes));
+                let _ = tx.send(read_helper(stdout, |url| {
+                    browser && crate::system_open::authorization(url).is_ok()
+                }));
             });
             let deadline =
                 Instant::now() + Duration::from_secs(if auth_epoch.is_some() { 180 } else { 50 });
@@ -414,7 +461,7 @@ impl Owner {
                     );
                 }
                 match rx.recv_timeout(Duration::from_millis(50)) {
-                    Ok((true, bytes)) if bytes.len() <= 128 * 1024 => break bytes,
+                    Ok(Some(bytes)) if bytes.len() <= 128 * 1024 => break bytes,
                     Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         return Err(ERROR)
                     }
@@ -475,14 +522,18 @@ impl Owner {
             .attempt_gate
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        unsafe {
-            libc::kill(-pid, libc::SIGKILL);
-        }
+        child.kill();
         let _ = child.wait();
-        if auth_epoch.is_some() {
-            let _ = self
+        if auth_epoch.is_some()
+            && self
                 .auth_pid
-                .compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst);
+                .compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        {
+            *self
+                .auth_killer
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = None;
         }
         result
     }
@@ -495,10 +546,14 @@ impl Owner {
     }
     fn cancel_locked(&self) {
         self.attempt.fetch_add(1, Ordering::SeqCst);
-        let pid = self.auth_pid.load(Ordering::SeqCst);
-        if pid > 0 {
-            unsafe {
-                libc::kill(-pid, libc::SIGTERM);
+        if self.auth_pid.load(Ordering::SeqCst) > 0 {
+            if let Some(killer) = self
+                .auth_killer
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_ref()
+            {
+                killer.terminate();
             }
         }
     }
@@ -936,15 +991,10 @@ impl Owner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            let path =
-                std::env::temp_dir().join(format!("trainer-chatgpt-{}", uuid::Uuid::new_v4()));
-            std::fs::create_dir(&path).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
-            Self(std::fs::canonicalize(path).unwrap())
+            Self(crate::private_fs::testing::private_root("trainer-chatgpt"))
         }
     }
     impl Drop for Fixture {
@@ -1097,20 +1147,37 @@ mod tests {
         assert_eq!(saved.client_id, r.client_id);
         assert_eq!(saved.epoch, 2);
     }
+    /// A JSON string literal, safe to embed in the JS fake helper.
     fn shell_quote(value: &str) -> String {
-        format!("'{}'", value.replace('\'', "'\\''"))
+        Value::String(value.into()).to_string()
     }
+    /// The test host's own Node (synthetic helper only; never the bundled runtime).
+    fn host_node() -> PathBuf {
+        let name = if cfg!(windows) { "node.exe" } else { "node" };
+        std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|dir| dir.join(name))
+            .find(|path| path.is_file())
+            .expect("Node on PATH for synthetic helper tests")
+    }
+    /// Install an authored helper: drain stdin, run `before` (JS), print `result`.
     fn fake_helper(fixture: &Fixture, result: Value, before: &str) {
+        let node = process_tree::node(&fixture.0);
+        if !node.exists() {
+            let host = host_node();
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&host, &node).unwrap();
+            #[cfg(windows)]
+            if std::fs::hard_link(&host, &node).is_err() {
+                std::fs::copy(&host, &node).unwrap();
+            }
+        }
+        let scripts = fixture.0.join("runtime/scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
         let script = format!(
-            "#!/bin/sh\numask 077\n/bin/cat >/dev/null\n{before}\nprintf '%s' {}\n",
+            "import fs from 'node:fs';\nprocess.umask(0o077);\nfor await (const _ of process.stdin) {{}}\n{before}\nprocess.stdout.write({});\n",
             shell_quote(&result.to_string())
         );
-        std::fs::write(fixture.0.join("node"), script).unwrap();
-        std::fs::set_permissions(
-            fixture.0.join("node"),
-            std::fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
+        std::fs::write(scripts.join("chatgpt-oauth.mjs"), script).unwrap();
     }
     #[test]
     fn repeated_verified_account_reuses_saved_registration_without_transferring_new_client_tokens()
@@ -1322,7 +1389,7 @@ mod tests {
             let old=fresh.0.join("chatgpt-v1/records/credentials-v1.json");
             let newest=fresh.0.join("chatgpt-v1/records/credentials-v2.json");
             crate::private_store::publish(&old,&original,None).unwrap();
-            if alias { std::os::unix::fs::symlink(&old,&newest).unwrap(); }
+            if alias { crate::private_fs::testing::symlink(&old,&newest).unwrap(); }
             else { crate::private_store::publish(&newest,unsupported,None).unwrap(); }
             assert!(Owner::start(&fresh.0,&fresh.0).is_err());
             assert_eq!(crate::private_store::read(&old).unwrap(),original);
@@ -1359,7 +1426,7 @@ mod tests {
             &fixture,
             json!({"ok":true,"result":prior}),
             &format!(
-                "/bin/cp {} {} && /bin/mv {} {}",
+                "fs.copyFileSync({0}, {1}); fs.renameSync({2}, {3});",
                 shell_quote(owner.path.to_str().unwrap()),
                 shell_quote(replacement.to_str().unwrap()),
                 shell_quote(replacement.to_str().unwrap()),
@@ -1462,8 +1529,34 @@ mod tests {
             assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
         }
     }
+    #[test]
+    fn browser_frame_is_revalidated_bounded_and_never_returned_as_output() {
+        let url = "https://auth.openai.com/api/accounts/authorize?id_token_hint=authored-private-id";
+        let frame = format!("{}\n{{\"ok\":true}}", json!({"type":"browser","url":url}));
+        let mut seen = None;
+        let rest = read_helper(frame.as_bytes(), |opened| {
+            seen = Some(opened.to_owned());
+            true
+        });
+        assert_eq!(rest.as_deref(), Some(br#"{"ok":true}"#.as_slice()));
+        assert_eq!(seen.as_deref(), Some(url));
+        // Refused opener, foreign route, extra fields and unterminated frames fail closed.
+        assert!(read_helper(frame.as_bytes(), |_| false).is_none());
+        for bad in [
+            format!("{}\n{{}}", json!({"type":"browser","url":"https://evil.invalid/api/accounts/authorize"})),
+            format!("{{\"type\":\"browser\",\"url\":\"{url}\",\"extra\":1}}\n{{}}"),
+            format!("{}\n{{}}", json!({"type":"other","url":url})),
+            json!({"type":"browser","url":url}).to_string(),
+        ] {
+            assert!(read_helper(bad.as_bytes(), |_| panic!("opened {bad}")).is_none());
+        }
+        // Ordinary documents pass unchanged; oversize output is bounded.
+        assert_eq!(read_helper(&b"{\"ok\":false}"[..], |_| unreachable!()).unwrap(), b"{\"ok\":false}");
+        let large = vec![b' '; 200 * 1024];
+        assert_eq!(read_helper(&large[..], |_| unreachable!()).unwrap().len(), 128 * 1024 + 1);
+    }
     fn wait_until(mut condition: impl FnMut() -> bool) {
-        let deadline = Instant::now() + Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(15);
         while !condition() {
             assert!(
                 Instant::now() < deadline,
@@ -1482,7 +1575,7 @@ mod tests {
             &fixture,
             json!({"ok":true,"result":r}),
             &format!(
-                "printf launched > {}",
+                "fs.writeFileSync({}, 'launched');",
                 shell_quote(launched.to_str().unwrap())
             ),
         );
@@ -1516,21 +1609,18 @@ mod tests {
     }
     #[test]
     fn late_success_cannot_commit_or_reuse_after_cancel_and_owned_child_reaping() {
-        use std::ffi::CString;
-        use std::os::unix::ffi::OsStrExt;
         for returning in [false, true] {
             let fixture = Fixture::new();
             let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
             let r = connected(&owner);
             let before = crate::private_store::read(&owner.path).unwrap();
+            // The authored helper blocks until the test releases it.
             let fifo = fixture.0.join("release");
-            let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
-            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
             fake_helper(
                 &fixture,
                 json!({"ok":true,"result":r}),
                 &format!(
-                    "/bin/cat {} >/dev/null",
+                    "while (!fs.existsSync({})) await new Promise((r) => setTimeout(r, 5));",
                     shell_quote(fifo.to_str().unwrap())
                 ),
             );
@@ -1570,7 +1660,7 @@ mod tests {
         fake_helper(
             &fixture,
             json!({"ok":true,"result":r}),
-            &format!("printf x >> {}", shell_quote(counter.to_str().unwrap())),
+            &format!("fs.appendFileSync({}, 'x');", shell_quote(counter.to_str().unwrap())),
         );
         let a = owner.clone();
         let b = owner.clone();
@@ -1662,7 +1752,7 @@ mod tests {
                 &fixture,
                 json!({"ok":true,"result":r}),
                 &format!(
-                    "printf launched > {}",
+                    "fs.writeFileSync({}, 'launched');",
                     shell_quote(launched.to_str().unwrap())
                 ),
             );

@@ -40,8 +40,12 @@ async function main(): Promise<void> {
   let onParentLost: () => void = () => process.exit(1);
   // Native retains an otherwise-unused stdin pipe. EOF is reliable parent-death
   // evidence (process.ppid is a cached value in Node, not a liveness probe).
+  // On Windows, EOF is also native's graceful quit request (no signals). The
+  // native host shares its kill-on-close Job Object with this process, so this
+  // process exiting after settlement ends every owned descendant.
+  const windows = process.platform === "win32";
   process.stdin.once("end", () => {
-    parentLost = true;
+    parentLost = !windows;
     setTimeout(() => {
       // SIGKILL cannot run Node exit hooks. Settle only this live process's exact
       // leases synchronously, then stop the owned group in the same callback.
@@ -51,17 +55,19 @@ async function main(): Promise<void> {
         releaseDatabaseWritersForProcessExit();
       } finally {
         try {
+          if (windows) process.exit(1);
           process.kill(-process.pid, "SIGKILL");
         } catch {
           process.exit(1);
         }
       }
     }, 6000);
-    try {
-      process.kill(-process.pid, "SIGTERM");
-    } catch {
-      /* No remaining owned group. */
-    }
+    if (!windows)
+      try {
+        process.kill(-process.pid, "SIGTERM");
+      } catch {
+        /* No remaining owned group. */
+      }
     onParentLost();
   });
   const snapshot = await readPrivateFrame();

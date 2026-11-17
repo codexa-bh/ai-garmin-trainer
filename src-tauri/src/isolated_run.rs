@@ -1,5 +1,6 @@
 //! Explicit ordinary-artifact admission. No ambient enabling environment or default-state lookup.
 //! Only the named, separately authorized provider preset delegates opaque key use to its native owner.
+use crate::private_fs::{self, FileId};
 use crate::{private_store, settings};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -7,7 +8,6 @@ use std::{
     collections::BTreeMap,
     fs::{self, File},
     io::Read,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 pub const CONTRACT: &str = "trainer-ordinary-isolated/v2";
@@ -51,9 +51,9 @@ pub struct Admission {
     pub descriptor: Descriptor,
     pub boot: String,
     directories: Vec<private_store::PinnedDirectory>,
-    database: std::sync::Mutex<Option<(u64, u64)>>,
-    descriptor_capture: (u64, u64, Vec<u8>),
-    owner_capture: (u64, u64, Vec<u8>),
+    database: std::sync::Mutex<Option<FileId>>,
+    descriptor_capture: private_store::Capture,
+    owner_capture: private_store::Capture,
     provider_source: std::sync::Mutex<Option<crate::provider_smoke::Capture>>,
 }
 
@@ -117,18 +117,30 @@ pub fn wait_for_owner_loss(input: &mut impl Read) {
     }
 }
 
-fn database_identity(path: &Path) -> Result<(u64, u64), &'static str> {
-    let meta = fs::symlink_metadata(path).map_err(|_| DENIED)?;
-    if !meta.is_file()
-        || meta.nlink() != 1
-        || meta.len() == 0
-        || meta.uid() != unsafe { libc::getuid() }
-        || meta.mode() & 0o777 != 0o600
-        || fs::canonicalize(path).ok().as_deref() != Some(path)
-    {
+fn database_identity(path: &Path) -> Result<FileId, &'static str> {
+    let meta = private_fs::path_meta(path).map_err(|_| DENIED)?;
+    if !meta.private_file() || !meta.exact || meta.len == 0 || !private_fs::canonical(path) {
         return Err(DENIED);
     }
-    Ok((meta.dev(), meta.ino()))
+    Ok(meta.id)
+}
+
+/// History/provider automation must retain a real ownership pipe on stdin, not a
+/// terminal, file, environment marker or stored parent PID.
+#[cfg(unix)]
+fn stdin_is_pipe() -> bool {
+    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(libc::STDIN_FILENO, metadata.as_mut_ptr()) } != 0 {
+        return false;
+    }
+    unsafe { metadata.assume_init() }.st_mode & libc::S_IFMT == libc::S_IFIFO
+}
+#[cfg(windows)]
+fn stdin_is_pipe() -> bool {
+    use windows_sys::Win32::Storage::FileSystem::{GetFileType, FILE_TYPE_PIPE};
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
+    let handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    !handle.is_null() && unsafe { GetFileType(handle) } == FILE_TYPE_PIPE
 }
 
 pub fn private_directory(path: &Path) -> Result<(), String> {
@@ -160,11 +172,11 @@ fn inventory(
     for item in fs::read_dir(directory).map_err(|_| DENIED)? {
         let item = item.map_err(|_| DENIED)?;
         let path = item.path();
-        let meta = fs::symlink_metadata(&path).map_err(|_| DENIED)?;
-        if meta.is_dir() {
+        let meta = private_fs::path_meta(&path).map_err(|_| DENIED)?;
+        if meta.kind == private_fs::Kind::Directory {
             inventory(root, &path, files, bytes)?;
-        } else if meta.is_file() && meta.nlink() == 1 {
-            *bytes = bytes.checked_add(meta.len()).ok_or(DENIED)?;
+        } else if meta.kind == private_fs::Kind::File && meta.links == 1 {
+            *bytes = bytes.checked_add(meta.len).ok_or(DENIED)?;
             if files.len() >= 50_000 || *bytes > 8 * 1024 * 1024 * 1024 {
                 return Err(DENIED);
             }
@@ -291,12 +303,7 @@ impl Admission {
         if admission.descriptor.history_setup.is_some()
             || admission.descriptor.provider_smoke.is_some()
         {
-            // History/provider automation must retain a real ownership pipe, not a terminal,
-            // file, environment marker or stored parent PID.
-            let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
-            if unsafe { libc::fstat(libc::STDIN_FILENO, metadata.as_mut_ptr()) } != 0
-                || unsafe { metadata.assume_init() }.st_mode & libc::S_IFMT != libc::S_IFIFO
-            {
+            if !stdin_is_pipe() {
                 return Err(DENIED);
             }
         }
@@ -307,18 +314,18 @@ impl Admission {
         artifact: impl FnOnce(&Descriptor) -> Result<(), &'static str>,
     ) -> Result<Self, &'static str> {
         let descriptor_capture = private_store::capture(path)?;
-        let bytes = &descriptor_capture.2;
+        let bytes = &descriptor_capture.1;
         if bytes.len() > 16 * 1024 {
             return Err(DENIED);
         }
         let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|_| DENIED)?;
         descriptor.validate(path)?;
-        let root = private_store::PinnedDirectory::open(&descriptor.root)?;
+        let mut root = private_store::PinnedDirectory::open(&descriptor.root)?;
         root.lock_exclusive()?;
         // Read again after taking the lifetime lease, refusing a descriptor swap.
         let owner_capture = private_store::capture(&descriptor.root.join("owner"))?;
         if private_store::capture(path)? != descriptor_capture
-            || owner_capture.2 != descriptor.run_id.as_bytes()
+            || owner_capture.1 != descriptor.run_id.as_bytes()
         {
             return Err(DENIED);
         }
@@ -544,13 +551,8 @@ impl Admission {
         }
         for sidecar in ["trainer.sqlite-wal", "trainer.sqlite-shm"] {
             let path = self.descriptor.root.join(sidecar);
-            match fs::symlink_metadata(&path) {
-                Ok(meta)
-                    if meta.is_file()
-                        && meta.nlink() == 1
-                        && meta.uid() == unsafe { libc::getuid() }
-                        && meta.mode() & 0o077 == 0
-                        && fs::canonicalize(&path).ok().as_deref() == Some(path.as_path()) => {}
+            match private_fs::path_meta(&path) {
+                Ok(meta) if meta.private_file() && private_fs::canonical(&path) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 _ => return Err(DENIED),
             }

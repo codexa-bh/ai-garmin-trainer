@@ -3,7 +3,6 @@
 use serde::Deserialize;
 use std::{
     fs,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
 
@@ -86,13 +85,8 @@ impl Config {
             );
         }
         let db = self.root.join("trainer.sqlite");
-        let meta = fs::symlink_metadata(&db).map_err(|_| "Populated copy required")?;
-        if !meta.is_file()
-            || meta.nlink() != 1
-            || meta.uid() != unsafe { libc::getuid() }
-            || meta.mode() & 0o077 != 0
-            || db.canonicalize().ok().as_ref() != Some(&db)
-        {
+        let meta = crate::private_fs::path_meta(&db).map_err(|_| "Populated copy required")?;
+        if !meta.private_file() || !crate::private_fs::canonical(&db) {
             return Err("Unsafe copy DB".into());
         }
         Ok(())
@@ -331,13 +325,8 @@ fn accepted_keys(keys: &std::collections::BTreeMap<String, String>) -> bool {
             )])
 }
 pub fn private_dir(path: &Path) -> Result<(), String> {
-    let meta = fs::symlink_metadata(path).map_err(|_| "Missing smoke directory")?;
-    if !path.is_absolute()
-        || !meta.is_dir()
-        || meta.uid() != unsafe { libc::getuid() }
-        || meta.mode() & 0o077 != 0
-        || path.canonicalize().ok().as_deref() != Some(path)
-    {
+    let meta = crate::private_fs::path_meta(path).map_err(|_| "Missing smoke directory")?;
+    if !path.is_absolute() || !meta.private_dir() || !crate::private_fs::canonical(path) {
         return Err("Smoke directory must be canonical owner-private, not an alias".into());
     }
     Ok(())

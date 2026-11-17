@@ -1,14 +1,13 @@
 //! One owned, finite auth session. Only the trusted settings WebView can call
 //! its facade. Final publication happens here under the same lock as cancel.
 use crate::onboarding::Parent;
+use crate::private_fs;
+use crate::process_tree::{self, Tree};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd};
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
@@ -27,7 +26,7 @@ struct Event {
     code: Option<String>,
 }
 struct Session {
-    child: Child,
+    child: Tree,
     events: Receiver<Event>,
     staging: PathBuf,
     staging_file: File,
@@ -41,13 +40,8 @@ pub struct Auth {
     status: Option<Status>,
 }
 fn private_directory(path: &Path) -> bool {
-    fs::symlink_metadata(path)
-        .map(|meta| {
-            meta.is_dir()
-                && meta.uid() == unsafe { libc::getuid() }
-                && meta.mode() & 0o077 == 0
-                && fs::canonicalize(path).ok().as_deref() == Some(path)
-        })
+    private_fs::path_meta(path)
+        .map(|meta| meta.private_dir() && private_fs::canonical(path))
         .unwrap_or(false)
 }
 fn unused_destination(path: &Path) -> Result<(), &'static str> {
@@ -66,10 +60,8 @@ fn unused_destination(path: &Path) -> Result<(), &'static str> {
     Ok(())
 }
 fn stop(session: &mut Session) {
-    // Exact owned group includes uv/Python. No name/port process cleanup.
-    unsafe {
-        libc::kill(-(session.child.id() as i32), libc::SIGKILL);
-    }
+    // Exact owned tree includes uv/Python. No name/port process cleanup.
+    session.child.kill();
     let _ = session.child.wait();
     // Staging is exclusive task-owned output, never the user's destination.
     if session.parent.verify().is_ok() && same_staging(&session.staging, &session.staging_file) {
@@ -122,21 +114,13 @@ impl Auth {
             .parent()
             .ok_or("Private destination unavailable.")?
             .join(format!(".trainer-auth-{id}"));
-        let part = std::ffi::CString::new(format!(".trainer-auth-{id}")).unwrap();
-        if unsafe { libc::mkdirat(parent.file.as_raw_fd(), part.as_ptr(), 0o700) } != 0 {
+        let part = std::ffi::OsString::from(format!(".trainer-auth-{id}"));
+        if private_fs::create_dir_at(&parent.file, &part).is_err() {
             return Err("Cannot exclusively create private authentication staging.");
         }
-        let fd = unsafe {
-            libc::openat(
-                parent.file.as_raw_fd(),
-                part.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
+        let Ok(staging_file) = private_fs::open_dir_at(&parent.file, &part) else {
             return Err("Private authentication staging unavailable.");
-        }
-        let staging_file = unsafe { File::from_raw_fd(fd) };
+        };
         parent.verify()?;
         if !same_staging(&staging, &staging_file) {
             return Err("Private authentication staging changed.");
@@ -156,19 +140,17 @@ impl Auth {
             .arg(&staging)
             .current_dir(resources.join("runtime"))
             .env_clear()
-            .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+            .env(
+                "PATH",
+                process_tree::search_path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"),
+            )
             .env("PYTHONDONTWRITEBYTECODE", "1")
             .env("UV_PYTHON_DOWNLOADS", "never")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .process_group(0);
-        for key in ["HOME", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "LANG"] {
-            if let Some(value) = std::env::var_os(key) {
-                command.env(key, value);
-            }
-        }
-        let child = match command.spawn() {
+            .stderr(Stdio::null());
+        process_tree::user_environment(&mut command);
+        let child = match Tree::spawn(&mut command) {
             Ok(child) => child,
             Err(error) => {
                 if parent.verify().is_ok() && same_staging(&staging, &staging_file) {
@@ -401,12 +383,7 @@ impl Drop for Auth {
 }
 
 fn same_staging(path: &Path, file: &File) -> bool {
-    match (file.metadata(), fs::symlink_metadata(path)) {
-        (Ok(held), Ok(current)) => {
-            private_directory(path) && held.dev() == current.dev() && held.ino() == current.ino()
-        }
-        _ => false,
-    }
+    private_directory(path) && private_fs::same_object(path, file)
 }
 fn publish(
     parent: &Parent,
@@ -430,30 +407,13 @@ fn publish(
             return Err("Empty token output.");
         }
     }
-    // macOS atomic exclusive rename: unlike std::fs::rename this cannot replace
-    // an existing empty destination directory created since the preflight.
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-    let source = CString::new(staging.file_name().ok_or("Invalid staging.")?.as_bytes())
-        .map_err(|_| "Invalid staging.")?;
-    let target = CString::new(
-        destination
-            .file_name()
-            .ok_or("Invalid destination.")?
-            .as_bytes(),
-    )
-    .map_err(|_| "Invalid destination.")?;
+    // Atomic exclusive rename of the held staging directory: unlike
+    // std::fs::rename this cannot replace an existing empty destination directory
+    // created since the preflight.
+    let source = staging.file_name().ok_or("Invalid staging.")?;
+    let target = destination.file_name().ok_or("Invalid destination.")?;
     parent.verify()?;
-    let result = unsafe {
-        libc::renameatx_np(
-            parent.file.as_raw_fd(),
-            source.as_ptr(),
-            parent.file.as_raw_fd(),
-            target.as_ptr(),
-            libc::RENAME_EXCL,
-        )
-    };
-    if result != 0 {
+    if private_fs::rename_at(&parent.file, source, staging_file, target, false).is_err() {
         return Err("Token publication refused; existing destination preserved.");
     }
     // Never offer a path that no longer identifies this session's publication.
@@ -470,22 +430,31 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use crate::private_fs::testing::{make_private, make_shared, private_dir, private_root, symlink, write_private};
+    fn held_dir(path: &Path) -> File {
+        private_fs::open_dir_at(
+            &private_fs::walk(path.parent().unwrap(), false).unwrap(),
+            path.file_name().unwrap(),
+        )
+        .unwrap()
+    }
+    fn sleeper() -> Command {
+        #[cfg(unix)]
+        let mut command = Command::new("/bin/sleep");
+        #[cfg(unix)]
+        command.arg("30");
+        #[cfg(windows)]
+        let mut command = Command::new("ping.exe");
+        #[cfg(windows)]
+        command.args(["-n", "30", "127.0.0.1"]).stdout(Stdio::null());
+        command.stdin(Stdio::piped());
+        command
+    }
     fn simulated(state: &str, event: &str, expired: bool) -> (Auth, PathBuf) {
-        let root =
-            std::env::temp_dir().join(format!("trainer-auth-state-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let root = fs::canonicalize(root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let root = private_root("trainer-auth-state");
         let staging = root.join("stage");
-        fs::create_dir(&staging).unwrap();
-        fs::set_permissions(&staging, fs::Permissions::from_mode(0o700)).unwrap();
-        let child = Command::new("/bin/sleep")
-            .arg("30")
-            .stdin(Stdio::piped())
-            .process_group(0)
-            .spawn()
-            .unwrap();
+        private_dir(&staging);
+        let child = Tree::spawn(&mut sleeper()).unwrap();
         let (tx, events) = mpsc::channel();
         tx.send(Event {
             state: event.into(),
@@ -495,7 +464,7 @@ mod tests {
         let session = Session {
             child,
             events,
-            staging_file: File::open(&staging).unwrap(),
+            staging_file: held_dir(&staging),
             parent: Parent::open(&root, false).unwrap(),
             staging,
             destination: root.join("unused"),
@@ -549,10 +518,7 @@ mod tests {
     }
     #[test]
     fn managed_root_creation_refuses_aliases_and_insecure_existing_objects() {
-        let root = std::env::temp_dir().join(format!("trainer-managed-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let root = fs::canonicalize(root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let root = private_root("trainer-managed");
         let managed = root.join("app/private");
         let mut auth = Auth::default();
         // No real library/network: a nonexistent executable exercises allocation/preflight.
@@ -582,9 +548,9 @@ mod tests {
             "original"
         );
         let alias = root.join("alias");
-        std::os::unix::fs::symlink(&managed, &alias).unwrap();
+        symlink(&managed, &alias).unwrap();
         assert!(Parent::open(&alias, true).is_err());
-        fs::set_permissions(&managed, fs::Permissions::from_mode(0o755)).unwrap();
+        make_shared(&managed);
         assert!(auth
             .start_managed(
                 &root,
@@ -594,14 +560,13 @@ mod tests {
                 "synthetic".into()
             )
             .is_err());
-        assert_eq!(fs::metadata(&managed).unwrap().mode() & 0o777, 0o755);
+        assert!(!private_fs::path_meta(&managed).unwrap().restricted, "never repaired");
+        make_private(&managed);
         fs::remove_dir_all(root).unwrap();
     }
     fn token_output(stage: &Path) {
         for name in ["garmin_tokens.json", "garmin_tokens.base64"] {
-            let path = stage.join(name);
-            fs::write(&path, "synthetic-token-only").unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+            write_private(&stage.join(name), b"synthetic-token-only");
         }
     }
     #[test]
@@ -632,14 +597,11 @@ mod tests {
             match surface {
                 "parent" => {
                     fs::rename(&root, &moved).unwrap();
-                    fs::create_dir(&root).unwrap();
-                    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+                    private_dir(&root);
                 }
                 "staging" => {
                     fs::rename(root.join("stage"), root.join("original-stage")).unwrap();
-                    fs::create_dir(root.join("stage")).unwrap();
-                    fs::set_permissions(root.join("stage"), fs::Permissions::from_mode(0o700))
-                        .unwrap();
+                    private_dir(&root.join("stage"));
                     token_output(&root.join("stage"));
                 }
                 _ => fs::hard_link(
@@ -680,21 +642,15 @@ mod tests {
     }
     #[test]
     fn publication_is_private_verified_and_exclusive() {
-        let root = std::env::temp_dir().join(format!("trainer-auth-test-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&root).unwrap();
-        let root = fs::canonicalize(root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        let root = private_root("trainer-auth-test");
         let stage = root.join("stage");
-        fs::create_dir(&stage).unwrap();
-        fs::set_permissions(&stage, fs::Permissions::from_mode(0o700)).unwrap();
+        private_dir(&stage);
         let destination = root.join("new-store");
         let parent = Parent::open(&root, false).unwrap();
-        let held = File::open(&stage).unwrap();
+        let held = held_dir(&stage);
         assert!(publish(&parent, &stage, &held, &destination).is_err());
         for name in ["garmin_tokens.json", "garmin_tokens.base64"] {
-            let path = stage.join(name);
-            fs::write(&path, "test-token-only").unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+            write_private(&stage.join(name), b"test-token-only");
         }
         fs::create_dir(&destination).unwrap();
         assert!(publish(&parent, &stage, &held, &destination).is_err());

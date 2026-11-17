@@ -1,8 +1,7 @@
 //! Only this instance's actual WKWebView, after an admitted fixed privacy mask.
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::Write,
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
 };
 use tauri::WebviewWindow;
@@ -21,20 +20,19 @@ pub fn publish(parent: &Path, id: &str, bytes: &[u8]) -> Result<PathBuf, String>
     }
     let path = parent.join(format!("capture-{id}.png"));
     let tmp = parent.join(format!(".capture-{id}.tmp"));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&tmp)
-        .map_err(|_| "Exclusive capture temporary")?;
+    let mut file =
+        crate::private_fs::create_private_file(&tmp).map_err(|_| "Exclusive capture temporary")?;
     // Only an exclusive-open success owns this temporary and permits its cleanup.
-    let result = (|| {
+    let staged = tmp.clone();
+    let result = (move || {
         file.write_all(bytes)
             .and_then(|_| file.sync_all())
             .map_err(|_| "Complete capture write")?;
+        // Close before unlinking: Windows refuses deleting an open file.
+        drop(file);
         // Exclusive hard-link publication is atomic and cannot replace an existing destination.
-        fs::hard_link(&tmp, &path).map_err(|_| "Exclusive atomic capture publication")?;
-        fs::remove_file(&tmp).map_err(|_| "Capture temporary cleanup")?;
+        fs::hard_link(&staged, &path).map_err(|_| "Exclusive atomic capture publication")?;
+        fs::remove_file(&staged).map_err(|_| "Capture temporary cleanup")?;
         Ok(path)
     })();
     if result.is_err() {

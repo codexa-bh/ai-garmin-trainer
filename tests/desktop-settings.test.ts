@@ -437,7 +437,10 @@ describe("desktop editable settings", () => {
     expect(auth).toContain("env_clear()");
     expect(auth).not.toMatch(/\.arg\(&?(email|password|code)\)/);
     expect(auth).toContain("Duration::from_secs(180)");
-    expect(auth).toContain("RENAME_EXCL");
+    // Token publication is an exclusive (never replacing) handle-relative rename.
+    expect(auth).toMatch(
+      /private_fs::rename_at\(&parent\.file, source, staging_file, target, false\)/,
+    );
     // Also parse the worker without importing/network/dependency acquisition.
     execFileSync("/usr/bin/python3", [
       "-c",

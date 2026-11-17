@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -82,14 +81,12 @@ pub fn selected(directory: &Path) -> PathBuf {
 // Retained metadata contract for independent Garmin/smoke inputs. Provider
 // documents and onboarding identity use descriptor-bound private_store IO.
 pub fn private_file(path: &Path) -> Result<(), &'static str> {
-    let meta = fs::symlink_metadata(path).map_err(|_| "Private file missing or unreadable.")?;
+    let meta = crate::private_fs::path_meta(path)
+        .map_err(|_| "Private file missing or unreadable.")?;
     if !path.is_absolute()
-        || !meta.is_file()
-        || meta.nlink() != 1
-        || meta.uid() != unsafe { libc::getuid() }
-        || meta.mode() & 0o077 != 0
-        || meta.len() > 128 * 1024
-        || fs::canonicalize(path).ok().as_deref() != Some(path)
+        || !meta.private_file()
+        || meta.len > 128 * 1024
+        || !crate::private_fs::canonical(path)
     {
         return Err("Private file must be bounded, owner-private, regular and unaliased.");
     }
@@ -190,21 +187,12 @@ pub fn load(path: &Path) -> Result<Settings, &'static str> {
 // No bytes/secrets in this token. Parent/file descriptor privacy checks still
 // bind every read/publication; this adds stale whole-form protection.
 pub fn revision(path: &Path) -> Result<String, &'static str> {
-    match fs::symlink_metadata(path) {
+    match crate::private_fs::path_meta(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("absent".into()),
         Err(_) => Err("Settings revision unavailable; reload before saving."),
         Ok(m) => {
             private_file(path)?;
-            Ok(format!(
-                "{}-{}-{}-{}-{}-{}-{}",
-                m.dev(),
-                m.ino(),
-                m.len(),
-                m.mtime(),
-                m.mtime_nsec(),
-                m.ctime(),
-                m.ctime_nsec()
-            ))
+            Ok(m.revision())
         }
     }
 }
@@ -538,7 +526,8 @@ pub fn validate(
         return Err("Settings too large.");
     }
     input.push(b'\n');
-    let mut child = Command::new(resources.join("node"))
+    let mut command = Command::new(crate::process_tree::node(resources));
+    command
         .arg(resources.join("runtime/runtime.cjs"))
         .arg("--validate-settings")
         .current_dir(resources.join("runtime"))
@@ -546,8 +535,9 @@ pub fn validate(
         .env("NODE_ENV", "production")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
+        .stderr(Stdio::null());
+    crate::process_tree::system_environment(&mut command);
+    let mut child = crate::process_tree::Tree::spawn(&mut command)
         .map_err(|_| "Settings validator resources unavailable. Rebuild the desktop app.")?;
     let stdout = child.stdout.take().ok_or("Settings result unavailable.")?;
     let reader = std::thread::spawn(move || {
@@ -581,7 +571,7 @@ pub fn validate(
         Ok(())
     })();
     if result.is_err() {
-        let _ = child.kill();
+        child.kill();
     }
     let _ = child.wait();
     let (read, bytes) = reader.join().map_err(|_| "Settings result interrupted.")?;
@@ -607,7 +597,6 @@ pub fn validate(
 mod tests {
     use super::*;
     use std::cell::Cell;
-    use std::os::unix::fs::PermissionsExt;
     struct Fake {
         calls: Cell<usize>,
         deny: bool,
@@ -624,10 +613,7 @@ mod tests {
         }
     }
     fn root() -> PathBuf {
-        let path = std::env::temp_dir().join(format!("trainer-settings-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&path).unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::canonicalize(path).unwrap()
+        crate::private_fs::testing::private_root("trainer-settings")
     }
     fn replacement() -> BTreeMap<String, KeyUpdate> {
         BTreeMap::from([(
