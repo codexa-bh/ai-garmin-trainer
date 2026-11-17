@@ -24,8 +24,18 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
-    "icon": ["icons/icon.png", "icons/icon.icns"],
+    "icon": ["icons/icon.png", "icons/icon.icns", "icons/icon.ico"],
     "resources": { "resources/": "resources/" },
-    "macOS": { "minimumSystemVersion": "12.0" }
+    "macOS": { "minimumSystemVersion": "12.0" },
+    "windows": {
+      "webviewInstallMode": { "type": "skip" },
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "currentUser",
+        "template": "windows/installer.nsi",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }

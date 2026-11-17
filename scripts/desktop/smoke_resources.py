@@ -18,7 +18,8 @@ import sys
 import uuid
 
 _CURRENT = contextvars.ContextVar('smoke_disposables', default=None)
-_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+# Unix descriptor-relative traversal; this ledger is not used by Windows builds.
+_DIRECTORY = os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0) | getattr(os, 'O_NOFOLLOW', 0)
 
 
 def identity(info):

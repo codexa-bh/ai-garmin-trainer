@@ -620,8 +620,9 @@ impl Admission {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
+    use crate::private_fs::testing::{make_private, make_shared, symlink};
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     #[test]
     fn finite_provider_scope_never_combines_with_history_setup() {
         let (_root, path) = fixture();
@@ -642,19 +643,17 @@ mod tests {
     }
     fn fixture() -> (PathBuf, PathBuf) {
         let id = uuid::Uuid::new_v4().to_string();
-        let root = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
+        let root = crate::private_fs::testing::temp_root()
             .join(format!("ordinary-{id}"));
         fs::create_dir(&root).unwrap();
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+        make_private(&root);
         for name in DIRECTORIES {
             fs::create_dir(root.join(name)).unwrap();
-            fs::set_permissions(root.join(name), fs::Permissions::from_mode(0o700)).unwrap();
+            make_private(root.join(name));
         }
         let write = |path: PathBuf, bytes: Vec<u8>| {
             fs::write(&path, bytes).unwrap();
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+            make_private(path);
         };
         write(root.join("owner"), id.as_bytes().to_vec());
         write(
@@ -706,8 +705,8 @@ mod tests {
 
     #[test]
     fn owner_loss_is_bounded_and_does_not_need_a_saved_pid() {
-        use std::os::unix::net::UnixStream;
-        let (mut reader, owner) = UnixStream::pair().unwrap();
+        // A real OS pipe on every platform (Windows: anonymous pipe).
+        let (mut reader, owner) = std::io::pipe().unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
         let thread = std::thread::spawn(move || {
             wait_for_owner_loss(&mut reader);
@@ -735,12 +734,12 @@ mod tests {
         assert_eq!(existing.settings(), newest);
         let saved = serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":crate::chat_catalog::Catalog::default()});
         fs::write(&newest, serde_json::to_vec(&saved).unwrap()).unwrap();
-        fs::set_permissions(&newest, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&newest);
         assert!(existing.verify_settings().is_ok());
         fs::remove_file(&newest).unwrap();
         let conflict = root.join("config/settings-v2.json");
         fs::write(&conflict, serde_json::to_vec(&saved).unwrap()).unwrap();
-        fs::set_permissions(&conflict, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&conflict);
         assert!(existing.verify_settings().is_err()); // Filename/version guard remains binding.
         fs::remove_file(conflict).unwrap();
         drop(existing);
@@ -794,7 +793,7 @@ mod tests {
         let saved = serde_json::json!({"version":3,"fields":fields,"keys":{},"chatCatalog":authored_catalog.clone()});
         let v3 = root.join("config/settings-v3.json");
         fs::write(&v3, serde_json::to_vec(&saved).unwrap()).unwrap();
-        fs::set_permissions(&v3, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&v3);
         let admission = Admission::admit(&path, |_| Ok(())).unwrap();
         let mut input = settings::SaveInput {
             fields,
@@ -870,11 +869,7 @@ mod tests {
                         b"owned native publication fixture",
                     )
                     .unwrap();
-                    fs::set_permissions(
-                        creator_root.join("trainer.sqlite"),
-                        fs::Permissions::from_mode(0o600),
-                    )
-                    .unwrap();
+                    make_private(creator_root.join("trainer.sqlite"));
                     owned = Some(crate::onboarding::OwnedDatabase::capture_test_publication(
                         &creator_root.join("trainer.sqlite"),
                     ));
@@ -976,7 +971,7 @@ mod tests {
         let next = root.join("config/settings-v3.json");
         let mut value = serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":crate::chat_catalog::Catalog::default()});
         fs::write(&next, serde_json::to_vec(&value).unwrap()).unwrap();
-        fs::set_permissions(&next, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&next);
         assert_eq!(admission.settings(), next);
         assert!(admission.verify_settings().is_ok());
         assert_eq!(
@@ -999,7 +994,7 @@ mod tests {
         fs::remove_file(root.join("config/settings-v2.json")).unwrap();
         let legacy = root.join("config/settings-v1.json");
         fs::write(&legacy, serde_json::to_vec(&serde_json::json!({"version":1,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap()).unwrap();
-        fs::set_permissions(&legacy, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&legacy);
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
         assert!(legacy.exists());
         fs::remove_dir_all(root).unwrap();
@@ -1025,7 +1020,7 @@ mod tests {
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
         fs::remove_file(root.join("linked.sqlite")).unwrap();
         let alias = root.join("alias.json");
-        std::os::unix::fs::symlink(&path, &alias).unwrap();
+        symlink(&path, &alias).unwrap();
         assert!(Admission::admit(&alias, |_| Ok(())).is_err());
         fs::remove_dir_all(root).unwrap();
     }
@@ -1033,9 +1028,9 @@ mod tests {
     fn aliases_swaps_insecure_objects_and_artifact_claims_refuse() {
         let (root, path) = fixture();
         assert!(Admission::admit(&path, |_| Err("artifact mismatch")).is_err());
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        make_shared(&path);
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        make_private(&path);
         let admission = Admission::admit(&path, |_| Ok(())).unwrap();
         fs::rename(root.join("config"), root.join("old-config")).unwrap();
         fs::create_dir(root.join("config")).unwrap();

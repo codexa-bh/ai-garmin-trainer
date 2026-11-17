@@ -13,6 +13,8 @@ import subprocess
 import time
 import uuid
 
+import platform_files
+import platform_target
 from release_timing import stage
 from smoke_build import build_inputs, digest_file, preparation_lock
 
@@ -39,7 +41,7 @@ def source_snapshot(repo):
         if path.is_symlink() or path.resolve() != path:
             raise ValueError('Source aliases not supported')
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            fd = platform_files.open_nofollow(path, os.O_RDONLY)
         except FileNotFoundError:
             data, mode = b'<deleted>', None
         else:
@@ -50,7 +52,10 @@ def source_snapshot(repo):
                 data = stream.read()
                 mode = stat.S_IMODE(before.st_mode)
                 after = os.fstat(stream.fileno())
-                if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) or path.stat() != after:
+                current = path.stat()
+                stable = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+                # Access time is not content identity (Windows may update it on read).
+                if stable(before) != stable(after) or stable(current) != stable(after) or current.st_mode != after.st_mode:
                     raise ValueError('Source changed while hashing')
         full.update(name + b'\0' + data)
         external = name in tracked and os.fsdecode(name) in EXTERNAL
@@ -85,8 +90,15 @@ def document(path):
     return json.loads(path.read_text(), object_pairs_hook=unique_object)
 
 
+def resources_of(bundle):
+    """Packaged resources of a producer: macOS .app bundle or Windows release dir."""
+    if bundle.suffix == '.app':
+        return bundle / 'Contents/Resources/resources'
+    return bundle / 'resources'
+
+
 def provenance(bundle):
-    value = document(bundle / 'Contents/Resources/resources/provenance.json')
+    value = document(resources_of(bundle) / 'provenance.json')
     if not isinstance(value, dict) or type(value.get('version')) is not int or value['version'] != VERSION:
         raise ValueError('Unsupported ordinary provenance; full rebuild required, never relabel a bundle')
     for field in ['sourceFingerprint', 'buildSourceFingerprint', 'buildContext']:
@@ -99,10 +111,12 @@ def context_identity(repo, snapshot):
     # Also bind the exact lock inode: replacing it cannot manufacture a second owner
     # for an old stamp. Standalone assembly may allocate it, but publishes no stamp.
     lock = preparation_directory(repo) / 'native-smoke.lock'
-    fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    fd = platform_files.open_nofollow(lock, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or lock.stat() != info:
+        current = lock.stat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not platform_files.owned(fd)
+                or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino)):
             raise ValueError('Foreign/replaced preparation lock refused')
         inputs = build_inputs(repo, snapshot['buildSource'], MODE)
         key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
@@ -128,10 +142,23 @@ def preparation_directory(repo):
     return dist
 
 
-def verify_ordinary(repo, bundle, source, inventory):
-    """Caller owns the preparation lock. A stamp is not a substitute for rehashing."""
+def producer_platform(bundle):
+    return platform_target.MACOS if bundle.suffix == '.app' else platform_target.WINDOWS
+
+
+def producer_inventory(repo, bundle, workspace):
     from release_smoke import audit
-    if bundle.resolve(strict=True) != bundle or audit(bundle) != inventory:
+    if producer_platform(bundle) == platform_target.WINDOWS:
+        platform_target.require_host(platform_target.WINDOWS)
+        return windows_producer_inventory(repo, bundle, workspace)
+    return audit(bundle)
+
+
+def verify_ordinary(repo, bundle, source, inventory, workspace=None):
+    """Caller owns the preparation lock. A stamp is not a substitute for rehashing."""
+    if workspace is None:
+        workspace = preparation_directory(repo)
+    if bundle.resolve(strict=True) != bundle or producer_inventory(repo, bundle, workspace) != inventory:
         raise ValueError('Ordinary inventory/alias changed')
     current = source_snapshot(repo)
     if current['source'] != source:
@@ -144,6 +171,8 @@ def verify_ordinary(repo, bundle, source, inventory):
     expected = {'version': VERSION, 'mode': MODE, 'bundle': str(bundle), 'bundleIdentity': [info.st_dev, info.st_ino],
                 'source': value['sourceFingerprint'], 'buildSource': current['buildSource'], 'context': context,
                 'inventory': inventory_hash(inventory)}
+    if producer_platform(bundle) != platform_target.MACOS:
+        expected['platform'] = producer_platform(bundle)
     if document(repo / 'dist' / STAMP) != expected:
         raise ValueError('Missing/stale ordinary build stamp or changed inventory; full rebuild required')
     if source_snapshot(repo) != current or context_key(repo, current) != context:
@@ -162,7 +191,7 @@ def ordinary_preparation(repo, bundle, source, scratch):
     with preparation_lock(preparation_directory(repo)):
         try:
             with stage('producer-verification'):
-                inventory = audit(bundle)
+                inventory = producer_inventory(repo, bundle, scratch)
                 verified = verify_ordinary(repo, bundle, source, inventory)
             decision.update({'decision': 'hit', 'reason': 'verified build inputs, context and complete inventories',
                              'artifactBuildSource': verified['current']['buildSource'], 'currentSource': source,
@@ -172,7 +201,7 @@ def ordinary_preparation(repo, bundle, source, scratch):
             yield verified, inventory
             # A scenario pass never bypasses current-context/original-artifact preservation.
             with stage('producer-preservation'):
-                verify_ordinary(repo, bundle, source, inventory)
+                verify_ordinary(repo, bundle, source, inventory, scratch)
             decision['freshScenarioOutcome'] = 'completed; consult scenario receipt for assertions'
         except BaseException as error:
             # A fresh failed oracle on a verified hit is not a cache miss or an old pass.
@@ -190,23 +219,62 @@ def run_build(command, *, cwd):
     subprocess.run(command, cwd=cwd, check=True)
 
 
-def build_ordinary(repo):
+def producer(repo, platform_id):
+    """The legitimate full-build output for a target (Windows: release dir)."""
+    if platform_id == platform_target.WINDOWS:
+        return repo / 'src-tauri/target/x86_64-pc-windows-msvc/release'
+    return repo / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+
+
+def windows_producer_inventory(repo, bundle, workspace):
+    """Installer + non-installing payload identity of a Windows producer."""
+    import release_metadata
+    import windows_package
+    from release_smoke import audit
+    version = release_metadata.check(repo)[0]
+    installer = windows_package.installer_path(repo, version)
+    seven_zip = windows_package.extractor()
+    _, payload = windows_package.payload(seven_zip, installer, workspace)
+    resources = resources_of(bundle)
+    windows_package.check_payload(payload, bundle, resources)
+    # The ordinary audit covers the program files that actually ship.
+    inventory = audit(bundle / windows_package.BINARY, extra=resources)
+    inventory['installer:' + installer.name] = windows_package.digest(installer)
+    return inventory
+
+
+def build_ordinary(repo, platform_id=None):
     """Full desktop:build semantics, under the same worktree lock as ordinary reuse."""
     from release_smoke import audit
+    platform_id = platform_target.require_host(platform_id or platform_target.host())
+    target = platform_target.target(platform_id)
     with preparation_lock(preparation_directory(repo)):
         with stage('build-input-identity'):
             before = source_snapshot(repo)
             captured_context = context_identity(repo, before)
         context = captured_context['key']
         with stage('build-resources'):
-            run_build(['npm', 'run', 'desktop:resources'], cwd=repo)
+            if platform_id == platform_target.WINDOWS:
+                # npm/tauri are .cmd shims on Windows; named explicitly, no shell.
+                run_build(['npm.cmd', 'run', 'desktop:resources'], cwd=repo)
+            else:
+                run_build(['npm', 'run', 'desktop:resources'], cwd=repo)
         with stage('build-native'):
-            run_build([str(repo / 'node_modules/.bin/tauri'), 'build', '--target', 'aarch64-apple-darwin',
-                       '--bundles', 'app', '--no-sign', '--no-binary-patching', '--ci'], cwd=repo)
-        bundle = repo / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+            if platform_id == platform_target.WINDOWS:
+                run_build([str(repo / 'node_modules/.bin/tauri.cmd'), 'build', '--target', target['triple'],
+                           '--bundles', 'nsis', '--no-sign', '--no-binary-patching', '--ci'], cwd=repo)
+            else:
+                run_build([str(repo / 'node_modules/.bin/tauri'), 'build', '--target', target['triple'],
+                           '--bundles', 'app', '--no-sign', '--no-binary-patching', '--ci'], cwd=repo)
+        bundle = producer(repo, platform_id)
         with stage('build-output-identity'):
             value = provenance(bundle)
-            inventory = audit(bundle)
+            if platform_id == platform_target.WINDOWS:
+                workspace = preparation_directory(repo) / ('windows-identity-' + str(uuid.uuid4()))
+                workspace.mkdir()
+                inventory = windows_producer_inventory(repo, bundle, workspace)
+            else:
+                inventory = audit(bundle)
             unchanged = source_snapshot(repo) == before and context_key(repo, before) == context
         if not unchanged or value['sourceFingerprint'] != before['source'] or value['buildSourceFingerprint'] != before['buildSource'] or value['buildContext'] != context:
             # Component hashes aid bounded diagnosis without recording env values/keys.
@@ -218,6 +286,8 @@ def build_ordinary(repo):
         saved = {'version': VERSION, 'mode': MODE, 'bundle': str(bundle), 'bundleIdentity': [info.st_dev, info.st_ino],
                  'source': before['source'], 'buildSource': before['buildSource'], 'context': context,
                  'inventory': inventory_hash(inventory)}
+        if platform_id != platform_target.MACOS:
+            saved['platform'] = platform_id
         temporary = repo / 'dist' / ('ordinary-stamp-' + str(uuid.uuid4()))
         with temporary.open('x') as stream:
             json.dump(saved, stream)
@@ -229,4 +299,4 @@ if __name__ == '__main__':
     from release_metadata import check
     root = Path(__file__).resolve().parents[2]
     check(root)
-    build_ordinary(root)
+    build_ordinary(root, platform_target.host())

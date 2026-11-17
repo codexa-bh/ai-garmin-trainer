@@ -86,6 +86,7 @@ pub fn png(_window: &WebviewWindow) -> Result<Vec<u8>, String> {
 }
 #[cfg(test)]
 mod tests {
+    use crate::private_fs::testing::symlink;
     use super::*;
     #[test]
     fn refuses_invalid_bytes_and_paths() {
@@ -93,13 +94,7 @@ mod tests {
     }
     #[test]
     fn publication_is_private_atomic_exclusive_and_confined() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let parent = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
-            .join(format!("capture-test-{}", uuid::Uuid::new_v4()));
-        fs::create_dir(&parent).unwrap();
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        let parent = crate::private_fs::testing::private_root("capture-test");
         let id = uuid::Uuid::new_v4().to_string();
         // Bounded header/end framing fixture only, not visual screenshot evidence.
         let mut bytes = vec![0; 45];
@@ -111,7 +106,7 @@ mod tests {
         assert!(publish(&parent, "../escape", &bytes).is_err());
         let path = publish(&parent, &id, &bytes).unwrap();
         assert_eq!(fs::read(&path).unwrap(), bytes);
-        assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o600);
+        assert!(crate::private_fs::path_meta(&path).unwrap().private_file());
         assert!(publish(&parent, &id, &bytes).is_err());
         assert_eq!(fs::read(&path).unwrap(), bytes);
         let next = uuid::Uuid::new_v4().to_string();
@@ -120,8 +115,11 @@ mod tests {
         assert!(publish(&parent, &next, &bytes).is_err());
         assert!(tmp.exists());
         let alias = parent.with_extension("alias");
-        std::os::unix::fs::symlink(&parent, &alias).unwrap();
+        symlink(&parent, &alias).unwrap();
         assert!(publish(&alias, &next, &bytes).is_err());
+        #[cfg(windows)]
+        fs::remove_dir(alias).unwrap();
+        #[cfg(unix)]
         fs::remove_file(alias).unwrap();
         fs::remove_file(tmp).unwrap();
         fs::remove_file(path).unwrap();

@@ -10,18 +10,28 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const inputs = JSON.parse(
   await readFile(join(root, "scripts/desktop/runtime-inputs.json"), "utf8"),
 );
-if (process.platform !== "darwin" || process.arch !== "arm64")
-  throw new Error("Desktop assembly requires macOS ARM64.");
+// Native-host builds only: the finite target map selects exactly one target.
+const targets = Object.entries(inputs.targets ?? {}).filter(
+  ([, entry]) =>
+    entry.host[0] === process.platform && entry.host[1] === process.arch,
+);
+if (inputs.version !== 2 || targets.length !== 1)
+  throw new Error(
+    "Desktop assembly supports only macOS ARM64 and Windows x64 hosts.",
+  );
+const [platformId, target] = targets[0];
+const windows = platformId === "windows-x64";
+const python = windows ? "python" : "python3";
 const identity = JSON.parse(
   execFileSync(
-    "python3",
+    python,
     [
       "-c",
       "import json; from pathlib import Path; import sys; sys.path.insert(0, 'scripts/desktop'); from ordinary_identity import source_snapshot, context_identity; r=Path.cwd(); s=source_snapshot(r); c=context_identity(r,s); print(json.dumps({**s, 'context':c['key'], 'components':c['components']}))",
@@ -30,30 +40,36 @@ const identity = JSON.parse(
   ),
 );
 const resources = join(root, "src-tauri/resources");
-const target = join(resources, "runtime");
+const runtime = join(resources, "runtime");
 const cache = join(root, "dist/desktop-inputs");
 await mkdir(cache, { recursive: true });
-const archive = join(cache, inputs.nodeArchive);
+const archive = join(cache, target.nodeArchive);
 try {
   await readFile(archive);
 } catch {
-  const response = await fetch(`${inputs.nodeSource}${inputs.nodeArchive}`, {
+  const response = await fetch(`${inputs.nodeSource}${target.nodeArchive}`, {
     signal: AbortSignal.timeout(120000),
   });
   if (!response.ok) throw new Error("Pinned Node download failed.");
   await writeFile(archive, Buffer.from(await response.arrayBuffer()));
 }
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
-if (sha(await readFile(archive)) !== inputs.nodeSha256)
+if (sha(await readFile(archive)) !== target.nodeSha256)
   throw new Error(
     "Pinned Node checksum mismatch; cached input retained for diagnosis.",
   );
-execFileSync("/usr/bin/tar", ["-xzf", archive, "-C", cache]);
+// The OS archivers only, never a PATH lookup (Windows 10+ ships bsdtar).
+execFileSync(
+  windows
+    ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+    : "/usr/bin/tar",
+  [windows ? "-xf" : "-xzf", archive, "-C", cache],
+);
 // This is a fixed generated build directory, never task data/worktree cleanup.
 await rm(resources, { recursive: true, force: true });
-await mkdir(target, { recursive: true });
+await mkdir(runtime, { recursive: true });
 for (const path of [".next", "node_modules", "package.json"]) {
-  await cp(join(root, ".next/standalone", path), join(target, path), {
+  await cp(join(root, ".next/standalone", path), join(runtime, path), {
     recursive: true,
     dereference: true,
   });
@@ -68,8 +84,8 @@ const unusedNext = (path) =>
   /\.(map|d\.ts)$|\.runtime\.dev\.js$/.test(path) ||
   /^dist\/(docs|bundle-analyzer|compiled\/@vercel\/og)(\/|$)/.test(path);
 const nextSource = join(root, "node_modules/next");
-await rm(join(target, "node_modules/next"), { recursive: true, force: true });
-await cp(nextSource, join(target, "node_modules/next"), {
+await rm(join(runtime, "node_modules/next"), { recursive: true, force: true });
+await cp(nextSource, join(runtime, "node_modules/next"), {
   recursive: true,
   dereference: true,
   filter: (path) =>
@@ -79,12 +95,12 @@ await cp(nextSource, join(target, "node_modules/next"), {
 // the desktop configuration and activity images use @resvg/resvg-wasm, so
 // sharp and its native libvips must not ship (nor their source corpus).
 for (const path of ["sharp", "@img"])
-  await rm(join(target, "node_modules", path), {
+  await rm(join(runtime, "node_modules", path), {
     recursive: true,
     force: true,
   });
 const present = async (path) =>
-  (await stat(join(target, path)).catch(() => null)) !== null;
+  (await stat(join(runtime, path)).catch(() => null)) !== null;
 for (const path of [
   "node_modules/sharp",
   "node_modules/@img",
@@ -94,15 +110,15 @@ for (const path of [
     throw new Error(`Excluded runtime content still present: ${path}.`);
 if (!(await present("node_modules/@resvg/resvg-wasm/index_bg.wasm")))
   throw new Error("Activity image rasterizer missing from runtime.");
-await cp(join(root, ".next/static"), join(target, ".next/static"), {
+await cp(join(root, ".next/static"), join(runtime, ".next/static"), {
   recursive: true,
 });
 try {
-  await cp(join(root, "public"), join(target, "public"), { recursive: true });
+  await cp(join(root, "public"), join(runtime, "public"), { recursive: true });
 } catch (error) {
   if (error.code !== "ENOENT") throw error;
 }
-await mkdir(join(target, "scripts"));
+await mkdir(join(runtime, "scripts"));
 for (const name of [
   "garmin_token_location",
   "garmin_fit_baseline",
@@ -112,7 +128,7 @@ for (const name of [
 ]) {
   await cp(
     join(root, "scripts", `${name}.py`),
-    join(target, "scripts", `${name}.py`),
+    join(runtime, "scripts", `${name}.py`),
   );
 }
 for (const name of [
@@ -120,19 +136,17 @@ for (const name of [
   "garmin_auth.py.lock",
   "chatgpt-oauth.mjs",
 ]) {
-  await cp(join(root, "scripts/desktop", name), join(target, "scripts", name));
+  await cp(join(root, "scripts/desktop", name), join(runtime, "scripts", name));
 }
+const node = join(resources, target.node);
+await cp(join(cache, target.nodeRoot, target.nodeBinary), node);
 await cp(
-  join(cache, `node-v${inputs.nodeVersion}-darwin-arm64/bin/node`),
-  join(resources, "node"),
-);
-await cp(
-  join(cache, `node-v${inputs.nodeVersion}-darwin-arm64/LICENSE`),
+  join(cache, target.nodeRoot, "LICENSE"),
   join(resources, "NODE-LICENSE.txt"),
 );
 await build({
   entryPoints: [join(root, "scripts/desktop/runtime.ts")],
-  outfile: join(target, "runtime.cjs"),
+  outfile: join(runtime, "runtime.cjs"),
   bundle: true,
   platform: "node",
   format: "cjs",
@@ -141,35 +155,45 @@ await build({
 });
 // Prove bundled runtime/SQLite ABI before native packaging; system Node cannot
 // mask a missing binary. No application DB is opened by this in-memory probe.
+// Windows Node needs its system root even with an otherwise cleared environment.
+const system = windows
+  ? Object.fromEntries(
+      ["SystemRoot", "SystemDrive", "windir", "TEMP", "TMP"].flatMap((key) =>
+        process.env[key] ? [[key, process.env[key]]] : [],
+      ),
+    )
+  : {};
 execFileSync(
-  join(resources, "node"),
+  node,
   [
     "-e",
-    "if(process.arch!=='arm64')process.exit(1); const D=require('better-sqlite3');const d=new D(':memory:');d.prepare('select 1').get();d.close()",
+    `if(process.arch!==${JSON.stringify(process.arch)}||process.platform!==${JSON.stringify(process.platform)})process.exit(1); const D=require('better-sqlite3');const d=new D(':memory:');d.prepare('select 1').get();d.close()`,
   ],
-  { cwd: target, stdio: "pipe" },
+  { cwd: runtime, stdio: "pipe", env: { ...system, NODE_ENV: "production" } },
 );
-const startup = spawnSync(
-  join(resources, "node"),
-  [join(target, "runtime.cjs")],
-  {
-    cwd: target,
-    encoding: "utf8",
-    env: { PATH: "/usr/bin:/bin", NODE_ENV: "production" },
-    timeout: 10000,
+const startup = spawnSync(node, [join(runtime, "runtime.cjs")], {
+  cwd: runtime,
+  encoding: "utf8",
+  env: {
+    ...system,
+    PATH: windows
+      ? join(system.SystemRoot ?? "C:\\Windows", "System32")
+      : "/usr/bin:/bin",
+    NODE_ENV: "production",
   },
-);
+  timeout: 10000,
+});
 if (startup.status !== 1 || !startup.stdout.includes('"code":"configuration"'))
   throw new Error(
     "Packaged runtime imports/preflight entrypoint failed; no config or DB was opened.",
   );
 const initialized = spawnSync(
-  join(resources, "node"),
-  [join(target, "runtime.cjs"), "--initialize-database"],
+  node,
+  [join(runtime, "runtime.cjs"), "--initialize-database"],
   {
-    cwd: target,
+    cwd: runtime,
     input: '{"version":1}\n',
-    env: { NODE_ENV: "production" },
+    env: { ...system, NODE_ENV: "production" },
     timeout: 15000,
     maxBuffer: 8 * 1024 * 1024,
   },
@@ -186,7 +210,7 @@ await cp(
   join(root, "docs/redistribution.md"),
   join(resources, "REDISTRIBUTION-REVIEW.txt"),
 );
-execFileSync("python3", ["scripts/desktop/redistribution.py"], {
+execFileSync(python, ["scripts/desktop/redistribution.py"], {
   cwd: root,
   stdio: "inherit",
 });
@@ -201,7 +225,11 @@ async function inventory(dir, relative = "") {
       throw new Error(`Private runtime input in resource tree: ${item.name}`);
     if (item.isDirectory()) await inventory(join(dir, item.name), path);
     else if (item.isFile())
-      files.push({ path, sha256: sha(await readFile(join(dir, item.name))) });
+      files.push({
+        // Portable record paths: "/" separators on every platform.
+        path: path.split(sep).join("/"),
+        sha256: sha(await readFile(join(dir, item.name))),
+      });
     else throw new Error("Unexpected resource alias/device.");
   }
 }
@@ -230,7 +258,8 @@ await writeFile(
       buildSourceFingerprint: identity.buildSource,
       buildContext: identity.context,
       buildContextComponents: identity.components,
-      inputs,
+      platform: platformId,
+      inputs: { ...inputs, targets: { [platformId]: target } },
       source: execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: root,
         encoding: "utf8",
@@ -249,5 +278,5 @@ await writeFile(
   ),
 );
 console.log(
-  `ARM64 resources assembled; ${files.length} files; pinned Node/SQLite ABI passed. See src-tauri/resources/provenance.json.`,
+  `${platformId} resources assembled; ${files.length} files; pinned Node/SQLite ABI passed. See src-tauri/resources/provenance.json.`,
 );

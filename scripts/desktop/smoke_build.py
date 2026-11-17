@@ -1,6 +1,5 @@
 """Worktree-local verified smoke preparation; never a cross-worktree mutable cache."""
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -11,16 +10,18 @@ import stat
 import subprocess
 import uuid
 
+import platform_files
+
 
 @contextlib.contextmanager
 def preparation_lock(dist):
-    fd = os.open(dist / 'native-smoke.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    fd = platform_files.open_nofollow(dist / 'native-smoke.lock', os.O_RDWR | os.O_CREAT, 0o600)
     try:
         info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid():
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not platform_files.owned(fd):
             raise ValueError('Foreign/linked preparation lock refused')
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
+        with platform_files.exclusive(fd):
+            yield
     finally:
         os.close(fd)
 
@@ -51,18 +52,32 @@ def tree_digest(root, *, dependencies=False):
     return digest.hexdigest()
 
 
-def build_inputs(repo, source, mode):
+def toolchain(mode):
+    """Actual native toolchain identity commands for the host platform."""
+    if platform_files.WINDOWS:
+        # npm is a .cmd shim on Windows; resolve it explicitly, never via a shell.
+        tools = [['node', '--version'], ['npm.cmd', '--version'], ['rustc', '-vV'], ['cargo', '--version']]
+        if mode == 'ordinary-release/v2':
+            tools += [['python', '--version']]
+        return tools
     tools = [['node', '--version'], ['npm', '--version'], ['rustc', '-vV'], ['cargo', '--version'],
              ['xcrun', '--show-sdk-version']]
     if mode == 'ordinary-release/v2':
         tools += [['python3', '--version'], ['xcrun', '--show-sdk-path'], ['xcrun', 'clang', '--version']]
+    return tools
+
+
+def build_inputs(repo, source, mode):
+    tools = toolchain(mode)
     versions = [subprocess.check_output(command, cwd=repo, timeout=20, stderr=subprocess.STDOUT).decode().strip() for command in tools]
     # Include installed bytes, not only lockfile/HEAD or npm's installed-lock claim.
     dependencies = repo / 'node_modules'
     if not (dependencies / '.package-lock.json').is_file():
         raise ValueError('Locked local npm installation required')
     environment = {key: value for key, value in os.environ.items() if re.match(
-        r'^(PATH$|SDKROOT$|DEVELOPER_DIR$|TOOLCHAINS$|MACOSX_DEPLOYMENT_TARGET$|SOURCE_DATE_EPOCH$|ARCHFLAGS$|CC$|CXX$|CFLAGS$|CXXFLAGS$|CPPFLAGS$|LDFLAGS$|CCACHE|CMAKE|PKG_CONFIG|RUST|CARGO|NODE_|NEXT_|TAURI_|TRAINER_|npm_config_|CI$|PYTHON|UV_|BABEL_ENV$|BROWSERSLIST|LANG$|LC_|TZ$|TMPDIR$)', key)}
+        r'^(PATH$|SDKROOT$|DEVELOPER_DIR$|TOOLCHAINS$|MACOSX_DEPLOYMENT_TARGET$|SOURCE_DATE_EPOCH$|ARCHFLAGS$|CC$|CXX$|CFLAGS$|CXXFLAGS$|CPPFLAGS$|LDFLAGS$|CCACHE|CMAKE|PKG_CONFIG|RUST|CARGO|NODE_|NEXT_|TAURI_|TRAINER_|npm_config_|CI$|PYTHON|UV_|BABEL_ENV$|BROWSERSLIST|LANG$|LC_|TZ$|TMPDIR$|'
+        # Windows MSVC/SDK selection inputs (rustc locates MSVC itself otherwise).
+        r'VCToolsVersion$|VCINSTALLDIR$|WindowsSdkVersion$|WindowsSDKVersion$|INCLUDE$|LIB$|LIBPATH$|Platform$)', key, re.I if platform_files.WINDOWS else 0)}
     if 'PATH' in environment:
         # Nested npm run prepends the same search directories repeatedly. Removing
         # later exact duplicates preserves resolution/order, unlike dropping PATH.

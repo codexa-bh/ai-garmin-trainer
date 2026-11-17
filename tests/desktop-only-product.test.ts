@@ -111,6 +111,11 @@ describe("Tauri-only product launch contract", () => {
     expect(ordinaryBuild).toContain(
       "'--bundles', 'app', '--no-sign', '--no-binary-patching', '--ci'",
     );
+    // Windows: the same unsigned full build, producing only the per-user NSIS installer.
+    expect(ordinaryBuild).toContain("'node_modules/.bin/tauri.cmd'");
+    expect(ordinaryBuild).toContain(
+      "'--bundles', 'nsis', '--no-sign', '--no-binary-patching', '--ci'",
+    );
     expect(ordinaryBuild).not.toMatch(/next\s+(dev|start)\b/);
     for (const name of [
       "bootstrap-local.mjs",

@@ -1117,6 +1117,13 @@ pub mod testing {
     use std::fs;
     use std::path::{Path, PathBuf};
 
+    /// The host temp root in its canonical local spelling (no `\\?\` prefix).
+    pub fn temp_root() -> PathBuf {
+        let temp = fs::canonicalize(std::env::temp_dir()).unwrap();
+        #[cfg(windows)]
+        let temp = PathBuf::from(temp.to_str().unwrap().strip_prefix(r"\\?\").unwrap());
+        temp
+    }
     /// A fresh canonical owner-private directory under the host temp root.
     pub fn private_root(prefix: &str) -> PathBuf {
         let name = format!("{prefix}-{}", uuid::Uuid::new_v4());
@@ -1130,8 +1137,7 @@ pub mod testing {
         }
         #[cfg(windows)]
         {
-            let temp = fs::canonicalize(std::env::temp_dir()).unwrap();
-            let temp = PathBuf::from(temp.to_str().unwrap().strip_prefix(r"\\?\").unwrap());
+            let temp = temp_root();
             let parent = super::walk(&temp, false).unwrap();
             super::create_dir_at(&parent, name.as_ref()).unwrap();
             temp.join(name)
@@ -1160,7 +1166,8 @@ pub mod testing {
         make_private(path);
     }
     /// Restore owner-only access (Unix 0600/0700; Windows protected user+SYSTEM DACL).
-    pub fn make_private(path: &Path) {
+    pub fn make_private(path: impl AsRef<Path>) {
+        let path = path.as_ref();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -1171,7 +1178,8 @@ pub mod testing {
         super::os::set_dacl(path, "D:P(A;;FA;;;{user})(A;;FA;;;SY)");
     }
     /// Grant ordinary other users read access (Unix 0644/0755; Windows Everyone read).
-    pub fn make_shared(path: &Path) {
+    pub fn make_shared(path: impl AsRef<Path>) {
+        let path = path.as_ref();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
