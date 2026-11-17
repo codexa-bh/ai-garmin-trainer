@@ -341,6 +341,14 @@ def invocation(main):
 
 def configure(scratch):
     ledger = _CURRENT.get()
+    if ledger and sys.platform == 'win32':
+        # The descriptor-relative disposal ledger is Unix-only. Windows release
+        # actions never dispose: they retain every owned output for inspection.
+        scratch = Path(scratch)
+        if not scratch.is_absolute() or not scratch.is_dir() or scratch.resolve(strict=True) != scratch:
+            raise ValueError('Canonical existing invocation scratch required')
+        _CURRENT.set(None)
+        return scratch
     return ledger.configure(scratch) if ledger else scratch
 
 
@@ -376,6 +384,8 @@ def guard(check):
 
 def directory(path):
     path.mkdir(mode=0o700)  # Exclusive: a UUID/name is not itself ownership proof.
+    if sys.platform == 'win32':
+        return path  # Inherits the job/user scratch DACL; no Unix ledger.
     ledger = _CURRENT.get()
     if ledger:
         ledger.pin(path)

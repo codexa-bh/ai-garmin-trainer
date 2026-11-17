@@ -27,6 +27,27 @@ CLASSIFIER = {'version': 1, 'externalTrackedPaths': sorted(EXTERNAL)}
 STAMP = 'ordinary-build-v2.json'
 
 
+# Content identity of an open source file; access time is excluded (Windows may
+# update it on read).
+STABLE = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+
+
+def stable(info):
+    return tuple(getattr(info, field) for field in STABLE)
+
+
+def current_stat(path):
+    """The object `path` names now. Windows path and handle stat APIs can report
+    different fields, so compare handle stats of a fresh no-follow open."""
+    if not platform_files.WINDOWS:
+        return path.stat()
+    fd = platform_files.open_nofollow(path, os.O_RDONLY)
+    try:
+        return os.fstat(fd)
+    finally:
+        os.close(fd)
+
+
 def source_snapshot(repo):
     repo = Path(repo)
     if repo.resolve(strict=True) != repo:
@@ -52,11 +73,11 @@ def source_snapshot(repo):
                 data = stream.read()
                 mode = stat.S_IMODE(before.st_mode)
                 after = os.fstat(stream.fileno())
-                current = path.stat()
-                stable = lambda info: (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
-                # Access time is not content identity (Windows may update it on read).
+                current = current_stat(path)
                 if stable(before) != stable(after) or stable(current) != stable(after) or current.st_mode != after.st_mode:
-                    raise ValueError('Source changed while hashing')
+                    changed = [field for field in STABLE if getattr(current, field) != getattr(after, field)
+                               or getattr(before, field) != getattr(after, field)]
+                    raise ValueError('Source changed while hashing: ' + os.fsdecode(name) + ' ' + ','.join(changed))
         full.update(name + b'\0' + data)
         external = name in tracked and os.fsdecode(name) in EXTERNAL
         # Preserve the unrestricted legacy byte hash above, but domain-separate

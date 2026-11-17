@@ -137,11 +137,38 @@ def assets_for(record_path, record):
 
 
 def release_body(record, notes):
+    """Legacy single-platform macOS body (unchanged for published 0.1.x records)."""
     return notes + '\nSource: ' + record['repository'] + '@' + record['commit'] + '\nDMG SHA-256: ' + record['artifact']['sha256'] + '\nSigning: ' + record['signing'] + '\n'
 
 
+LABEL = {'macos-arm64': ('macOS ARM64', 'DMG'), 'windows-x64': ('Windows x64', 'Installer')}
+
+
+def set_body(release_set, notes):
+    """Release-set body: every included platform's exact artifact and signing text."""
+    lines = [notes, 'Source: ' + release_set['repository'] + '@' + release_set['commit'],
+             'Platforms: ' + ', '.join(LABEL[item['platform']][0] for item in release_set['entries'])]
+    for item in release_set['entries']:
+        label, kind = LABEL[item['platform']]
+        artifact = item['assets'][0]
+        lines.append(label + ' ' + kind + ' SHA-256: ' + artifact['sha256'])
+        lines.append(label + ' signing: ' + item['signing'])
+    return '\n'.join(lines) + '\n'
+
+
+def set_record(release_set):
+    """The publisher's view of a set: shared identity plus an explicit platform list."""
+    return {'repository': release_set['repository'], 'commit': release_set['commit'],
+            'version': release_set['version'], 'tag': release_set['tag'],
+            'notesSha256': release_set['notesSha256'], 'sourceDirty': False,
+            'platforms': list(release_set['platforms']), 'entries': release_set['entries']}
+
+
 class Release:
-    def __init__(self, github, record, notes, assets, prerelease, latest, *, before_effect=None):
+    def __init__(self, github, record, notes, assets, prerelease, latest, *, before_effect=None, release_set=None):
+        if release_set is not None:
+            # A validated release set selects every platform's exact assets.
+            record = set_record(release_set)
         if record['repository'] != REPOSITORY or record['sourceDirty']:
             raise ValueError('Remote release requires canonical clean exact-source artifact')
         if type(prerelease) is not bool or type(latest) is not bool or (prerelease and latest):
@@ -151,7 +178,16 @@ class Release:
         self.gh, self.record, self.assets = github, record, assets
         self.before_effect = before_effect
         self.prerelease, self.latest = prerelease, latest
-        self.body = release_body(record, notes)
+        if release_set is not None:
+            import hashlib as _hashlib
+            if _hashlib.sha256(notes.encode()).hexdigest() != record['notesSha256']:
+                raise ValueError('Reviewed notes differ from release set')
+            expected = {asset['name'] for item in record['entries'] for asset in item['assets']} | {'release-set.json'}
+            if set(assets) != expected:
+                raise ValueError('Selected assets differ from the release set')
+            self.body = set_body(release_set, notes)
+        else:
+            self.body = release_body(record, notes)
         self.prefix = 'repos/' + REPOSITORY
         self.tag = record['tag']
 
@@ -162,13 +198,18 @@ class Release:
         approval, currency or a cached eligibility by any consumer.
         """
         record = self.record
+        if 'entries' in record:
+            identity = {'platforms': [{key: item[key] for key in ('platform', 'originalSource', 'buildSource',
+                                                                  'buildContext', 'inventory', 'payloadIdentity', 'signing')}
+                                      for item in record['entries']]}
+        else:
+            identity = {'originalSource': record['originalSource'], 'buildSource': record['buildSource'],
+                        'buildContext': record['buildContext'], 'inventory': record['inventory'],
+                        'payloadIdentity': record['payloadIdentity']}
         return {'repository': record['repository'], 'version': record['version'], 'tag': self.tag,
                 'commit': record['commit'], 'notesSha256': record['notesSha256'],
                 'bodySha256': hashlib.sha256(self.body.encode()).hexdigest(),
-                'prerelease': self.prerelease, 'latest': self.latest,
-                'originalSource': record['originalSource'], 'buildSource': record['buildSource'],
-                'buildContext': record['buildContext'], 'inventory': record['inventory'],
-                'payloadIdentity': record['payloadIdentity'],
+                'prerelease': self.prerelease, 'latest': self.latest, **identity,
                 'assets': [{'name': name, 'size': asset['size'], 'sha256': asset['sha256']}
                            for name, asset in sorted(self.assets.items())],
                 'approval': 'none recorded here; requires genuine release-specific operator consent'}
