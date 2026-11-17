@@ -764,6 +764,10 @@ pin.close()
         let root = PathBuf::from(line.trim());
         // Outside the checkout: ancestor node_modules must not mask missing packaged dependencies.
         let resources = root.join("portable-resources");
+        // This is the isolated single-test child, not the concurrent harness.
+        // Reproduce the actual GUI runner's private TEMP/TMP routing too.
+        std::env::set_var("TEMP", root.join("tmp"));
+        std::env::set_var("TMP", root.join("tmp"));
         let admitted = Admission::admit(&root.join("launch.json"), |_| Ok(()));
         let accepted = admitted.is_ok();
         let backend = if accepted {

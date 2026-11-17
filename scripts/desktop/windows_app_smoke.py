@@ -83,7 +83,7 @@ def startup_diagnostic(root, launch, exit_code):
     modules = {b'next', b'better-sqlite3', b'@next/env', b'@resvg/resvg-wasm', b'react', b'react-dom', b'react-is',
                b'styled-jsx', b'bindings', b'file-uri-to-path', b'@swc/helpers', b'postcss', b'caniuse-lite',
                b'baseline-browser-mapping', b'@opentelemetry/api', b'scheduler', b'client-only', b'server-only', b'unavailable'}
-    loaders = re.findall(rb'(?m)^Desktop settings loader: (MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|ERR_REQUIRE_ESM|EINVAL|EBADF|EPIPE|ENOENT|ENOTDIR|ENOTSOCK|EPERM|EACCES|ERR_INVALID_HANDLE_TYPE|ERR_INVALID_FD_TYPE|ERR_INVALID_ARG_VALUE|ERR_INVALID_ARG_TYPE|ERR_UNSUPPORTED_ESM_URL_SCHEME|ERR_UNKNOWN_FILE_EXTENSION) ([A-Za-z0-9@/._-]{1,96})\r?$', raw)
+    loaders = re.findall(rb'(?m)^Desktop settings loader: (MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|ERR_REQUIRE_ESM|EINVAL|EBADF|EPIPE|ENOENT|ENOTDIR|ENOTSOCK|EPERM|EACCES|ERR_INVALID_HANDLE_TYPE|ERR_INVALID_FD_TYPE|ERR_INVALID_ARG_VALUE|ERR_INVALID_ARG_TYPE|ERR_UNSUPPORTED_ESM_URL_SCHEME|ERR_UNKNOWN_FILE_EXTENSION|NODE_SYNTAX_ERROR|NODE_TYPE_ERROR|NODE_RANGE_ERROR|NODE_ASSERTION|NODE_BAD_OPTION) ([A-Za-z0-9@/._-]{1,96})\r?$', raw)
     child_exits = re.findall(rb'(?m)^Desktop settings child exit: (-?[0-9]{1,11})\r?$', raw)
     transports = re.findall(rb'(?m)^Desktop settings transport bytes: ([0-9]{1,6}) ([0-9]{1,6})\r?$', raw)
     stdout_kinds = re.findall(rb'(?m)^Desktop settings stdout kind: (validation-refusal|unexpected-success|backend-failure|unexpected-ready|other-json|non-json)\r?$', raw)
