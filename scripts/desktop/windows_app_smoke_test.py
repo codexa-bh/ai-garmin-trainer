@@ -19,6 +19,7 @@ import zipfile
 import windows_app_smoke as app
 import windows_smoke_evidence as evidence
 import windows_smoke_state as state
+import windows_smoke_process as process
 
 
 def png_bytes(size=(2, 2), *, blank=False, extra=None, transparent=False):
@@ -143,17 +144,24 @@ class EvidenceContracts(unittest.TestCase):
 
 class LifecycleContracts(unittest.TestCase):
     def test_direct_bounded_installer_arguments_and_failures(self):
-        with mock.patch.object(app.subprocess, 'run', return_value=mock.Mock(returncode=0)) as run:
+        with mock.patch.object(app.process, 'execute', return_value=0) as run:
             app.execute_installer(Path('installer.exe'), ['/S', '/NS', '/D=C:\\owned program'], cwd=Path('.'))
-            self.assertEqual(run.call_args.args[0], ['installer.exe', '/S', '/NS', '/D=C:\\owned program'])
+            self.assertEqual(run.call_args.args, (Path('installer.exe'), ['/S', '/NS', '/D=C:\\owned program']))
             self.assertEqual(run.call_args.kwargs['timeout'], 120)
             self.assertNotIn('shell', run.call_args.kwargs)
-        with mock.patch.object(app.subprocess, 'run', return_value=mock.Mock(returncode=2)):
+        with mock.patch.object(app.process, 'execute', return_value=2):
             with self.assertRaises(ValueError):
                 app.execute_installer(Path('installer.exe'), [], cwd=Path('.'))
-        with mock.patch.object(app.subprocess, 'run', side_effect=subprocess.TimeoutExpired('installer', 120)):
+        with mock.patch.object(app.process, 'execute', side_effect=subprocess.TimeoutExpired('installer', 120)):
             with self.assertRaises(subprocess.TimeoutExpired):
                 app.execute_installer(Path('installer.exe'), [], cwd=Path('.'))
+
+    def test_nsis_destination_tail_is_last_and_not_quoted_even_with_spaces(self):
+        line = process.command_line('C:\\installer path\\setup.exe', ['/S', '/NS', '/D=C:\\owned program'])
+        self.assertEqual(line, '"C:\\installer path\\setup.exe" /S /NS /D=C:\\owned program')
+        for arguments in [['/D=C:\\owned', '/S'], ['/D="C:\\owned"'], ['/D=C:\\owned\nforeign'], ['/D=']]:
+            with self.assertRaises(ValueError):
+                process.command_line('setup.exe', arguments)
 
     def test_installed_payload_requires_all_verified_bytes_and_only_known_generated_uninstaller(self):
         expected = {'garmin-trainer-desktop.exe': 'a' * 64, 'resources/provenance.json': 'b' * 64}
@@ -238,6 +246,23 @@ class LifecycleContracts(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == 'win32', 'Windows native ACL/file-ID/namespace owner contract')
 class WindowsStateContracts(unittest.TestCase):
+    def test_job_waits_for_forwarded_child_after_parent_exits(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name).resolve()
+            marker = root / 'descendant-completed'
+            child = 'from pathlib import Path; import time; time.sleep(.3); Path(' + repr(str(marker)) + ').write_text("owned")'
+            parent = 'import subprocess,sys; subprocess.Popen([sys.executable,"-c",' + repr(child) + '])'
+            self.assertEqual(process.execute(Path(sys.executable), ['-c', parent], cwd=root, timeout=15), 0)
+            self.assertEqual(marker.read_text(), 'owned')
+
+    def test_job_timeout_settles_only_its_owned_tree(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name).resolve()
+            parent = 'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"]); time.sleep(30)'
+            with self.assertRaises(subprocess.TimeoutExpired) as result:
+                process.execute(Path(sys.executable), ['-c', parent], cwd=root, timeout=1)
+            self.assertTrue(result.exception.owned_tree_settled)
+
     def test_readonly_live_backend_handle_identity_and_settlement(self):
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
         pinned = None

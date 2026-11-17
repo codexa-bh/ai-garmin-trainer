@@ -25,6 +25,7 @@ import windows_package
 import windows_release
 import windows_smoke_evidence as evidence
 import windows_smoke_state as state
+import windows_smoke_process as process
 
 PRODUCT_ID = 'com.codexa.garmin-trainer.desktop'
 UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\Garmin Trainer'
@@ -129,10 +130,10 @@ def assert_preserved(database, before, config, settings, appdata, markers):
 
 def execute_installer(executable, arguments, *, cwd, timeout=120):
     # Direct executable, no shell/elevation. NSIS /D= is the last argument.
-    result = subprocess.run([str(executable), *arguments], cwd=cwd, timeout=timeout, capture_output=True)
-    if result.returncode:
-        raise ValueError('Installer/uninstaller returned nonzero: ' + str(result.returncode))
-    return result.returncode
+    code = process.execute(executable, arguments, cwd=cwd, timeout=timeout)
+    if code:
+        raise ValueError('Installer/uninstaller returned nonzero: ' + str(code))
+    return code
 
 
 def webview_processes(profile):
@@ -380,7 +381,8 @@ def scenario(args):
                     preserved = fingerprint(database)
                 settings = inventory(run.root / 'config')
                 # No _?= override: NSIS copies itself to runner TEMP and can remove
-                # its installed uninstaller. Wait for eventual completion below.
+                # its installed uninstaller. The invocation-owned job waits for
+                # that forwarded child too, not merely the exiting parent.
                 execute_installer(program / 'uninstall.exe', ['/S'], cwd=scratch)
                 deadline = time.monotonic() + 60
                 while time.monotonic() < deadline and (program.exists() or any(key.endswith('-uninstall') for key in registration())):
