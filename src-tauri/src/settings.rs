@@ -588,6 +588,8 @@ pub fn validate(
                 .map_err(|_| "Settings validation interrupted.")?
             {
                 if !exit.success() {
+                    #[cfg(windows)]
+                    if let Some(code) = exit.code() { eprintln!("Desktop settings child exit: {code}"); }
                     return Err("Settings invalid. Check existing current-schema database, absolute private paths, date, endpoints and advanced values.");
                 }
                 break;
@@ -607,6 +609,17 @@ pub fn validate(
     let mut error_bytes = error_reader.join().map_err(|_| "Settings result interrupted.")?;
     #[cfg(windows)]
     if result.is_err() {
+        eprintln!("Desktop settings transport bytes: {} {}", bytes.len(), error_bytes.len());
+        let value = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+        let kind = match value.as_ref() {
+            Some(value) if value["ok"] == false => "validation-refusal",
+            Some(value) if value["ok"] == true => "unexpected-success",
+            Some(value) if value["type"] == "failed" => "backend-failure",
+            Some(value) if value["type"] == "ready" => "unexpected-ready",
+            Some(_) => "other-json",
+            None => "non-json",
+        };
+        eprintln!("Desktop settings stdout kind: {kind}");
         if let Some((stage, code)) = validation_diagnostic(&bytes) {
             eprintln!("Desktop settings validation: {stage} {code}");
         }

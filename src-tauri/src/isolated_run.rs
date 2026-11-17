@@ -701,6 +701,26 @@ mod tests {
     fn python_private_state_live_pin_and_keyless_backend_pass_without_relaxing_native_admission() {
         use std::io::BufRead;
         use std::process::{Command, Stdio};
+        if std::env::var_os("TRAINER_NO_CONSOLE_CONTRACT_CHILD").is_none() {
+            // The real ordinary executable is a GUI host without a console.
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "isolated_run::tests::python_private_state_live_pin_and_keyless_backend_pass_without_relaxing_native_admission", "--nocapture"])
+                .env("TRAINER_NO_CONSOLE_CONTRACT_CHILD", "1")
+                .stdin(Stdio::piped()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
+            let mut child = crate::process_tree::Tree::spawn(&mut command).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+            let status = loop {
+                if let Some(status) = child.try_wait().unwrap() { break status; }
+                if std::time::Instant::now() >= deadline {
+                    child.kill();
+                    child.wait().unwrap();
+                    panic!("Owned no-console backend contract exceeded deadline");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            };
+            assert!(status.success(), "Owned no-console backend contract failed");
+            return;
+        }
         let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/desktop");
         let producer_resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
         let code = r#"import contextlib,json,os,shutil,subprocess,sys,uuid

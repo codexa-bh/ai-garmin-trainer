@@ -84,7 +84,14 @@ def startup_diagnostic(root, launch, exit_code):
                b'styled-jsx', b'bindings', b'file-uri-to-path', b'@swc/helpers', b'postcss', b'caniuse-lite',
                b'baseline-browser-mapping', b'@opentelemetry/api', b'scheduler', b'client-only', b'server-only', b'unavailable'}
     loaders = re.findall(rb'(?m)^Desktop settings loader: (MODULE_NOT_FOUND|ERR_MODULE_NOT_FOUND|ERR_DLOPEN_FAILED|ERR_REQUIRE_ESM) ([A-Za-z0-9@/._-]{1,96})\r?$', raw)
+    child_exits = re.findall(rb'(?m)^Desktop settings child exit: (-?[0-9]{1,11})\r?$', raw)
+    transports = re.findall(rb'(?m)^Desktop settings transport bytes: ([0-9]{1,6}) ([0-9]{1,6})\r?$', raw)
+    stdout_kinds = re.findall(rb'(?m)^Desktop settings stdout kind: (validation-refusal|unexpected-success|backend-failure|unexpected-ready|other-json|non-json)\r?$', raw)
     return {'layer': 'native-startup', 'exitCode': exit_code, 'nativeLogAvailable': available,
+            'validatorChildExits': [int(value) for value in child_exits[:4] if -2147483648 <= int(value) <= 2147483647],
+            'validatorTransport': [{'stdoutBytes': int(out), 'stderrBytes': int(err)} for out, err in transports[:4]
+                                   if int(out) <= 128 * 1024 + 1 and int(err) <= 64 * 1024 + 1],
+            'validatorStdoutKinds': [value.decode('ascii') for value in stdout_kinds[:4]],
             'nativeLogBytes': len(raw) if available else None,
             'settingsLoader': [{'code': code.decode('ascii'), 'module': (module if module in modules else b'unavailable').decode('ascii')}
                                for code, module in loaders[:4]],
