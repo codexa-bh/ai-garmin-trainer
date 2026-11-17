@@ -108,6 +108,15 @@ describe("desktop executable resolution", () => {
   });
 });
 
+describe.runIf(windows)("Windows private creation", () => {
+  it("never relies on a umask for backend descendants", () => {
+    const source = readFileSync("scripts/desktop/config.ts", "utf8");
+    expect(source).toContain(
+      'if (process.platform !== "win32") process.umask(0o077);',
+    );
+  });
+});
+
 describe.runIf(windows)("Windows database writer admission", () => {
   it("refuses while another process holds the database open and never steals", async () => {
     const path = join(directory(), "held.sqlite");
