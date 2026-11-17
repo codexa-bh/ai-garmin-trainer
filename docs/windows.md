@@ -50,6 +50,20 @@ npm run release -- verify  --platform windows-x64 --bundle $REL --scratch <priva
 
 Use the same `npm run` entry as `npm run desktop:build`: the bound build context includes npm's environment, so invoking `release.py` directly refuses with a context mismatch. Package copies the stamped installer (never rebuilds or relabels it) to `Garmin-Trainer-<version>-windows-x64-setup.exe`, writes its SHA-256 file and a `release-windows-x64.json` record. Package and verify extract the installer payload with 7-Zip into owned scratch after validating every member name, require exactly the producer's binary and resources, x64 PE binaries, the Node license and notices, and the excluded/private-content refusals. The installer is never executed. No macOS size budget applies to Windows.
 
+## On-demand execution
+
+The entire `Windows x64` workflow is **manual-only** (`workflow_dispatch`): PR updates and pushes do not allocate it. Ubuntu Validate and the macOS nightly keep their existing triggers. Windows remains non-required in repository protection.
+
+Select the intended feature branch or main in Actions → Windows x64 → Run workflow, or explicitly dispatch it:
+
+```bash
+gh workflow run windows.yml --repo codexa-bh/ai-garmin-trainer --ref <branch>
+gh run list --repo codexa-bh/ai-garmin-trainer --workflow windows.yml --event workflow_dispatch --branch <branch> --limit 5
+gh run view <run-id> --repo codexa-bh/ai-garmin-trainer --json headSha,event,status,conclusion,url
+```
+
+The selected ref is resolved to the dispatch's immutable `github.sha`; checkout and the recorded `TESTED_SOURCE` use that SHA, and the job refuses a different HEAD. Compare the observed run `headSha` with the intended PR head before relying on evidence. A later branch push does not update an earlier dispatch's evidence; explicitly request a new run when needed. Missing automatic Windows PR checks are expected, not a green Windows result.
+
 ## Evidence and deferred qualification
 
 The `Windows x64` GitHub Actions job runs on a hosted **Windows Server 2025** x64 image. It records the exact source, image, OS build and toolchain, then runs the Windows-native private-state/process tests, focused JS/TS and release tests, the full build, non-installing package/verify and a synthetic packaged-backend smoke (fresh initialization, nonce-bound readiness, writer lease and second-writer refusal, graceful stop and restart). It uploads nothing and uses no credentials, private data or real services.

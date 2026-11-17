@@ -4,17 +4,13 @@ name: Windows x64
 # runner. This is not Windows 11 qualification: no installer execution, native
 # window/input, real services, private data, credentials or uploads.
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,7 +20,7 @@ jobs:
     timeout-minutes: 60
     env:
       RUSTUP_TOOLCHAIN: 1.98.0
-      TESTED_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
+      TESTED_SOURCE: ${{ github.sha }}
       CI: "true"
       NEXT_TELEMETRY_DISABLED: "1"
       # Python UTF-8 mode for every helper (text I/O as on macOS/Linux).
@@ -65,6 +61,27 @@ jobs:
           & "$env:ProgramFiles\7-Zip\7z.exe" | Select-Object -First 2
           $webview = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
           "WebView2 Runtime: $($webview.pv)"
+
+      - name: Early hosted-session and fresh-install prerequisites
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $session = (Get-Process -Id $PID).SessionId
+          "Hosted session: $session; interactive: $([Environment]::UserInteractive) (not renderer success)"
+          if ($session -eq 0 -or -not [Environment]::UserInteractive) { throw 'Interactive hosted desktop session unavailable; no machine fallback' }
+          $runtime = @(
+            'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          ) | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } | Where-Object { $_.pv -and $_.pv -ne '0.0.0.0' }
+          if (-not $runtime) { throw 'WebView2 prerequisite unavailable; no download or fallback' }
+          foreach ($hive in @('HKCU:', 'HKLM:')) {
+            foreach ($key in @('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Garmin Trainer', 'SOFTWARE\com.codexa.garmin-trainer.desktop\Garmin Trainer')) {
+              if (Test-Path "$hive\$key") { throw 'Pre-existing product registration; refusing to adopt installation' }
+            }
+          }
+          foreach ($path in @((Join-Path $env:LOCALAPPDATA 'Garmin Trainer'), (Join-Path $env:APPDATA 'com.codexa.garmin-trainer.desktop'))) {
+            if (Test-Path -LiteralPath $path) { throw 'Pre-existing product data/program directory; fresh runner required' }
+          }
+          'Prerequisites passed; installed renderer, capture and lifecycle remain unproven.'
 
       - name: Install locked dependencies
         run: npm ci --no-fund

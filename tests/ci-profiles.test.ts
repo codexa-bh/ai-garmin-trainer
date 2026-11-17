@@ -60,13 +60,28 @@ describe("economical CI profiles", () => {
     expect(nightly.match(/actions: read/g)).toHaveLength(1);
   });
 
-  it("adds an exact-source Windows x64 job without uploads, secrets or Windows 11 claims", () => {
+  it("runs Windows only on explicit selected-ref dispatch and binds checkout to its immutable SHA", () => {
+    const windows = read(".github/workflows/windows.yml");
+    const events = windows.split("on:\n")[1]?.split("\npermissions:")[0];
+    expect(events?.trim()).toBe("workflow_dispatch:");
+    expect(windows).not.toMatch(
+      /pull_request|workflow_call|schedule:|\n  push:/,
+    );
+    expect(windows).toContain("TESTED_SOURCE: ${{ github.sha }}");
+    expect(windows).toContain("ref: ${{ env.TESTED_SOURCE }}");
+    expect(windows).toContain(
+      "if ((git rev-parse HEAD) -ne $env:TESTED_SOURCE)",
+    );
+    expect(windows).toContain(
+      "Source: $env:TESTED_SOURCE; run: $env:GITHUB_RUN_ID",
+    );
+  });
+
+  it("retains exact-source Windows x64 build checks without secrets or Windows 11 claims", () => {
     const windows = read(".github/workflows/windows.yml");
     expect(windows).toContain("runs-on: windows-2025");
     expect(windows).toContain("name: Windows x64 build foundation");
-    expect(windows).toContain(
-      "TESTED_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}",
-    );
+    expect(windows).toContain("TESTED_SOURCE: ${{ github.sha }}");
     expect(windows).toContain(
       "throw 'Checked-out source differs from tested source'",
     );
