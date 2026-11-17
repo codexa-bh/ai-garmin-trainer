@@ -9,6 +9,7 @@ from pathlib import Path
 import plistlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -97,6 +98,9 @@ class MetadataTests(unittest.TestCase):
             ancestry.assert_called_once()
 
 
+# macOS DMG/.app payload (modes, xattrs, hdiutil/ditto/lipo): macOS-only by
+# nature. Windows installer payload counterparts live in windows_release_test.
+@unittest.skipIf(sys.platform == 'win32', 'macOS DMG/.app payload contract; Windows counterpart is windows_release_test')
 class PayloadTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -601,7 +605,8 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(value['references'], [{'kind': 'remote-journal', 'name': 'release-remote-fixture.jsonl'}])
         self.assertNotIn('approved', json.dumps(value).replace('not approval', ''))
         self.assertEqual(json.loads(output.getvalue())['outcome'], 'completed')
-        self.assertEqual(next(self.root.glob('release-timing-*.json')).stat().st_mode & 0o777, 0o600)
+        if sys.platform != 'win32':  # POSIX mode bits; Windows privacy is ACL-based.
+            self.assertEqual(next(self.root.glob('release-timing-*.json')).stat().st_mode & 0o777, 0o600)
         self.assertEqual(list(self.root.glob('*.partial')), [])
 
     def test_failure_keeps_original_error_and_records_class_only(self):

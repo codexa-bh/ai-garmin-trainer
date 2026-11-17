@@ -12,6 +12,7 @@ import subprocess
 import uuid
 
 from ordinary_identity import document, inventory_hash, provenance, verify_ordinary
+import platform_files
 from release_metadata import REPOSITORY, check, git
 from release_smoke import audit
 from release_timing import stage
@@ -31,7 +32,8 @@ def run(args, *, timeout=120, check=True):
 
 def regular(path):
     info = path.lstat()
-    if path.resolve(strict=True) != path or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+    if (path.resolve(strict=True) != path or platform_files.is_link(info) or not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1):
         raise ValueError('Canonical single-link regular artifact required')
     return info
 
@@ -43,15 +45,34 @@ def stable_file(info):
 
 
 def digest(path):
+    if platform_files.WINDOWS:
+        # Path and handle stat APIs differ on Windows: compare handle stats only.
+        regular(path)
+        return _digest_windows(path)
     before = stable_file(regular(path))
     value = hashlib.sha256()
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as stream:
+    with os.fdopen(platform_files.open_nofollow(path, os.O_RDONLY), 'rb') as stream:
         if stable_file(os.fstat(stream.fileno())) != before:
             raise ValueError('Artifact replaced before hashing')
         for block in iter(lambda: stream.read(1024 * 1024), b''):
             value.update(block)
         if stable_file(os.fstat(stream.fileno())) != before or stable_file(path.lstat()) != before:
             raise ValueError('Artifact changed during hashing')
+    return value.hexdigest()
+
+
+def _digest_windows(path):
+    content = lambda info: (info.st_ino, info.st_size, info.st_mtime_ns)
+    value = hashlib.sha256()
+    with os.fdopen(platform_files.open_nofollow(path, os.O_RDONLY), 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            value.update(block)
+        if content(os.fstat(stream.fileno())) != content(before):
+            raise ValueError('Artifact changed during hashing')
+    with os.fdopen(platform_files.open_nofollow(path, os.O_RDONLY), 'rb') as stream:
+        if content(os.fstat(stream.fileno())) != content(before):
+            raise ValueError('Artifact replaced during hashing')
     return value.hexdigest()
 
 
