@@ -181,6 +181,148 @@ function populated() {
   return value;
 }
 
+describe("paused summary recovery", () => {
+  function paused() {
+    return {
+      ...populated(),
+      pending: 4,
+      state: "stale" as const,
+      reason: "summary_provider_failure",
+      processing: { state: "parked" as const },
+      providerFailure: {
+        category: "sdk_text_lifecycle_failed",
+        stage: "sdk_decode" as const,
+        status: 200,
+        elapsedMs: 31,
+        requestId: "req_safe",
+        responseCorrelation: {
+          source: "response.created" as const,
+          id: "resp_67bd65392a088191a3b802a61f4fba14",
+        },
+        dropped: [{ kind: "response.output_item.added" as const, count: 1 }],
+        receipt: {
+          receipt: "present" as const,
+          text: "different" as const,
+          calls: "mismatch" as const,
+          observedCalls: 0,
+          receiptCalls: 1,
+          callDifferences: ["count" as const],
+        },
+      },
+    };
+  }
+  it("leads with paused state/action; closed disclosure and passive refresh preserve focus, scroll and drafts without POST", async () => {
+    const value = paused();
+    const fetcher = await mountMemory(value);
+    expect(screen.getByText(/Memory updates are paused/)).toBeTruthy();
+    expect(screen.getByText(/4 conversation updates pending/)).toBeTruthy();
+    const summary = screen.getByText("Provider failure details");
+    const details = summary.closest("details")!;
+    expect(details.open).toBe(false);
+    summary.focus();
+    fireEvent.click(summary);
+    details.open = true;
+    expect(screen.getByText("req_safe")).toBeTruthy();
+    const pane = document.querySelector(".memory-root-card")!;
+    pane.scrollTop = 70;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+    expect(details.open).toBe(true);
+    expect(details.isConnected).toBe(true);
+    expect(document.activeElement).toBe(summary);
+    expect(pane.scrollTop).toBe(70);
+    fireEvent.click(screen.getByRole("button", { name: "Edit summary" }));
+    const editor = screen.getByRole("textbox", {
+      name: "Complete generated summary",
+    });
+    fireEvent.change(editor, { target: { value: "Unsaved draft" } });
+    editor.focus();
+    expect((editor as HTMLTextAreaElement).value).toBe("Unsaved draft");
+    expect(fetcher.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+  });
+  it("only the existing deliberate Retry posts once and clears current failure after reread", async () => {
+    const value: SummaryInspection = paused();
+    const fetcher = await mountMemory(value, () => {
+      value.reason = null;
+      delete (value as Partial<SummaryInspection>).providerFailure;
+      value.processing = { state: "eligible" };
+      return response({ ok: true });
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Retry summary processing" }),
+    );
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.filter(([, init]) => init?.method === "POST"),
+      ).toHaveLength(1),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Provider failure details")).toBeNull(),
+    );
+    expect(
+      JSON.parse(
+        String(
+          fetcher.mock.calls.find(([, init]) => init?.method === "POST")![1]
+            ?.body,
+        ),
+      ),
+    ).toEqual({ version: 2, expected: value.expected, action: "retry" });
+  });
+  it("keeps historical absence honest and finite delay, running, Off and rebuild precedence distinct", async () => {
+    const value: SummaryInspection = paused();
+    delete value.providerFailure;
+    await mountMemory(value);
+    fireEvent.click(screen.getByText("Provider failure details"));
+    expect(screen.getByText(/not recorded for this attempt/)).toBeTruthy();
+    expect(
+      memoryStatus({
+        ...value,
+        processing: { state: "delayed", retryAt: 1000 },
+      }),
+    ).toMatch(/waiting before another attempt/);
+    expect(
+      memoryStatus({ ...value, processing: { state: "running" } }),
+    ).toMatch(/Updating memory/);
+    expect(memoryStatus({ ...value, enabled: false })).not.toMatch(/paused/);
+    expect(
+      memoryStatus({
+        ...value,
+        rebuild: {
+          ...value.rebuild!,
+          operation: { id: "interrupted", state: "interrupted" } as NonNullable<
+            SummaryInspection["rebuild"]
+          >["operation"],
+        },
+      }),
+    ).not.toMatch(/Retry summary processing/);
+    expect(
+      memoryStatus({
+        ...value,
+        rebuild: {
+          ...value.rebuild!,
+          operation: { id: "running", state: "active" } as NonNullable<
+            SummaryInspection["rebuild"]
+          >["operation"],
+        },
+      }),
+    ).toMatch(/Updating memory from chat history/);
+  });
+  it("omits hostile and invalid whole diagnostics without losing the usable summary", async () => {
+    const value = paused();
+    Object.assign(value.providerFailure, {
+      category: "private_marker",
+      responseCorrelation: { source: "response.created", id: "private_marker" },
+      dropped: [{ kind: "private_marker", count: 1 }],
+      receipt: { receipt: "absent", detail: "private_marker" },
+      rawError: "private_marker",
+    });
+    await mountMemory(value);
+    expect(document.body.textContent).not.toContain("private_marker");
+    expect(document.body.textContent).toContain("request_failed");
+    expect(document.body.textContent).toContain("sdk_decode");
+  });
+});
+
 describe("generated summary disclosure", () => {
   it("starts collapsed and toggles the complete text without a request", async () => {
     const value = populated();

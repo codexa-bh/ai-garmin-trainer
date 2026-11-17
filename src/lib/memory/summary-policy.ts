@@ -1,5 +1,6 @@
 import { summarySelection } from "../model-settings/summary-selection";
 import type { TrainerProfile } from "../profile/contracts";
+import type { ProviderFailureDiagnostic } from "../ai/debug-types";
 
 // Historical observations, not current paid-test admission or output-token caps.
 export const SUMMARY_MODEL_CONTEXT = 1_050_000;
@@ -134,6 +135,12 @@ export type SummaryStatus = {
     | "fresh"
     | "stale";
   reason: string | null;
+  /** Passive scheduling observation; never export the parked retry sentinel. */
+  processing?: {
+    state: "inactive" | "running" | "parked" | "delayed" | "eligible";
+    retryAt?: number;
+  };
+  providerFailure?: ProviderFailureDiagnostic;
   revision: number;
   frontier: number;
   pending: number;
@@ -208,6 +215,7 @@ export type SummaryStorage = {
     reason: string,
     now: number,
     retryDelay?: number,
+    providerFailure?: ProviderFailureDiagnostic,
   ): void;
   control(action: "clear" | "disable" | "enable" | "retry", now: number): void;
 };

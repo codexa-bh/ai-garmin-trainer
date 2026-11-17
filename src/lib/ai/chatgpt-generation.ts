@@ -1,42 +1,12 @@
-import {
-  streamText,
-  APICallError,
-  TypeValidationError,
-  JSONParseError,
-  type LanguageModelUsage,
-} from "ai";
+import { streamText, type LanguageModelUsage } from "ai";
 import { trainerToolDefinitions } from "./provider-tool-definitions";
-import { CHATGPT_NAMESPACE, ChatgptRequestError } from "./chatgpt-transport";
+import {
+  CHATGPT_NAMESPACE,
+  ChatgptRequestError,
+  chatgptGenerationFailure,
+} from "./chatgpt-transport";
 import type { TrainerGenerationRequest } from "./orchestration-ports";
 
-function generationFailure(error: unknown): ChatgptRequestError {
-  let current = error;
-  for (let depth = 0; depth < 3; depth += 1) {
-    if (current instanceof ChatgptRequestError) return current;
-    if (
-      TypeValidationError.isInstance(current) ||
-      JSONParseError.isInstance(current)
-    )
-      return new ChatgptRequestError(
-        "response_decoding_failed",
-        undefined,
-        undefined,
-        { stage: "sdk_decode" },
-      );
-    if (!APICallError.isInstance(current)) break;
-    if (current.cause) current = current.cause;
-    else
-      return new ChatgptRequestError(
-        Number.isInteger(current.statusCode)
-          ? `http_${current.statusCode}`
-          : "provider_transport_failed",
-        current.statusCode,
-        undefined,
-        { stage: "upstream_request" },
-      );
-  }
-  return new ChatgptRequestError("generation_failed");
-}
 /** The locked SDK supports namespaces, but only this route opts into them. */
 const tools = Object.fromEntries(
   Object.entries(trainerToolDefinitions).map(([name, definition]) => [
@@ -77,7 +47,7 @@ export async function chatgptText(options: Record<string, unknown>): Promise<{
   // Explicit consumption surfaces stream errors, not just HTTP200/first text/EOF.
   try {
     for await (const event of result.fullStream) {
-      if (event.type === "error") throw generationFailure(event.error);
+      if (event.type === "error") throw chatgptGenerationFailure(event.error);
     }
     // SDK cancellation may settle without an error event; never accept it as completion.
     if ((options.abortSignal as AbortSignal | undefined)?.aborted)
@@ -85,7 +55,7 @@ export async function chatgptText(options: Record<string, unknown>): Promise<{
         stage: "aborted",
       });
   } catch (error) {
-    const failure = generationFailure(error);
+    const failure = chatgptGenerationFailure(error);
     throw new ChatgptRequestError(
       failure.code,
       failure.status,

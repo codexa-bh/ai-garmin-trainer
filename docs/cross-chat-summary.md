@@ -144,6 +144,10 @@ Unknown/cancelled/invalid/auth effects require explicit recovery without blind r
 retained transport5xx backoff never fabricates successful publication. Shutdown aborts
 owned work best-effort; remote billing/retention may continue.
 
+Failed ChatGPT attempts may carry the same closed provider diagnostic as chat, atomically merged into the existing attempt JSON envelope without replacing usage/rejection/value observations or inventing tokens. Write and outward-read projection are independent. Status reads select at most one relevant latest attempt, bound to current policy/configuration, control/privacy generations, revision and failure reason; old/unrelated/malformed metadata stays absent. No schema migration or diagnostic backfill occurs.
+
+A passive `processing` observation distinguishes inactive, running, parked/manual-attention, finite delayed (`retryAt`) and eligible state. The MAX_SAFE_INTEGER parking sentinel never leaves as a timestamp. This does not change eligibility, debounce, leases, transient classification or retry/backoff. Explicit Retry clears current reason/timing through the existing action; historical failure details remain stored but are no longer current. See [Memory recovery](memory.md#paused-summary-recovery). The smaller strict native status protocol is unchanged.
+
 ## Stable pin, inspection, controls and privacy
 
 Each turn's atomic admission adopts latest available generated text and separate

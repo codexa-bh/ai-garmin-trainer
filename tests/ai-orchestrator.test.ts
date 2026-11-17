@@ -3,7 +3,7 @@ import { isFinalSynthesis } from "./completion-fixtures";
 import { ChatgptRequestError } from "../src/lib/ai/chatgpt-transport";
 import type { TrainerProgressCounters } from "../src/lib/ai/trainer-progress";
 
-const generateText = vi.fn();
+const generateText = vi.hoisted(() => vi.fn());
 const runGarminSync = vi.fn(async () => ({
   status: "completed",
   detail: "ok",

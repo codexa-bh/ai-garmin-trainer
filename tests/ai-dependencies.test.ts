@@ -24,6 +24,8 @@ const allowed = new Set([
   "ai/orchestration-ports.ts",
   "ai/orchestrator.ts",
   "ai/provider-errors.ts",
+  // Shared pure closed projector; no SDK, storage or ambient capability.
+  "diagnostics/provider-failure.ts",
   "ai/tool-analytics.ts",
   "ai/tool-contracts.ts",
   "ai/tool-evidence.ts",

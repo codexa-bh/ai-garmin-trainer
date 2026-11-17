@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getDatabase } from "./connection";
 import { getTrainerProfile } from "./profile-repository";
+import { safeFailureDiagnostic } from "../diagnostics/provider-failure";
 import {
   summarySourceRestricted,
   restrictSummaryInputs,
@@ -278,6 +279,45 @@ function summaryCostObservations(day: string) {
     unknownReservedUsd: number;
     unpricedAttempts: number;
   };
+}
+
+/** One relevant attempt only; old/configuration-unrelated history is not current failure. */
+function currentProviderFailure(c: Control, s: State) {
+  if (!c.reason || c.job_id || !c.enabled || !summaryModelAvailable(c.model))
+    return undefined;
+  const row = getDatabase()
+    .prepare(
+      `select outcome,prior_revision,privacy_generation,
+    case when length(usage_json)<=8192 then usage_json end as metadata
+    from summary_attempt where control_generation=? and policy_identity=?
+    order by started_at desc,rowid desc limit 1`,
+    )
+    .get(c.generation, summaryPolicyIdentity(c.model)) as
+    | {
+        outcome: string;
+        prior_revision: number;
+        privacy_generation: number;
+        metadata: string | null;
+      }
+    | undefined;
+  if (
+    !row ||
+    row.outcome !== c.reason ||
+    row.prior_revision !== s.revision ||
+    row.privacy_generation !== s.privacy_generation ||
+    !row.metadata
+  )
+    return undefined;
+  try {
+    const value: unknown = JSON.parse(row.metadata);
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? safeFailureDiagnostic(
+          (value as Record<string, unknown>).providerFailure,
+        )
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function assertVersion(expected: SummaryVersion): void {
@@ -706,6 +746,19 @@ export const summaryStorage: SummaryStorage = {
       version: 1,
       state: result,
       reason,
+      processing:
+        !c.enabled || !summaryModelAvailable(c.model) || reason !== c.reason
+          ? { state: "inactive" }
+          : c.job_id
+            ? { state: c.lease_until > now ? "running" : "parked" }
+            : c.retry_at === Number.MAX_SAFE_INTEGER
+              ? { state: "parked" }
+              : c.retry_at > now
+                ? { state: "delayed", retryAt: c.retry_at }
+                : { state: "eligible" },
+      ...(reason === c.reason
+        ? { providerFailure: currentProviderFailure(c, s) }
+        : {}),
       revision: s.revision,
       frontier: s.frontier,
       pending: count,
@@ -1046,13 +1099,31 @@ export const summaryStorage: SummaryStorage = {
         batch.jobId,
       );
   },
-  fail(batch, reason, now, retryDelay) {
+  fail(batch, reason, now, retryDelay, providerFailure) {
     const db = getDatabase();
     db.transaction(() => {
       if (batch.rebuild) interruptSummaryRebuild(reason, batch.rebuild.id);
+      const safe = safeFailureDiagnostic(providerFailure);
+      // json_set preserves actual usage/rejection/value metadata. Invalid old
+      // envelopes remain untouched, never replaced with fabricated usage.
+      const metadata = safe ? JSON.stringify(safe) : null;
       db.prepare(
-        "update summary_attempt set outcome=?,finished_at=? where job_id in (?,?) and outcome='admitted'",
-      ).run(reason, now, batch.jobId, `${batch.jobId}:condense`);
+        `update summary_attempt set outcome=?,finished_at=?,usage_json=
+        case when ? is null then usage_json
+          when usage_json is null then json_object('providerFailure',json(?))
+          when json_valid(usage_json) then case when json_type(usage_json)='object'
+            then json_set(usage_json,'$.providerFailure',json(?)) else usage_json end
+          else usage_json end
+        where job_id in (?,?) and outcome='admitted'`,
+      ).run(
+        reason,
+        now,
+        metadata,
+        metadata,
+        metadata,
+        batch.jobId,
+        `${batch.jobId}:condense`,
+      );
       const c = control();
       if (c.job_id !== batch.jobId) return;
       const retryAt =

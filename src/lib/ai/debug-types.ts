@@ -36,6 +36,15 @@ export type ProviderFailureDiagnostic = {
   status?: number;
   requestId?: string;
   receipt?: ReceiptMismatchDiagnostic;
+  /** Actual locked-SDK fallback outcomes, in canonical fixed-kind order. */
+  dropped?: Array<{
+    kind:
+      | "response.output_item.added"
+      | "response.output_item.done"
+      | "response.output_text.delta";
+    count: number;
+  }>;
+  responseCorrelation?: { source: "response.created"; id: string };
 };
 
 export type TrainerTokenUsage = {

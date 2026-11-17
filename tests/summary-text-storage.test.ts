@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/conversation-summary-pin";
 import { summaryPinInput } from "@/lib/chat/summary-pin";
 import { createSummaryEngine } from "@/lib/memory/summary-application";
+import { safeFailureDiagnostic } from "@/lib/ai/provider-errors";
 import {
   emptySummary,
   minimizeSummarySource,
@@ -141,6 +142,164 @@ describe("complete-text real SQLite lifecycle", () => {
         "summary_invalid_character_limit",
       );
     expect(db.serialize()).toEqual(beforeInvalid);
+  });
+  it("atomically preserves accounting and closed provider failure through reopen, Retry and configuration changes", () => {
+    storage.editSummary(storage.version(), "Preserved prior", now);
+    complete();
+    const job = ready("failure-diagnostic");
+    storage.reserve(job, now);
+    storage.usage(job, { input: 12, output: 5, cached: 0 }, "value", {
+      invariant: "shape",
+    });
+    const diagnostic = safeFailureDiagnostic({
+      category: "sdk_text_lifecycle_failed",
+      stage: "sdk_decode",
+      status: 200,
+      requestId: "req_safe",
+      dropped: [{ kind: "response.output_item.added", count: 1 }],
+      responseCorrelation: {
+        source: "response.created",
+        id: "resp_67bd65392a088191a3b802a61f4fba14",
+      },
+      receipt: { receipt: "absent" },
+      privateMarker: "private",
+    })!;
+    const before = storage.status(now);
+    storage.fail(job, "summary_provider_failure", now, undefined, diagnostic);
+    const metadata = JSON.parse(
+      (
+        db
+          .prepare(
+            "select usage_json as value from summary_attempt where job_id=?",
+          )
+          .get(job.jobId) as { value: string }
+      ).value,
+    );
+    expect(metadata).toEqual({
+      input: 12,
+      output: 5,
+      cached: 0,
+      rejection: "value",
+      diagnostic: { invariant: "shape" },
+      providerFailure: diagnostic,
+    });
+    expect(storage.status(now)).toMatchObject({
+      processing: { state: "parked" },
+      providerFailure: diagnostic,
+      frontier: before.frontier,
+      pending: 1,
+      estimatedUsdToday: before.estimatedUsdToday,
+      unknownReservedUsd: before.unknownReservedUsd,
+      attemptsToday: before.attemptsToday,
+    });
+    const bytes = db.serialize();
+    db.close();
+    db = new Database(bytes);
+    expect(storage.status(now).providerFailure).toEqual(diagnostic);
+    expect(storage.inspect().text).toBe("Preserved prior");
+    storage.control("retry", now);
+    expect(storage.status(now)).toMatchObject({
+      reason: null,
+      processing: { state: "eligible" },
+    });
+    expect(storage.status(now).providerFailure).toBeUndefined();
+    expect(
+      JSON.parse(
+        (
+          db
+            .prepare("select usage_json as value from summary_attempt")
+            .get() as { value: string }
+        ).value,
+      ),
+    ).toEqual(metadata);
+    storage.configure(true, "unselected", 1000);
+    expect(storage.status(now).providerFailure).toBeUndefined();
+    expect(storage.status(now).processing?.state).toBe("inactive");
+  });
+  it("does not associate old configuration diagnostics or expired jobs with eligible work", () => {
+    complete();
+    const job = ready("configuration-failure");
+    storage.fail(job, "summary_provider_failure", now, undefined, {
+      category: "http_503",
+      stage: "upstream_request",
+      status: 503,
+    });
+    expect(storage.status(now).providerFailure?.category).toBe("http_503");
+    storage.configure(true, "gpt-6-luna", 2000);
+    expect(storage.status(now).reason).toBe("summary_provider_failure");
+    expect(storage.status(now).providerFailure).toBeUndefined();
+    storage.control("retry", now);
+    now += 3000;
+    const next = storage.admit(now, "expired");
+    expect(next).not.toBeNull();
+    expect(storage.status(now).processing?.state).toBe("running");
+    expect(storage.status(now + 30001).processing?.state).toBe("parked");
+  });
+  it.each([
+    null,
+    "not-json",
+    "{}",
+    '{"providerFailure":{"category":"private","stage":"unknown"}}',
+  ])("old or invalid failure metadata stays absent: %s", (metadata) => {
+    complete();
+    const job = ready("old-failure");
+    storage.reserve(job, now);
+    storage.fail(job, "summary_provider_failure", now);
+    db.prepare("update summary_attempt set usage_json=?").run(metadata);
+    expect(storage.status(now).providerFailure).toBeUndefined();
+    expect(storage.status(now).processing).toEqual({ state: "parked" });
+    const before = db.serialize();
+    storage.status(now);
+    storage.status(now + 1000);
+    expect(db.serialize()).toEqual(before);
+  });
+  it("failure projection leaves transient/backoff, Off and attempt accounting unchanged", async () => {
+    complete();
+    noteSummaryActivity(now);
+    now += 3000;
+    const generate = vi.fn(async () => {
+      throw Object.assign(Error("private-provider-message"), {
+        statusCode: 503,
+        failure: {
+          category: "http_503",
+          stage: "upstream_request",
+          status: 503,
+        },
+      });
+    });
+    const engine = createSummaryEngine({
+      storage,
+      now: () => now,
+      identity: () => "delayed",
+      current: () => true,
+      jitter: () => 0,
+      generation: {
+        generate,
+        failure: (error) =>
+          safeFailureDiagnostic((error as { failure: unknown }).failure),
+      },
+    });
+    await engine.tick(new AbortController().signal);
+    expect(storage.status(now)).toMatchObject({
+      processing: { state: "delayed", retryAt: now + 60000 },
+      providerFailure: { category: "http_503" },
+      pending: 1,
+      frontier: 0,
+      unpricedAttempts: 1,
+    });
+    await engine.tick(new AbortController().signal);
+    expect(generate).toHaveBeenCalledTimes(1);
+    storage.control("disable", now);
+    expect(storage.status(now)).toMatchObject({
+      state: "disabled",
+      processing: { state: "inactive" },
+    });
+    expect(storage.status(now).providerFailure).toBeUndefined();
+    expect(
+      JSON.stringify(
+        db.prepare("select usage_json from summary_attempt").all(),
+      ),
+    ).not.toContain("private-provider-message");
   });
   it("requests one advisory target without hidden word/percentage ceilings", async () => {
     storage.configure(true, "gpt-6-luna", 6000);

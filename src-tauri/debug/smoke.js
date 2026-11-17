@@ -992,6 +992,8 @@
         "add",
         "edit",
         "summary-edit",
+        "failure-show",
+        "failure-hide",
         "summary-show",
         "summary-hide",
         "summary-collapsed",
@@ -1238,6 +1240,16 @@
           throw Error("Canonical summary disclosure state refused");
         if (["summary-show", "summary-hide"].includes(command.action))
           button.click();
+      } else if (["failure-show", "failure-hide"].includes(command.action)) {
+        if (memoryFixture || !before.loaded)
+          throw Error("Actual authored failure inspection required");
+        const details = authoredFailureDetails(panel);
+        const opening = command.action === "failure-show";
+        if (details.open === opening)
+          throw Error("Failure disclosure state refused");
+        details.querySelector("summary").click();
+        if (details.open !== opening)
+          throw Error("Failure disclosure did not toggle");
       } else if (["native-copy", "editor-check"].includes(command.action)) {
         const input = panel.querySelector(
           '[aria-label="Edit generated summary"] textarea',
@@ -1368,6 +1380,34 @@
     memoryStage = "post-action-observation";
     return memoryObservation(command.action);
   }
+  const authoredFailurePairs = [
+    ["Category", "incomplete_sdk_decoding"],
+    ["Stage", "sdk_decode"],
+    ["HTTP status", "200"],
+    ["Elapsed", "12 ms"],
+    ["Request ID", "req_authored"],
+    ["Response ID (response.created)", "resp_67bd65392a088191a3b802a61f4fba14"],
+    ["Receipt", "present"],
+    ["Text comparison", "different"],
+    ["Call comparison", "mismatch; observed 0, receipt 1; differences: count"],
+    ["SDK discarded response.output_item.added", "1"],
+    ["SDK discarded response.output_item.done", "1"],
+  ];
+  function authoredFailureDetails(panel) {
+    const details = panel.querySelector(".memory-failure-details");
+    if (
+      !details ||
+      details.querySelector("summary")?.textContent !==
+        "Provider failure details" ||
+      JSON.stringify(
+        [...details.querySelectorAll("dt,dd")].map((node) => node.textContent),
+      ) !== JSON.stringify(authoredFailurePairs.flat())
+    )
+      throw Error(
+        "Canonical authored failure required; private values refused",
+      );
+    return details;
+  }
   function revealMemory() {
     memoryStage = "inspection";
     const observation = memoryObservation("observe");
@@ -1385,6 +1425,14 @@
     const labels = new Set([
       "What your trainer remembers",
       "When enabled, memory helps your trainer carry important details from previous conversations into new chats.",
+      "Provider failure details",
+      "Diagnostic details were not recorded for this attempt.",
+      "Closed observations only, not a confirmed cause. No response text or error body is shown.",
+      "On · Memory updates are paused after a provider failure. Retry summary processing when ready.",
+      "Retry summary processing",
+      "Schedules eligible work; it does not guarantee repair or immediate completion. Processing may use your subscription plan or credits, or incur provider charges.",
+      "4 conversation updates pending · not necessarily running",
+      ...authoredFailurePairs.flat(),
       "Generated summary",
       "Densify summary",
       "Show summary",
@@ -1606,6 +1654,10 @@
         node.setAttribute("data-smoke-reveal", "");
     }
     memoryStage = "canonical-copy";
+    // Reveal diagnostic values only for this exact authored closed fixture.
+    // Historical absence/static labels remain safe independently.
+    const failureDetails = panel.querySelector(".memory-failure-details");
+    if (failureDetails?.querySelector("dl")) authoredFailureDetails(panel);
     const manualPicker = panel.querySelector(".memory-densify-model select");
     if (manualPicker && memoryFixture?.startsWith("fixture-densify-")) {
       const expectedDefault = `Default — ${densifyDefaultLabel}${memoryFixture === "fixture-densify-unavailable" ? " (unavailable)" : ""}`;
@@ -1636,7 +1688,7 @@
       progress.setAttribute("data-smoke-reveal", "");
     }
     for (const node of panel.querySelectorAll(
-      'h2,h3,h4,p,li,button,label,legend,div[aria-label="Complete candidate summary"],span.memory-densify-status[role="status"]',
+      'h2,h3,h4,p,li,button,label,legend,.memory-failure-details summary,.memory-failure-details dt,.memory-failure-details dd,div[aria-label="Complete candidate summary"],span.memory-densify-status[role="status"]',
     )) {
       if (!labels.has(node.textContent.trim()) || !visible(node)) continue;
       if (

@@ -25,6 +25,7 @@ import { conversationHistory } from "../src/lib/db/conversation-history";
 import {
   tickCrossChatSummary,
   executeSummaryCommand,
+  readCrossChatSummary,
 } from "../src/lib/memory/summary-composition";
 import { stopSummaryLifetime } from "../src/lib/memory/summary-lifetime";
 import { summaryImportInspection } from "../src/lib/db/summary-import";
@@ -317,6 +318,104 @@ it("production summary maintenance and optional Densify use the independent plan
     ),
   ).toBe(true);
 });
+it("production failed summary persists the same closed SDK diagnostic and explicit Retry alone re-admits work", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-17T12:00:00Z"));
+  vi.stubEnv("SUMMARY_ENABLED", "true");
+  initializeLiveConfiguration(boot);
+  await tickCrossChatSummary(boot);
+  summaryStorage.editSummary(
+    summaryStorage.version(),
+    "Prior summary preserved",
+    Date.now(),
+  );
+  const source = conversationHistory.admit(
+    "diagnostic-source",
+    "Short sessions suit weekdays.",
+  );
+  conversationHistory.complete(source.admission, {
+    content: "Acknowledged",
+    grounding: null,
+  });
+  await tickCrossChatSummary(boot);
+  vi.setSystemTime(Date.now() + 10001);
+  const original = fetch;
+  const provider = vi.fn(async () =>
+    wire(
+      [
+        {
+          item: wireMessage("private-draft", "unsupported_private_phase"),
+          text: "private-draft",
+        },
+      ],
+      undefined,
+      (events) => {
+        (events[0].response as WireItem).id =
+          "resp_67bd65392a088191a3b802a61f4fba14";
+      },
+    ),
+  );
+  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) =>
+    String(url).startsWith("http://127.0.0.1:")
+      ? original(url, init)
+      : provider(),
+  );
+  await tickCrossChatSummary(boot);
+  const failed = readCrossChatSummary(true);
+  expect(failed).toMatchObject({
+    reason: "summary_provider_failure",
+    processing: { state: "parked" },
+    pending: 1,
+    frontier: 0,
+    providerFailure: {
+      category: "sdk_text_lifecycle_failed",
+      stage: "sdk_decode",
+      status: 200,
+      dropped: [{ kind: "response.output_item.added", count: 1 }],
+      responseCorrelation: {
+        source: "response.created",
+        id: "resp_67bd65392a088191a3b802a61f4fba14",
+      },
+    },
+  });
+  const attempts = db.prepare("select * from summary_attempt").all();
+  expect(JSON.stringify(attempts)).not.toMatch(
+    /private-draft|unsupported_private_phase/,
+  );
+  const bytes = db.serialize();
+  db.close();
+  db = new Database(bytes);
+  for (let n = 0; n < 3; n++) {
+    readCrossChatSummary(true);
+    vi.setSystemTime(Date.now() + 600000);
+    await tickCrossChatSummary(boot);
+  }
+  expect(provider).toHaveBeenCalledTimes(1);
+  expect(readCrossChatSummary(true).providerFailure).toEqual(
+    failed.providerFailure,
+  );
+  expect(summaryStorage.inspect().text).toBe("Prior summary preserved");
+  expect(db.prepare("select * from summary_attempt").all()).toEqual(attempts);
+  vi.stubGlobal("fetch", original);
+  await executeSummaryCommand({
+    version: 2,
+    action: "retry",
+    expected: summaryStorage.version(),
+  });
+  expect(readCrossChatSummary(true).providerFailure).toBeUndefined();
+  await tickCrossChatSummary(boot);
+  expect(requests).toHaveLength(1);
+  expect(summaryStorage.inspect().text).toBe(
+    "Prefers short weekday recovery sessions.",
+  );
+  expect(readCrossChatSummary(true)).toMatchObject({
+    reason: null,
+    processing: { state: "eligible" },
+    pending: 0,
+    frontier: 1,
+  });
+});
+
 it.each(["rebuild", "import"])(
   "production reviewed %s uses the independent plan factory with no API key or embedding/counting prerequisite",
   async (mode) => {
@@ -552,8 +651,9 @@ function wireMessage(text: string, phase?: string): WireItem {
 function wire(
   streamed: { item: WireItem; text?: string }[],
   terminal: WireItem[] | null = streamed.map(({ item }) => item),
+  change: (events: WireItem[]) => void = () => {},
 ): Response {
-  const events: unknown[] = [
+  const events: WireItem[] = [
     {
       type: "response.created",
       response: { id: "resp_1", created_at: 1, model: entry.modelId },
@@ -599,6 +699,7 @@ function wire(
       usage: { input_tokens: 120, output_tokens: 12 },
     },
   });
+  change(events);
   return new Response(
     events.map((event) => `data: ${JSON.stringify(event)}\r\n\r\n`).join(""),
     { headers: { "content-type": "text/event-stream" } },
@@ -788,6 +889,14 @@ it.each([
         elapsedMs: expect.any(Number),
         status: 200,
         receipt,
+        ...(_label === "SDK-dropped call"
+          ? {
+              dropped: [
+                { kind: "response.output_item.added", count: 1 },
+                { kind: "response.output_item.done", count: 1 },
+              ],
+            }
+          : {}),
       });
     else expect(call?.failure?.receipt).toBeUndefined();
     const raw = db
@@ -800,6 +909,98 @@ it.each([
     expect(raw.value.length).toBeLessThanOrEqual(24000);
   },
 );
+it.each(["missing-id", "phase", "rotating", "delta"])(
+  "production %s failure saves safe SDK facts and correlation without effects",
+  async (shape) => {
+    initializeLiveConfiguration(boot);
+    modelSettings.save({ modelId: entry.id });
+    const id = "resp_67bd65392a088191a3b802a61f4fba14";
+    const upstream = routeUpstream(() =>
+      wire(
+        [{ item: wireMessage(hostile), text: hostile }],
+        undefined,
+        (events) => {
+          (events[0].response as WireItem).id = id;
+          const added = events.find(
+            (e) => e.type === "response.output_item.added",
+          )!.item as WireItem;
+          if (shape === "missing-id") delete added.id;
+          else if (shape === "phase") added.phase = hostile;
+          else if (shape === "rotating") added.id = `msg_${hostile}`;
+          else
+            for (const event of events)
+              if (event.type === "response.output_text.delta") event.delta = 7;
+        },
+      ),
+    );
+    const { result, assistant } = await persistedTurn("sdk-failure-readback");
+    expect(upstream.bodies).toHaveLength(1);
+    expect(upstream.syncStatus).not.toHaveBeenCalled();
+    expect(result.toolSteps).toEqual([]);
+    const failure = assistant.grounding?.debugTrace?.providerCalls[0].failure;
+    expect(failure).toMatchObject({
+      category:
+        shape === "delta"
+          ? "incomplete_sdk_decoding"
+          : "sdk_text_lifecycle_failed",
+      stage: "sdk_decode",
+      status: 200,
+      responseCorrelation: { source: "response.created", id },
+    });
+    if (["missing-id", "phase"].includes(shape))
+      expect(failure?.dropped).toEqual([
+        { kind: "response.output_item.added", count: 1 },
+      ]);
+    if (shape === "delta")
+      expect(failure?.dropped).toEqual([
+        { kind: "response.output_text.delta", count: hostile.length },
+      ]);
+    expect(JSON.stringify(assistant.grounding)).not.toContain(hostile);
+  },
+);
+
+it("chat write and application readback independently reproject invalid whole optional dimensions", async () => {
+  initializeLiveConfiguration(boot);
+  modelSettings.save({ modelId: entry.id });
+  routeUpstream(() =>
+    wire([{ item: wireCall({ id: 7 }) }], [wireCall({ id: "fc_1" })]),
+  );
+  const { assistant } = await persistedTurn("projection-readback");
+  const grounding = structuredClone(assistant.grounding!);
+  const failure = grounding.debugTrace!.providerCalls[0].failure!;
+  Object.assign(failure, {
+    responseCorrelation: { source: "response.created", id: hostile },
+    dropped: [
+      { kind: "response.output_text.delta", count: -1, detail: hostile },
+    ],
+    receipt: { receipt: "absent", detail: hostile },
+    rawError: hostile,
+  });
+  const admitted = conversationHistory.admit("projection-write", "Question");
+  conversationHistory.complete(admitted.admission, {
+    content: "Answer",
+    grounding,
+  });
+  const raw = db
+    .prepare(
+      "select grounding_json as value from message where conversation_id='projection-write' and role='assistant'",
+    )
+    .get() as { value: string };
+  expect(raw.value).not.toContain(hostile);
+  // An authored legacy/malformed stored envelope cannot bypass outward projection.
+  db.prepare(
+    "update message set grounding_json=? where conversation_id='projection-write' and role='assistant'",
+  ).run(JSON.stringify(grounding));
+  const read = listRecentChatMessages("projection-write").at(-1)!.grounding;
+  expect(read?.debugTrace?.providerCalls[0].failure).toEqual({
+    category: "incomplete_sdk_decoding",
+    stage: "sdk_decode",
+    status: 200,
+    elapsedMs: expect.any(Number),
+  });
+  expect(JSON.stringify(read)).not.toContain(hostile);
+});
+
 it("readback keeps pre-receipt rows readable and omits the whole trace when the grounding cap requires it", async () => {
   initializeLiveConfiguration(boot);
   modelSettings.save({ modelId: entry.id });
@@ -811,6 +1012,8 @@ it("readback keeps pre-receipt rows readable and omits the whole trace when the 
   // Old rows (pre-T0342) have no receipt and stay readable unchanged.
   const legacyCall = { ...stored.debugTrace!.providerCalls[0] };
   delete legacyCall.failure?.receipt;
+  delete legacyCall.failure?.dropped;
+  delete legacyCall.failure?.responseCorrelation;
   // An oversized trace is compacted; when even compaction cannot fit, the
   // whole debug trace (and so every diagnostic) is omitted, never truncated.
   const huge = "x".repeat(30000);

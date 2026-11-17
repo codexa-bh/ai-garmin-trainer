@@ -1,8 +1,10 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import { APICallError, TypeValidationError, JSONParseError } from "ai";
 import { nativeChatgptCredential } from "./chatgpt-connection";
 import { trainerToolContracts } from "./tool-contracts";
 import {
   RECEIPT_CALL_DIFFERENCES,
+  SDK_DROPPED_KINDS,
   safeFailureCategory,
   safeFailureDiagnostic,
 } from "./provider-errors";
@@ -41,6 +43,35 @@ export class ChatgptRequestError extends Error {
     this.status = this.failure.status;
     this.requestId = this.failure.requestId;
   }
+}
+/** Shared error recognition; never parse dynamic SDK/provider error strings. */
+export function chatgptGenerationFailure(error: unknown): ChatgptRequestError {
+  let current = error;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (current instanceof ChatgptRequestError) return current;
+    if (
+      TypeValidationError.isInstance(current) ||
+      JSONParseError.isInstance(current)
+    )
+      return new ChatgptRequestError(
+        "response_decoding_failed",
+        undefined,
+        undefined,
+        { stage: "sdk_decode" },
+      );
+    if (!APICallError.isInstance(current)) break;
+    if (current.cause) current = current.cause;
+    else
+      return new ChatgptRequestError(
+        Number.isInteger(current.statusCode)
+          ? `http_${current.statusCode}`
+          : "provider_transport_failed",
+        current.statusCode,
+        undefined,
+        { stage: "upstream_request" },
+      );
+  }
+  return new ChatgptRequestError("generation_failed");
 }
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
@@ -217,6 +248,7 @@ function validatedStream(
   names: Set<string>,
   current: () => void,
   receipt: (value: Receipt) => void,
+  created: (value: unknown) => void,
   failure: (
     error: unknown,
     stage: ProviderFailureDiagnostic["stage"],
@@ -251,6 +283,7 @@ function validatedStream(
     }
     if (!record(value) || typeof value.type !== "string")
       throw new ChatgptRequestError("malformed_stream");
+    if (value.type === "response.created") created(value.response);
     if (
       ["response.failed", "response.incomplete", "error"].includes(value.type)
     ) {
@@ -402,11 +435,41 @@ export function chatgptFetch(
   transport: typeof fetch = fetch,
   credential = nativeChatgptCredential,
   receipt: (value: Receipt) => void = () => {},
+  observe: (value: Partial<ProviderFailureDiagnostic>) => void = () => {},
 ): typeof fetch {
   return async (url, init) => {
     const started = performance.now();
     let responseStatus: number | undefined;
     let requestId: string | undefined;
+    let responseCorrelation: ProviderFailureDiagnostic["responseCorrelation"];
+    let createdSeen = false,
+      correlationInvalid = false;
+    const context = () => ({
+      status: responseStatus,
+      requestId,
+      responseCorrelation,
+    });
+    const created = (value: unknown) => {
+      const correlation =
+        record(value) &&
+        typeof value.created_at === "number" &&
+        Number.isFinite(value.created_at) &&
+        typeof value.model === "string"
+          ? safeFailureDiagnostic({
+              category: "request_failed",
+              stage: "sdk_decode",
+              responseCorrelation: { source: "response.created", id: value.id },
+            })?.responseCorrelation
+          : undefined;
+      if (
+        !correlation ||
+        (createdSeen && correlation.id !== responseCorrelation?.id)
+      )
+        correlationInvalid = true;
+      createdSeen = true;
+      responseCorrelation = correlationInvalid ? undefined : correlation;
+      observe(context());
+    };
     let invalidation: ChatgptRequestError | undefined;
     const failure = (
       error: unknown,
@@ -425,6 +488,8 @@ export function chatgptFetch(
         typed?.status ?? responseStatus,
         typed?.requestId ?? requestId,
         {
+          ...typed?.failure,
+          responseCorrelation,
           stage: origin ?? stage,
           elapsedMs: Math.floor(performance.now() - started),
         },
@@ -580,6 +645,7 @@ export function chatgptFetch(
       });
       responseStatus = response.status;
       requestId = response.headers.get("x-request-id") ?? undefined;
+      observe(context());
       current();
       if (!response.ok) {
         stop();
@@ -635,6 +701,7 @@ export function chatgptFetch(
               "sdk_decode",
             ).failure,
           }),
+        created,
         (error, stage) =>
           signal.aborted
             ? failure(
@@ -715,6 +782,30 @@ export function chatgptModel(
   const doStream: typeof identity.doStream = async (options) => {
     const started = performance.now();
     let receipt: Receipt | undefined;
+    let context: Partial<ProviderFailureDiagnostic> = {};
+    const counts = new Map<(typeof SDK_DROPPED_KINDS)[number], number>();
+    const diagnostic = (error: unknown) => {
+      const failure = chatgptGenerationFailure(error);
+      const mismatch = receiptMismatch(receipt, text, calls);
+      return new ChatgptRequestError(
+        failure.code,
+        failure.status ?? context.status,
+        failure.requestId ?? context.requestId,
+        {
+          ...context,
+          ...failure.failure,
+          elapsedMs: Math.floor(performance.now() - started),
+          dropped: SDK_DROPPED_KINDS.filter((kind) => counts.has(kind)).map(
+            (kind) => ({ kind, count: counts.get(kind)! }),
+          ),
+          ...(["incomplete_sdk_decoding", "sdk_text_lifecycle_failed"].includes(
+            failure.code,
+          )
+            ? { receipt: mismatch }
+            : {}),
+        },
+      );
+    };
     const model = createOpenAI({
       name: "chatgpt",
       apiKey: "native-owned-not-an-api-key",
@@ -726,16 +817,67 @@ export function chatgptModel(
         (value) => {
           receipt = value;
         },
+        (value) => {
+          context = value;
+        },
       ),
     }).responses(admission.model);
-    const result = await model.doStream(options);
+    const result = await model.doStream({ ...options, includeRawChunks: true });
     let text = "";
     const calls: { id: string; name: string; input: string }[] = [];
-    return {
-      ...result,
-      stream: result.stream.pipeThrough(
+    const activeText = new Set<string>();
+    let pendingKind: (typeof SDK_DROPPED_KINDS)[number] | undefined;
+    const settleRaw = () => {
+      if (pendingKind)
+        counts.set(pendingKind, (counts.get(pendingKind) ?? 0) + 1);
+      pendingKind = undefined;
+    };
+    const observed = result.stream
+      .pipeThrough(
         new TransformStream({
           transform(part, out) {
+            if (part.type === "raw") {
+              settleRaw();
+              const raw = part.rawValue;
+              // Locked SDK 4.0.15: these exact branches ALWAYS emit a part if
+              // parsed; fallback emits none. Bracket actual handler output,
+              // not a second schema. Restrict item branches to message/call;
+              // valid ignored event/item kinds and future kinds are not drops.
+              if (record(raw)) {
+                if (raw.type === "response.output_text.delta")
+                  pendingKind = raw.type;
+                else if (
+                  (raw.type === "response.output_item.added" ||
+                    raw.type === "response.output_item.done") &&
+                  record(raw.item) &&
+                  ["message", "function_call"].includes(raw.item.type as string)
+                )
+                  pendingKind = raw.type;
+              }
+              return; // Raw values never cross the adapter boundary.
+            }
+            if (part.type === "finish") settleRaw();
+            else pendingKind = undefined; // Actual emitted output/error: not fallback.
+            if (part.type === "error")
+              part = { ...part, error: diagnostic(part.error) };
+            if (part.type === "text-start") activeText.add(part.id);
+            if (part.type === "text-delta" || part.type === "text-end") {
+              if (!activeText.has(part.id)) {
+                out.enqueue({
+                  type: "error",
+                  error: diagnostic(
+                    new ChatgptRequestError(
+                      "sdk_text_lifecycle_failed",
+                      undefined,
+                      undefined,
+                      { stage: "sdk_decode" },
+                    ),
+                  ),
+                });
+                return; // ai would emit a private-ID missing-part string here.
+              }
+              if (part.type === "text-end") activeText.delete(part.id);
+            }
             if (part.type === "text-delta") text += part.delta;
             if (part.type === "tool-call")
               calls.push({
@@ -746,16 +888,13 @@ export function chatgptModel(
             if (part.type === "finish") {
               const mismatch = receiptMismatch(receipt, text, calls);
               if (!receipt || mismatch)
-                throw new ChatgptRequestError(
-                  "incomplete_sdk_decoding",
-                  receipt?.failure?.status,
-                  receipt?.failure?.requestId,
-                  {
-                    ...receipt?.failure,
-                    stage: "sdk_decode",
-                    elapsedMs: Math.floor(performance.now() - started),
-                    receipt: mismatch,
-                  },
+                throw diagnostic(
+                  new ChatgptRequestError(
+                    "incomplete_sdk_decoding",
+                    undefined,
+                    undefined,
+                    { stage: "sdk_decode" },
+                  ),
                 );
               const raw = receipt.usage;
               const details = record(raw.input_tokens_details)
@@ -799,7 +938,31 @@ export function chatgptModel(
             out.enqueue(part);
           },
         }),
-      ),
+      )
+      .getReader();
+    return {
+      ...result,
+      stream: new ReadableStream({
+        async pull(out) {
+          try {
+            const part = await observed.read();
+            if (part.done) out.close();
+            else out.enqueue(part.value);
+          } catch (error) {
+            // A typed upstream failure happens after the preceding synchronous
+            // SDK handler returned. Its pending no-output raw event is fallback,
+            // not a handler exception. Never infer this for an unknown SDK throw.
+            if (
+              error instanceof ChatgptRequestError &&
+              !["generation", "sdk_decode"].includes(error.failure.stage)
+            )
+              settleRaw();
+            // Transport/currentness precedence remains authoritative.
+            out.error(diagnostic(error));
+          }
+        },
+        cancel: (reason) => observed.cancel(reason),
+      }),
     };
   };
   return {

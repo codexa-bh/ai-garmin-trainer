@@ -19,6 +19,7 @@ import {
 
 // One finite authored preparation, exclusively on an existing stopped run copy.
 const root = process.argv[2];
+const diagnostics = process.argv[3] === "diagnostics";
 const integrated = process.argv[3] === "integrated";
 const controls = process.argv[3] === "controls";
 const correction = process.argv[3] === "correction";
@@ -31,13 +32,16 @@ const live =
   correction ||
   compaction ||
   capacity;
-const task = capacity
-  ? "T0274"
-  : integrated || controls || correction || compaction
-    ? "T0272"
-    : "T0270";
+const task = diagnostics
+  ? "T0343"
+  : capacity
+    ? "T0274"
+    : integrated || controls || correction || compaction
+      ? "T0272"
+      : "T0270";
 if (
-  (process.argv.length !== 3 && !(process.argv.length === 4 && live)) ||
+  (process.argv.length !== 3 &&
+    !(process.argv.length === 4 && (live || diagnostics))) ||
   !root ||
   realpathSync(root) !== root ||
   !/^ordinary-[a-f0-9-]{36}$/.test(basename(root))
@@ -214,6 +218,41 @@ conversationHistory.admit(
   "Pre-clear incomplete source must not be promoted or resurrected.",
 );
 summaryStorage.admit(Date.now(), `prepare-${runId}`); // Only records actual backlog discovery; no clock override/provider.
+if (diagnostics) {
+  // Finite authored failed attempt, not fabricated provider/service evidence.
+  // Wait the real existing debounce; no app clock or scheduler bypass.
+  Atomics.wait(
+    new Int32Array(new SharedArrayBuffer(4)),
+    0,
+    0,
+    SUMMARY_DEBOUNCE_MS + 50,
+  );
+  const job = summaryStorage.admit(Date.now(), `diagnostic-${runId}`);
+  if (!job) throw new Error("Authored diagnostic admission unavailable");
+  summaryStorage.fail(job, "summary_provider_failure", Date.now(), undefined, {
+    category: "incomplete_sdk_decoding",
+    stage: "sdk_decode",
+    status: 200,
+    elapsedMs: 12,
+    requestId: "req_authored",
+    responseCorrelation: {
+      source: "response.created",
+      id: "resp_67bd65392a088191a3b802a61f4fba14",
+    },
+    receipt: {
+      receipt: "present",
+      text: "different",
+      calls: "mismatch",
+      observedCalls: 0,
+      receiptCalls: 1,
+      callDifferences: ["count"],
+    },
+    dropped: [
+      { kind: "response.output_item.added", count: 1 },
+      { kind: "response.output_item.done", count: 1 },
+    ],
+  });
+}
 console.log(
   JSON.stringify({
     task,
@@ -238,19 +277,21 @@ console.log(
           },
         }
       : {}),
-    variant: capacity
-      ? "memory-capacity"
-      : compaction
-        ? "integrated-compaction"
-        : correction
-          ? "integrated-correction"
-          : controls
-            ? "integrated-controls"
-            : integrated
-              ? "integrated-summary"
-              : live
-                ? "live-summary"
-                : "keyless",
+    variant: diagnostics
+      ? "keyless-diagnostics"
+      : capacity
+        ? "memory-capacity"
+        : compaction
+          ? "integrated-compaction"
+          : correction
+            ? "integrated-correction"
+            : controls
+              ? "integrated-controls"
+              : integrated
+                ? "integrated-summary"
+                : live
+                  ? "live-summary"
+                  : "keyless",
     ...(live ? { conversationId: `${task}-${runId}-A` } : {}),
     providerCalls: 0,
     source: "authored synthetic preparation on stopped copy",
