@@ -867,22 +867,11 @@ mod os {
             nt_open(
                 dir,
                 name,
-                DIR_ACCESS | DELETE,
+                DIR_ACCESS,
                 FILE_OPEN,
                 FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
                 None,
-            )
-            .or_else(|_| {
-                // Ancestors we do not own (C:\Users) never grant DELETE.
-                nt_open(
-                    dir,
-                    name,
-                    DIR_ACCESS,
-                    FILE_OPEN,
-                    FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
-                    None,
-                )
-            })?,
+            )?,
             true,
         )
     }
@@ -908,10 +897,12 @@ mod os {
         )
     }
     pub fn create_at(dir: &File, name: &OsStr) -> io::Result<File> {
+        // No DELETE access on held handles: SQLite and other readers open
+        // without FILE_SHARE_DELETE and would otherwise hit sharing violations.
         nt_open(
             dir,
             name,
-            GENERIC_READ | GENERIC_WRITE | DELETE | READ_CONTROL | SYNCHRONIZE,
+            GENERIC_READ | GENERIC_WRITE | READ_CONTROL | SYNCHRONIZE,
             FILE_CREATE,
             FILE_NON_DIRECTORY_FILE,
             Some(&private_descriptor(false)?),
@@ -931,17 +922,29 @@ mod os {
             Err(error) => Err(error),
         }
     }
-    /// Rename the already-open `source` (opened with DELETE access) to `to`,
-    /// resolved relative to the pinned `dir` handle, never by path.
+    /// Rename the object held as `source` to `to`, both relative to the pinned
+    /// `dir` handle, never by path. A short-lived DELETE handle is opened by
+    /// name and must be the same file ID as `source` before it is renamed.
     pub fn rename_at(
         dir: &File,
-        _from: &OsStr,
+        from: &OsStr,
         source: &File,
         to: &OsStr,
         replace: bool,
     ) -> io::Result<()> {
         if !super::valid_name(to) {
             return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let moving = nt_open(
+            dir,
+            from,
+            DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+            FILE_OPEN,
+            FILE_OPEN_REPARSE_POINT,
+            None,
+        )?;
+        if id(&moving)? != id(source)? {
+            return Err(io::Error::other("rename source identity changed"));
         }
         let units: Vec<u16> = to.encode_wide().collect();
         let offset = std::mem::offset_of!(FILE_RENAME_INFORMATION, FileName);
@@ -966,7 +969,7 @@ mod os {
         let mut status: IO_STATUS_BLOCK = unsafe { zeroed() };
         let result = unsafe {
             NtSetInformationFile(
-                handle(source),
+                handle(&moving),
                 &mut status,
                 buffer.as_ptr() as *const c_void,
                 length as u32,
@@ -1188,6 +1191,27 @@ pub mod testing {
         }
         #[cfg(windows)]
         super::os::set_dacl(path, "D:P(A;;FA;;;{user})(A;;FA;;;SY)(A;;FR;;;WD)");
+    }
+    /// Remove a symbolic link (Windows directory links are directories).
+    pub fn remove_link(link: impl AsRef<Path>) {
+        let link = link.as_ref();
+        #[cfg(windows)]
+        if fs::remove_dir(link).is_ok() {
+            return;
+        }
+        fs::remove_file(link).unwrap();
+    }
+    /// Rename a directory that may hold an open handle elsewhere. Windows refuses
+    /// renaming a directory while any handle to it is open, which is itself a
+    /// stronger guarantee than the Unix parent-swap race these tests model.
+    pub fn try_swap_dir(from: &Path, to: &Path) -> bool {
+        match fs::rename(from, to) {
+            Ok(()) => true,
+            Err(error) if cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied => {
+                false
+            }
+            Err(error) => panic!("{error}"),
+        }
     }
     /// A symbolic link (Windows test hosts need symlink privilege, as on CI;
     /// a missing Windows target is linked as a file).

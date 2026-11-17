@@ -162,12 +162,13 @@ mod tests {
     #[test]
     fn only_valid_successful_empty_inventory_proves_missing_python() {
         assert_eq!(installed_python(b"[]"), Python::Missing);
-        assert_eq!(
-            installed_python(
-                br#"[{"version_parts":{"major":3,"minor":12},"path":"/synthetic/python"}]"#
-            ),
-            Python::Available
-        );
+        // uv reports host-absolute interpreter paths.
+        let synthetic = if cfg!(windows) {
+            br#"[{"version_parts":{"major":3,"minor":12},"path":"C:\\synthetic\\python.exe"}]"#.as_slice()
+        } else {
+            br#"[{"version_parts":{"major":3,"minor":12},"path":"/synthetic/python"}]"#.as_slice()
+        };
+        assert_eq!(installed_python(synthetic), Python::Available);
         for bytes in [
             b"private stderr Python not found".as_slice(),
             b"null",

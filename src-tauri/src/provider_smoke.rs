@@ -253,7 +253,7 @@ mod tests {
             assert!(activation(&path, &production, mode).is_err(), "{mutation}");
         }
         fs::write(&path, serde_json::to_vec(&base).unwrap()).unwrap();
-        fs::write(run.join("tokens/unexpected"), b"synthetic").unwrap();
+        fs::write(run.join("tokens").join("unexpected"), b"synthetic").unwrap();
         assert!(activation(&path, &production, mode).is_err());
         assert_eq!(fs::read(&source).unwrap(), before);
         assert!(serde_json::from_value::<Mode>(serde_json::json!(
@@ -308,7 +308,7 @@ mod tests {
             assert_eq!(fs::read(&source).unwrap(), before);
         }
         fs::write(&path, serde_json::to_vec(&base).unwrap()).unwrap();
-        fs::write(run.join("tokens/unexpected"), b"synthetic-not-a-token").unwrap();
+        fs::write(run.join("tokens").join("unexpected"), b"synthetic-not-a-token").unwrap();
         assert!(activation(&path, &production, Mode::SummaryLuna100).is_err());
         assert_eq!(fs::read(&source).unwrap(), before);
         assert!(

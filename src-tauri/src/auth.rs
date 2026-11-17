@@ -519,7 +519,7 @@ mod tests {
     #[test]
     fn managed_root_creation_refuses_aliases_and_insecure_existing_objects() {
         let root = private_root("trainer-managed");
-        let managed = root.join("app/private");
+        let managed = root.join("app").join("private");
         let mut auth = Auth::default();
         // No real library/network: a nonexistent executable exercises allocation/preflight.
         assert!(auth
@@ -574,16 +574,16 @@ mod tests {
         let (mut auth, root) = simulated("verifying", "verified", false);
         token_output(&root.join("stage"));
         fs::create_dir(root.join("previous")).unwrap();
-        fs::write(root.join("previous/original"), "preserved").unwrap();
+        fs::write(root.join("previous").join("original"), "preserved").unwrap();
         let result = auth.status().unwrap();
         assert_eq!(result.id, "exact-session");
         assert_eq!(result.state, "succeeded");
         assert_eq!(result.destination.as_deref(), root.join("unused").to_str());
         assert!(auth.session.is_none());
         assert_eq!(auth.cancel("exact-session").unwrap().state, "succeeded");
-        assert!(root.join("unused/garmin_tokens.json").exists());
+        assert!(root.join("unused").join("garmin_tokens.json").exists());
         assert_eq!(
-            fs::read_to_string(root.join("previous/original")).unwrap(),
+            fs::read_to_string(root.join("previous").join("original")).unwrap(),
             "preserved"
         );
         fs::remove_dir_all(root).unwrap();
@@ -594,10 +594,18 @@ mod tests {
             let (mut auth, root) = simulated("verifying", "verified", false);
             token_output(&root.join("stage"));
             let moved = root.with_extension("retained");
+            #[allow(unused_assignments, unused_mut)]
+            let mut continue_with_original = false;
             match surface {
                 "parent" => {
-                    fs::rename(&root, &moved).unwrap();
-                    private_dir(&root);
+                    if !crate::private_fs::testing::try_swap_dir(&root, &moved) {
+                        // Windows refuses the swap under the session's pinned handle;
+                        // an insecure substituted token must still refuse publication.
+                        make_shared(root.join("stage").join("garmin_tokens.json"));
+                        continue_with_original = true;
+                    } else {
+                        private_dir(&root);
+                    }
                 }
                 "staging" => {
                     fs::rename(root.join("stage"), root.join("original-stage")).unwrap();
@@ -605,7 +613,7 @@ mod tests {
                     token_output(&root.join("stage"));
                 }
                 _ => fs::hard_link(
-                    root.join("stage/garmin_tokens.json"),
+                    root.join("stage").join("garmin_tokens.json"),
                     root.join("retained-link"),
                 )
                 .unwrap(),
@@ -615,7 +623,7 @@ mod tests {
             assert_eq!(result.code.as_deref(), Some("publication-refused"));
             assert!(result.destination.is_none());
             assert!(!root.join("unused").exists());
-            if surface == "parent" {
+            if surface == "parent" && !continue_with_original {
                 assert!(moved.join("stage").exists());
                 fs::remove_dir_all(moved).unwrap();
             }

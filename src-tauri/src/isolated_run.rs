@@ -660,7 +660,7 @@ mod tests {
             root.join("trainer.sqlite"),
             b"identity-only fixture; production DB validators still bind".to_vec(),
         );
-        write(root.join("config/settings-v2.json"), serde_json::to_vec(&serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap());
+        write(root.join("config").join("settings-v2.json"), serde_json::to_vec(&serde_json::json!({"version":2,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap());
         let path = root.join("launch.json");
         write(path.clone(), serde_json::to_vec(&serde_json::json!({"schemaVersion":2,"runId":id,"root":root,"sourceFingerprint":"a".repeat(64),"buildSourceFingerprint":"d".repeat(64),"buildContext":"e".repeat(64),"artifactInventoryHash":"b".repeat(64),"controlPort":23567,"capability":"c".repeat(64)})).unwrap());
         (root, path)
@@ -722,7 +722,7 @@ mod tests {
     #[test]
     fn missing_settings_and_fresh_database_need_exact_explicit_history_scope() {
         let (root, path) = fixture();
-        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
         let mut descriptor: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -730,14 +730,14 @@ mod tests {
         fs::write(&path, serde_json::to_vec(&descriptor).unwrap()).unwrap();
         let existing = Admission::admit(&path, |_| Ok(())).unwrap();
         assert!(existing.verify_settings().is_ok());
-        let newest = root.join("config/settings-v3.json");
+        let newest = root.join("config").join("settings-v3.json");
         assert_eq!(existing.settings(), newest);
         let saved = serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":crate::chat_catalog::Catalog::default()});
         fs::write(&newest, serde_json::to_vec(&saved).unwrap()).unwrap();
         make_private(&newest);
         assert!(existing.verify_settings().is_ok());
         fs::remove_file(&newest).unwrap();
-        let conflict = root.join("config/settings-v2.json");
+        let conflict = root.join("config").join("settings-v2.json");
         fs::write(&conflict, serde_json::to_vec(&saved).unwrap()).unwrap();
         make_private(&conflict);
         assert!(existing.verify_settings().is_err()); // Filename/version guard remains binding.
@@ -791,7 +791,7 @@ mod tests {
         ]);
         let authored_catalog: crate::chat_catalog::Catalog = serde_json::from_value(serde_json::json!({"version":1,"entries":[{"id":"entry_summary_local","provider":"ollama","modelId":"synthetic-memory:small"},{"id":"entry_summary_cloud","provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null})).unwrap();
         let saved = serde_json::json!({"version":3,"fields":fields,"keys":{},"chatCatalog":authored_catalog.clone()});
-        let v3 = root.join("config/settings-v3.json");
+        let v3 = root.join("config").join("settings-v3.json");
         fs::write(&v3, serde_json::to_vec(&saved).unwrap()).unwrap();
         make_private(&v3);
         let admission = Admission::admit(&path, |_| Ok(())).unwrap();
@@ -848,7 +848,7 @@ mod tests {
     #[test]
     fn native_creation_and_identity_binding_are_one_observed_transition() {
         let (root, path) = fixture();
-        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
         fs::remove_file(root.join("trainer.sqlite")).unwrap();
         let mut descriptor: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -903,7 +903,7 @@ mod tests {
             .initialize_created_database(|| panic!("Out-of-scope mutation"))
             .is_err());
         drop(existing);
-        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
         fs::remove_file(root.join("trainer.sqlite")).unwrap();
         let mut descriptor: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -966,16 +966,16 @@ mod tests {
     #[test]
     fn newest_file_backed_authority_stays_confined_without_invalid_or_legacy_fallback() {
         let (root, path) = fixture();
-        let prior = fs::read(root.join("config/settings-v2.json")).unwrap();
+        let prior = fs::read(root.join("config").join("settings-v2.json")).unwrap();
         let admission = Admission::admit(&path, |_| Ok(())).unwrap();
-        let next = root.join("config/settings-v3.json");
+        let next = root.join("config").join("settings-v3.json");
         let mut value = serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":crate::chat_catalog::Catalog::default()});
         fs::write(&next, serde_json::to_vec(&value).unwrap()).unwrap();
         make_private(&next);
         assert_eq!(admission.settings(), next);
         assert!(admission.verify_settings().is_ok());
         assert_eq!(
-            fs::read(root.join("config/settings-v2.json")).unwrap(),
+            fs::read(root.join("config").join("settings-v2.json")).unwrap(),
             prior
         );
         value["fields"]["DATABASE_PATH"] = serde_json::json!("/normal/trainer.sqlite");
@@ -987,12 +987,12 @@ mod tests {
         drop(admission);
         assert!(Admission::admit(&path, |_| Ok(())).is_err());
         assert_eq!(
-            fs::read(root.join("config/settings-v2.json")).unwrap(),
+            fs::read(root.join("config").join("settings-v2.json")).unwrap(),
             prior
         );
         fs::remove_file(next).unwrap();
-        fs::remove_file(root.join("config/settings-v2.json")).unwrap();
-        let legacy = root.join("config/settings-v1.json");
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
+        let legacy = root.join("config").join("settings-v1.json");
         fs::write(&legacy, serde_json::to_vec(&serde_json::json!({"version":1,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")}})).unwrap()).unwrap();
         make_private(&legacy);
         assert!(Admission::admit(&path, |_| Ok(())).is_err());

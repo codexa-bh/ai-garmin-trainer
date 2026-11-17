@@ -228,8 +228,8 @@ fn valid(document: &Document) -> bool {
 impl Owner {
     pub fn start(root: &Path, resources: &Path) -> Result<Arc<Self>, &'static str> {
         let root = root.join("chatgpt-v1");
-        let path = root.join("records/credentials-v2.json");
-        let legacy = root.join("records/credentials-v1.json");
+        let path = root.join("records").join("credentials-v2.json");
+        let legacy = root.join("records").join("credentials-v1.json");
         let source_path = if present(&path)? { path.clone() } else if present(&legacy)? { legacy } else { path.clone() };
         // Newest presence is authoritative, including unsafe/unsupported objects.
         // Legacy reads never migrate; the first explicit write exclusively publishes v2.
@@ -1337,7 +1337,7 @@ mod tests {
             second.id = format!("registration_{}", uuid::Uuid::new_v4());
             second.subject = "other-authored-subject".into();
             let document = Document { version: 1, host_id: format!("urn:uuid:{}",uuid::Uuid::new_v4()), registrations: if multiple { vec![first.clone(),second.clone()] } else { vec![first.clone()] }, active_registration_id: None };
-            let legacy = fixture.0.join("chatgpt-v1/records/credentials-v1.json");
+            let legacy = fixture.0.join("chatgpt-v1").join("records").join("credentials-v1.json");
             let bytes = serde_json::to_vec(&document).unwrap();
             assert!(crate::private_store::publish(&legacy,&bytes,None).unwrap());
             let owner = Owner::start(&fixture.0,&fixture.0).unwrap();
@@ -1371,7 +1371,7 @@ mod tests {
     fn newer_presence_and_migration_races_refuse_without_legacy_fallback_or_overwrite() {
         let fixture=Fixture::new();
         let first=registration();
-        let legacy=fixture.0.join("chatgpt-v1/records/credentials-v1.json");
+        let legacy=fixture.0.join("chatgpt-v1").join("records").join("credentials-v1.json");
         let document=Document { version:1,host_id:format!("urn:uuid:{}",uuid::Uuid::new_v4()),registrations:vec![first],active_registration_id:None };
         let original=serde_json::to_vec(&document).unwrap();
         crate::private_store::publish(&legacy,&original,None).unwrap();
@@ -1386,8 +1386,8 @@ mod tests {
         assert_eq!(crate::private_store::read(&owner.path).unwrap(),unsupported);
         for alias in [false,true] {
             let fresh=Fixture::new();
-            let old=fresh.0.join("chatgpt-v1/records/credentials-v1.json");
-            let newest=fresh.0.join("chatgpt-v1/records/credentials-v2.json");
+            let old=fresh.0.join("chatgpt-v1").join("records").join("credentials-v1.json");
+            let newest=fresh.0.join("chatgpt-v1").join("records").join("credentials-v2.json");
             crate::private_store::publish(&old,&original,None).unwrap();
             if alias { crate::private_fs::testing::symlink(&old,&newest).unwrap(); }
             else { crate::private_store::publish(&newest,unsupported,None).unwrap(); }

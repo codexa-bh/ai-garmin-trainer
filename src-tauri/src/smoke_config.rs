@@ -291,12 +291,12 @@ impl Config {
             )
     }
     pub fn settings(&self) -> PathBuf {
-        let next = self.root.join("config/settings-v3.json");
+        let next = self.root.join("config").join("settings-v3.json");
         if !matches!(fs::symlink_metadata(&next), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
         {
             next
         } else {
-            self.root.join("config/settings-v2.json")
+            self.root.join("config").join("settings-v2.json")
         }
     }
     pub fn identifier(&self) -> String {
@@ -608,7 +608,7 @@ mod tests {
             assert!(!config.accepts_fields(&provider_fields));
             fs::remove_file(root.join("live-provider")).unwrap();
         }
-        let next = root.join("config/settings-v3.json");
+        let next = root.join("config").join("settings-v3.json");
         let projected = crate::chat_catalog::legacy(&input.fields, &Default::default());
         let version3 = serde_json::json!({"version":3,"keys":{},"fields":input.fields,"chatCatalog":projected});
         write(&next, version3.to_string().as_bytes());
@@ -660,7 +660,7 @@ mod tests {
             port: 12345,
         };
         assert!(config.validate().is_err());
-        fs::remove_file(alias).unwrap();
+        crate::private_fs::testing::remove_link(&alias);
         fs::remove_dir(path).unwrap();
     }
 }

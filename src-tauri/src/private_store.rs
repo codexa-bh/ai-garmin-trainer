@@ -298,16 +298,25 @@ mod tests {
             b"next",
             Some(b"original"),
             |_| {
-                fs::rename(&parent, &retained).unwrap();
-                private_dir(&parent);
-                Ok(())
+                if crate::private_fs::testing::try_swap_dir(&parent, &retained) {
+                    private_dir(&parent);
+                    Ok(())
+                } else {
+                    Err("Windows refused swapping the pinned parent")
+                }
             },
             false
         )
         .is_err());
-        assert!(!path.exists());
-        assert_eq!(read(&retained.join("settings.json")).unwrap(), b"original");
-        assert_eq!(fs::read_dir(&retained).unwrap().count(), 1);
+        if retained.exists() {
+            assert!(!path.exists());
+            assert_eq!(read(&retained.join("settings.json")).unwrap(), b"original");
+            assert_eq!(fs::read_dir(&retained).unwrap().count(), 1);
+        } else {
+            // Windows: the swap itself was refused; the original stays authoritative.
+            assert_eq!(read(&path).unwrap(), b"original");
+            assert_eq!(fs::read_dir(&parent).unwrap().count(), 1);
+        }
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -343,6 +352,7 @@ mod tests {
         let alias = root.join("parent-alias");
         symlink(&root, &alias).unwrap();
         assert!(read(&alias.join("settings.json")).is_err());
+        crate::private_fs::testing::remove_link(&alias);
         make_shared(&root);
         assert!(read(&path).is_err());
         make_private(&root);

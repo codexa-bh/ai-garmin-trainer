@@ -339,13 +339,18 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            let mut command = Command::new("powershell.exe");
+            // The test host's Node (on PATH in CI): a child that spawns a
+            // detached-console grandchild and prints its PID.
+            let node = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+                .map(|dir| dir.join("node.exe"))
+                .find(|path| path.is_file())
+                .expect("Node on PATH for the synthetic process fixture");
+            let mut command = Command::new(node);
             command.args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
+                "-e",
                 &format!(
-                    "$p = Start-Process -NoNewWindow -PassThru ping.exe -ArgumentList '-n','90','127.0.0.1'; [Console]::Out.WriteLine($p.Id); [Console]::Out.Flush(); Start-Sleep -Seconds {seconds}"
+                    "const c=require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{{}},90000)'],{{stdio:'ignore'}});console.log(c.pid);setTimeout(()=>process.exit(0),{}*1000)",
+                    seconds
                 ),
             ]);
             command
