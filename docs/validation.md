@@ -8,6 +8,10 @@ existing full `validate` still adds the production Next build. See
 [project guardrails](project-guardrails.md) for blocking lint/graph/Knip ownership;
 none of those gates or deterministic tests is removed by the fast profile.
 
+## Windows x64 job
+
+The `Windows x64` workflow runs on pull requests and `main` on a hosted Windows Server 2025 x64 runner (not Windows 11). It records exact source, image, OS build and toolchain, then runs Python release/identity contract tests, `desktop:resources` with the pinned Windows Node/SQLite probe, locked native tests (Windows private ACL/handle/rename/lock and Job Object process-tree tests), focused JS/TS tests, `desktop:build` (unsigned per-user NSIS installer), non-installing `release.py package/verify --platform windows-x64` and the synthetic `windows_backend_smoke.py`. No artifacts are uploaded and no credentials, private data or real services are used. Installer execution, native window/input and Windows 11 qualification remain unexercised; see [Windows evidence limits](windows.md#evidence-and-deferred-qualification).
+
 ## Change-gated native nightly
 
 `Nightly macOS` runs daily at **02:17 UTC** or manually on main. A Linux metadata

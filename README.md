@@ -44,7 +44,9 @@ Captured on 18 September 2026 from the loopback development app at a 1440-pixel 
 
 ## Installation
 
-The sole supported product is the **local macOS ARM64 Tauri app** with bundled Node. Standalone browser development/start/restart/bootstrap support has been removed, including its wrappers and automatic Ollama preparation. Next.js remains internal desktop rendering/backend/build technology, not a second product launch path. Other platforms are unsupported.
+The supported product is the **local macOS ARM64 Tauri app** with bundled Node. Standalone browser development/start/restart/bootstrap support has been removed, including its wrappers and automatic Ollama preparation. Next.js remains internal desktop rendering/backend/build technology, not a second product launch path.
+
+A **Windows x64 build foundation** (source build and unsigned per-user NSIS installer, tested in CI on Windows Server) also exists; it is **not** qualified on Windows 11 and has no release. See [Windows x64 build foundation](docs/windows.md). Other platforms are unsupported.
 
 This advanced-user setup from the **public repository** is cross-checked against scripts, not clean-machine certification. Follow [desktop build, private-state adoption and recovery](docs/desktop.md) too. The initial **[0.1.1 stable/Latest macOS ARM64 download](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.1)** is available. It is unsigned and not notarized. The [release runbook](docs/release.md#published-011) records its exact source/checksums and separates manual downloads from source builds. Neither is clean-machine or real-service certification. Existing-data upgrades still require matching source CLI/dependencies, stopped owners and verified backups.
 
@@ -186,7 +188,7 @@ Latest has no artificial dispatch spacing; serial cancellation, limits and fatal
 
 ## Validation
 
-Run `npm run validate` for all static/deterministic checks and the production build. Routine Ubuntu PR/main CI uses `validate:ci` without production/native builds; a change-gated 02:17 UTC macOS ARM64 nightly adds full validation/reliability/resources/native tests and one synthetic Goals save/restart. Exact reproduction, unchanged-failure skip policy and coverage limits are documented in [validation](docs/validation.md). A successful build is not proof of working Garmin authentication, remote-provider readiness, or clean-machine setup.
+Run `npm run validate` for all static/deterministic checks and the production build. Routine Ubuntu PR/main CI uses `validate:ci` without production/native builds; a `Windows x64` job builds and verifies the Windows foundation on Windows Server; a change-gated 02:17 UTC macOS ARM64 nightly adds full validation/reliability/resources/native tests and one synthetic Goals save/restart. Exact reproduction, unchanged-failure skip policy and coverage limits are documented in [validation](docs/validation.md). A successful build is not proof of working Garmin authentication, remote-provider readiness, or clean-machine setup.
 
 ## Safety and privacy
 

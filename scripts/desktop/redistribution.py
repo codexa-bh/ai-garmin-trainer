@@ -111,14 +111,15 @@ def npm_notices(root, excluded=()):
     return packages, texts
 
 
-def native_sources(root, destination):
+def native_sources(root, destination, triple):
+    """The selected platform's locked Cargo source closure (build deps included)."""
     vendor = root / 'dist/desktop-license-crates'
     subprocess.run(['cargo', 'vendor', '--locked', '--manifest-path', 'src-tauri/Cargo.toml',
                     '--versioned-dirs', str(vendor)], cwd=root, check=True,
                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
     metadata = json.loads(subprocess.check_output(
         ['cargo', 'metadata', '--locked', '--manifest-path', 'src-tauri/Cargo.toml',
-         '--format-version', '1', '--filter-platform', 'aarch64-apple-darwin'],
+         '--format-version', '1', '--filter-platform', triple],
         cwd=root, timeout=90))
     # Cargo's generated registry-package block; unknown/git sources fail closed.
     locked = {(name, version): checksum for name, version, checksum in re.findall(
@@ -173,7 +174,10 @@ def assemble(root):
     for entry, path in zip(reviewed['sources'], inputs):
         shutil.copyfile(path, sources / entry['file'])
         texts.extend((entry['name'] + '/' + name, text) for name, text in archive_notices(path))
-    native, native_texts = native_sources(root, sources / 'native-crates.tar.gz')
+    import platform_target
+    platform_id = platform_target.host()
+    triple = platform_target.target(platform_id)['triple']
+    native, native_texts = native_sources(root, sources / 'native-crates.tar.gz', triple)
     npm, npm_texts = npm_notices(root, reviewed['excludedRuntime'])
     texts.extend(native_texts)
     texts.extend(npm_texts)
@@ -184,7 +188,7 @@ def assemble(root):
                      'Source, attribution and limited permissions: see ../REDISTRIBUTION-REVIEW.txt.\n\n')
         for name, text in texts:
             stream.write('\n===== ' + name + ' =====\n' + text + '\n')
-    public = {'version': 1, 'npmLockSha256': digest((root / 'package-lock.json').read_bytes()),
+    public = {'version': 1, 'platform': platform_id, 'target': triple, 'npmLockSha256': digest((root / 'package-lock.json').read_bytes()),
               'cargoLockSha256': digest((root / 'src-tauri/Cargo.lock').read_bytes()),
               'reviewedSources': reviewed['sources'], 'native': native, 'npm': npm,
               'nativeSourceArchiveSha256': digest((sources / 'native-crates.tar.gz').read_bytes())}

@@ -43,7 +43,9 @@ The standard process for a routine version/notes cut, after the same four steps 
 
 **Gates.** Authority for the cut comes from the operator's request for it; there is no separate residual-risk or tuple approval step. Failed checks or guardrails, unsafe or changed source or bytes, publication ambiguity, protection or review refusals, and missing credentials stop. Never bypass them, edit a stamp, or retarget a tag.
 
-**No local app side effects.** A release never installs, opens or replaces the operator's app or changes system trust. Unsigned means no signing identity, no notarization and no PKG: the DMG is the only binary asset.
+**No local app side effects.** A release never installs, opens or replaces the operator's app or changes system trust. Unsigned means no signing identity, no notarization and no PKG: the DMG is the only macOS binary asset.
+
+**Platforms.** Artifact commands take `--platform macos-arm64|windows-x64`; the default keeps every existing command's macOS meaning. Each platform's artifact is built, packaged and verified only on its own native host. The [Windows x64 foundation](windows.md) is CI-tested only and is not part of any release until a separately requested Windows 11 qualification; see [Multi-platform release sets](#multi-platform-release-sets).
 
 **Readiness inputs.** `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, `scripts/desktop/runtime-inputs.json`, `scripts/desktop/redistribution-inputs.json`, `scripts/desktop/redistribution.py`, `scripts/desktop/assemble.mjs`, `scripts/desktop/garmin_auth.py.lock`, `docs/redistribution.md`, `.github/` and the local toolchain versions. An unchanged set means the settled [redistribution basis](redistribution.md) is reused and only the version mirrors differ; it never skips the assembler's notice and source checks or the advisory refresh. Unchanged lock versions can still have new advisories. Query the native crates in the macOS ARM64 build closure (`cargo metadata --filter-platform aarch64-apple-darwin`), not every lock-file crate, and record any wider result separately.
 
@@ -157,6 +159,17 @@ GitHub may return 404 from release-by-tag for an existing authorized draft. The 
 **Publication is separate**: repeat the same inputs with `publish` and `--execute`, selecting `--prerelease yes|no` and `--latest yes|no` explicitly. A prerelease version requires prerelease=yes and latest=no. Stable versions require prerelease=no; choosing latest is still explicit. Publication verifies tag target, draft/body/warnings, complete exact asset set, each size/digest (bounded download/hash fallback when provider digest is absent), and unchanged local bytes before PATCH. Matching already-published state is only an observation, never republished. The checksum is integrity evidence, not authentication of the publisher.
 
 Every remote invocation prints a private evidence journal path before effects. Mutations are recorded as **unknown until reconciled** before issuing the request; timeout, auth/network failure, cancellation or lost publication response is not rollback. Do not blindly retry. Preserve journal and original error, then use `status` with the same inputs to observe exact tag/ref/release/asset IDs and hashes. A matching outcome is observed, conflicting state requires an owner decision, unavailable state stays unknown. No automatic closer/remote retry worker exists. Public GitHub release bodies include reviewed notes plus source, signing caveat and digest, never whole scratch, private paths, DBs or screenshots. All foundation remote tests are mocked, not provider certification.
+
+## Multi-platform release sets
+
+Published 0.1.x releases are macOS-only and keep their single `release.json` (record `schemaVersion` 1, DMG, checksum); they are never rewritten. A future release that includes more than one platform is described by a versioned `release-set.json` (`schemaVersion` 1):
+
+- an explicit, nonempty, ordered `platforms` list (`macos-arm64`, `windows-x64`); omitted platforms are not present or certified;
+- one canonical repository, full clean commit, version/tag and notes SHA-256 shared by every platform;
+- per platform: its record name, target, original-source/build-source/build-context/inventory/payload identities, signing text (Windows: unsigned, no Authenticode; never "notarized") and every asset's exact name, size and SHA-256 (installer/DMG, checksum, record);
+- `verification`: portable digests only.
+
+Per-platform records (`release.json` for macOS, schema 1 or 2; `release-windows-x64.json`, schema 2 with `platform`) come from `package` and `verify` on each native host, where the original producer is re-admitted. `npm run release -- release-set --version "$VERSION" --scratch "$SCRATCH" --platform-record <record> [--platform-record <record>]` assembles a set anywhere by checking the exact bytes of those records and assets. That check is digest-only: it does not re-admit another host's producer and gives a copied record no producer authority. Mixed source/version/notes, duplicate or unsupported platforms, colliding asset names, changed bytes, malformed records and Windows "notarization" claims refuse. The existing publisher selects exactly the set's assets plus `release-set.json`, writes one body listing each platform's artifact digest and signing text, and keeps dry-run defaults, separate draft/publish, no overwrite or tag movement, and read-only reconciliation of unknown effects. Multi-platform remote effects are so far exercised only against fake providers.
 
 ## Manual download and app placement — only after an actual authorized release
 

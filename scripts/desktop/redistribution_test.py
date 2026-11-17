@@ -139,9 +139,11 @@ class RedistributionTests(unittest.TestCase):
                                  'license': 'MPL-2.0', 'manifest_path': '/private/never-public'},
                                 {'name': 'first-party', 'source': None, 'version': '0.1.1'}]}
         with patch.object(notices.subprocess, 'run'), patch.object(
-                notices.subprocess, 'check_output', return_value=json.dumps(metadata).encode()):
+                notices.subprocess, 'check_output', return_value=json.dumps(metadata).encode()) as metadata_call:
             destination = self.root / 'native.tgz'
-            packages, texts = notices.native_sources(self.root, destination)
+            packages, texts = notices.native_sources(self.root, destination, 'x86_64-pc-windows-msvc')
+            # The closure is the selected platform's, never another target's.
+            self.assertEqual(metadata_call.call_args.args[0][-1], 'x86_64-pc-windows-msvc')
             self.assertNotIn('/private/', json.dumps(packages))
             self.assertEqual(texts, [('component-1.0.0/LICENSE', data.decode())])
             with tarfile.open(destination) as archive:
@@ -151,7 +153,7 @@ class RedistributionTests(unittest.TestCase):
                 self.assertEqual(archive.extractfile(member).read(), data)
             (directory / 'LICENSE').write_bytes(b'changed')
             with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
-                notices.native_sources(self.root, self.root / 'failed.tgz')
+                notices.native_sources(self.root, self.root / 'failed.tgz', 'aarch64-apple-darwin')
 
 
 if __name__ == '__main__':
