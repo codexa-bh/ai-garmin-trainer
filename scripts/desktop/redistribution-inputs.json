@@ -7,7 +7,7 @@
     "node_modules/next/dist/compiled/@vercel/og"
   ],
   "basis": {
-    "node_modules/next/package.json": "16.4.3",
+    "node_modules/next/package.json": "16.4.6",
     "node_modules/@resvg/resvg-wasm/package.json": "2.6.2"
   },
   "sources": [
