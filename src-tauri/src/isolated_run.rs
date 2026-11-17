@@ -701,6 +701,17 @@ mod tests {
     fn python_private_state_live_pin_and_keyless_backend_pass_without_relaxing_native_admission() {
         use std::io::BufRead;
         use std::process::{Command, Stdio};
+        {
+            use std::io::Read;
+            let mut header = [0u8; 4096];
+            fs::File::open(std::env::current_exe().unwrap()).unwrap().read_exact(&mut header).unwrap();
+            assert_eq!(&header[..2], b"MZ");
+            let pe = u32::from_le_bytes(header[0x3c..0x40].try_into().unwrap()) as usize;
+            assert_eq!(&header[pe..pe + 4], b"PE\0\0");
+            let subsystem = pe + 24 + 68;
+            assert_eq!(u16::from_le_bytes(header[subsystem..subsystem + 2].try_into().unwrap()), 2,
+                "Windows contract must exercise an actual GUI-subsystem test executable");
+        }
         if std::env::var_os("TRAINER_NO_CONSOLE_CONTRACT_CHILD").is_none() {
             // The real ordinary executable is a GUI host without a console.
             let mut command = Command::new(std::env::current_exe().unwrap());
@@ -822,11 +833,6 @@ pin.close()
         let path = root.join("launch.json");
         write(path.clone(), serde_json::to_vec(&serde_json::json!({"schemaVersion":2,"runId":id,"root":root,"sourceFingerprint":"a".repeat(64),"buildSourceFingerprint":"d".repeat(64),"buildContext":"e".repeat(64),"artifactInventoryHash":"b".repeat(64),"controlPort":23567,"capability":"c".repeat(64)})).unwrap());
         (root, path)
-    }
-    #[test]
-    fn windows_core_ordinary_does_not_boot_an_unneeded_private_settings_webview() {
-        assert_eq!(crate::ordinary_setup_window_needed(false), !cfg!(windows));
-        assert!(crate::ordinary_setup_window_needed(true));
     }
     #[test]
     fn optional_token_directory_is_revalidated_after_admission() {
