@@ -32,6 +32,29 @@ UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\Garmin Tra
 MANUFACTURER_KEY = r'Software\codexa\Garmin Trainer'
 
 
+def startup_diagnostic(root, launch, exit_code):
+    """Only fixed enums/booleans/numeric exit status may reach the CI console.
+    Raw native logs, paths, descriptors and capabilities remain runner-local."""
+    stages = {'mode', 'descriptor-file', 'descriptor-json', 'descriptor-fields', 'root-directory', 'root-lease',
+              'owner-file', 'owner-binding', 'config', 'app-data', 'profile', 'setup-profile', 'tmp', 'screenshots',
+              'tokens', 'database-file', 'artifact-executable', 'artifact-layout', 'artifact-files',
+              'artifact-inventory-digest', 'compiled-resource-identity', 'artifact', 'settings', 'owner-pipe'}
+    try:
+        raw = state.read_file(root / f'native-{launch}.log', 64 * 1024)
+    except (OSError, ValueError):
+        raw, available = b'', False
+    else:
+        available = True
+    found = re.findall(rb'Isolated admission refused at ([a-z-]{1,48})', raw)
+    lower = raw.lower()
+    return {'layer': 'native-startup', 'exitCode': exit_code, 'nativeLogAvailable': available,
+            'admissionStages': sorted({value.decode('ascii') for value in found if value.decode('ascii') in stages}),
+            'admissionRefused': b'Isolated ordinary-run admission refused' in raw,
+            'runtimeStartupFailure': b'isolated startup:' in raw, 'panic': b'panicked at' in lower,
+            'webviewMentioned': b'webview' in lower, 'consoleMentioned': b'console' in lower,
+            'loaderDllMissing': exit_code in (0xc0000135, -1073741515)}
+
+
 def inventory(root):
     state.canonical(root)
     result = {}
@@ -189,7 +212,14 @@ class InstalledRun(Run):
         self.descriptor_bytes = state.read_file(self.descriptor_path, 16 * 1024)
 
     def start(self, binary, timeout=100):
-        super().start(binary, timeout)
+        try:
+            super().start(binary, timeout)
+        except BaseException:
+            diagnostic = startup_diagnostic(self.root, self.launches, self.child.poll() if self.child else None)
+            if self.child is None:
+                diagnostic['layer'] = 'prelaunch-verification'
+            print(json.dumps(diagnostic), flush=True)
+            raise
         identity = self.http('/identity')
         self.backend_handles.append(state.PinnedProcess(identity['backendPid'], self.program / 'resources/node.exe'))
         if webview_processes(self.root / 'profile') < 1:
@@ -258,13 +288,14 @@ class InstalledRun(Run):
             backend_port = int(self.origin.rsplit(':', 1)[1]) if self.origin else None
             if (not listening(self.config['port']) and not listening(backend_port)
                     and not Path(str(self.database) + '.trainer-writer').exists()
-                    and webview_processes(self.root / 'profile') == 0
+                    # Include the hidden setup-profile WebView as well as trainer.
+                    and webview_processes(self.root) == 0
                     and all(handle.settled() for handle in self.backend_handles)):
                 with self.pin.lease():
                     pass
                 self.shutdown_failure = None
                 private_json(self.root / ('shutdown-' + str(uuid.uuid4()) + '.json'), {
-                    'nativeReaped': True, 'endpointsWriterAndRunLeaseSettled': True, 'ownedProfileWebviewsRemaining': 0})
+                    'nativeReaped': True, 'endpointsWriterAndRunLeaseSettled': True, 'ownedRunWebviewsRemaining': 0})
                 return
             time.sleep(.2)
         self.shutdown_failure = 'Owned native/backend/WebView/lease settlement incomplete'

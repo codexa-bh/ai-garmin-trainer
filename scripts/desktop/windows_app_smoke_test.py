@@ -143,6 +143,20 @@ class EvidenceContracts(unittest.TestCase):
 
 
 class LifecycleContracts(unittest.TestCase):
+    def test_startup_diagnostics_never_publish_raw_logs_paths_or_capabilities(self):
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name).resolve()
+            secret = 'private-capability-do-not-print'
+            (root / 'native-1.log').write_text('Isolated admission refused at root-directory\nIsolated ordinary-run admission refused; no normal-state fallback.\n' + secret + '\nC:\\private\\settings.json\n')
+            value = app.startup_diagnostic(root, 1, 1)
+            self.assertEqual(value['admissionStages'], ['root-directory'])
+            self.assertTrue(value['admissionRefused'])
+            self.assertNotIn(secret, json.dumps(value))
+            self.assertNotIn('settings.json', json.dumps(value))
+            (root / 'native-1.log').write_bytes(b'x' * (64 * 1024 + 1))
+            self.assertFalse(app.startup_diagnostic(root, 1, None)['nativeLogAvailable'])
+            self.assertTrue(app.startup_diagnostic(root, 2, 0xc0000135)['loaderDllMissing'])
+
     def test_direct_bounded_installer_arguments_and_failures(self):
         with mock.patch.object(app.process, 'execute', return_value=0) as run:
             app.execute_installer(Path('installer.exe'), ['/S', '/NS', '/D=C:\\owned program'], cwd=Path('.'))
@@ -216,6 +230,19 @@ class LifecycleContracts(unittest.TestCase):
                 database.commit()
             with self.assertRaises(ValueError):
                 app.assert_preserved(path, before, config, settings, appdata, markers)
+
+    def test_settlement_observes_all_run_profiles_including_hidden_setup_webview(self):
+        with tempfile.TemporaryDirectory() as name:
+            run = object.__new__(app.InstalledRun)
+            run.root = Path(name).resolve()
+            run.database = run.root / 'synthetic.sqlite'
+            run.child, run.origin = None, None
+            run.config, run.backend_handles = {'port': 12345}, []
+            run.pin = mock.MagicMock()
+            with mock.patch.object(app, 'listening', return_value=False), mock.patch.object(app, 'webview_processes', return_value=0) as observed:
+                run.stop()
+            observed.assert_called_once_with(run.root)
+            run.pin.lease.assert_called_once()
 
     def test_orphan_webview_refuses_settlement_without_name_or_pid_kills(self):
         with tempfile.TemporaryDirectory() as name:

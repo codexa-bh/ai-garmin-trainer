@@ -12,6 +12,14 @@ use std::{
 };
 pub const CONTRACT: &str = "trainer-ordinary-isolated/v2";
 const DENIED: &str = "Isolated ordinary-run admission refused; no normal-state fallback.";
+fn refusal(stage: &'static str) -> &'static str {
+    // Static stage codes only, never paths, descriptors, keys or capabilities.
+    #[cfg(windows)]
+    eprintln!("Isolated admission refused at {stage}");
+    #[cfg(not(windows))]
+    let _ = stage;
+    DENIED
+}
 const DIRECTORIES: [&str; 7] = [
     "config",
     "app-data",
@@ -261,10 +269,10 @@ fn artifact_layout(executable: &Path) -> Result<(PathBuf, String), &'static str>
     Ok((program.to_owned(), "resources".to_owned()))
 }
 fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
-    let executable = std::env::current_exe().map_err(|_| DENIED)?;
-    let (bundle, resource_prefix) = artifact_layout(&executable)?;
+    let executable = std::env::current_exe().map_err(|_| refusal("artifact-executable"))?;
+    let (bundle, resource_prefix) = artifact_layout(&executable).map_err(|_| refusal("artifact-layout"))?;
     let mut files = BTreeMap::new();
-    inventory(&bundle, &bundle, &mut files, &mut 0)?;
+    inventory(&bundle, &bundle, &mut files, &mut 0).map_err(|_| refusal("artifact-files"))?;
     let mut digest = Sha256::new();
     for (path, hash) in &files {
         digest.update(path.as_bytes());
@@ -273,7 +281,7 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
         digest.update(b"\n");
     }
     if format!("{:x}", digest.finalize()) != descriptor.artifact_inventory_hash {
-        return Err(DENIED);
+        return Err(refusal("artifact-inventory-digest"));
     }
     let resources = bundle.join(&resource_prefix);
     let path = resources.join("provenance.json");
@@ -290,7 +298,7 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
             option_env!("TRAINER_ORDINARY_BUILD_SOURCE"),
             option_env!("TRAINER_ORDINARY_BUILD_CONTEXT"),
         ],
-    )?;
+    ).map_err(|_| refusal("compiled-resource-identity"))?;
     for entry in provenance["files"]
         .as_array()
         .filter(|a| !a.is_empty() && a.len() <= 50_000)
@@ -321,14 +329,14 @@ impl Admission {
             || cfg!(feature = "release-probe")
             || std::env::var_os("TRAINER_SMOKE_CONFIG").is_some()
         {
-            return Err(DENIED);
+            return Err(refusal("mode"));
         }
         let admission = Self::admit(path, verify_artifact)?;
         if cfg!(windows) || admission.descriptor.history_setup.is_some()
             || admission.descriptor.provider_smoke.is_some()
         {
             if !stdin_is_pipe() {
-                return Err(DENIED);
+                return Err(refusal("owner-pipe"));
             }
         }
         Ok(admission)
@@ -337,21 +345,21 @@ impl Admission {
         path: &Path,
         artifact: impl FnOnce(&Descriptor) -> Result<(), &'static str>,
     ) -> Result<Self, &'static str> {
-        let descriptor_capture = private_store::capture(path)?;
+        let descriptor_capture = private_store::capture(path).map_err(|_| refusal("descriptor-file"))?;
         let bytes = &descriptor_capture.1;
         if bytes.len() > 16 * 1024 {
             return Err(DENIED);
         }
-        let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|_| DENIED)?;
-        descriptor.validate(path)?;
-        let mut root = private_store::PinnedDirectory::open(&descriptor.root)?;
-        root.lock_exclusive()?;
+        let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|_| refusal("descriptor-json"))?;
+        descriptor.validate(path).map_err(|_| refusal("descriptor-fields"))?;
+        let mut root = private_store::PinnedDirectory::open(&descriptor.root).map_err(|_| refusal("root-directory"))?;
+        root.lock_exclusive().map_err(|_| refusal("root-lease"))?;
         // Read again after taking the lifetime lease, refusing a descriptor swap.
-        let owner_capture = private_store::capture(&descriptor.root.join("owner"))?;
+        let owner_capture = private_store::capture(&descriptor.root.join("owner")).map_err(|_| refusal("owner-file"))?;
         if private_store::capture(path)? != descriptor_capture
             || owner_capture.1 != descriptor.run_id.as_bytes()
         {
-            return Err(DENIED);
+            return Err(refusal("owner-binding"));
         }
         let mut directories = vec![root];
         for name in DIRECTORIES {
@@ -361,7 +369,7 @@ impl Admission {
             }
             directories.push(private_store::PinnedDirectory::open(
                 &descriptor.root.join(name),
-            )?);
+            ).map_err(|_| refusal(name))?);
         }
         let missing_settings = Self::missing_settings_at(&descriptor.root);
         let database_path = descriptor.root.join("trainer.sqlite");
@@ -374,9 +382,9 @@ impl Admission {
             }
             None
         } else {
-            Some(database_identity(&database_path)?)
+            Some(database_identity(&database_path).map_err(|_| refusal("database-file"))?)
         };
-        artifact(&descriptor)?;
+        artifact(&descriptor).map_err(|_| refusal("artifact"))?;
         let admission = Self {
             descriptor,
             boot: uuid::Uuid::new_v4().to_string(),
@@ -386,7 +394,7 @@ impl Admission {
             owner_capture,
             provider_source: std::sync::Mutex::new(None),
         };
-        admission.verify_settings()?;
+        admission.verify_settings().map_err(|_| refusal("settings"))?;
         Ok(admission)
     }
     fn missing_settings_at(root: &Path) -> bool {
@@ -677,6 +685,53 @@ mod tests {
     #[allow(unused_imports)]
     use crate::private_fs::testing::{make_private, make_shared, symlink};
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn python_private_state_and_live_pin_are_accepted_without_relaxing_native_admission() {
+        use std::io::BufRead;
+        use std::process::{Command, Stdio};
+        let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/desktop");
+        let code = r#"import json,os,sys,uuid
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import windows_smoke_state as state
+identity=str(uuid.uuid4())
+root=state.mkdir(Path(os.environ['RUNNER_TEMP']).resolve(strict=True)/('ordinary-'+identity))
+for name in ['config','app-data','profile','setup-profile','tmp','screenshots']:
+ state.mkdir(root/name)
+state.write_file(root/'owner',identity.encode())
+state.write_file(root/'trainer.sqlite',b'identity-only fixture; no app launch')
+state.write_file(root/'config/settings-v2.json',json.dumps({'version':2,'keys':{},'fields':{'DATABASE_PATH':str(root/'trainer.sqlite')}}).encode())
+state.write_file(root/'launch.json',json.dumps({'schemaVersion':2,'runId':identity,'root':str(root),'sourceFingerprint':'a'*64,'buildSourceFingerprint':'d'*64,'buildContext':'e'*64,'artifactInventoryHash':'b'*64,'controlPort':23567,'capability':'c'*64}).encode())
+pin=state.PinnedRoot(root)
+print(root,flush=True)
+sys.stdin.buffer.read(1)
+pin.close()
+"#;
+        let mut child = Command::new("python").args(["-c", code]).arg(scripts)
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let root = PathBuf::from(line.trim());
+        let admitted = Admission::admit(&root.join("launch.json"), |_| Ok(()));
+        let accepted = admitted.is_ok();
+        drop(admitted);
+        drop(child.stdin.take());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() { break status; }
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap(); // This test's retained live helper only.
+                child.wait().unwrap();
+                panic!("Owned Python fixture did not settle");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert!(status.success());
+        assert!(root.file_name().unwrap().to_string_lossy().starts_with("ordinary-"));
+        fs::remove_dir_all(root).unwrap();
+        assert!(accepted, "Python-created private run refused; consult static admission stage code");
+    }
     #[test]
     fn finite_provider_scope_never_combines_with_history_setup() {
         let (_root, path) = fixture();
