@@ -2,10 +2,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import manifest from "../package.json";
 
+const normalizeNewlines = (text: string) => text.replace(/\r\n/g, "\n");
 const read = (name: string) =>
-  readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
+  normalizeNewlines(
+    readFileSync(new URL(`../${name}`, import.meta.url), "utf8"),
+  );
 
 describe("economical CI profiles", () => {
+  it("reads LF and Windows CRLF checkout text with identical YAML semantics", () => {
+    const yaml = "on:\n  workflow_dispatch:\npermissions:\n  contents: read\n";
+    expect(normalizeNewlines(yaml.replace(/\n/g, "\r\n"))).toBe(yaml);
+    expect(normalizeNewlines(yaml)).toBe(yaml);
+  });
+
   it("preserves every blocking gate, fresh type generation and existing full semantics", () => {
     const fast =
       "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test";
