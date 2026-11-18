@@ -551,11 +551,12 @@ pub fn validate(
         return Err("Settings too large.");
     }
     input.push(b'\n');
+    let runtime = crate::process_tree::runtime_directory(resources);
     let mut command = Command::new(crate::process_tree::node(resources));
     command
-        .arg(resources.join("runtime/runtime.cjs"))
+        .arg(runtime.join("runtime.cjs"))
         .arg("--validate-settings")
-        .current_dir(resources.join("runtime"))
+        .current_dir(runtime)
         .env_clear()
         .env("NODE_ENV", "production")
         .stdin(Stdio::piped())
