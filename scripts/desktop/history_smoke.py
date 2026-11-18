@@ -893,6 +893,10 @@ def history_scenario(args, scratch, database, bundle, source, verified, inventor
             runs.append(run)
             run.observer = observer
             receipt['captures'].extend(run.onboarding())
+            if mode == 'create-new':
+                # This exact run had an absent target and native exclusively
+                # published it. Enroll that new inode, not the preparation copy.
+                resources.file_created(run.database)
             if not args.dependency_guidance:
                 receipt['captures'].append(run.optional_limit())
             run.stop()

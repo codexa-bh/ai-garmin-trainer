@@ -11,6 +11,40 @@ from native_smoke import Run, canonical, fingerprint, readonly
 
 
 class OwnershipTests(unittest.TestCase):
+    def test_fresh_onboarding_enrolls_preparation_and_new_database_as_distinct_inodes(self):
+        import smoke_resources as resources
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            root.chmod(0o700)
+            source = root / 'authored.sqlite'
+            with sqlite3.connect(source) as db:
+                db.execute('create table example(id integer)')
+                db.execute('insert into example values(1)')
+            paths = []
+            @resources.invocation
+            def scenario():
+                scratch = resources.configure(root)
+                with self.assertRaisesRegex(ValueError, 'ordinary onboarding'):
+                    Run(scratch, source, 'a' * 64, fresh_database=True)
+                run = Run(scratch, source, 'a' * 64, ordinary=True, fresh_database=True)
+                prepared = run.root / 'prepared-populated.sqlite'
+                self.assertTrue(prepared.exists())
+                self.assertFalse(run.database.exists())
+                before = prepared.stat().st_ino
+                # Model native's exclusive fresh publication, not target adoption.
+                with run.database.open('xb'):
+                    pass
+                run.database.chmod(0o600)
+                with sqlite3.connect(run.database) as created:
+                    created.execute('create table fresh(id integer)')
+                resources.file_created(run.database)
+                self.assertNotEqual(run.database.stat().st_ino, before)
+                paths.extend((prepared, run.database))
+            scenario()
+            self.assertTrue(all(not path.exists() for path in paths))
+            with sqlite3.connect(source) as db:
+                self.assertEqual(db.execute('select * from example').fetchall(), [(1,)])
+
     def test_profile_and_model_restart_evidence_remain_exclusive_and_distinct(self):
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as directory:

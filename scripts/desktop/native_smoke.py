@@ -109,7 +109,9 @@ class Observer:
 
 
 class Run:
-    def __init__(self, scratch, database, source, *, ordinary=False, synthetic_provider_fields=False):
+    def __init__(self, scratch, database, source, *, ordinary=False, synthetic_provider_fields=False, fresh_database=False):
+        if fresh_database and not ordinary:
+            raise ValueError('Fresh native database requires isolated ordinary onboarding')
         if synthetic_provider_fields and ordinary:
             raise ValueError('Synthetic provider fields require admitted debug Settings')
         self.id = str(uuid.uuid4())
@@ -119,16 +121,20 @@ class Run:
         (self.root / 'owner').write_text(self.id)
         (self.root / 'owner').chmod(0o600)
         self.database = self.root / 'trainer.sqlite'
-        fd = os.open(self.database, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        # Fresh onboarding must leave its native target absent. Enroll the
+        # populated preparation copy at its actual permanent name, not at a
+        # target later replaced by native exclusive Create new publication.
+        copy = self.root / ('prepared-populated.sqlite' if fresh_database else 'trainer.sqlite')
+        fd = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         os.close(fd)
-        resources.file_created(self.database)
+        resources.file_created(copy)
         with contextlib.closing(readonly(database)) as original:
             self.original = fingerprint(original)
-            with contextlib.closing(sqlite3.connect(self.database)) as copy:
-                original.backup(copy)
-                if fingerprint(copy) != self.original:
+            with contextlib.closing(sqlite3.connect(copy)) as target:
+                original.backup(target)
+                if fingerprint(target) != self.original:
                     raise ValueError('Online backup mismatch')
-        self.database.chmod(0o600)
+        copy.chmod(0o600)
         self.config = {'runId': self.id, 'token': os.urandom(32).hex(), 'root': str(self.root), 'source': source, 'port': port()}
         if not ordinary:
             private_json(self.root / 'config.json', self.config)
