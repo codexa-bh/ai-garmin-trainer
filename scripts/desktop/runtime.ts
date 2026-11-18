@@ -9,6 +9,7 @@ import { releaseDatabaseWritersForProcessExit } from "../../src/lib/db/writer-ow
 import {
   activationEnvironment,
   decodePrivateFrame,
+  desktopValidationFailureCode,
   PRIVATE_FRAME_LIMIT,
   SECRET_SLOTS,
   validateSettings,
@@ -338,13 +339,15 @@ async function entry(): Promise<void> {
     }
   }
   if (process.argv[2] === "--validate-settings" && process.argv.length === 3) {
+    let stage = "fields";
     try {
       const fields = validateSettings(await readPrivateFrame());
+      stage = "database";
       assertDesktopDatabase(fields.DATABASE_PATH);
       report({ ok: true, fields });
       process.exit(0);
-    } catch {
-      report({ ok: false });
+    } catch (error) {
+      report({ ok: false, stage, code: desktopValidationFailureCode(error) });
       process.exit(1);
     }
   }

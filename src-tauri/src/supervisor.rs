@@ -74,10 +74,11 @@ impl Service {
             .map_err(|_| "Startup fields invalid.")?;
         let startup_fields = crate::settings::validate(resources, &fields)?;
         let nonce = uuid::Uuid::new_v4().to_string();
+        let runtime = process_tree::runtime_directory(resources);
         let mut command = Command::new(process_tree::node(resources));
         command
-            .arg(resources.join("runtime/runtime.cjs"))
-            .current_dir(resources.join("runtime"))
+            .arg(runtime.join("runtime.cjs"))
+            .current_dir(runtime)
             .env_clear()
             .env("TRAINER_DESKTOP_NONCE", &nonce)
             .env("NODE_ENV", "production")

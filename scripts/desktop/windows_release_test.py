@@ -69,11 +69,16 @@ class WindowsPayloadTests(unittest.TestCase):
 
     def payload(self, members=None):
         fake = FakeSevenZip(members or self.members)
-        work = self.root / ('work-' + str(fake.__hash__()))
-        work.mkdir()
+        work = Path(tempfile.mkdtemp(prefix='work-', dir=self.root))
         with patch('windows_package.subprocess.run', side_effect=fake):
             _, inventory = windows_package.payload(Path('7z.exe'), self.installer, work)
         return inventory, fake
+
+    def test_repeated_payloads_get_fresh_scratch_even_when_extractor_hashes_match(self):
+        with patch.object(FakeSevenZip, '__hash__', return_value=1):
+            first, _ = self.payload()
+            second, _ = self.payload()
+        self.assertEqual(first, second)
 
     def test_payload_equals_producer_binary_and_resources_excluding_installer_ui(self):
         inventory, fake = self.payload()

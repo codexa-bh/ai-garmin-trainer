@@ -16,6 +16,22 @@ pub fn node(resources: &Path) -> PathBuf {
     resources.join(if cfg!(windows) { "node.exe" } else { "node" })
 }
 
+/// Bundled runtime paths passed to Node, not native admission/inventory paths.
+/// Node 22's CommonJS entry realpath rejects Windows verbatim drive roots with
+/// EISDIR. Use the equivalent DOS spelling only at this process boundary;
+/// leave UNC/device paths and all native identity/ownership checks untouched.
+pub fn runtime_directory(resources: &Path) -> PathBuf {
+    let runtime = resources.join("runtime");
+    #[cfg(windows)]
+    if matches!(runtime.components().next(), Some(std::path::Component::Prefix(prefix))
+        if matches!(prefix.kind(), std::path::Prefix::VerbatimDisk(_))) {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        let wide: Vec<u16> = runtime.as_os_str().encode_wide().skip(4).collect();
+        return PathBuf::from(OsString::from_wide(&wide));
+    }
+    runtime
+}
+
 /// OS variables a cleared child environment needs to function (Windows: system
 /// roots and temp; Unix: none, preserving the existing reviewed environment).
 pub fn system_environment(command: &mut Command) {
@@ -293,6 +309,16 @@ mod windows {
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    #[cfg(windows)]
+    #[test]
+    fn node_runtime_uses_dos_spelling_without_rewriting_unc_or_device_paths() {
+        assert_eq!(runtime_directory(Path::new(r"\\?\D:\app with spaces\resources")), PathBuf::from(r"D:\app with spaces\resources\runtime"));
+        assert_eq!(runtime_directory(Path::new(r"D:\app with spaces\resources")), PathBuf::from(r"D:\app with spaces\resources\runtime"));
+        for path in [r"\\?\UNC\server\share\resources", r"\\.\device\resources"] {
+            assert_eq!(runtime_directory(Path::new(path)), Path::new(path).join("runtime"));
+        }
+    }
 
     fn wait_until(mut done: impl FnMut() -> bool) -> bool {
         let deadline = Instant::now() + Duration::from_secs(20);

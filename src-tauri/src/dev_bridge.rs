@@ -575,6 +575,7 @@ fn authorize(headers: &HashMap<String, &str>, config: &Config) -> Result<(), Str
     }
     Ok(())
 }
+pub(crate) const DIAGNOSTIC: &str = "JSON.stringify({ready:document.readyState,bootstrap:typeof window.__trainerSmoke==='function',ipc:!!window.__TAURI_INTERNALS__,dashboard:!!document.querySelector('[aria-label=\"AI trainer dashboard\"]'),ordinaryContext:!!window.__trainerOrdinaryIsolated,maskActive:!!document.getElementById('trainer-smoke-sanitizer'),width:window.innerWidth,height:window.innerHeight})";
 fn diagnostic_result(bytes: &[u8]) -> Value {
     #[derive(Deserialize, Serialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -584,6 +585,7 @@ fn diagnostic_result(bytes: &[u8]) -> Value {
         ipc: bool,
         dashboard: bool,
         ordinary_context: bool,
+        mask_active: bool,
         width: u32,
         height: u32,
     }
@@ -605,8 +607,7 @@ fn renderer_diagnostic(app: &tauri::AppHandle) -> Value {
         return json!({"window":false});
     };
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = "JSON.stringify({ready:document.readyState,bootstrap:typeof window.__trainerSmoke==='function',ipc:!!window.__TAURI_INTERNALS__,dashboard:!!document.querySelector('[aria-label=\"AI trainer dashboard\"]'),ordinaryContext:!!window.__trainerOrdinaryIsolated,width:window.innerWidth,height:window.innerHeight})";
-    let script = std::ffi::CString::new(script).expect("Fixed script without NUL");
+    let script = std::ffi::CString::new(DIAGNOSTIC).expect("Fixed script without NUL");
     let queued = window.with_webview(move |webview| {
         let completion =
             block2::RcBlock::new(move |result: *mut AnyObject, error: *mut AnyObject| {
@@ -658,9 +659,22 @@ fn renderer_diagnostic(app: &tauri::AppHandle) -> Value {
     }
     diagnostic
 }
-#[cfg(not(target_os = "macos"))]
-fn renderer_diagnostic(_app: &tauri::AppHandle) -> Value {
-    json!({"unsupported":true})
+#[cfg(windows)]
+fn renderer_diagnostic(app: &tauri::AppHandle) -> Value {
+    let Some(window) = app.get_webview_window("trainer") else { return json!({"window":false}); };
+    let mut diagnostic = match crate::windows_webview::diagnostic(&window) {
+        Ok(bytes) => diagnostic_result(&bytes),
+        Err(_) => json!({"evaluationFailed":true}),
+    };
+    if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
+        let logical = size.to_logical::<f64>(scale);
+        if logical.width.is_finite() && logical.height.is_finite()
+            && (0.0..=8192.0).contains(&logical.width) && (0.0..=8192.0).contains(&logical.height) {
+            diagnostic["nativeWidth"] = json!(logical.width);
+            diagnostic["nativeHeight"] = json!(logical.height);
+        }
+    }
+    diagnostic
 }
 fn viewport_size(diagnostic: &Value, preset: &str) -> Option<tauri::LogicalSize<f64>> {
     let width = match preset {
@@ -1263,7 +1277,8 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
             Err("Closed renderer result schema refused")
         }
     });
-    let response = match result {
+    let mut captured = None;
+    let mut response = match result {
         Err(error) => (
             504,
             json!({"requestId":request.request_id,"result":{"ok":false,"error":error}}),
@@ -1298,15 +1313,10 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
             }
             if result["ok"] == true && capturing {
                 let boundary = request.command.boundary(state.config.ordinary.is_some());
-                result = match capture::png(&window).and_then(|bytes| {
-                    capture::publish(
-                        &state.config.root.join("screenshots"),
-                        &request.request_id,
-                        &bytes,
-                    )
-                }) {
-                    Ok(path) => {
-                        json!({"ok":true,"capture":path,"boundary":boundary})
+                result = match capture::png(&window) {
+                    Ok(bytes) => {
+                        captured = Some(bytes);
+                        json!({"ok":true,"boundary":boundary})
                     }
                     Err(error) => json!({"ok":false,"error":error}),
                 };
@@ -1319,7 +1329,19 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
     };
     // Restore on dispatch, callback, schema, timeout and snapshot failure as well as success.
     if capturing {
-        let _ = window.eval("window.__trainerSmokeRestore && window.__trainerSmokeRestore()");
+        let restored = window.eval("window.__trainerSmokeRestore && window.__trainerSmokeRestore()").is_ok()
+            && renderer_diagnostic(app)["maskActive"] == false;
+        let publication = if !restored {
+            Err("Capture mask restoration unconfirmed".to_owned())
+        } else if let Some(bytes) = captured {
+            capture::publish(&state.config.root.join("screenshots"), &request.request_id, &bytes)
+                .map(Some)
+        } else { Ok(None) };
+        match publication {
+            Ok(Some(path)) => response.1["result"]["capture"] = json!(path),
+            Ok(None) => {},
+            Err(error) => response = (409, json!({"requestId":request.request_id,"result":{"ok":false,"error":error}})),
+        }
     }
     response
 }
@@ -1569,7 +1591,7 @@ mod tests {
     }
     #[test]
     fn fixed_diagnostics_never_forward_arbitrary_renderer_json() {
-        let value = json!({"ready":"complete","bootstrap":true,"ipc":true,"dashboard":true,"ordinaryContext":true,"width":1280,"height":850});
+        let value = json!({"ready":"complete","bootstrap":true,"ipc":true,"dashboard":true,"ordinaryContext":true,"maskActive":false,"width":1280,"height":850});
         assert_eq!(
             diagnostic_result(&serde_json::to_vec(&value).unwrap()),
             value

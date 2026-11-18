@@ -1,20 +1,16 @@
 name: Windows x64
 
-# Exact-source Windows x64 build foundation evidence on a hosted Windows Server
-# runner. This is not Windows 11 qualification: no installer execution, native
-# window/input, real services, private data, credentials or uploads.
+# On-demand exact-source installed-app evidence on hosted Windows Server only.
+# No Windows 11, trusted OS input, real services, credentials or release claim.
+# Only six authored masked PNGs + closed manifest may be uploaded for three days.
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -24,7 +20,7 @@ jobs:
     timeout-minutes: 60
     env:
       RUSTUP_TOOLCHAIN: 1.98.0
-      TESTED_SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
+      TESTED_SOURCE: ${{ github.sha }}
       CI: "true"
       NEXT_TELEMETRY_DISABLED: "1"
       # Python UTF-8 mode for every helper (text I/O as on macOS/Linux).
@@ -66,18 +62,37 @@ jobs:
           $webview = Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -ErrorAction SilentlyContinue
           "WebView2 Runtime: $($webview.pv)"
 
+      - name: Early hosted-session and fresh-install prerequisites
+        id: prerequisites
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $session = (Get-Process -Id $PID).SessionId
+          "Hosted session: $session; interactive: $([Environment]::UserInteractive) (not renderer success)"
+          if ($session -eq 0 -or -not [Environment]::UserInteractive) { throw 'Interactive hosted desktop session unavailable; no machine fallback' }
+          $runtime = @(
+            'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          ) | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } | Where-Object { $_.pv -and $_.pv -ne '0.0.0.0' }
+          if (-not $runtime) { throw 'WebView2 prerequisite unavailable; no download or fallback' }
+          foreach ($hive in @('HKCU:', 'HKLM:')) {
+            foreach ($key in @('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Garmin Trainer', 'SOFTWARE\codexa\Garmin Trainer')) {
+              if (Test-Path "$hive\$key") { throw 'Pre-existing product registration; refusing to adopt installation' }
+            }
+          }
+          foreach ($path in @((Join-Path $env:LOCALAPPDATA 'Garmin Trainer'), (Join-Path $env:APPDATA 'com.codexa.garmin-trainer.desktop'))) {
+            if (Test-Path -LiteralPath $path) { throw 'Pre-existing product data/program directory; fresh runner required' }
+          }
+          'Prerequisites passed; installed renderer, capture and lifecycle remain unproven.'
+
       - name: Install locked dependencies
         run: npm ci --no-fund
 
       - name: Release and identity contract tests
         working-directory: scripts/desktop
-        run: python -m unittest platform_files_test platform_target_test release_set_test release_test windows_release_test redistribution_test
+        run: python -m unittest platform_files_test platform_target_test release_set_test release_test windows_release_test redistribution_test windows_app_smoke_test
 
       - name: Production backend and Windows resources (pinned Node/SQLite probe)
         run: npm run desktop:resources
-
-      - name: Locked native Windows tests
-        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
       - name: Focused Windows JS/TS tests
         run: >-
@@ -85,12 +100,18 @@ jobs:
           tests/desktop-settings.test.ts tests/desktop-onboarding.test.ts
           tests/tool-runtime-ownership.test.ts tests/persistence-ownership.test.ts
           tests/activity-images.test.ts tests/chatgpt-oauth.test.mjs
+          tests/ci-profiles.test.ts tests/windows-app-smoke.test.ts tests/native-smoke-dom.test.tsx
           --test-timeout=60000
 
+      - name: Locked native Windows tests
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+
       - name: Full ordinary build and unsigned per-user NSIS installer
+        id: build
         run: npm run desktop:build
 
       - name: Non-installing package and final-payload verification
+        id: package
         run: |
           $ErrorActionPreference = 'Stop'
           $scratch = Join-Path $env:RUNNER_TEMP ('trainer-windows-' + [guid]::NewGuid())
@@ -99,27 +120,69 @@ jobs:
           npm run release -- package --platform windows-x64 --execute `
             --bundle "$env:GITHUB_WORKSPACE\src-tauri\target\x86_64-pc-windows-msvc\release" --scratch $scratch
           if ($LASTEXITCODE -ne 0) { throw 'package failed' }
-          $record = Get-ChildItem -Recurse -Filter release-windows-x64.json $scratch | Select-Object -First 1
+          $records = @(Get-ChildItem -Recurse -Filter release-windows-x64.json $scratch)
+          if ($records.Count -ne 1) { throw 'Exactly one release record required' }
+          $record = $records[0]
           npm run release -- verify --platform windows-x64 `
             --bundle "$env:GITHUB_WORKSPACE\src-tauri\target\x86_64-pc-windows-msvc\release" `
             --scratch $scratch --record $record.FullName
           if ($LASTEXITCODE -ne 0) { throw 'verify failed' }
           Get-Content $record.FullName
-          "TRAINER_RECORD=$($record.FullName)" >> $env:GITHUB_ENV
+          "record=$($record.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Synthetic packaged-backend smoke (no window, installer or services)
+        id: backend
         run: python scripts/desktop/windows_backend_smoke.py --resources src-tauri/target/x86_64-pc-windows-msvc/release/resources
 
-      - name: Record actual coverage and outcome (no uploads)
+      - name: Installed ordinary app render, restart and preserving uninstall
+        id: installed
+        env:
+          WINDOWS_RELEASE_RECORD: ${{ steps.package.outputs.record }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $scratch = Join-Path $env:RUNNER_TEMP ('trainer-installed-' + [guid]::NewGuid())
+          $evidence = Join-Path $env:RUNNER_TEMP ('trainer-masked-evidence-' + [guid]::NewGuid())
+          npm run smoke:windows -- --producer "$env:GITHUB_WORKSPACE\src-tauri\target\x86_64-pc-windows-msvc\release" `
+            --record "$env:WINDOWS_RELEASE_RECORD" --scratch $scratch --evidence $evidence
+          if ($LASTEXITCODE -ne 0) { throw 'Installed scenario failed; no artifact eligible' }
+          "evidence=$evidence" >> $env:GITHUB_OUTPUT
+
+      - name: Upload only validated synthetic masked evidence
+        id: images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-installed-render-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.TESTED_SOURCE }}
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
+          include-hidden-files: false
+          path: |
+            ${{ steps.installed.outputs.evidence }}/trainer-wide.png
+            ${{ steps.installed.outputs.evidence }}/trainer-narrow.png
+            ${{ steps.installed.outputs.evidence }}/sync-wide.png
+            ${{ steps.installed.outputs.evidence }}/sync-narrow.png
+            ${{ steps.installed.outputs.evidence }}/profile-wide.png
+            ${{ steps.installed.outputs.evidence }}/profile-narrow.png
+            ${{ steps.installed.outputs.evidence }}/manifest.json
+
+      - name: Record actual per-stage coverage and outcome
         if: ${{ always() }}
         env:
           JOB_RESULT: ${{ job.status }}
+          PREREQUISITES_RESULT: ${{ steps.prerequisites.outcome }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          PACKAGE_RESULT: ${{ steps.package.outcome }}
+          BACKEND_RESULT: ${{ steps.backend.outcome }}
+          INSTALLED_RESULT: ${{ steps.installed.outcome }}
+          IMAGES_RESULT: ${{ steps.images.outcome }}
         run: |
           $summary = @"
-          ### Windows x64 build foundation: $env:JOB_RESULT
+          ### On-demand Windows x64: $env:JOB_RESULT
 
-          Source: ``$env:TESTED_SOURCE`` on hosted Windows Server ($env:ImageOS $env:ImageVersion), x64.
-          Covered when successful: focused JS/TS and release/identity tests, pinned Windows Node/SQLite probe, locked native tests (private ACL/handle/rename/lock, Job Object process trees), full ordinary build, unsigned per-user NSIS installer, non-installing payload/notices/identity verification, synthetic packaged-backend smoke.
-          Not covered: Windows 11, installer execution, native window/WebView2 UI, trusted input, real providers/Garmin, signing/SmartScreen. No artifacts uploaded; job-local state expires with the runner.
+          Source: ``$env:TESTED_SOURCE``; run/attempt $env:GITHUB_RUN_ID/$env:GITHUB_RUN_ATTEMPT on hosted Windows Server ($env:ImageOS $env:ImageVersion), x64.
+          Prerequisites: $env:PREREQUISITES_RESULT; build: $env:BUILD_RESULT; package/verify: $env:PACKAGE_RESULT; backend: $env:BACKEND_RESULT; installed scenario: $env:INSTALLED_RESULT; eligible image upload: $env:IMAGES_RESULT.
+          Only a successful installed scenario proves install, hydrated Trainer/Sync/Profile navigation, synthetic Goals save/restart/readback, six own-WebView2 masked captures with restoration, owned settlement and data-preserving uninstall. Pending/skipped stages are not covered. Downloaded images still require individual inspection; file creation/upload is not visual approval.
+          Three-day artifact: only six validated synthetic masked PNGs and one sanitized manifest. No binaries, settings, DBs, capabilities, tokens, raw captures or logs. Job-local data expires with the runner. NSIS manufacturer install-location metadata is retained; uninstall registration/program/shortcuts are settled.
+          Not qualified: Windows 11, upgrade/downgrade, native menus/focus/trusted input/window chrome, onboarding, real providers/Garmin, signing/SmartScreen. No release/deploy. Windows remains non-required; Ubuntu Validate/macOS policy is unchanged.
           "@
           $summary >> $env:GITHUB_STEP_SUMMARY

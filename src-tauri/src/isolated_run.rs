@@ -12,6 +12,14 @@ use std::{
 };
 pub const CONTRACT: &str = "trainer-ordinary-isolated/v2";
 const DENIED: &str = "Isolated ordinary-run admission refused; no normal-state fallback.";
+fn refusal(stage: &'static str) -> &'static str {
+    // Static stage codes only, never paths, descriptors, keys or capabilities.
+    #[cfg(windows)]
+    eprintln!("Isolated admission refused at {stage}");
+    #[cfg(not(windows))]
+    let _ = stage;
+    DENIED
+}
 const DIRECTORIES: [&str; 7] = [
     "config",
     "app-data",
@@ -188,7 +196,8 @@ fn inventory(
             if relative.contains(['\n', '\r', '\0']) {
                 return Err(DENIED);
             }
-            files.insert(relative.to_owned(), sha_file(&path)?);
+            let relative = if cfg!(windows) { relative.replace('\\', "/") } else { relative.to_owned() };
+            if files.insert(relative, sha_file(&path)?).is_some() { return Err(DENIED); }
         } else {
             return Err(DENIED);
         }
@@ -222,8 +231,8 @@ fn verify_build_identity(
     Ok(())
 }
 
-fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
-    let executable = std::env::current_exe().map_err(|_| DENIED)?;
+#[cfg(target_os = "macos")]
+fn artifact_layout(executable: &Path) -> Result<(PathBuf, String), &'static str> {
     if executable.file_name().and_then(|p| p.to_str()) != Some("garmin-trainer-desktop") {
         return Err(DENIED);
     }
@@ -239,8 +248,31 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
     {
         return Err(DENIED);
     }
+    Ok((bundle.to_owned(), "Contents/Resources/resources".to_owned()))
+}
+#[cfg(windows)]
+fn artifact_layout(executable: &Path) -> Result<(PathBuf, String), &'static str> {
+    if executable.file_name().and_then(|p| p.to_str()) != Some("garmin-trainer-desktop.exe") {
+        return Err(DENIED);
+    }
+    let program = executable.parent().ok_or(DENIED)?;
+    if !private_fs::canonical(program) || !private_fs::canonical(executable) {
+        return Err(DENIED);
+    }
+    // The orchestration owner separately binds these installed bytes to the
+    // verified installer. Native admits only this exact compiled layout/identity.
+    let uninstaller = program.join("uninstall.exe");
+    let meta = private_fs::path_meta(&uninstaller).map_err(|_| DENIED)?;
+    if meta.kind != private_fs::Kind::File || meta.links != 1 || meta.len == 0 {
+        return Err(DENIED);
+    }
+    Ok((program.to_owned(), "resources".to_owned()))
+}
+fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
+    let executable = std::env::current_exe().map_err(|_| refusal("artifact-executable"))?;
+    let (bundle, resource_prefix) = artifact_layout(&executable).map_err(|_| refusal("artifact-layout"))?;
     let mut files = BTreeMap::new();
-    inventory(bundle, bundle, &mut files, &mut 0)?;
+    inventory(&bundle, &bundle, &mut files, &mut 0).map_err(|_| refusal("artifact-files"))?;
     let mut digest = Sha256::new();
     for (path, hash) in &files {
         digest.update(path.as_bytes());
@@ -249,9 +281,9 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
         digest.update(b"\n");
     }
     if format!("{:x}", digest.finalize()) != descriptor.artifact_inventory_hash {
-        return Err(DENIED);
+        return Err(refusal("artifact-inventory-digest"));
     }
-    let resources = contents.join("Resources/resources");
+    let resources = bundle.join(&resource_prefix);
     let path = resources.join("provenance.json");
     if fs::metadata(&path).map_err(|_| DENIED)?.len() > 16 * 1024 * 1024 {
         return Err(DENIED);
@@ -266,7 +298,7 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
             option_env!("TRAINER_ORDINARY_BUILD_SOURCE"),
             option_env!("TRAINER_ORDINARY_BUILD_CONTEXT"),
         ],
-    )?;
+    ).map_err(|_| refusal("compiled-resource-identity"))?;
     for entry in provenance["files"]
         .as_array()
         .filter(|a| !a.is_empty() && a.len() <= 50_000)
@@ -281,7 +313,7 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
             return Err(DENIED);
         }
         if files
-            .get(&format!("Contents/Resources/resources/{path}"))
+            .get(&format!("{resource_prefix}/{path}"))
             .map(String::as_str)
             != entry["sha256"].as_str()
         {
@@ -297,14 +329,14 @@ impl Admission {
             || cfg!(feature = "release-probe")
             || std::env::var_os("TRAINER_SMOKE_CONFIG").is_some()
         {
-            return Err(DENIED);
+            return Err(refusal("mode"));
         }
         let admission = Self::admit(path, verify_artifact)?;
-        if admission.descriptor.history_setup.is_some()
+        if cfg!(windows) || admission.descriptor.history_setup.is_some()
             || admission.descriptor.provider_smoke.is_some()
         {
             if !stdin_is_pipe() {
-                return Err(DENIED);
+                return Err(refusal("owner-pipe"));
             }
         }
         Ok(admission)
@@ -313,21 +345,21 @@ impl Admission {
         path: &Path,
         artifact: impl FnOnce(&Descriptor) -> Result<(), &'static str>,
     ) -> Result<Self, &'static str> {
-        let descriptor_capture = private_store::capture(path)?;
+        let descriptor_capture = private_store::capture(path).map_err(|_| refusal("descriptor-file"))?;
         let bytes = &descriptor_capture.1;
         if bytes.len() > 16 * 1024 {
             return Err(DENIED);
         }
-        let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|_| DENIED)?;
-        descriptor.validate(path)?;
-        let mut root = private_store::PinnedDirectory::open(&descriptor.root)?;
-        root.lock_exclusive()?;
+        let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|_| refusal("descriptor-json"))?;
+        descriptor.validate(path).map_err(|_| refusal("descriptor-fields"))?;
+        let mut root = private_store::PinnedDirectory::open(&descriptor.root).map_err(|_| refusal("root-directory"))?;
+        root.lock_exclusive().map_err(|_| refusal("root-lease"))?;
         // Read again after taking the lifetime lease, refusing a descriptor swap.
-        let owner_capture = private_store::capture(&descriptor.root.join("owner"))?;
+        let owner_capture = private_store::capture(&descriptor.root.join("owner")).map_err(|_| refusal("owner-file"))?;
         if private_store::capture(path)? != descriptor_capture
             || owner_capture.1 != descriptor.run_id.as_bytes()
         {
-            return Err(DENIED);
+            return Err(refusal("owner-binding"));
         }
         let mut directories = vec![root];
         for name in DIRECTORIES {
@@ -337,7 +369,7 @@ impl Admission {
             }
             directories.push(private_store::PinnedDirectory::open(
                 &descriptor.root.join(name),
-            )?);
+            ).map_err(|_| refusal(name))?);
         }
         let missing_settings = Self::missing_settings_at(&descriptor.root);
         let database_path = descriptor.root.join("trainer.sqlite");
@@ -350,9 +382,9 @@ impl Admission {
             }
             None
         } else {
-            Some(database_identity(&database_path)?)
+            Some(database_identity(&database_path).map_err(|_| refusal("database-file"))?)
         };
-        artifact(&descriptor)?;
+        artifact(&descriptor).map_err(|_| refusal("artifact"))?;
         let admission = Self {
             descriptor,
             boot: uuid::Uuid::new_v4().to_string(),
@@ -362,7 +394,7 @@ impl Admission {
             owner_capture,
             provider_source: std::sync::Mutex::new(None),
         };
-        admission.verify_settings()?;
+        admission.verify_settings().map_err(|_| refusal("settings"))?;
         Ok(admission)
     }
     fn missing_settings_at(root: &Path) -> bool {
@@ -529,8 +561,10 @@ impl Admission {
         )
     }
     pub fn verify(&self) -> Result<(), &'static str> {
-        for directory in &self.directories {
-            directory.verify()?;
+        for (index, directory) in self.directories.iter().enumerate() {
+            // The root precedes DIRECTORIES; never zip away the final optional token pin.
+            let name = if index == 0 { "root-directory" } else { DIRECTORIES[index - 1] };
+            directory.verify().map_err(|_| refusal(name))?;
         }
         let identity = *self.database.lock().map_err(|_| DENIED)?;
         let database_ok = match identity {
@@ -547,7 +581,7 @@ impl Admission {
                 != self.descriptor_capture
             || private_store::capture(&self.descriptor.root.join("owner"))? != self.owner_capture
         {
-            return Err(DENIED);
+            return Err(refusal("state-binding"));
         }
         for sidecar in ["trainer.sqlite-wal", "trainer.sqlite-shm"] {
             let path = self.descriptor.root.join(sidecar);
@@ -620,9 +654,150 @@ impl Admission {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn inventory_uses_portable_components_and_refuses_links() {
+        let root = crate::private_fs::testing::private_root("ordinary-inventory");
+        std::fs::create_dir(root.join("resources")).unwrap();
+        std::fs::write(root.join("resources/provenance.json"), b"authored").unwrap();
+        let mut files = std::collections::BTreeMap::new();
+        super::inventory(&root, &root, &mut files, &mut 0).unwrap();
+        assert!(files.contains_key("resources/provenance.json"));
+        assert!(!files.keys().any(|path| path.contains('\\')));
+        std::fs::hard_link(root.join("resources/provenance.json"), root.join("alias")).unwrap();
+        assert!(super::inventory(&root, &root, &mut Default::default(), &mut 0).is_err());
+        std::fs::remove_file(root.join("alias")).unwrap();
+        std::fs::remove_file(root.join("resources/provenance.json")).unwrap();
+        std::fs::remove_dir(root.join("resources")).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
+    #[cfg(windows)]
+    #[test]
+    fn installed_layout_requires_known_binary_and_generated_uninstaller() {
+        let root = crate::private_fs::testing::private_root("installed-layout");
+        let exe = root.join("garmin-trainer-desktop.exe");
+        std::fs::write(&exe, b"binary").unwrap();
+        assert!(super::artifact_layout(&exe).is_err());
+        std::fs::write(root.join("uninstall.exe"), b"generated").unwrap();
+        assert_eq!(super::artifact_layout(&exe).unwrap(), (root.clone(), "resources".to_owned()));
+        assert!(super::artifact_layout(&root.join("foreign.exe")).is_err());
+        std::fs::remove_file(root.join("uninstall.exe")).unwrap();
+        std::fs::remove_file(exe).unwrap();
+        std::fs::remove_dir(root).unwrap();
+    }
     #[allow(unused_imports)]
     use crate::private_fs::testing::{make_private, make_shared, symlink};
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn window_failure_diagnostic_extracts_only_typed_numeric_hresult() {
+        let code = windows::core::HRESULT(0x80070057u32 as i32);
+        let error = windows::core::Error::from_hresult(code);
+        assert_eq!(crate::window_hresult(&error), Some(code.0));
+        let private = std::io::Error::new(std::io::ErrorKind::Other, "private path/key text");
+        assert_eq!(crate::window_hresult(&private), None);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn python_private_state_live_pin_and_keyless_backend_pass_without_relaxing_native_admission() {
+        use std::io::BufRead;
+        use std::process::{Command, Stdio};
+        {
+            use std::io::Read;
+            let mut header = [0u8; 4096];
+            fs::File::open(std::env::current_exe().unwrap()).unwrap().read_exact(&mut header).unwrap();
+            assert_eq!(&header[..2], b"MZ");
+            let pe = u32::from_le_bytes(header[0x3c..0x40].try_into().unwrap()) as usize;
+            assert_eq!(&header[pe..pe + 4], b"PE\0\0");
+            let subsystem = pe + 24 + 68;
+            assert_eq!(u16::from_le_bytes(header[subsystem..subsystem + 2].try_into().unwrap()), 2,
+                "Windows contract must exercise an actual GUI-subsystem test executable");
+        }
+        if std::env::var_os("TRAINER_NO_CONSOLE_CONTRACT_CHILD").is_none() {
+            // The real ordinary executable is a GUI host without a console.
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command.args(["--exact", "isolated_run::tests::python_private_state_live_pin_and_keyless_backend_pass_without_relaxing_native_admission", "--nocapture"])
+                .env("TRAINER_NO_CONSOLE_CONTRACT_CHILD", "1")
+                .stdin(Stdio::piped()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
+            let mut child = crate::process_tree::Tree::spawn(&mut command).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+            let status = loop {
+                if let Some(status) = child.try_wait().unwrap() { break status; }
+                if std::time::Instant::now() >= deadline {
+                    child.kill();
+                    child.wait().unwrap();
+                    panic!("Owned no-console backend contract exceeded deadline");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            };
+            assert!(status.success(), "Owned no-console backend contract failed");
+            return;
+        }
+        let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/desktop");
+        let producer_resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let code = r#"import contextlib,json,os,shutil,subprocess,sys,uuid
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import windows_smoke_state as state
+from native_smoke import readonly,fingerprint,private_json
+repo=Path(sys.argv[1]).parent.parent
+identity=str(uuid.uuid4())
+root=state.mkdir(Path(os.environ['RUNNER_TEMP']).resolve(strict=True)/('ordinary-'+identity))
+for name in ['config','app-data','profile','setup-profile','tmp','screenshots']:
+ state.mkdir(root/name)
+state.write_file(root/'owner',identity.encode())
+seed=subprocess.run([str(repo/'node_modules/.bin/tsx.cmd'),str(repo/'scripts/desktop/windows_smoke_seed.ts'),'2026-11-17'],cwd=repo,capture_output=True,timeout=60)
+assert seed.returncode==0 and seed.stdout.startswith(b'SQLite format 3\0')
+state.write_file(root/'trainer.sqlite',seed.stdout)
+with contextlib.closing(readonly(root/'trainer.sqlite')) as database: fingerprint(database)
+private_json(root/'config/settings-v2.json',{'version':2,'keys':{},'fields':{'DATABASE_PATH':str(root/'trainer.sqlite'),'AI_PROVIDER':'ollama','MEMORY_ENABLED':'false'}})
+state.write_file(root/'launch.json',json.dumps({'schemaVersion':2,'runId':identity,'root':str(root),'sourceFingerprint':'a'*64,'buildSourceFingerprint':'d'*64,'buildContext':'e'*64,'artifactInventoryHash':'b'*64,'controlPort':23567,'capability':'c'*64}).encode())
+shutil.copytree(Path(sys.argv[2]),root/'portable resources')
+pin=state.PinnedRoot(root)
+print(root,flush=True)
+sys.stdin.buffer.read(1)
+pin.close()
+"#;
+        let mut child = Command::new("python").args(["-c", code]).arg(scripts).arg(producer_resources)
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut line = String::new();
+        std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let root = PathBuf::from(line.trim());
+        // Outside the checkout: ancestor node_modules must not mask missing packaged dependencies.
+        // Canonical Windows spelling is verbatim (\\?\ drive prefix), as can
+        // reach an installed runtime; the old lexical fixture missed this boundary.
+        let resources = fs::canonicalize(root.join("portable resources")).unwrap();
+        // This is the isolated single-test child, not the concurrent harness.
+        // Reproduce the actual GUI runner's private TEMP/TMP routing too.
+        std::env::set_var("TEMP", root.join("tmp"));
+        std::env::set_var("TMP", root.join("tmp"));
+        let admitted = Admission::admit(&root.join("launch.json"), |_| Ok(()));
+        let accepted = admitted.is_ok();
+        let backend = if accepted {
+            crate::settings::activation(&root.join("config/settings-v2.json")).and_then(|mut frame| {
+                let result = crate::supervisor::Service::start(&resources, &mut frame,
+                    &std::sync::atomic::AtomicBool::new(false), &std::sync::atomic::AtomicBool::new(false));
+                frame.fill(0);
+                result.map(|mut service| service.stop())
+            })
+        } else { Err("Private admission failed") };
+        drop(admitted);
+        drop(child.stdin.take());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() { break status; }
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap(); // This test's retained live helper only.
+                child.wait().unwrap();
+                panic!("Owned Python fixture did not settle");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert!(status.success());
+        assert!(root.file_name().unwrap().to_string_lossy().starts_with("ordinary-"));
+        fs::remove_dir_all(root).unwrap();
+        assert!(accepted, "Python-created private run refused; consult static admission stage code");
+        assert!(backend.is_ok(), "Python-state native keyless backend refused: {:?}", backend.err());
+    }
     #[test]
     fn finite_provider_scope_never_combines_with_history_setup() {
         let (_root, path) = fixture();
@@ -664,6 +839,18 @@ mod tests {
         let path = root.join("launch.json");
         write(path.clone(), serde_json::to_vec(&serde_json::json!({"schemaVersion":2,"runId":id,"root":root,"sourceFingerprint":"a".repeat(64),"buildSourceFingerprint":"d".repeat(64),"buildContext":"e".repeat(64),"artifactInventoryHash":"b".repeat(64),"controlPort":23567,"capability":"c".repeat(64)})).unwrap());
         (root, path)
+    }
+    #[test]
+    fn optional_token_directory_is_revalidated_after_admission() {
+        let (root, path) = fixture();
+        let admitted = Admission::admit(&path, |_| Ok(())).unwrap();
+        fs::rename(root.join("tokens"), root.join("prior-tokens")).unwrap();
+        fs::create_dir(root.join("tokens")).unwrap();
+        make_private(root.join("tokens"));
+        let refused = admitted.verify().is_err();
+        drop(admitted);
+        fs::remove_dir_all(root).unwrap();
+        assert!(refused, "Every pinned directory, including optional tokens, must be checked");
     }
     #[test]
     fn separated_build_identity_requires_exact_versioned_compiled_resource_descriptor_agreement() {

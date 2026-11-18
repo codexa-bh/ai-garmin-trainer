@@ -517,6 +517,31 @@ pub fn activation(path: &Path) -> Result<Vec<u8>, &'static str> {
     frame(&settings)
 }
 
+#[cfg(any(windows, test))]
+fn validation_diagnostic(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let object = value.as_object()?;
+    if object.len() != 3 || value["ok"] != false || !object.contains_key("stage") || !object.contains_key("code") {
+        return None;
+    }
+    let stage = match value["stage"].as_str()? { "fields" => "fields", "database" => "database", _ => return None };
+    let code = ["SQLITE_BUSY", "SQLITE_LOCKED", "SQLITE_CANTOPEN", "SQLITE_CORRUPT", "SQLITE_NOTADB", "SQLITE_READONLY", "SQLITE_ERROR", "SQLITE_IOERR", "MODULE_NOT_FOUND", "ERR_DLOPEN_FAILED", "canonical-path", "database-file", "database-schema", "database-integrity", "database-compatibility", "database-control", "unavailable"]
+        .into_iter().find(|known| value["code"].as_str() == Some(*known)).unwrap_or("unavailable");
+    Some((stage, code))
+}
+
+#[cfg(any(windows, test))]
+fn validation_loader_diagnostic(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    let text = String::from_utf8_lossy(bytes); // Only closed ASCII tokens can leave this function.
+    let code = ["MODULE_NOT_FOUND", "ERR_MODULE_NOT_FOUND", "ERR_DLOPEN_FAILED", "ERR_REQUIRE_ESM", "EINVAL", "EBADF", "EPIPE", "ENOENT", "ENOTDIR", "ENOTSOCK", "EPERM", "EACCES", "ERR_INVALID_HANDLE_TYPE", "ERR_INVALID_FD_TYPE", "ERR_INVALID_ARG_VALUE", "ERR_INVALID_ARG_TYPE", "ERR_UNSUPPORTED_ESM_URL_SCHEME", "ERR_UNKNOWN_FILE_EXTENSION"].into_iter().find(|code| text.contains(*code))
+        .or_else(|| [("SyntaxError:", "NODE_SYNTAX_ERROR"), ("TypeError:", "NODE_TYPE_ERROR"), ("RangeError:", "NODE_RANGE_ERROR"), ("Assertion failed", "NODE_ASSERTION"), ("bad option:", "NODE_BAD_OPTION")]
+            .into_iter().find(|(marker, _)| text.contains(marker)).map(|(_, code)| code))?;
+    let specifier = text.split_once("Cannot find module '").and_then(|(_, tail)| tail.split('\'').next()).unwrap_or("");
+    let module = ["next", "better-sqlite3", "@next/env", "@resvg/resvg-wasm", "react", "react-dom", "react-is", "styled-jsx", "bindings", "file-uri-to-path", "@swc/helpers", "postcss", "caniuse-lite", "baseline-browser-mapping", "@opentelemetry/api", "scheduler", "client-only", "server-only"]
+        .into_iter().find(|module| specifier == *module || specifier.starts_with(&format!("{module}/"))).unwrap_or("unavailable");
+    Some((code, module))
+}
+
 pub fn validate(
     resources: &Path,
     fields: &BTreeMap<String, String>,
@@ -526,20 +551,27 @@ pub fn validate(
         return Err("Settings too large.");
     }
     input.push(b'\n');
+    let runtime = crate::process_tree::runtime_directory(resources);
     let mut command = Command::new(crate::process_tree::node(resources));
     command
-        .arg(resources.join("runtime/runtime.cjs"))
+        .arg(runtime.join("runtime.cjs"))
         .arg("--validate-settings")
-        .current_dir(resources.join("runtime"))
+        .current_dir(runtime)
         .env_clear()
         .env("NODE_ENV", "production")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     crate::process_tree::system_environment(&mut command);
     let mut child = crate::process_tree::Tree::spawn(&mut command)
         .map_err(|_| "Settings validator resources unavailable. Rebuild the desktop app.")?;
     let stdout = child.stdout.take().ok_or("Settings result unavailable.")?;
+    let stderr = child.stderr.take().ok_or("Settings result unavailable.")?;
+    let error_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stderr.take(64 * 1024 + 1).read_to_end(&mut bytes);
+        bytes
+    });
     let reader = std::thread::spawn(move || {
         let mut bytes = Vec::new();
         let result = stdout.take(128 * 1024 + 1).read_to_end(&mut bytes);
@@ -559,6 +591,8 @@ pub fn validate(
                 .map_err(|_| "Settings validation interrupted.")?
             {
                 if !exit.success() {
+                    #[cfg(windows)]
+                    if let Some(code) = exit.code() { eprintln!("Desktop settings child exit: {code}"); }
                     return Err("Settings invalid. Check existing current-schema database, absolute private paths, date, endpoints and advanced values.");
                 }
                 break;
@@ -575,6 +609,30 @@ pub fn validate(
     }
     let _ = child.wait();
     let (read, bytes) = reader.join().map_err(|_| "Settings result interrupted.")?;
+    let mut error_bytes = error_reader.join().map_err(|_| "Settings result interrupted.")?;
+    #[cfg(windows)]
+    if result.is_err() {
+        eprintln!("Desktop settings transport bytes: {} {}", bytes.len(), error_bytes.len());
+        let value = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+        let kind = match value.as_ref() {
+            Some(value) if value["ok"] == false => "validation-refusal",
+            Some(value) if value["ok"] == true => "unexpected-success",
+            Some(value) if value["type"] == "failed" => "backend-failure",
+            Some(value) if value["type"] == "ready" => "unexpected-ready",
+            Some(_) => "other-json",
+            None => "non-json",
+        };
+        eprintln!("Desktop settings stdout kind: {kind}");
+        if let Some((stage, code)) = validation_diagnostic(&bytes) {
+            eprintln!("Desktop settings validation: {stage} {code}");
+        }
+        if error_bytes.len() <= 64 * 1024 {
+            if let Some((code, module)) = validation_loader_diagnostic(&error_bytes) {
+                eprintln!("Desktop settings loader: {code} {module}");
+            }
+        }
+    }
+    error_bytes.fill(0); // Raw loader errors/paths never become UI, logs or publication.
     result?;
     read.map_err(|_| "Settings result unavailable.")?;
     if bytes.len() > 128 * 1024 {
@@ -597,6 +655,23 @@ pub fn validate(
 mod tests {
     use super::*;
     use std::cell::Cell;
+    #[test]
+    fn validation_failure_metadata_never_forwards_unknown_text_paths_or_fields() {
+        assert_eq!(validation_diagnostic(br#"{"ok":false,"stage":"database","code":"SQLITE_CANTOPEN"}"#), Some(("database", "SQLITE_CANTOPEN")));
+        assert_eq!(validation_diagnostic(br#"{"ok":false,"stage":"fields","code":"private-key-path"}"#), Some(("fields", "unavailable")));
+        assert!(validation_diagnostic(br#"{"ok":false,"stage":"private-key","code":"unavailable"}"#).is_none());
+        assert!(validation_diagnostic(br#"{"ok":false,"stage":"database","code":"unavailable","path":"private-key"}"#).is_none());
+        assert!(validation_diagnostic(br#"{"ok":true,"fields":{}}"#).is_none());
+    }
+    #[test]
+    fn loader_diagnostics_discard_raw_paths_and_unknown_module_names() {
+        assert_eq!(validation_loader_diagnostic(b"Error: Cannot find module 'styled-jsx/package.json'\ncode: 'MODULE_NOT_FOUND'\nprivate-path-key"), Some(("MODULE_NOT_FOUND", "styled-jsx")));
+        assert_eq!(validation_loader_diagnostic(b"Error: Cannot find module '../private-key'\ncode: 'MODULE_NOT_FOUND'"), Some(("MODULE_NOT_FOUND", "unavailable")));
+        assert_eq!(validation_loader_diagnostic(b"Error: invalid argument\ncode: 'EINVAL'\nprivate-path-key"), Some(("EINVAL", "unavailable")));
+        assert_eq!(validation_loader_diagnostic(b"\xff\x1b[32mEINVAL\x1b[0m private-path-key"), Some(("EINVAL", "unavailable")));
+        assert_eq!(validation_loader_diagnostic(b"TypeError: private-path-key"), Some(("NODE_TYPE_ERROR", "unavailable")));
+        assert!(validation_loader_diagnostic(b"private-path-key").is_none());
+    }
     struct Fake {
         calls: Cell<usize>,
         deny: bool,
