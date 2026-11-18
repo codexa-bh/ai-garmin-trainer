@@ -1,6 +1,8 @@
 # Local smoke inputs
 
-Routine `smoke:native` and `smoke:ordinary` default to **entirely authored synthetic** SQLite. They do not open personal selections, receipts, env, settings, tokens or credentials. Normal app state is never a fallback. Quick/nightly remains its independent minimal Profile-only recipe; no additional recurring native workload is enrolled.
+Routine `smoke:native` and `smoke:ordinary` default to **entirely authored synthetic** SQLite: no personal selections, receipts, env, settings, tokens or credentials, and no normal-state fallback. Quick/nightly keeps its independent minimal Profile-only recipe and workload.
+
+Read **Finite recipe and verification** for routine input; **Explicit private route** only for authorized private use; **Task-owned rehearsal** only for backup/restore preparation. Sync/import tasks can start with the [one-page Sync card](synthetic-sync-smoke.md), not unrelated chat/onboarding scenarios. [Developer process](developer-process.md#no-new-isolated-fixture-environment-for-this-stage) owns the no-new-fixture rule and finite exceptions.
 
 ```bash
 npm run smoke:prepare -- --scratch '/canonical/0700/task-scratch' --task-id T0252 --anchor 2026-11-01
@@ -22,18 +24,11 @@ existing importer despite SQLite INTEGER affinity; counters/timestamps remain
 integral and nonnumeric/nonfinite values still refuse. No rounding or data rewrite
 is performed.
 
-The Python preparation owner requires existing canonical uid-owned `0700` directories and bounded `0600` regular single-link files; aliases, hardlinks, unknown/duplicate JSON keys, insecure/foreign files and reused destinations refuse, never chmod/adopt. A fresh private UUID output holds database-only `selection.json` (`{"database":"/canonical/prepared/input.sqlite"}`) and bounded private preparation provenance. Private copying uses SQLite online backup with a deadline and original logical/identity/DB-WAL byte checks, not a live main-file copy. Implicit SQLite sidecars must also be canonical/private/single-link; rollback journals refuse recovery. SHM lock/read marks are validated for file safety, not certified immutable. Native owners then make independent writable run copies. All copies, Goals, provenance, logs and images are task-attributed, never back-synced or uploaded. For managed Pivan invocations, the existing category owner places new mutable synthetic/authorized numeric-copy preparation DBs under registered disposable scratch, not evidence; compact preparation provenance remains in evidence. This changes no grant classes, borrowed/standalone/prepare-only output promise or retention period. Actual runner invocations apply [evidence-first owned disposal](dev-bridge.md#preparation-reuse-and-owned-disposal) to their exclusively created DB copies after final settlement; compact diagnostics/PNGs remain. Standalone preparation, prepare-only and borrowed inputs retain promised outputs. Partial/failed outputs are retained for exact reconciliation, not adopted, overwritten or retried blindly.
+The Python preparation owner requires existing canonical uid-owned `0700` directories and bounded `0600` regular single-link files; aliases, hardlinks, unknown/duplicate JSON keys, insecure/foreign files and reused destinations refuse, never chmod/adopt. A fresh private UUID output holds database-only `selection.json` (`{"database":"/canonical/prepared/input.sqlite"}`) and bounded private preparation provenance. Private copying uses SQLite online backup with a deadline and original logical/identity/DB-WAL byte checks, not a live main-file copy. Implicit SQLite sidecars must also be canonical/private/single-link; rollback journals refuse recovery. SHM lock/read marks are validated for file safety, not certified immutable. Native owners then make independent writable run copies. Copies, Goals, provenance, logs and images stay task-attributed, never back-synced/uploaded. The [resource owner](dev-bridge.md#preparation-reuse-and-owned-disposal) places managed mutable synthetic/authorized numeric-copy DBs in registered disposable and compact provenance in evidence; it owns final-settlement/evidence-first disposal and unchanged lifetime. Standalone/prepare-only/borrowed outputs retain their immediate-disposal exclusions. Partial/failed outputs require exact reconciliation, never adoption, overwrite or blind retry. Input grants remain independent.
 
 ## Task-owned rehearsal, restore and run-backup placement
 
-Standalone `smoke:prepare` now establishes the same category/resource owner as
-runners **before** preparing inputs, and explicitly retains successful outputs.
-Stdout keeps its prepared-result record and also emits the existing resource
-disposition record; parse JSON records by key, not by line position. A managed
-readable root may contain private allocator-created categories without chmod.
-External explicit private scratch remains independent, even with an ambient task.
-Missing/incompatible tooling or invalid category proof refuses before input access;
-there is no root/evidence fallback or adoption of existing directories.
+Standalone `smoke:prepare` configures the [resource owner](dev-bridge.md#preparation-reuse-and-owned-disposal) **before input access** and retains successful outputs. Parse stdout JSON records by key: one prepared result and one resource disposition, not a fixed line order. A readable managed root may contain private allocator-created categories without chmod; explicit external private scratch stays independent of ambient tasks. Incompatible tooling/invalid proof refuses, never root/evidence fallback or directory adoption.
 
 For a future operational rehearsal, name the actual owning task and separately
 authorize the exact source/use **before DB access**. Do not execute or adopt an old
@@ -63,11 +58,7 @@ ad-hoc script/allocation as an owner. The finite recipe is:
    provenance and failure facts in returned evidence. Source paths/grants/DB contents
    are not public support evidence. Retain all promised standalone/prepare-only
    outputs; consumption does not enroll borrowed inputs for deletion.
-5. Record output purpose, source preservation, receipt and normal expiry/cleanup
-   deferral in the owning task. Disposable expiry remains independent of immediate
-   runner disposal (normally six hours after canonical closure); evidence normally
-   seven days, subject to actual App policy. Failure grants no retention extension.
-   Placement does not authorize any deletion, migration, install or production use.
+5. Record purpose, source preservation, receipt and expiry/cleanup deferral in the task. [Resource lifetime](dev-bridge.md#preparation-reuse-and-owned-disposal) is independent of immediate disposal: normally disposable six hours after canonical close and evidence seven days, subject to actual App policy; failure extends neither. Placement grants no deletion, migration, install or production use.
 
 The executable authored proof is
 `python3 -m unittest discover -s scripts/desktop -p smoke_prepare_test.py`: actual
@@ -124,4 +115,4 @@ Owner resource/retention controls remain independent: a standing grant never ext
 
 ## Evidence limits
 
-Synthetic navigation/save/restart and masked geometry are not real provider/Garmin/auth/default-window/trusted-input certification. Private presence/preparation also proves none of those. Exact fixture values/coverage belong to deterministic checks; masks cannot prove hidden values. Read every required PNG and retain concise source/artifact/scenario/hash/layout/privacy analysis locally; upload nothing. See [developer process](developer-process.md) for final-diff schema/back-sync no-op and attributed artifact cleanup/deferral, and [validation](validation.md) for sufficient local/macOS/build/native evidence.
+Preparation/private presence is not runtime proof. The bridge's [evidence classes](dev-bridge.md#keep-evidence-classes-distinct) own synthetic/debug/ordinary/real-service limits: synthetic or isolated success alone is not provider/Garmin/auth/default-window/trusted-input certification. Deterministic checks prove exact fixture values/coverage, not masked images. Inspect every required PNG and retain local source/artifact/scenario/hash/layout/privacy analysis; upload nothing. [Developer process](developer-process.md) owns final-diff back-sync no-op and attributed cleanup/deferral; [validation](validation.md) owns applicable local/macOS/build/native requirements.
