@@ -174,17 +174,6 @@ class LifecycleContracts(unittest.TestCase):
             self.assertFalse(app.startup_diagnostic(root, 1, None)['nativeLogAvailable'])
             self.assertTrue(app.startup_diagnostic(root, 2, 0xc0000135)['loaderDllMissing'])
 
-    def test_approved_startup_excerpt_is_bounded_and_scrubs_paths_and_bearers(self):
-        root = Path('/task/owned/run')
-        raw = (str(root) + '\\file.js\nC:\\private\\file.js\nBearer ' + 'a' * 64 + '\npassword=do-not-publish\nTypeError: useful failure').encode()
-        value = app.scrub_startup_excerpt(raw, root)
-        self.assertNotIn(str(root), value)
-        self.assertNotIn('C:\\private', value)
-        self.assertNotIn('a' * 64, value)
-        self.assertNotIn('do-not-publish', value)
-        self.assertIn('TypeError: useful failure', value)
-        self.assertLessEqual(len(app.scrub_startup_excerpt(b'x' * 5000, root)), 2048)
-
     def test_direct_bounded_installer_arguments_and_failures(self):
         with mock.patch.object(app.process, 'execute', return_value=0) as run:
             app.execute_installer(Path('installer.exe'), ['/S', '/NS', '/D=C:\\owned program'], cwd=Path('.'))

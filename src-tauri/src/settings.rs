@@ -613,11 +613,6 @@ pub fn validate(
     #[cfg(windows)]
     if result.is_err() {
         eprintln!("Desktop settings transport bytes: {} {}", bytes.len(), error_bytes.len());
-        // Temporary T0341 diagnosis, explicitly approved by the operator. Encoded
-        // locally so the runner can scrub paths/bearers before console publication.
-        let diagnostic = format!("resources={resources:?}\n{}", String::from_utf8_lossy(&error_bytes));
-        let excerpt: String = diagnostic.as_bytes().iter().take(2048).map(|byte| format!("{byte:02x}")).collect();
-        eprintln!("Desktop settings diagnostic hex: {excerpt}");
         let value = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
         let kind = match value.as_ref() {
             Some(value) if value["ok"] == false => "validation-refusal",
