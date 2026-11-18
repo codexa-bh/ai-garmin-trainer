@@ -399,6 +399,14 @@ class InstalledRun(Run):
         return images
 
 
+def replace_program(installer, program, expected, registered):
+    """Only the already verified same-version installer, after owned shutdown."""
+    execute_installer(installer, ['/S', '/NS', '/D=' + str(program)], cwd=installer.parent)
+    installed_payload(program, expected)
+    if registration() != registered or any(path.exists() for path in shortcuts()):
+        raise ValueError('Same-version replacement changed registration/shortcuts')
+
+
 def scenario(args):
     source, runtime, appdata = prerequisite()
     runner_temp = state.canonical(Path(os.environ['RUNNER_TEMP']))
@@ -465,6 +473,11 @@ def scenario(args):
                 with contextlib.closing(readonly(run.database)) as database:
                     preserved = fingerprint(database)
                 settings = inventory(run.root / 'config')
+                verify_current()
+                replace_program(installer, program, expected, registered)
+                assert_preserved(run.database, preserved, run.root / 'config', settings, appdata, marker_inventory)
+                run.check_current()
+                completed('sameVersionProgramReplacement', 'programReplacement')
                 # No _?= override: NSIS copies itself to runner TEMP and can remove
                 # its installed uninstaller. The invocation-owned job waits for
                 # that forwarded child too, not merely the exiting parent.
@@ -483,7 +496,7 @@ def scenario(args):
                 assert_preserved(run.database, preserved, run.root / 'config', settings, appdata, marker_inventory)
                 completed('dataPreservation', 'dataPreservation')
                 # Literal/finite public claims only. No private receipt/log bag.
-                manifest = {'schemaVersion': 1, 'sourceSha': source, 'githubRunId': os.environ['GITHUB_RUN_ID'],
+                manifest = {'schemaVersion': 2, 'sourceSha': source, 'githubRunId': os.environ['GITHUB_RUN_ID'],
                             'githubAttempt': os.environ['GITHUB_RUN_ATTEMPT'], 'os': 'Windows Server 2025',
                             'image': os.environ['ImageVersion'], 'osBuild': str(sys.getwindowsversion().build),
                             'architecture': 'x64', 'webview2Version': runtime, 'installerSha256': record['artifact']['sha256'],

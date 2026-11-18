@@ -12,6 +12,7 @@ import {
 import { useState, createRef } from "react";
 import { getNiceTickValues } from "recharts";
 import { SyncView } from "../src/app/dashboard/sync-view";
+import { SettingsView } from "../src/app/dashboard/settings-view";
 import { TerrainTable } from "../src/app/dashboard/terrain-table";
 import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
 import { emptySyncRun } from "../src/app/dashboard/contracts";
@@ -77,6 +78,12 @@ beforeEach(() => {
         : [{ width: 10 }]) as unknown as DOMRectList;
     },
   );
+  const computed = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((node, pseudo) =>
+    pseudo
+      ? ({ content: "none", backgroundImage: "none" } as CSSStyleDeclaration)
+      : computed(node),
+  );
   const marker = document.createElement("section");
   marker.setAttribute("aria-label", "AI trainer dashboard");
   marker.setAttribute("data-renderer-ready", "true");
@@ -91,6 +98,39 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
+
+function ProfileMaskFixture() {
+  return (
+    <SettingsView
+      closeSettingsSheet={() => {}}
+      settingsCloseRef={createRef()}
+      isProfileDirty={false}
+      profileSaveState="saved"
+      profileSummary="Profile saved"
+      profileMessage="private profile message"
+      profileFields={{
+        goals: sentinel,
+        sports: "private sports",
+        constraints: "private constraints",
+      }}
+      updateProfileField={() => {}}
+      profileControlsDisabled={false}
+      runInBackground={() => {}}
+      saveProfile={async () => {}}
+      loadProfile={async () => {}}
+      runAction={async () => {}}
+      athleteBaselineMessage="private imported facts"
+      athleteBaseline={null}
+      bodyMetricsMessage="private body metrics"
+      bodyMetrics={null}
+      llmDebugTracesEnabled={true}
+      debugTraceMessages={[]}
+      diagnosticsOpen={false}
+      setDiagnosticsOpen={() => {}}
+      status={{ kind: "idle", message: "" }}
+    />
+  );
+}
 
 function DebugFixture() {
   return (
@@ -1028,17 +1068,7 @@ describe("native-installed rendered smoke boundary", () => {
       ).result.ok,
     ).toBe(false);
     unmount();
-    render(
-      <aside className="settings-sheet">
-        <div className="profile-settings-card">
-          <span className="pill">Profile saved</span>
-          <label>
-            Goals
-            <textarea aria-label="Goals" defaultValue={sentinel} />
-          </label>
-        </div>
-      </aside>,
-    );
+    render(<ProfileMaskFixture />);
     vi.useFakeTimers();
     let pending: Promise<void>;
     await act(async () => {
@@ -1059,6 +1089,114 @@ describe("native-installed rendered smoke boundary", () => {
       await vi.advanceTimersByTimeAsync(10000);
     });
     expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+  });
+  it("preserves actual Profile layer painting while private descendants remain hidden", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 420);
+    vi.stubGlobal("innerHeight", 850);
+    render(<ProfileMaskFixture />);
+    const sheet = document.querySelector(".settings-sheet")!;
+    sheet.parentElement!.scrollTop = 17;
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "profile",
+          preset: "narrow",
+        })
+      ).result.ok,
+    ).toBe(true);
+    for (const selector of [
+      ".modal-layer",
+      ".settings-backdrop",
+      ".settings-sheet",
+    ])
+      expect(
+        getComputedStyle(document.querySelector(selector)!).visibility,
+      ).toBe("visible");
+    for (const label of ["Preferred sports", "Constraints"])
+      expect(getComputedStyle(screen.getByLabelText(label)).visibility).toBe(
+        "hidden",
+      );
+    expect(
+      getComputedStyle(screen.getByText("private profile message")).visibility,
+    ).toBe("hidden");
+    expect(
+      getComputedStyle(screen.getByText("private imported facts")).visibility,
+    ).toBe("hidden");
+    expect(getComputedStyle(screen.getByLabelText("Goals")).visibility).toBe(
+      "visible",
+    );
+    expect(sheet.getAttribute("style")).toBeNull();
+    expect(sheet.parentElement!.scrollTop).toBe(17);
+    smoke.__trainerSmokeRestore();
+    expect(document.querySelector("[data-smoke-structure]")).toBeNull();
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  });
+  it("refuses unknown structural text, attributes, image painting, pseudo content and children before capture", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 420);
+    vi.stubGlobal("innerHeight", 850);
+    for (const mutate of [
+      (sheet: Element) => sheet.append("private direct text"),
+      (sheet: Element) =>
+        sheet.setAttribute("data-private", "private attribute"),
+      (sheet: Element) => sheet.append(document.createElement("img")),
+      (sheet: Element) => sheet.parentElement!.append("private layer text"),
+      (sheet: Element) =>
+        sheet.querySelector(".settings-groups")!.classList.add("unknown"),
+    ]) {
+      const view = render(<ProfileMaskFixture />);
+      mutate(document.querySelector(".settings-sheet")!);
+      expect(
+        (
+          await command({
+            type: "captureView",
+            view: "profile",
+            preset: "narrow",
+          })
+        ).result.ok,
+      ).toBe(false);
+      expect(document.querySelector("[data-smoke-structure]")).toBeNull();
+      expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+      view.unmount();
+    }
+    const computed = vi
+      .mocked(window.getComputedStyle)
+      .getMockImplementation()!;
+    for (const unsafe of ["pseudo", "image"]) {
+      const view = render(<ProfileMaskFixture />);
+      vi.mocked(window.getComputedStyle).mockImplementation((node, pseudo) => {
+        if (node.classList.contains("settings-sheet")) {
+          if (unsafe === "pseudo" && pseudo)
+            return {
+              content: '"private generated"',
+              backgroundImage: "none",
+            } as CSSStyleDeclaration;
+          if (unsafe === "image" && !pseudo)
+            return {
+              backgroundImage: 'url("private.png")',
+            } as CSSStyleDeclaration;
+        }
+        return pseudo
+          ? ({
+              content: "none",
+              backgroundImage: "none",
+            } as CSSStyleDeclaration)
+          : computed(node);
+      });
+      expect(
+        (
+          await command({
+            type: "captureView",
+            view: "profile",
+            preset: "narrow",
+          })
+        ).result.ok,
+      ).toBe(false);
+      expect(document.querySelector("[data-smoke-structure]")).toBeNull();
+      view.unmount();
+    }
   });
   it("requests current own-WebView screen updates rather than a cached pre-mask snapshot", () => {
     const capture = readFileSync("src-tauri/src/dev_capture.rs", "utf8");

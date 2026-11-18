@@ -184,15 +184,27 @@ def assemble(record_paths, notes, scratch, *, version=None):
 def assets(set_path, record_dirs):
     """Current exact asset paths for a stored set, rechecking every byte."""
     value = validate(load(set_path))
-    result = {}
+    if set(record_dirs) != set(value['platforms']):
+        raise ValueError('Exactly one record directory per selected platform required')
+    result, paths = {}, []
     for item in value['entries']:
         directory = Path(record_dirs[item['platform']])
-        _, current, files = entry(directory / item['record'])
+        record_path = directory / RECORD_NAME[item['platform']]
+        _, current, files = entry(record_path)
+        paths.append(record_path)
         if current != item:
             raise ValueError('Platform ' + item['platform'] + ' changed since the release set')
         for asset in item['assets']:
             sha, size = digest(files[asset['name']])
             result[asset['name']] = {'path': files[asset['name']], 'size': size, 'sha256': sha}
+    # Rebuild shared source/version/tag/notes as well as per-platform entries.
+    # A stored set cannot relabel otherwise valid platform records.
+    first = load(paths[0])
+    for path in paths:
+        current = load(path)
+        if any(current[key] != first[key] or value.get(key) != current[key]
+               for key in ('repository', 'commit', 'version', 'tag', 'notesSha256')):
+            raise ValueError('Stored release set shared identity differs from platform records')
     sha, size = digest(set_path)
     result[NAME] = {'path': Path(set_path), 'size': size, 'sha256': sha}
     return value, result

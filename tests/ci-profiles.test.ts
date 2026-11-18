@@ -72,7 +72,11 @@ describe("economical CI profiles", () => {
   it("runs Windows only on explicit selected-ref dispatch and binds checkout to its immutable SHA", () => {
     const windows = read(".github/workflows/windows.yml");
     const events = windows.split("on:\n")[1]?.split("\npermissions:")[0];
-    expect(events?.trim()).toBe("workflow_dispatch:");
+    expect(
+      [...(events ?? "").matchAll(/^  ([a-z_]+):/gm)].map((match) => match[1]),
+    ).toEqual(["workflow_dispatch"]);
+    expect(events).toContain("release_export:");
+    expect(events).toContain("type: boolean\n        default: false");
     expect(windows).not.toMatch(
       /pull_request|workflow_call|schedule:|\n {2}push:/,
     );
@@ -127,6 +131,38 @@ describe("economical CI profiles", () => {
     expect(read(".github/workflows/ci.yml")).not.toContain("windows");
     expect(read(".github/workflows/nightly-macos.yml")).not.toContain(
       "upload-artifact",
+    );
+  });
+
+  it("keeps exact candidate export separate, explicit, success-only and bounded", () => {
+    const windows = read(".github/workflows/windows.yml");
+    const select = windows
+      .split(
+        "      - name: Select exact qualified public-safe Windows release files",
+      )[1]
+      ?.split("      - name:")[0];
+    const upload = windows
+      .split(
+        "      - name: Upload only the selected Windows release triple and receipt",
+      )[1]
+      ?.split("      - name:")[0];
+    expect(select).toContain("if: ${{ inputs.release_export }}");
+    expect(select).toContain("windows_release_export.py export --record");
+    expect(select).toContain("--images $env:WINDOWS_IMAGES");
+    expect(upload).toContain("if: ${{ inputs.release_export }}");
+    expect(upload).toContain("retention-days: 3");
+    expect(upload).toContain(
+      "windows-release-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.TESTED_SOURCE }}",
+    );
+    expect(upload).not.toMatch(
+      /always\(\)|\*|\.sqlite|\.log|include-hidden-files: true/,
+    );
+    expect(upload?.match(/outputs\.directory\s*\}\}\//g)).toHaveLength(4);
+    expect(upload).toContain("/release-windows-x64.json");
+    expect(upload).toContain("/windows-release-export.json");
+    expect(windows).toContain("timeout-minutes: 60");
+    expect(windows.indexOf("id: export")).toBeGreaterThan(
+      windows.indexOf("id: installed"),
     );
   });
 
