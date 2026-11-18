@@ -529,9 +529,12 @@ class HistoryRun(OrdinaryRun):
             self.command({'type':'click', 'target':'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'latest primary evidence restart')
             latest.append(self.latest_probe())
-            if scenario == 'unknown' and latest[-1]['dataAfter']['mutableDays'] != latest[-2]['dataAfter']['mutableDays']:
+            fallback = latest[-1]['requestCounts'].get('get_device_last_used', 0)
+            # Unknown direct time makes exactly one last-used read, which names
+            # the non-primary device; valid direct time makes none (T0345).
+            if scenario == 'unknown' and (fallback != 1 or latest[-1]['dataAfter']['mutableDays'] != latest[-2]['dataAfter']['mutableDays']):
                 raise ValueError('Unknown evidence falsely finalized daily health')
-            if scenario == 'known' and latest[-1]['dataAfter']['mutableDays'] != 1:
+            if scenario == 'known' and (fallback or latest[-1]['dataAfter']['mutableDays'] != 1):
                 raise ValueError('Qualifying upload catch-up did not settle ended days')
         settled = []
         for index in range(2):
@@ -597,11 +600,31 @@ class HistoryRun(OrdinaryRun):
             restored = self.summary()
             if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalState'] != after['historicalState']:
                 raise ValueError('Restart replayed or lost durable history')
-        latest.append(self.latest_probe())
+        # T0345: history left its older dates open in latest freshness. With the
+        # primary's direct time missing, one matched last-used read must catch
+        # all of them up; a restarted repeat then reads only today's health.
+        self.stop()
+        prepare_latest_preset(self, 'last-used')
+        self.start(self.binary)
+        self.command({'type':'setViewport', 'preset':'wide'})
+        self.command({'type':'click', 'target':'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'missing direct upload catch-up')
+        catchup = self.latest_probe()
+        open_older = catchup['requestCounts'].get('get_stats', 0) - 1
+        if (catchup['requestCounts'].get('get_devices') != 1 or catchup['requestCounts'].get('get_device_last_used') != 1
+                or open_older < 15 or catchup['dataAfter']['mutableDays'] != 1
+                or catchup['dataAfter']['finalDays'] < catchup['dataBefore']['finalDays'] + 15):
+            raise ValueError('Matched last-used evidence did not catch up open older dates')
+        latest.append({**catchup, 'openOlderDates':open_older})
+        self.stop()
+        self.start(self.binary)
+        self.command({'type':'setViewport', 'preset':'wide'})
+        self.command({'type':'click', 'target':'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'restarted repeat after catch-up')
         latest.append(self.latest_probe(backend=True))
         counts = dict(latest[-1]['requestCounts'])
         effort = counts.pop('get_activity', 0)
-        if effort not in (0, 1) or counts != {'get_devices':1, 'get_stats':1, 'get_sleep_summary':1, 'get_body_battery':1, 'get_activities_by_date':1, 'get_body_composition':1, 'get_weigh_ins':1}:
+        if effort not in (0, 1) or counts != {'get_devices':1, 'get_device_last_used':1, 'get_stats':1, 'get_sleep_summary':1, 'get_body_battery':1, 'get_activities_by_date':1, 'get_body_composition':1, 'get_weigh_ins':1}:
             raise ValueError('Steady latest did not reduce to core reads plus existing bounded effort work')
         if latest[-1]['after']['activities'] != latest[-2]['after']['activities'] or latest[-1]['after']['healthDays'] != latest[-2]['after']['healthDays']:
             raise ValueError('Identical latest refresh was not idempotent')
@@ -612,7 +635,7 @@ class HistoryRun(OrdinaryRun):
         self.command({'type':'click', 'target':'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'new newest activity')
         changed = self.latest_probe()
-        if changed['fitBaselineCalls'] != 1 or changed['requestCounts'].get('get_user_profile', 0) or changed['requestCounts'].get('get_cycling_ftp', 0):
+        if changed['fitBaselineCalls'] != 1 or changed['requestCounts'].get('get_user_profile', 0) or changed['requestCounts'].get('get_cycling_ftp', 0) or changed['requestCounts'].get('get_device_last_used', 0):
             raise ValueError('Changed newest activity bypassed FIT/cadence contract')
         latest.append(changed)
         for preset in ('wide', 'narrow'):

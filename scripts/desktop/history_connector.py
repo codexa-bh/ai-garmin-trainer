@@ -18,8 +18,16 @@ REVIEWED_ARGS = ['--from', 'git+https://github.com/Taxuspt/garmin_mcp.git@3610be
 TOOLS = frozenset(('get_stats', 'get_sleep_summary', 'get_body_battery',
                    'get_weekly_steps', 'get_activities_by_date', 'get_user_profile',
                    'get_cycling_ftp', 'get_body_composition', 'get_weigh_ins',
-                   'get_activity_fit_data', 'get_activity', 'get_activity_hr_in_timezones', 'get_devices'))
-PRESETS = frozenset(('known', 'delayed', 'unknown', 'new-activity'))
+                   'get_activity_fit_data', 'get_activity', 'get_activity_hr_in_timezones', 'get_devices',
+                   'get_device_last_used'))
+PRESETS = frozenset(('known', 'delayed', 'unknown', 'new-activity', 'last-used'))
+
+
+def enabled(name):
+    # Mirrors the pinned server: when GARMIN_ENABLED_TOOLS is set, only those
+    # tools are registered (case-insensitive); unset registers every tool.
+    allowed = {item.strip().lower() for item in os.environ.get('GARMIN_ENABLED_TOOLS', '').split(',') if item.strip()}
+    return not allowed or name.lower() in allowed
 
 
 def preset(root):
@@ -87,8 +95,9 @@ def reply(message, scenario='known'):
               'get_weekly_steps': {'end_date', 'weeks'}, 'get_activities_by_date': {'start_date', 'end_date', 'page', 'page_size'},
               'get_activity': {'activity_id'}, 'get_activity_fit_data': {'activity_id', 'include_records'},
               'get_activity_hr_in_timezones': {'activity_id'}, 'get_body_composition': {'start_date', 'end_date'},
-              'get_weigh_ins': {'start_date', 'end_date'}, 'get_user_profile': set(), 'get_cycling_ftp': set(), 'get_devices': set()}
-    if set(args) != fields[name]:
+              'get_weigh_ins': {'start_date', 'end_date'}, 'get_user_profile': set(), 'get_cycling_ftp': set(), 'get_devices': set(),
+              'get_device_last_used': set()}
+    if not enabled(name) or set(args) != fields[name]:
         raise ValueError('Synthetic argument shape refused')
     if scenario not in PRESETS:
         raise ValueError('Finite latest preset refused')
@@ -96,8 +105,16 @@ def reply(message, scenario='known'):
         upload = datetime.datetime.now().astimezone() - datetime.timedelta(seconds=1)
         if scenario == 'delayed':
             upload -= datetime.timedelta(days=5)
-        value = [{'device_id': 8338, 'is_primary': True, 'last_sync_time': None if scenario == 'unknown' else upload.isoformat(timespec='milliseconds')},
+        value = [{'device_id': 8338, 'is_primary': True, 'last_sync_time': None if scenario in ('unknown', 'last-used') else upload.isoformat(timespec='milliseconds')},
                  {'device_id': 2, 'is_primary': False, 'last_sync_time': '2020-01-01T00:00:00Z'}]
+    elif name == 'get_device_last_used':
+        # Pinned curation: offset-free whole seconds in this process's local
+        # zone. Only 'last-used' names the selected watch; otherwise the newer
+        # upload belongs to the non-primary device and must never finalize.
+        upload_ms = int((time.time() - 1) * 1000)
+        rendered = datetime.datetime.fromtimestamp(upload_ms / 1000.0).strftime('%Y-%m-%d %H:%M:%S')
+        value = {'user_device_id': 8338 if scenario == 'last-used' else 2, 'device_name': 'Authored device',
+                 'last_upload_time': rendered}
     elif name == 'get_stats':
         value = {'date': args['date'], 'total_steps': 0}
     elif name == 'get_sleep_summary':

@@ -16,6 +16,9 @@ const state = vi.hoisted(() => ({
   failProfile: false,
   healthDates: [] as string[],
   calls: [] as string[],
+  devices: null as unknown[] | null,
+  lastUsed: "No last used device found.",
+  profiles: [] as string[],
 }));
 vi.mock("../src/lib/garmin/client", () => ({
   verifyConnectorToken: async () => ({
@@ -25,8 +28,9 @@ vi.mock("../src/lib/garmin/client", () => ({
 }));
 vi.mock("../src/lib/garmin/mcp-client", () => ({
   GarminMcpClient: class {
-    constructor() {
+    constructor(private profile = "reads") {
       state.constructions += 1;
+      state.profiles.push(profile);
     }
     async start() {
       state.starts += 1;
@@ -42,10 +46,19 @@ vi.mock("../src/lib/garmin/mcp-client", () => ({
     }
     async callTool(operation: string, args: Record<string, unknown>) {
       state.calls.push(operation);
+      // The dedicated UTC last-used process exposes only its single tool.
+      if (
+        (operation === "get_device_last_used") !==
+        (this.profile === "last-used")
+      )
+        throw new Error("Unknown tool for this connector profile");
+      if (operation === "get_device_last_used") return state.lastUsed;
       if (operation === "get_devices")
-        return JSON.stringify([
-          { device_id: 1, is_primary: true, last_sync_time: state.upload },
-        ]);
+        return JSON.stringify(
+          state.devices ?? [
+            { device_id: 1, is_primary: true, last_sync_time: state.upload },
+          ],
+        );
       if (operation === "get_stats") {
         state.healthDates.push(String(args.date));
         return "{}";
@@ -129,6 +142,9 @@ beforeEach(() => {
     failProfile: false,
     healthDates: [],
     calls: [],
+    devices: null,
+    lastUsed: "No last used device found.",
+    profiles: [],
   });
   vi.resetModules();
 });
@@ -343,6 +359,184 @@ describe("HTTP through real production composition, reader and SQLite", () => {
       { integrity_check: "ok" },
     ]);
     expect(getDatabase().pragma("foreign_key_check")).toEqual([]);
+  });
+
+  it("catches up 15 initialized open days from matched last-used evidence when direct time is missing, then repeats only today after restart", async () => {
+    vi.stubEnv("TZ", "America/Los_Angeles");
+    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-01");
+    const { FRESHNESS_CHECKPOINT } =
+      await import("../src/lib/garmin/latest-policy");
+    const { normalizeDailyHealth } =
+      await import("../src/lib/garmin/normalize");
+    let repo = await import("../src/lib/db/repository");
+    const open = Array.from(
+      { length: 15 },
+      (_, index) => `2026-09-${String(6 + index).padStart(2, "0")}`,
+    );
+    repo.upsertDailyHealth([
+      normalizeDailyHealth("2026-09-02", { stats: { total_steps: 1111 } }),
+      ...open.map((date) =>
+        normalizeDailyHealth(date, { stats: { total_steps: 4321 } }),
+      ),
+    ]);
+    // Valid initialized freshness (not a first-run legacy fixture): 15 older
+    // dates remain open from earlier downloads without usable evidence.
+    const initialized = {
+      version: 1,
+      startDate: "2026-09-06",
+      days: {
+        "2026-09-02": { final: true, source: "legacy" },
+        ...Object.fromEntries(
+          open.map((date) => [
+            date,
+            {
+              final: false,
+              source: "download",
+              downloadedAt: "2026-09-21T01:00:00.000Z",
+              dayEndedAt: new Date(
+                Date.parse(`${date}T07:00:00.000Z`) + 86400000,
+              ).toISOString(),
+              primaryId: null,
+              uploadedAt: null,
+            },
+          ]),
+        ),
+      },
+      profileDay: "2026-09-21",
+      ftpDay: "2026-09-21",
+      fitActivity: "123",
+    };
+    repo.saveCheckpoints([
+      [FRESHNESS_CHECKPOINT, JSON.stringify(initialized)],
+      ["garmin_history_v1", '{"retained":"unsupported-history"}'],
+      ["garmin_discovery_v1", '{"retained":"unsupported-discovery"}'],
+    ]);
+    const history = [
+      repo.getCheckpoint("garmin_history_v1"),
+      repo.getCheckpoint("garmin_discovery_v1"),
+    ];
+    // Large lossless numeric ID; direct upload omitted as by the pinned curation.
+    state.devices = [
+      { device_id: 3456789012, is_primary: true, device_name: "private" },
+      {
+        device_id: 77,
+        is_primary: false,
+        last_sync_time: "2026-09-21T11:00:00Z",
+      },
+    ];
+    state.lastUsed = JSON.stringify({
+      user_device_id: 3456789012,
+      device_name: "private watch",
+      last_upload_time: "2026-09-21 10:00:00",
+    });
+    const run = async () => {
+      const sync = await import("../src/app/api/sync/route");
+      const response = await sync.POST(
+        new Request("http://localhost/api/sync", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: '{"intent":"latest"}',
+        }),
+      );
+      const text = await response.text();
+      expect(text).not.toContain("private");
+      expect(text).not.toContain("3456789012");
+      const final = JSON.parse(text.trim().split("\n").at(-1)!);
+      expect(final).toMatchObject({ type: "result", status: "completed" });
+    };
+    await run();
+    expect(state.healthDates).toEqual(["2026-09-21", ...open]);
+    expect(state.calls.filter((name) => name === "get_devices")).toHaveLength(
+      1,
+    );
+    expect(
+      state.calls.filter((name) => name === "get_device_last_used"),
+    ).toHaveLength(1);
+    const fresh = JSON.parse(repo.getCheckpoint(FRESHNESS_CHECKPOINT)!);
+    for (const date of open)
+      expect(fresh.days[date]).toMatchObject({
+        final: true,
+        primaryId: "3456789012",
+        uploadedAt: "2026-09-21T10:00:00.000Z",
+        uploadedThrough: "2026-09-21T10:00:00.999Z",
+      });
+    expect(fresh.days["2026-09-21"].final).toBe(false);
+    expect(fresh.days["2026-09-02"]).toEqual({ final: true, source: "legacy" });
+    // Recreate the application/reader over the same SQLite and checkpoint.
+    const { getDatabase } = await import("../src/lib/db/connection");
+    getDatabase().close();
+    vi.resetModules();
+    state.healthDates = [];
+    state.calls = [];
+    await run();
+    expect(state.healthDates).toEqual(["2026-09-21"]);
+    expect(state.calls.filter((name) => name === "get_stats")).toHaveLength(1);
+    expect(
+      state.calls.filter((name) => name === "get_sleep_summary"),
+    ).toHaveLength(1);
+    expect(
+      state.calls.filter((name) => name === "get_body_battery"),
+    ).toHaveLength(1);
+    expect(
+      state.calls.filter((name) => name === "get_device_last_used"),
+    ).toHaveLength(1);
+    repo = await import("../src/lib/db/repository");
+    expect([
+      repo.getCheckpoint("garmin_history_v1"),
+      repo.getCheckpoint("garmin_discovery_v1"),
+    ]).toEqual(history);
+    const db = (await import("../src/lib/db/connection")).getDatabase();
+    expect(
+      db
+        .prepare(
+          "select count(*) as n, count(steps) as steps from daily_health",
+        )
+        .get(),
+    ).toEqual({ n: 17, steps: 16 });
+    expect(db.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
+
+  it("keeps ended days mutable when last-used names another device, retrying only on the next explicit latest", async () => {
+    vi.stubEnv("TZ", "Europe/Prague");
+    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-19");
+    const { FRESHNESS_CHECKPOINT } =
+      await import("../src/lib/garmin/latest-policy");
+    const repo = await import("../src/lib/db/repository");
+    state.devices = [{ device_id: "watch-1", device_name: "private" }];
+    state.lastUsed = JSON.stringify({
+      user_device_id: "bike-2",
+      last_upload_time: "2026-09-21 11:00:00",
+    });
+    const run = async () => {
+      const sync = await import("../src/app/api/sync/route");
+      const response = await sync.POST(
+        new Request("http://localhost/api/sync", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: '{"intent":"latest"}',
+        }),
+      );
+      const text = await response.text();
+      expect(text).toContain("last-used-mismatch");
+      expect(text).not.toMatch(/private|bike-2|watch-1/);
+    };
+    await run();
+    await run();
+    const fresh = JSON.parse(repo.getCheckpoint(FRESHNESS_CHECKPOINT)!);
+    expect(fresh.days["2026-09-19"]).toMatchObject({
+      final: false,
+      primaryId: null,
+    });
+    expect(
+      state.healthDates.filter((date) => date === "2026-09-19"),
+    ).toHaveLength(2);
+    expect(
+      state.calls.filter((name) => name === "get_device_last_used"),
+    ).toHaveLength(2);
+    expect(
+      state.profiles.filter((profile) => profile === "last-used"),
+    ).toHaveLength(2);
   });
 
   it("rejects missing/unknown IDs before connector access and retains detail status/force/error contracts", async () => {

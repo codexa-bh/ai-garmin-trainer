@@ -1,5 +1,5 @@
 import { ChildProcessWithoutNullStreams } from "node:child_process";
-import { spawnGarminMcp } from "./client";
+import { spawnGarminMcp, type GarminConnectorProfile } from "./client";
 import { GarminDependencyError } from "./dependency-error";
 
 type Pending = {
@@ -30,8 +30,10 @@ export class GarminMcpClient {
   private buffer = "";
   private stderr = "";
 
+  constructor(private readonly profile: GarminConnectorProfile = "reads") {}
+
   async start(): Promise<void> {
-    this.child = spawnGarminMcp();
+    this.child = spawnGarminMcp(this.profile);
     this.child.stdout.on("data", (chunk: string) => this.onStdout(chunk));
     this.child.stderr.on("data", (chunk: string) => {
       this.stderr = `${this.stderr}${chunk}`.slice(-4000);

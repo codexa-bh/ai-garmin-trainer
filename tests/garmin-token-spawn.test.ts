@@ -61,6 +61,21 @@ it("MCP and all four FIT launchers receive the identical resolved private token 
     ])
       expect(call[2].env[key]).toBeUndefined();
   }
+  // Ordinary reads keep the host zone and never expose last-used; the
+  // dedicated fallback process exposes only that tool, fixed to UTC.
+  const ordinary = mocks.spawn.mock.calls[0][2].env;
+  expect(ordinary.GARMIN_ENABLED_TOOLS.split(",")).not.toContain(
+    "get_device_last_used",
+  );
+  expect(ordinary.TZ).toBe(process.env.TZ);
+  spawnGarminMcp("last-used");
+  const dedicated = mocks.spawn.mock.calls[1];
+  expect(dedicated[1]).toEqual(mocks.spawn.mock.calls[0][1]);
+  expect(dedicated[2].env).toEqual({
+    ...garminTokenEnvironment(),
+    GARMIN_ENABLED_TOOLS: "get_device_last_used",
+    TZ: "UTC0",
+  });
   vi.stubEnv("GARMIN_MCP_TOKEN_DIR", "");
   expect((await verifyConnectorToken()).ok).toBe(false);
   expect(() => spawnGarminMcp()).toThrow("no alternate");

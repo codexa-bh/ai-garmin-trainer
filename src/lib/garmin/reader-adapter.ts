@@ -1,5 +1,10 @@
 import type { GarminReader } from "./import-ports";
-import { primaryUpload } from "./primary-upload";
+import {
+  lastUsedUpload,
+  parseCuratedDeviceJson,
+  selectPrimary,
+  type PrimaryUpload,
+} from "./primary-upload";
 import {
   SyncPause,
   UnrecognizedHealthReply,
@@ -31,16 +36,20 @@ import {
   mergeFitSpeedRecords,
 } from "./fit-speed";
 
+type GarminConnector = {
+  start(): Promise<void>;
+  close(): void;
+  callTool(
+    operation: GarminReadOperation,
+    args: Record<string, unknown>,
+  ): Promise<string>;
+};
 export type GarminReaderAdapters = {
   control?: GarminReadControl;
-  connector: {
-    start(): Promise<void>;
-    close(): void;
-    callTool(
-      operation: GarminReadOperation,
-      args: Record<string, unknown>,
-    ): Promise<string>;
-  };
+  connector: GarminConnector;
+  /** Dedicated UTC process for the single last-used read, or null when its
+   * time conversion is unproven (for example an unreviewed connector). */
+  lastUsedConnector?: () => GarminConnector | null;
   fit: {
     baseline(garminIds: string[], options?: FitOptions): Promise<unknown>;
     altitude(garminId: string, options?: FitOptions): Promise<unknown>;
@@ -71,13 +80,16 @@ function parseToolJson(text: string): unknown {
 
 export function createGarminReader({
   connector,
+  lastUsedConnector,
   fit,
   archive,
   control,
 }: GarminReaderAdapters): GarminReader {
   const cancellation = new AbortController();
+  let fallback: GarminConnector | null = null;
   const close = () => {
     cancellation.abort();
+    fallback?.close();
     connector.close();
   };
   async function bounded<T>(
@@ -149,6 +161,41 @@ export function createGarminReader({
     }
   }
 
+  function fatalTextReply(text: string) {
+    const error = new Error(safeConnectorFailure(text));
+    if (["auth", "rate-limit"].includes(historyFailureClass(error))) {
+      control?.failed?.(error);
+      throw error;
+    }
+  }
+  async function lastUsed(primaryId: string): Promise<PrimaryUpload> {
+    const dedicated = lastUsedConnector?.() ?? null;
+    if (!dedicated) return { kind: "unknown", reason: "last-used-unavailable" };
+    fallback = dedicated;
+    try {
+      await bounded(() => dedicated.start(), false);
+      const text = (
+        await bounded(() => dedicated.callTool("get_device_last_used", {}))
+      ).trim();
+      if (!text.startsWith("{")) {
+        fatalTextReply(text);
+        return { kind: "unknown", reason: "last-used-unavailable" };
+      }
+      try {
+        return lastUsedUpload(
+          parseCuratedDeviceJson(text),
+          primaryId,
+          new Date(),
+        );
+      } catch {
+        return { kind: "unknown", reason: "last-used-invalid" };
+      }
+    } finally {
+      fallback = null;
+      dedicated.close();
+    }
+  }
+
   return {
     start: () => bounded(() => connector.start(), false),
     close,
@@ -161,22 +208,21 @@ export function createGarminReader({
       // Missing/malformed device evidence is non-final, but genuine auth/rate
       // failures retain the same fatal admission semantics as other reads.
       if (!text.trim().startsWith("[")) {
-        if (
-          ["auth", "rate-limit"].includes(
-            historyFailureClass(new Error(safeConnectorFailure(text))),
-          )
-        ) {
-          const error = new Error(safeConnectorFailure(text));
-          control?.failed?.(error);
-          throw error;
-        }
+        fatalTextReply(text);
         return { kind: "unknown", reason: "unrecognized-reply" };
       }
+      let selection;
       try {
-        return primaryUpload(JSON.parse(text), new Date());
+        selection = selectPrimary(parseCuratedDeviceJson(text), new Date());
       } catch {
         return { kind: "unknown", reason: "unrecognized-reply" };
       }
+      if (selection.kind === "unselected")
+        return { kind: "unknown", reason: selection.reason };
+      if (selection.upload.kind === "known") return selection.upload;
+      // Only a validated selected identity with unusable direct time may make
+      // one last-used read; it must match that identity, never select one.
+      return lastUsed(selection.primaryId);
     },
     async weeklySteps(endDate, weeks) {
       if (
