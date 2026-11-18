@@ -64,6 +64,43 @@ class HistoryTokenContracts(unittest.TestCase):
         finally:
             os.umask(mask)
 
+    def test_help_labels_legacy_routes_unavailable_without_preparing_inputs(self):
+        import contextlib
+        import io
+        import sys
+        import history_smoke as history
+        from unittest.mock import patch
+        output = io.StringIO()
+        with patch.object(sys, 'argv', ['history', '--help']), \
+                patch.object(history.resources, 'configure') as configure, \
+                contextlib.redirect_stdout(output):
+            with self.assertRaises(SystemExit) as result:
+                history.main.__wrapped__()
+        self.assertEqual(result.exception.code, 0)
+        self.assertEqual(output.getvalue().count('UNAVAILABLE legacy route'), 2)
+        self.assertIn('before private input access', ' '.join(output.getvalue().split()))
+        self.assertIn('smoke:help', output.getvalue())
+        configure.assert_not_called()
+
+    def test_legacy_flags_still_refuse_before_selection_or_resource_access(self):
+        import contextlib
+        import io
+        import sys
+        import history_smoke as history
+        from unittest.mock import patch
+        for flags in (['--token-input', '/never-read'], ['--continuation-only']):
+            with self.subTest(flags=flags):
+                argv = ['history', '--scratch', '/never-created', '--bundle', '/never-opened', '--input-file', '/never-read', *flags]
+                with patch.object(sys, 'argv', argv), \
+                        patch.object(history.resources, 'configure') as configure, \
+                        patch.object(history, 'canonical') as canonical, \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as result:
+                        history.main.__wrapped__()
+                self.assertEqual(result.exception.code, 2)
+                configure.assert_not_called()
+                canonical.assert_not_called()
+
     def test_only_explicit_known_private_files_are_copied_without_original_mutation(self):
         directory, hashes = copy_tokens(self.selection, self.destination)
         target = self.destination / 'tokens/garmin_tokens.json'
