@@ -16,7 +16,7 @@ import sys
 import time
 import urllib.request
 import uuid
-from native_smoke import Observer, canonical, fingerprint, private_json, readonly, source_identity, listening
+from native_smoke import REPO, Observer, canonical, fingerprint, private_json, readonly, source_identity, listening
 from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 from release_artifact import candidate_preparation
