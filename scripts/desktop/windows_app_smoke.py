@@ -32,9 +32,20 @@ UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\Garmin Tra
 MANUFACTURER_KEY = r'Software\codexa\Garmin Trainer'
 
 
+def scrub_startup_excerpt(content, root):
+    """Operator-approved temporary error text; never dump settings or capabilities."""
+    text = content[:2048].decode('utf8', errors='replace')
+    for path in [str(root), str(root.parent), str(REPO)]:
+        text = text.replace(path, '<task-path>').replace(path.replace('\\', '/'), '<task-path>')
+    text = re.sub(r'[A-Za-z]:[\\/][^\r\n\"\'<>]*', '<windows-path>', text)
+    text = re.sub(r'(?i)bearer\s+\S+|[0-9a-f]{64}', '<redacted>', text)
+    text = re.sub(r'(?i)((?:password|secret|api[_-]?key|token)\s*[=:]\s*)[^\s,;]+', r'\1<redacted>', text)
+    return text
+
+
 def startup_diagnostic(root, launch, exit_code):
-    """Only fixed enums/booleans/numeric exit status may reach the CI console.
-    Raw native logs, paths, descriptors and capabilities remain runner-local."""
+    """Fixed metadata plus an explicitly approved, bounded scrubbed error excerpt.
+    Raw native logs, descriptors and capabilities remain runner-local."""
     stages = {'mode', 'descriptor-file', 'descriptor-json', 'descriptor-fields', 'root-directory', 'root-lease',
               'owner-file', 'owner-binding', 'config', 'app-data', 'profile', 'setup-profile', 'tmp', 'screenshots',
               'tokens', 'database-file', 'artifact-executable', 'artifact-layout', 'artifact-files',
@@ -87,7 +98,9 @@ def startup_diagnostic(root, launch, exit_code):
     child_exits = re.findall(rb'(?m)^Desktop settings child exit: (-?[0-9]{1,11})\r?$', raw)
     transports = re.findall(rb'(?m)^Desktop settings transport bytes: ([0-9]{1,6}) ([0-9]{1,6})\r?$', raw)
     stdout_kinds = re.findall(rb'(?m)^Desktop settings stdout kind: (validation-refusal|unexpected-success|backend-failure|unexpected-ready|other-json|non-json)\r?$', raw)
+    excerpts = re.findall(rb'(?m)^Desktop settings diagnostic hex: ([0-9a-f]{0,4096})\r?$', raw)
     return {'layer': 'native-startup', 'exitCode': exit_code, 'nativeLogAvailable': available,
+            'validatorDiagnostic': [scrub_startup_excerpt(bytes.fromhex(value.decode('ascii')), root) for value in excerpts[:1]],
             'validatorChildExits': [int(value) for value in child_exits[:4] if -2147483648 <= int(value) <= 2147483647],
             'validatorTransport': [{'stdoutBytes': int(out), 'stderrBytes': int(err)} for out, err in transports[:4]
                                    if int(out) <= 128 * 1024 + 1 and int(err) <= 64 * 1024 + 1],
