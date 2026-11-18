@@ -3,6 +3,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -17,6 +18,11 @@ from release_test import FakeGitHub
 
 class CliTests(unittest.TestCase):
     def setUp(self):
+        # CLI deliberately sets a private process umask; in-process fixtures must
+        # restore it so unrelated permission-refusal tests see their own inputs.
+        mask = os.umask(0o077)
+        os.umask(mask)
+        self.addCleanup(os.umask, mask)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
