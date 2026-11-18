@@ -577,6 +577,11 @@ export function createGarminImports({
               "health",
               `Primary upload evidence unavailable (${upload.reason}); daily health remains mutable.`,
             );
+          else if (upload.via === "last-used")
+            progress(
+              "health",
+              "Primary upload evidence came from the matching last-used device record (whole-second UTC).",
+            );
         }
         // Latest health has its own local calendar; activity/history UTC ranges
         // and their existing recent-first ordering remain unchanged.

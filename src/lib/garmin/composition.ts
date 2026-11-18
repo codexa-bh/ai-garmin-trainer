@@ -8,7 +8,7 @@ import {
   listActivityDetailAvailability,
   listRecentActivities,
 } from "../local-data/composition";
-import { requireRuntimeEnv } from "../env";
+import { getOptionalEnv, requireRuntimeEnv } from "../env";
 import {
   finishSyncRun,
   healthHistoryBounds,
@@ -36,6 +36,7 @@ import {
 } from "../db/repository";
 import { GarminMcpClient } from "./mcp-client";
 import { verifyConnectorToken } from "./client";
+import { reviewedGarminConnector } from "./mcp-config";
 import { fetchFitBaselineWithLocalWrapper } from "./fit-baseline";
 import { fetchFitAltitudeWithLocalWrapper } from "./fit-altitude";
 import { fetchFitDistanceWithLocalWrapper } from "./fit-distance";
@@ -56,6 +57,10 @@ const imports = createGarminImports({
     createGarminReader({
       control,
       connector: new GarminMcpClient(),
+      lastUsedConnector: () =>
+        reviewedGarminConnector(getOptionalEnv().GARMIN_MCP_ARGS)
+          ? new GarminMcpClient("last-used")
+          : null,
       fit: {
         baseline: fetchFitBaselineWithLocalWrapper,
         altitude: fetchFitAltitudeWithLocalWrapper,

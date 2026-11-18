@@ -11,6 +11,8 @@ type HealthDownload =
       dayEndedAt: string;
       primaryId: string | null;
       uploadedAt: string | null;
+      /** Latest possible upload when the source had whole-second precision. */
+      uploadedThrough?: string;
     };
 export type LatestFreshness = {
   version: 1;
@@ -79,11 +81,18 @@ export function latestFreshness(
             instant(day.dayEndedAt) &&
             (day.primaryId === null || typeof day.primaryId === "string") &&
             (day.uploadedAt === null || instant(day.uploadedAt)) &&
+            (day.uploadedThrough === undefined ||
+              (instant(day.uploadedThrough) &&
+                day.uploadedAt !== null &&
+                Date.parse(day.uploadedAt) <=
+                  Date.parse(day.uploadedThrough))) &&
             (!day.final ||
               (day.primaryId !== null &&
                 day.uploadedAt !== null &&
                 Date.parse(day.dayEndedAt) < Date.parse(day.uploadedAt) &&
-                Date.parse(day.uploadedAt) < Date.parse(day.downloadedAt))))
+                Date.parse(
+                  (day.uploadedThrough as string | undefined) ?? day.uploadedAt,
+                ) < Date.parse(day.downloadedAt))))
         )
       )
         throw new Error(
@@ -130,7 +139,9 @@ export function latestHealthDates(
 }
 
 /** Called only after a successful normalized write. A newly observed upload
- * cannot finalize an older download. Calendar construction handles DST. */
+ * cannot finalize an older download. Calendar construction handles DST. An
+ * imprecise upload is an interval: its earliest instant must follow day end
+ * and its latest instant must precede the download; uncertainty fails closed. */
 export function downloadedHealth(
   date: string,
   upload: PrimaryUpload,
@@ -139,17 +150,24 @@ export function downloadedHealth(
   const [year, month, day] = date.split("-").map(Number);
   const end = new Date(year, month - 1, day + 1).getTime();
   const known = upload.kind === "known";
-  const uploaded = known ? Date.parse(upload.uploadedAt) : NaN;
+  const earliest = known ? Date.parse(upload.uploadedAt) : NaN;
+  const latest = known
+    ? Date.parse(upload.uploadedThrough ?? upload.uploadedAt)
+    : NaN;
   return {
     source: "download",
     final:
       known &&
       date < localDate(downloadedAt) &&
-      uploaded > end &&
-      downloadedAt.getTime() > uploaded,
+      earliest > end &&
+      latest >= earliest &&
+      downloadedAt.getTime() > latest,
     downloadedAt: downloadedAt.toISOString(),
     dayEndedAt: new Date(end).toISOString(),
     primaryId: known ? upload.primaryId : null,
     uploadedAt: known ? upload.uploadedAt : null,
+    ...(known && upload.uploadedThrough
+      ? { uploadedThrough: upload.uploadedThrough }
+      : {}),
   };
 }

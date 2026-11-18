@@ -96,7 +96,7 @@ class SyntheticHistoryContracts(unittest.TestCase):
         self.assertGreater((datetime.fromisoformat(known[0]['last_sync_time']) - datetime.fromisoformat(delayed[0]['last_sync_time'])).total_seconds(), 4 * 86400)
         self.assertIsNone(devices('unknown')[0]['last_sync_time'])
         with patch('history_smoke.listening', return_value=False):
-            for scenario in ('known', 'unknown', 'delayed', 'new-activity'):
+            for scenario in ('known', 'unknown', 'delayed', 'new-activity', 'last-used'):
                 prepare_latest_preset(self.run, scenario)
                 self.assertEqual(preset(self.root), scenario)
             with self.assertRaises(ValueError):
@@ -115,6 +115,44 @@ class SyntheticHistoryContracts(unittest.TestCase):
         path.symlink_to(alias)
         with self.assertRaises(OSError):
             preset(self.root)
+
+    def test_last_used_preset_mirrors_pinned_curation_filter_and_process_zone(self):
+        import time as clock
+        from datetime import datetime, timezone
+        def call(name, scenario):
+            return json.loads(reply({'method':'tools/call', 'params':{'name':name, 'arguments':{}}}, scenario)['content'][0]['text'])
+        devices = call('get_devices', 'last-used')
+        self.assertIsNone(devices[0]['last_sync_time'])
+        self.assertTrue(devices[0]['is_primary'])
+        matched = call('get_device_last_used', 'last-used')
+        self.assertEqual(matched['user_device_id'], devices[0]['device_id'])
+        self.assertRegex(matched['last_upload_time'], r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$')
+        # Every other preset names the non-primary device (a newer bike upload).
+        for scenario in ('known', 'unknown', 'delayed', 'new-activity'):
+            self.assertEqual(call('get_device_last_used', scenario)['user_device_id'], 2)
+        self.assertIsNotNone(call('get_devices', 'known')[0]['last_sync_time'])
+        with patch.dict(os.environ, {'GARMIN_ENABLED_TOOLS':'get_device_last_used'}):
+            self.assertIn('user_device_id', call('get_device_last_used', 'last-used'))
+            with self.assertRaises(ValueError):
+                call('get_devices', 'last-used')
+        with patch.dict(os.environ, {'GARMIN_ENABLED_TOOLS':'get_devices'}):
+            with self.assertRaises(ValueError):
+                call('get_device_last_used', 'last-used')
+        with self.assertRaises(ValueError):
+            reply({'method':'tools/call', 'params':{'name':'get_device_last_used', 'arguments':{'device_id':1}}}, 'last-used')
+        # Rendered in the connector's local zone like the pinned code: UTC0 gives UTC text.
+        previous = os.environ.get('TZ')
+        try:
+            os.environ['TZ'] = 'UTC0'
+            clock.tzset()
+            rendered = datetime.strptime(call('get_device_last_used', 'last-used')['last_upload_time'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+            self.assertLess(abs((datetime.now(timezone.utc) - rendered).total_seconds()), 5)
+        finally:
+            if previous is None:
+                os.environ.pop('TZ', None)
+            else:
+                os.environ['TZ'] = previous
+            clock.tzset()
 
     def test_call_evidence_contains_only_names_and_records_boolean_not_payloads(self):
         self.prepare()
@@ -221,8 +259,11 @@ class SyntheticHistoryContracts(unittest.TestCase):
             nonlocal probes
             probes += 1
             result = backend_latest() if backend else latest_only()
-            return {**result, 'dataAfter': {'mutableDays':6 if probes <= 2 else 1}, 'fitBaselineCalls':1 if probes == 6 else 0,
-                    'requestCounts':{'get_devices':1, 'get_stats':1, 'get_sleep_summary':1, 'get_body_battery':1, 'get_activities_by_date':1, 'get_body_composition':1, 'get_weigh_ins':1}}
+            counts = {'get_devices':1, 'get_stats':16 if probes == 4 else 1, 'get_sleep_summary':1, 'get_body_battery':1, 'get_activities_by_date':1, 'get_body_composition':1, 'get_weigh_ins':1}
+            if probes in (2, 4, 5):
+                counts['get_device_last_used'] = 1
+            return {**result, 'dataBefore': {'finalDays':10}, 'dataAfter': {'mutableDays':6 if probes <= 2 else 1, 'finalDays':25}, 'fitBaselineCalls':1 if probes == 6 else 0,
+                    'requestCounts':counts}
         run = SimpleNamespace(root=self.root, config={'source':'unit'}, boot='unit', binary=Path('/unit'), command=command,
                               latest_probe=Mock(side_effect=latest_probe),
                               latest_only=Mock(side_effect=latest_only), backend_latest=Mock(side_effect=backend_latest), wait=Mock(), wait_sync=Mock(side_effect=lambda *args: settlement_order.append('observe')), summary=summary,
@@ -231,7 +272,7 @@ class SyntheticHistoryContracts(unittest.TestCase):
         with patch('history_smoke.prepare_mixed_sync_presentation', side_effect=seed_mixed) as seed, patch('history_smoke.prepare_latest_preset') as presets:
             HistoryRun.synthetic_sync(run)
         self.assertEqual([call.args[1] for call in seed.call_args_list], ['settled', 'failed'])
-        self.assertEqual([call.args[1] for call in presets.call_args_list], ['unknown', 'known', 'new-activity'])
+        self.assertEqual([call.args[1] for call in presets.call_args_list], ['unknown', 'known', 'last-used', 'new-activity'])
         self.assertEqual(run.latest_probe.call_count, 6)
         self.assertEqual(probes, 6)
         cancelled = settlement_order.index('cancel')
@@ -239,8 +280,9 @@ class SyntheticHistoryContracts(unittest.TestCase):
         self.assertEqual(sum(value.get('action') == 'continue' for value in commands), 2)
         self.assertEqual(sum(value.get('action') == 'cancel' for value in commands), 1)
         self.assertEqual(sum(value.get('action') == 'details' for value in commands), 6)
-        self.assertEqual(run.stop.call_count, 7)
+        self.assertEqual(run.stop.call_count, 9)
         evidence = json.loads((self.root / 'synthetic-sync.json').read_text())
+        self.assertEqual(evidence['latest'][3]['openOlderDates'], 15)
         self.assertFalse(evidence['realGarminCertified'])
         self.assertEqual(evidence['maxInvocations'], 12)
         self.assertEqual(evidence['automaticDiscovery'], {'unit':'automatic'})

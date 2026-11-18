@@ -80,6 +80,78 @@ describe("local daily-health finality", () => {
       ).toBe(true);
     },
   );
+  it("finalizes an imprecise interval only when its earliest instant follows day end and its latest precedes download", () => {
+    process.env.TZ = "Europe/Prague";
+    const interval = (second: string) => ({
+      kind: "known" as const,
+      primaryId: "watch",
+      uploadedAt: new Date(Date.parse(second)).toISOString(),
+      uploadedThrough: new Date(Date.parse(second) + 999).toISOString(),
+      via: "last-used" as const,
+    });
+    // Local midnight after 2026-03-28 is 2026-03-28T23:00:00Z (CET); DST next day.
+    const end = "2026-03-28T23:00:00Z";
+    const at = (iso: string) => new Date(iso);
+    expect(
+      downloadedHealth("2026-03-28", interval(end), at("2026-03-29T10:00:00Z"))
+        .final,
+    ).toBe(false);
+    const after = downloadedHealth(
+      "2026-03-28",
+      interval("2026-03-28T23:00:01Z"),
+      at("2026-03-29T10:00:00Z"),
+    );
+    expect(after).toMatchObject({
+      final: true,
+      uploadedAt: "2026-03-28T23:00:01.000Z",
+      uploadedThrough: "2026-03-28T23:00:01.999Z",
+    });
+    // Download inside the possible upload second, or exactly at its end, fails closed.
+    for (const download of [
+      "2026-03-28T23:00:01.500Z",
+      "2026-03-28T23:00:01.999Z",
+    ])
+      expect(
+        downloadedHealth(
+          "2026-03-28",
+          interval("2026-03-28T23:00:01Z"),
+          at(download),
+        ).final,
+      ).toBe(false);
+    expect(
+      downloadedHealth(
+        "2026-03-28",
+        interval("2026-03-28T23:00:01Z"),
+        at("2026-03-28T23:00:02.000Z"),
+      ).final,
+    ).toBe(true);
+    // Persisted interval evidence round-trips through the validator.
+    const state = {
+      version: 1,
+      startDate: "2026-03-20",
+      days: { "2026-03-28": after },
+      profileDay: null,
+      ftpDay: null,
+      fitActivity: null,
+    };
+    expect(
+      latestFreshness(JSON.stringify(state), [], "2026-03-29", null),
+    ).toEqual(state);
+    for (const bad of [
+      { ...after, uploadedThrough: "2026-03-28T23:00:00.000Z" },
+      { ...after, uploadedThrough: "2026-03-29T10:00:00.000Z" },
+      { ...after, uploadedThrough: "not-an-instant" },
+      { ...after, uploadedAt: null, final: false },
+    ])
+      expect(() =>
+        latestFreshness(
+          JSON.stringify({ ...state, days: { "2026-03-28": bad } }),
+          [],
+          "2026-03-29",
+          null,
+        ),
+      ).toThrow();
+  });
   it("initializes only stored older days once; preserves a >14-day forward backlog and missing gaps", () => {
     const state = latestFreshness(
       null,

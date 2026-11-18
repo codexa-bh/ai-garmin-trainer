@@ -199,6 +199,7 @@ export type GarminReadOperation =
   | "get_stats"
   | "get_weekly_steps"
   | "get_devices"
+  | "get_device_last_used"
   | "get_sleep_summary"
   | "get_morning_training_readiness"
   | "get_user_profile"

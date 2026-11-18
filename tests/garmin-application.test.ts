@@ -380,6 +380,40 @@ describe("durable latest finality and supplements", () => {
       expect(f.read().days["2026-09-21"]).toBeUndefined();
     },
   );
+  it("persists matched last-used interval evidence only after storage, reports a fixed source label and fails closed inside the possible upload second", async () => {
+    const f = latestFixture();
+    const interval = (second: string) => ({
+      kind: "known" as const,
+      primaryId: "watch",
+      uploadedAt: new Date(Date.parse(second)).toISOString(),
+      uploadedThrough: new Date(Date.parse(second) + 999).toISOString(),
+      via: "last-used" as const,
+    });
+    f.reader.primaryUpload = vi.fn(async () =>
+      interval("2026-09-21T11:59:59Z"),
+    );
+    // The download instant (fixture clock 12:00:00Z) lies after the interval.
+    const messages: string[] = [];
+    await f.app.runGarminSync((event) => messages.push(event.message), {
+      intent: "latest",
+    });
+    expect(f.reader.primaryUpload).toHaveBeenCalledOnce();
+    expect(f.read().days["2026-09-19"]).toMatchObject({
+      final: true,
+      uploadedAt: "2026-09-21T11:59:59.000Z",
+      uploadedThrough: "2026-09-21T11:59:59.999Z",
+    });
+    expect(messages.join("\n")).toContain("matching last-used device record");
+    expect(messages.join("\n")).not.toContain("watch");
+    // A possible upload instant at/after download keeps every date mutable.
+    const g = latestFixture();
+    g.reader.primaryUpload = vi.fn(async () => ({
+      ...interval("2026-09-21T11:59:59Z"),
+      uploadedThrough: "2026-09-21T12:00:00.000Z",
+    }));
+    await g.run();
+    expect(g.read().days["2026-09-19"].final).toBe(false);
+  });
   it("replays durable data after a crash before freshness commits", async () => {
     const f = latestFixture();
     const save = f.store.saveCheckpoints;

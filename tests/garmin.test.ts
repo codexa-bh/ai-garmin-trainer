@@ -52,9 +52,9 @@ describe("Garmin boundary", () => {
     expect(() => assertReadOperation("get_activity_fit_data")).not.toThrow();
     expect(() => assertReadOperation("get_user_profile")).not.toThrow();
     expect(() => assertReadOperation("get_devices")).not.toThrow();
-    expect(() => assertReadOperation("get_device_last_used")).toThrow(
-      /Blocked/,
-    );
+    // T0345: the single matched last-used fallback read (dedicated process).
+    expect(() => assertReadOperation("get_device_last_used")).not.toThrow();
+    expect(() => assertReadOperation("get_device_settings")).toThrow(/Blocked/);
     expect(() => assertReadOperation("get_cycling_ftp")).not.toThrow();
     expect(() => assertReadOperation("get_body_composition")).not.toThrow();
     expect(() => assertReadOperation("get_weigh_ins")).not.toThrow();

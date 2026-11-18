@@ -8,8 +8,22 @@ import {
   garminMcpSdkConstraintStatus,
   mcpArgs,
 } from "../src/lib/garmin/client";
+import {
+  GARMIN_MCP_DEFAULT_ARGS_STRING,
+  reviewedGarminConnector,
+} from "../src/lib/garmin/mcp-config";
 
 describe("Garmin MCP uvx arguments", () => {
+  it("proves last-used conversion only for the reviewed pinned connector", () => {
+    expect(reviewedGarminConnector(GARMIN_MCP_DEFAULT_ARGS_STRING)).toBe(true);
+    expect(
+      reviewedGarminConnector(
+        "--from git+https://github.com/Taxuspt/garmin_mcp.git@main garmin-mcp",
+      ),
+    ).toBe(false);
+    expect(reviewedGarminConnector("other-connector")).toBe(false);
+  });
+
   it("adds the reviewed MCP SDK pin to the legacy connector package form", () => {
     const args = mcpArgs(
       `garmin-mcp@git+https://github.com/Taxuspt/garmin_mcp.git@${GARMIN_MCP_COMMIT}`,

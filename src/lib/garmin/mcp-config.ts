@@ -69,6 +69,11 @@ export function garminMcpSdkConstraintStatus(
     : "incompatible";
 }
 
+/** Pinned-source conversion proofs hold only for the reviewed connector. */
+export function reviewedGarminConnector(rawArgs: string): boolean {
+  return includesReviewedConnector(garminMcpArgs(rawArgs));
+}
+
 export function garminMcpArgs(rawArgs: string): string[] {
   const normalized = normalizeLegacyPackageArgs(tokenize(rawArgs));
   if (!includesReviewedConnector(normalized)) return normalized;
