@@ -216,6 +216,21 @@ class LifecycleContracts(unittest.TestCase):
         self.assertEqual(request['expectedRunId'], run.id)
         self.assertEqual(request['expectedBoot'], run.boot)
 
+    def test_denials_preserve_auth_403_and_existing_wrong_boot_command_400(self):
+        run = object.__new__(app.InstalledRun)
+        run.id, run.boot, run.previous_boot = (str(uuid.uuid4()) for _ in range(3))
+        run.previous_token = 'previous-synthetic-bearer'
+        calls = []
+        def respond(path, body=None, *, extra=None, expected=200):
+            self.assertEqual(expected, 400 if path == '/command' else 403)
+            if path == '/command':
+                self.assertEqual(body['expectedRunId'], run.id)
+                self.assertNotEqual(body['expectedBoot'], run.boot)
+            calls.append((path, expected))
+        run.http = respond
+        run.denials()
+        self.assertEqual(calls, [('/identity', 403)] * 3 + [('/command', 400), ('/identity', 403), ('/command', 400)])
+
     def test_foreign_host_refuses_before_installation(self):
         with mock.patch.dict(os.environ, {'GITHUB_ACTIONS': 'false'}), mock.patch.object(app, 'registration') as registry:
             with self.assertRaises(ValueError):

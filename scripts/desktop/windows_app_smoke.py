@@ -357,10 +357,12 @@ class InstalledRun(Run):
         for extra in [{'Authorization': 'Bearer wrong'}, {'X-Smoke-Run': str(uuid.uuid4())}, {'Origin': 'null'}]:
             self.http('/identity', extra=extra, expected=403)
         request = self.request({'type': 'observe'}, str(uuid.uuid4()))
-        self.http('/command', {**request, 'expectedBoot': str(uuid.uuid4())}, expected=403)
+        # Boot/run mismatch is the existing native closed-request 400, distinct
+        # from header/bearer authorization 403 (same contract as ordinary_smoke).
+        self.http('/command', {**request, 'expectedBoot': str(uuid.uuid4())}, expected=400)
         if self.previous_boot:
             self.http('/identity', extra={'Authorization': 'Bearer ' + self.previous_token}, expected=403)
-            self.http('/command', {**request, 'expectedBoot': self.previous_boot}, expected=403)
+            self.http('/command', {**request, 'expectedBoot': self.previous_boot}, expected=400)
 
     def captures(self, staging):
         self.command({'type': 'click', 'target': 'Close Profile & data'})
