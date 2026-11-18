@@ -195,6 +195,83 @@ describe("explicit non-serving source setup", () => {
     expect(existsSync(`${target}.trainer-writer`)).toBe(false);
   }, 20000);
 
+  it("rehearses populated schema27 to28 with online copies, preserved content and exclusive compatible restore", async () => {
+    const cwd = directory();
+    const original = join(cwd, "authored-original.sqlite");
+    const target = join(cwd, "rehearsal.sqlite");
+    const restore = join(cwd, "compatible-restore.sqlite");
+    command("scripts/migrate.ts", cwd, original);
+    const source = new Database(original);
+    source.pragma("journal_mode=WAL");
+    // Migration28 adds exactly these two tables; removing them reconstructs27.
+    source.exec(
+      "drop table weekly_kpi_recipe; drop table weekly_kpi_measurement; update app_metadata set value='27' where key='schema_version'",
+    );
+    source.exec(
+      "insert into conversation(id,title,created_at,updated_at) values('release-chat','Authored continuity',1,1)",
+    );
+    source.exec(
+      "insert into message(id,conversation_id,role,content,created_at) values('release-message','release-chat','user','Authored release rehearsal',1)",
+    );
+    source.exec(
+      "insert into trainer_profile(id,goals_json,updated_at) values('default','[\"Authored goal\"]',1)",
+    );
+    source.exec(
+      "insert into training_plan(title,content_markdown,revised_at,updated_at) values('Authored plan','Preserve commitment',1,1)",
+    );
+    source
+      .prepare("insert into weekly_artifact values(?,?)")
+      .run("2026-11-09", JSON.stringify({ authored: "weekly document" }));
+    source
+      .prepare("insert into weekly_kpi values(?,?)")
+      .run("2026-11-09", JSON.stringify({ authored: "KPI commitments" }));
+    await source.backup(target); // Includes committed WAL while original stays open.
+    source.close();
+    const before = logicalDatabase(original);
+    expect(logicalDatabase(target)).toEqual(before);
+    const result = command("scripts/migrate.ts", cwd, target);
+    expect(result).toMatchObject({
+      ok: true,
+      schemaVersionBefore: 27,
+      schemaVersionAfter: 28,
+      integrity: "ok",
+    });
+    const upgraded = new Database(target, { readonly: true });
+    const saved = new Database(original, { readonly: true });
+    for (const table of [
+      "conversation",
+      "message",
+      "trainer_profile",
+      "training_plan",
+      "weekly_artifact",
+      "weekly_kpi",
+    ]) {
+      expect(upgraded.prepare(`select * from ${table}`).all()).toEqual(
+        saved.prepare(`select * from ${table}`).all(),
+      );
+    }
+    expect(upgraded.pragma("foreign_key_check")).toEqual([]);
+    expect(
+      upgraded
+        .prepare("select count(*) as n from weekly_kpi_measurement")
+        .get(),
+    ).toEqual({ n: 0 });
+    upgraded.close();
+    saved.close();
+    const backup = new Database(String(result.backupPath), { readonly: true });
+    // Restore into a fresh destination, never overwrite original or upgraded data.
+    expect(existsSync(restore)).toBe(false);
+    await backup.backup(restore);
+    backup.close();
+    expect(logicalDatabase(restore)).toEqual(before);
+    expect(logicalDatabase(original)).toEqual(before);
+    expect(command("scripts/db-status.ts", cwd, restore)).toMatchObject({
+      schemaVersion: 27,
+      needsMigration: true,
+    });
+    expect(existsSync(`${target}.trainer-writer`)).toBe(false);
+  }, 20000);
+
   it("backs up selected stopped populated state before explicit upgrade without following a different dotenv target", () => {
     const cwd = directory();
     const target = join(cwd, "approved.sqlite");

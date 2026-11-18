@@ -20,9 +20,9 @@ VIEWS = ('trainer', 'sync', 'profile')
 PRESETS = {'wide': (1280, 850), 'narrow': (420, 850)}
 FILES = {f'{view}-{preset}.png' for view in VIEWS for preset in PRESETS}
 LIMITS = ['windows11-deferred', 'trusted-native-input-unavailable', 'no-real-services',
-          'upgrade-downgrade-unqualified', 'no-window-chrome', 'synthetic-masked-only']
+          'older-upgrade-downgrade-unqualified', 'no-window-chrome', 'synthetic-masked-only']
 STAGES = ['install', 'identity', 'hydration', 'navigation', 'goalsSave', 'restartReadback',
-          'captureRestore', 'settlement', 'uninstall', 'dataPreservation']
+          'captureRestore', 'settlement', 'programReplacement', 'uninstall', 'dataPreservation']
 MANIFEST_KEYS = {'schemaVersion', 'sourceSha', 'githubRunId', 'githubAttempt', 'os', 'image',
                  'osBuild', 'architecture', 'webview2Version', 'installerSha256', 'payloadSha256',
                  'outcomes', 'limits', 'images'}
@@ -140,7 +140,7 @@ def validate(directory, *, expected_source=None, expected_run=None, expected_att
         raise ValueError('Evidence directory members differ from exact allowlist')
     manifest = json.loads(state.read_file(directory / 'manifest.json', 32 * 1024), object_pairs_hook=unique)
     exact(manifest, MANIFEST_KEYS)
-    if type(manifest['schemaVersion']) is not int or manifest['schemaVersion'] != 1:
+    if type(manifest['schemaVersion']) is not int or manifest['schemaVersion'] != 2:
         raise ValueError('Evidence schema version refused')
     hex_digest(manifest['sourceSha'], 40)
     for key in ['installerSha256', 'payloadSha256']:

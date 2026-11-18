@@ -3436,6 +3436,76 @@
     document.getElementById("trainer-smoke-sanitizer")?.remove();
     for (const el of document.querySelectorAll("[data-smoke-reveal]"))
       el.removeAttribute("data-smoke-reveal");
+    for (const el of document.querySelectorAll("[data-smoke-structure]"))
+      el.removeAttribute("data-smoke-structure");
+  }
+  function profileLayers() {
+    const sheets = document.querySelectorAll("aside.settings-sheet");
+    if (sheets.length !== 1)
+      throw Error("Profile structural sheet unavailable");
+    const sheet = sheets[0];
+    const layer = sheet.parentElement;
+    const backdrop = layer?.querySelector(":scope > button.settings-backdrop");
+    const shapes = [
+      [layer, "DIV", { class: "modal-layer", role: "presentation" }],
+      [
+        backdrop,
+        "BUTTON",
+        {
+          type: "button",
+          class: "settings-backdrop",
+          "aria-label": "Close Profile & data",
+        },
+      ],
+      [
+        sheet,
+        "ASIDE",
+        {
+          class: "settings-sheet",
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-labelledby": "settings-heading",
+        },
+      ],
+    ];
+    // Reveal only the actual reviewed layer painting, never a container's text,
+    // attributes/images/generated content or inherited descendant visibility.
+    for (const [node, tag, attrs] of shapes) {
+      if (
+        !node ||
+        node.tagName !== tag ||
+        node.attributes.length !== Object.keys(attrs).length ||
+        !Object.entries(attrs).every(
+          ([key, value]) => node.getAttribute(key) === value,
+        ) ||
+        [...node.childNodes].some(
+          (child) =>
+            child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+        )
+      )
+        throw Error("Unsafe Profile structural shape");
+      const style = getComputedStyle(node);
+      if (style.backgroundImage && style.backgroundImage !== "none")
+        throw Error("Unsafe Profile structural background");
+      for (const pseudo of ["::before", "::after"]) {
+        const generated = getComputedStyle(node, pseudo);
+        if (
+          (generated.content &&
+            !["none", "normal", '""'].includes(generated.content)) ||
+          (generated.backgroundImage && generated.backgroundImage !== "none")
+        )
+          throw Error("Unsafe Profile generated content");
+      }
+    }
+    if (
+      layer.children.length !== 2 ||
+      backdrop.children.length ||
+      sheet.children.length !== 2 ||
+      sheet.children[0].className !== "sheet-header" ||
+      sheet.children[1].className !== "settings-groups"
+    )
+      throw Error("Unknown Profile structural children");
+    for (const [node] of shapes) node.setAttribute("data-smoke-structure", "");
   }
   const viewport = (preset) => {
     const width = ["wide", "wide-short"].includes(preset)
@@ -3487,6 +3557,7 @@
         throw Error("Capture requires saved synthetic Goals");
     }
     restore();
+    if (command.view === "profile") profileLayers();
     const labels = new Set([
       "Garmin AI Trainer",
       "Activities",
@@ -3718,7 +3789,7 @@
     const style = document.createElement("style");
     style.id = "trainer-smoke-sanitizer";
     style.textContent =
-      "body * {visibility:hidden !important} [data-smoke-reveal] {visibility:visible !important}";
+      "body * {visibility:hidden !important} [data-smoke-reveal], [data-smoke-structure] {visibility:visible !important} body *::before, body *::after {visibility:hidden !important}";
     document.head.append(style);
     maskExpiry = setTimeout(restore, 10000);
     // Memory and weekly KPI scroll layers need a bounded background paint

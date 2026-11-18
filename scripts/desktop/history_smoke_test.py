@@ -27,6 +27,43 @@ class HistoryTokenContracts(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_history_observer_reuses_already_held_candidate_preparation_lock(self):
+        import history_smoke as history
+        import sqlite3
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        database = self.root / 'empty-authored.sqlite'
+        sqlite3.connect(database).close()
+        args = SimpleNamespace(token_input=None)
+        with patch.object(history, 'Observer', side_effect=RuntimeError('before any launch')) as observer, patch.object(history, 'private_json'):
+            with self.assertRaisesRegex(RuntimeError, 'before any launch'):
+                history.history_scenario(args, self.root, database, self.root, 'source', {}, {}, lambda: None, None)
+            observer.assert_called_once_with(self.root, preparation_locked=True)
+
+    def test_cli_reaches_original_repo_candidate_owner_and_never_launches_after_refusal(self):
+        import history_smoke as history
+        import sys
+        from unittest.mock import patch
+        database = self.root / 'authored.sqlite'
+        database.write_bytes(b'not opened before candidate admission')
+        selection = self.root / 'database-selection.json'
+        private_json(selection, {'database': str(database)})
+        record = self.root / 'release.json'
+        mask = os.umask(0o077)
+        os.umask(mask)
+        try:
+            with patch.object(sys, 'argv', ['history', '--scratch', str(self.root), '--input-file', str(selection), '--bundle', str(self.root), '--release-record', str(record)]), \
+                    patch.object(history.resources, 'configure', return_value=self.root), \
+                    patch.object(history, 'source_identity', return_value='a' * 64), \
+                    patch.object(history, 'candidate_preparation', side_effect=ValueError('candidate refused')) as candidate, \
+                    patch.object(history, 'history_scenario') as scenario:
+                with self.assertRaisesRegex(ValueError, 'candidate refused'):
+                    history.main.__wrapped__()
+                candidate.assert_called_once_with(history.REPO, self.root, 'a' * 64, self.root, record)
+                scenario.assert_not_called()
+        finally:
+            os.umask(mask)
+
     def test_only_explicit_known_private_files_are_copied_without_original_mutation(self):
         directory, hashes = copy_tokens(self.selection, self.destination)
         target = self.destination / 'tokens/garmin_tokens.json'

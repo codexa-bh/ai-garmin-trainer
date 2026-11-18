@@ -25,6 +25,8 @@ def main():
                         help='Explicit artifact platform; default keeps the macOS ARM64 meaning')
     parser.add_argument('--platform-record', type=Path, action='append', default=[],
                         help='release-set: one verified per-platform record (repeat per platform)')
+    parser.add_argument('--release-set', type=Path,
+                        help='Remote actions: stored set, rechecked against explicit --platform-record inputs')
     parser.add_argument('--version')
     parser.add_argument('--notes', type=Path, help='Reviewed body for future metadata preparation only')
     parser.add_argument('--commit', help='Full reviewed merged SHA, never inferred newest main')
@@ -143,20 +145,51 @@ def run(parser, args):
             journal = scratch / ('release-remote-' + str(uuid.uuid4()) + '.jsonl')
             print(json.dumps({'journal': str(journal)}), flush=True)
             timing.reference('remote-journal', journal.name)
+            selected_set, selected_assets = remote_assets(args, record, notes)
             def before_effect():
                 verify_current()
                 exact_source(ROOT, args.commit, args.repository)
+                current_set, current_assets = remote_assets(args, record, notes)
+                if (current_set, current_assets) != (selected_set, selected_assets):
+                    raise ValueError('Selected release set changed before remote effect')
             with journal.open('x') as stream:
-                operation = Release(GitHub(stream), record, notes, assets_for(args.record, record),
-                                    args.prerelease == 'yes', args.latest == 'yes', before_effect=before_effect)
-                verify_current()
+                operation = Release(GitHub(stream), record, notes, selected_assets,
+                                    args.prerelease == 'yes', args.latest == 'yes', before_effect=before_effect,
+                                    release_set=selected_set)
+                before_effect()
                 with timing.stage('remote-' + args.action):
                     result = operation.act(args.action, execute=args.execute)
-                verify_current()
-                exact_source(ROOT, args.commit, args.repository)
+                before_effect()
             # Restates inputs this invocation just requalified, for the human approval handoff.
             print(json.dumps({'selectedTuple': operation.selected_tuple()}))
             print(json.dumps(result))
+
+
+def remote_assets(args, record, notes):
+    """Keep native macOS admission; foreign inputs need attributed transport, not trust flags."""
+    from release_remote import assets_for
+    import release_set
+    if args.release_set is None:
+        if args.platform_record:
+            raise ValueError('--platform-record remote inputs require --release-set')
+        return None, assets_for(args.record, record)
+    dirs = {}
+    for path in args.platform_record:
+        platform = release_set.platform_of(release_set.load(path))
+        if platform in dirs or path.name != release_set.RECORD_NAME[platform]:
+            raise ValueError('Duplicate or misnamed platform record')
+        dirs[platform] = path.parent
+    if dirs.get(platform_target.MACOS) != args.record.parent:
+        raise ValueError('Release set must select the originally admitted local macOS record')
+    value, assets = release_set.assets(args.release_set, dirs)
+    if any(value[key] != record[key] for key in ('repository', 'commit', 'version', 'tag', 'notesSha256')):
+        raise ValueError('Release set differs from the admitted source')
+    if hashlib.sha256(notes.encode()).hexdigest() != value['notesSha256']:
+        raise ValueError('Reviewed notes differ from release set')
+    if platform_target.WINDOWS in dirs:
+        from windows_release_export import verify_import
+        verify_import(dirs[platform_target.WINDOWS], expected_source=args.commit)
+    return value, assets
 
 
 if __name__ == '__main__':

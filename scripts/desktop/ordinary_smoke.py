@@ -60,11 +60,9 @@ class OrdinaryRun(Run):
         self.build_context = original['buildContext']
         self.driver_source = verified['current']['source']
         source = original['sourceFingerprint']
-        super().__init__(scratch, database, source, ordinary=True)
+        super().__init__(scratch, database, source, ordinary=True, fresh_database=history_setup == 'create-new')
         if history_setup:
             (self.root / 'config/settings-v2.json').rename(self.root / 'prepared-keyless-settings.json')
-            if history_setup == 'create-new':
-                self.database.rename(self.root / 'prepared-populated.sqlite')
         self.artifact = inventory_hash(inventory)
         self.boot = None
         self.previous_boot = None

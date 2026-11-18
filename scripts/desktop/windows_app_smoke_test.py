@@ -47,7 +47,7 @@ class EvidenceContracts(unittest.TestCase):
 
     def manifest(self):
         run, boot = str(uuid.uuid4()), str(uuid.uuid4())
-        return {'schemaVersion': 1, 'sourceSha': 'a' * 40, 'githubRunId': '123', 'githubAttempt': '1',
+        return {'schemaVersion': 2, 'sourceSha': 'a' * 40, 'githubRunId': '123', 'githubAttempt': '1',
                 'os': 'Windows Server 2025', 'image': '20261116.1', 'osBuild': '26100', 'architecture': 'x64',
                 'webview2Version': '142.0.0.0', 'installerSha256': 'b' * 64, 'payloadSha256': 'c' * 64,
                 'outcomes': {key: 'passed' for key in evidence.STAGES}, 'limits': evidence.LIMITS,
@@ -204,6 +204,16 @@ class LifecycleContracts(unittest.TestCase):
                 with mock.patch.object(app, 'inventory', return_value=changed):
                     with self.assertRaises(ValueError):
                         app.installed_payload(Path('program'), expected)
+
+    def test_same_version_replacement_uses_exact_installer_and_rechecks_payload_registration(self):
+        installer, program = Path('/owned/exact.exe'), Path('/owned/program')
+        with mock.patch.object(app, 'execute_installer') as execute, mock.patch.object(app, 'installed_payload') as payload, \
+                mock.patch.object(app, 'registration', return_value={'owned': 'unchanged'}), mock.patch.object(app, 'shortcuts', return_value=[]):
+            app.replace_program(installer, program, {'resource': 'hash'}, {'owned': 'unchanged'})
+            execute.assert_called_once_with(installer, ['/S', '/NS', '/D=' + str(program)], cwd=installer.parent)
+            payload.assert_called_once_with(program, {'resource': 'hash'})
+            with self.assertRaisesRegex(ValueError, 'registration'):
+                app.replace_program(installer, program, {}, {'other': 'foreign'})
 
     def test_request_requires_current_boot_and_binds_run(self):
         run = object.__new__(app.InstalledRun)

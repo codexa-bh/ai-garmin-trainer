@@ -5,6 +5,7 @@ import datetime
 import hashlib
 import json
 import os
+from pathlib import Path
 import signal
 import sqlite3
 import uuid
@@ -12,7 +13,8 @@ import smoke_resources as resources
 from chat_smoke import AuthoredProvider, api, seed_run
 from weekly_kpi_provider import ANSWER, NO_SAVE
 from native_smoke import REPO, Observer, canonical, private_json, readonly, source_identity
-from ordinary_identity import ordinary_preparation, inventory_hash
+from ordinary_identity import inventory_hash
+from release_artifact import candidate_preparation
 from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 from smoke_input import prepare
@@ -115,6 +117,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
+    parser.add_argument('--release-record', type=Path, help='Selected final DMG record; original bundle admission remains required')
     parser.set_defaults(task_id='T0319', input_file=None, grant_file=None, provenance_file=None, anchor=None)
     args = parser.parse_args()
     os.umask(0o077)
@@ -124,10 +127,14 @@ def main():
     source = source_identity()
     run = provider = observer = None
     receipt = {'scenario': 'T0336-canonical-read-correction-declared-rules-carry-forward-post-save-refresh-reviewed-zero-native-chat', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised; finite authored provider', 'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis', 'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.'}
-    with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
+    with candidate_preparation(REPO, bundle, source, scratch, args.release_record) as (bundle, verify_current, verified, inventory, release_record):
         try:
-            run = OrdinaryRun(scratch, prepared.database, source, bundle, inventory, verified=verified)
-            run.before_start = prepared.verify_current
+            run = OrdinaryRun(scratch, prepared.database, source, bundle, inventory, verified=verified, macos_metadata=bool(release_record))
+            def before_start():
+                prepared.verify_current()
+                verify_current()
+            run.before_start = before_start
+            receipt['releaseTransport'] = release_record
             receipt.update({'source': source, 'artifactInventoryHash': inventory_hash(inventory), 'runId': run.id})
             provider = AuthoredProvider(weekly_kpis=True, scratch=scratch)
             today = datetime.datetime.now(datetime.timezone.utc).date()

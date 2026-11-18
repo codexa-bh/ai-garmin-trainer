@@ -1,10 +1,15 @@
 name: Windows x64
 
 # On-demand exact-source installed-app evidence on hosted Windows Server only.
-# No Windows 11, trusted OS input, real services, credentials or release claim.
-# Only six authored masked PNGs + closed manifest may be uploaded for three days.
+# No Windows 11, trusted OS input, real services or credentials.
+# Images and explicit public-safe candidate export are separate three-day contracts.
 on:
   workflow_dispatch:
+    inputs:
+      release_export:
+        description: Export the exact successfully qualified release candidate (not publish)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -89,7 +94,7 @@ jobs:
 
       - name: Release and identity contract tests
         working-directory: scripts/desktop
-        run: python -m unittest platform_files_test platform_target_test release_set_test release_test windows_release_test redistribution_test windows_app_smoke_test
+        run: python -m unittest platform_files_test platform_target_test release_set_test release_test release_cli_test windows_release_test windows_release_export_test redistribution_test windows_app_smoke_test
 
       - name: Production backend and Windows resources (pinned Node/SQLite probe)
         run: npm run desktop:resources
@@ -165,6 +170,38 @@ jobs:
             ${{ steps.installed.outputs.evidence }}/profile-narrow.png
             ${{ steps.installed.outputs.evidence }}/manifest.json
 
+      - name: Select exact qualified public-safe Windows release files
+        id: export
+        if: ${{ inputs.release_export }}
+        env:
+          WINDOWS_RELEASE_RECORD: ${{ steps.package.outputs.record }}
+          WINDOWS_IMAGES: ${{ steps.installed.outputs.evidence }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $directory = Join-Path $env:RUNNER_TEMP ('trainer-release-export-' + [guid]::NewGuid())
+          python scripts/desktop/windows_release_export.py export --record $env:WINDOWS_RELEASE_RECORD `
+            --images $env:WINDOWS_IMAGES --directory $directory
+          if ($LASTEXITCODE -ne 0) { throw 'Exact candidate export refused' }
+          $version = (Get-Content $env:WINDOWS_RELEASE_RECORD | ConvertFrom-Json).version
+          "directory=$directory" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Upload only the selected Windows release triple and receipt
+        id: binaries
+        if: ${{ inputs.release_export }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-release-${{ github.run_id }}-${{ github.run_attempt }}-${{ env.TESTED_SOURCE }}
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
+          include-hidden-files: false
+          path: |
+            ${{ steps.export.outputs.directory }}/Garmin-Trainer-${{ steps.export.outputs.version }}-windows-x64-setup.exe
+            ${{ steps.export.outputs.directory }}/Garmin-Trainer-${{ steps.export.outputs.version }}-windows-x64-setup.exe.sha256
+            ${{ steps.export.outputs.directory }}/release-windows-x64.json
+            ${{ steps.export.outputs.directory }}/windows-release-export.json
+
       - name: Record actual per-stage coverage and outcome
         if: ${{ always() }}
         env:
@@ -175,6 +212,7 @@ jobs:
           BACKEND_RESULT: ${{ steps.backend.outcome }}
           INSTALLED_RESULT: ${{ steps.installed.outcome }}
           IMAGES_RESULT: ${{ steps.images.outcome }}
+          EXPORT_RESULT: ${{ steps.binaries.outcome }}
         run: |
           $summary = @"
           ### On-demand Windows x64: $env:JOB_RESULT
@@ -182,7 +220,7 @@ jobs:
           Source: ``$env:TESTED_SOURCE``; run/attempt $env:GITHUB_RUN_ID/$env:GITHUB_RUN_ATTEMPT on hosted Windows Server ($env:ImageOS $env:ImageVersion), x64.
           Prerequisites: $env:PREREQUISITES_RESULT; build: $env:BUILD_RESULT; package/verify: $env:PACKAGE_RESULT; backend: $env:BACKEND_RESULT; installed scenario: $env:INSTALLED_RESULT; eligible image upload: $env:IMAGES_RESULT.
           Only a successful installed scenario proves install, hydrated Trainer/Sync/Profile navigation, synthetic Goals save/restart/readback, six own-WebView2 masked captures with restoration, owned settlement and data-preserving uninstall. Pending/skipped stages are not covered. Downloaded images still require individual inspection; file creation/upload is not visual approval.
-          Three-day artifact: only six validated synthetic masked PNGs and one sanitized manifest. No binaries, settings, DBs, capabilities, tokens, raw captures or logs. Job-local data expires with the runner. NSIS manufacturer install-location metadata is retained; uninstall registration/program/shortcuts are settled.
-          Not qualified: Windows 11, upgrade/downgrade, native menus/focus/trusted input/window chrome, onboarding, real providers/Garmin, signing/SmartScreen. No release/deploy. Windows remains non-required; Ubuntu Validate/macOS policy is unchanged.
+          Image artifact (three days): only six validated synthetic masked PNGs and one sanitized manifest. Separate explicit release export: $env:EXPORT_RESULT (exact qualified installer, checksum, Windows record and closed receipt only). No settings, DBs, capabilities, tokens, raw captures or logs. Job-local data expires with the runner. NSIS manufacturer install-location metadata is retained; uninstall registration/program/shortcuts are settled.
+          Not qualified: Windows 11, older upgrade/downgrade, native menus/focus/trusted input/window chrome, normal onboarding, real providers/Garmin, signing/SmartScreen. No release/deploy. Windows remains non-required; Ubuntu Validate/macOS policy is unchanged.
           "@
           $summary >> $env:GITHUB_STEP_SUMMARY

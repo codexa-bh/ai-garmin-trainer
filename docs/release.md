@@ -1,6 +1,10 @@
-# macOS ARM64 release runbook
+# Dual-platform release runbook
 
 **[0.1.2 is published](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.2)** as the current stable macOS ARM64 release (prerelease=no, Latest=yes); [0.1.1](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.1) was the initial one. Source builds remain supported. Only macOS Apple Silicon is targeted; the declared minimum macOS 12.0 is not minimum-OS certification. There is no updater, installer hook, service, login item or background release worker. Builds are **unsigned/non-notarized** and ship as a DMG, not a PKG.
+
+## Prepared 0.1.3 dual-platform cut
+
+Source metadata is prepared for **0.1.3**: macOS ARM64 and **Windows x64 alpha**, one stable/Latest version/tag/source. Preparation is not publication. The specifically requested 0.1.3 alpha accepts hosted Windows Server 2025 x64 evidence and clearly unavailable Windows 11/ARM/trusted-native/normal-use/integration qualification; it does not change support policy for future releases. See [dual-platform procedure](#dual-platform-candidate-and-publication-procedure), [notes](../release-notes/0.1.3.md) and [Windows limitations](windows.md). Actual public download/source/digest facts are reconciled only after publication.
 
 ## Published 0.1.2
 
@@ -45,7 +49,7 @@ The standard process for a routine version/notes cut, after the same four steps 
 
 **No local app side effects.** A release never installs, opens or replaces the operator's app or changes system trust. Unsigned means no signing identity, no notarization and no PKG: the DMG is the only macOS binary asset.
 
-**Platforms.** Artifact commands take `--platform macos-arm64|windows-x64`; the default keeps every existing command's macOS meaning. Each platform's artifact is built, packaged and verified only on its own native host. The [Windows x64 foundation](windows.md) is CI-tested only and is not part of any release until a separately requested Windows 11 qualification; see [Multi-platform release sets](#multi-platform-release-sets).
+**Platforms.** Artifact commands take `--platform macos-arm64|windows-x64`; the default keeps every existing command's macOS meaning. Each platform's artifact is built, packaged and verified only on its own native host. The [Windows x64 alpha path](windows.md) has Server-only CI evidence. The specifically authorized 0.1.3 alpha cut discloses unavailable Windows 11/trusted-input/normal-use qualification rather than claiming full support; see [dual-platform procedure](#dual-platform-candidate-and-publication-procedure).
 
 **Readiness inputs.** `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, `scripts/desktop/runtime-inputs.json`, `scripts/desktop/redistribution-inputs.json`, `scripts/desktop/redistribution.py`, `scripts/desktop/assemble.mjs`, `scripts/desktop/garmin_auth.py.lock`, `docs/redistribution.md`, `.github/` and the local toolchain versions. An unchanged set means the settled [redistribution basis](redistribution.md) is reused and only the version mirrors differ; it never skips the assembler's notice and source checks or the advisory refresh. Unchanged lock versions can still have new advisories. Query the native crates in the macOS ARM64 build closure (`cargo metadata --filter-platform aarch64-apple-darwin`), not every lock-file crate, and record any wider result separately.
 
@@ -84,7 +88,7 @@ npm run release -- publish ... same inputs ... --execute
 
 ## Version and notes
 
-`package.json` → `version` is canonical. `npm run release:check` checks the root npm lock/version, root crate Cargo manifest/lock, Tauri version and `release-notes/<version>.md`. The current source version is **0.1.2**, published above; its notes retain `Status: prepared` as the metadata contract, not a statement of live GitHub visibility. 0.1.0 remains unreleased foundation history, not an earlier download. No dependency versions are changed by metadata preparation.
+`package.json` → `version` is canonical. `npm run release:check` checks the root npm lock/version, root crate Cargo manifest/lock, Tauri version and `release-notes/<version>.md`. The current source version is **0.1.3**, prepared for the dual-platform cut above; `Status: prepared` is the metadata contract, not a statement of live GitHub visibility. 0.1.0 remains unreleased foundation history, not an earlier download. No dependency versions are changed by metadata preparation.
 
 Metadata preparation is local, requires clean source and produces an ordinary reviewable PR diff, not a release:
 
@@ -171,6 +175,40 @@ Published 0.1.x releases are macOS-only and keep their single `release.json` (re
 
 Per-platform records (`release.json` for macOS, schema 1 or 2; `release-windows-x64.json`, schema 2 with `platform`) come from `package` and `verify` on each native host, where the original producer is re-admitted. `npm run release -- release-set --version "$VERSION" --scratch "$SCRATCH" --platform-record <record> [--platform-record <record>]` assembles a set anywhere by checking the exact bytes of those records and assets. That check is digest-only: it does not re-admit another host's producer and gives a copied record no producer authority. Mixed source/version/notes, duplicate or unsupported platforms, colliding asset names, changed bytes, malformed records and Windows "notarization" claims refuse. The existing publisher selects exactly the set's assets plus `release-set.json`, writes one body listing each platform's artifact digest and signing text, and keeps dry-run defaults, separate draft/publish, no overwrite or tag movement, and read-only reconciliation of unknown effects. Multi-platform remote effects are so far exercised only against fake providers.
 
+## Dual-platform candidate and publication procedure
+
+The four-step macOS recipe above remains the legacy three-asset route. For the specifically authorized 0.1.3 macOS ARM64 + Windows x64 **alpha** cut, both final packages require actual current-byte qualification, not routine-cut artifact-only smoke or historical images. Never rebuild after a tag/draft or substitute a later main tip.
+
+1. Complete reviewed tooling/version/notes PRs, exact-head trusted Validate and manually requested Windows feedback; select one full clean **merged** SHA. Refresh actual range, target-specific rights/notices/corpus, prerequisites and dependency findings. Run `npm run validate` before final native production (Vitest changes installed cache bytes). Record native toolchains/locks and keep the same npm/PATH context through build/package/verify/remote operations. Neither host may produce the other's architecture.
+2. macOS: use exact-source `release build`, `package`, `verify` above. Run locked native tests, full two-instance final-DMG `smoke:ordinary --release-record`, affected feature smoke and separate `smoke:release`. Open every required current image individually, including wide/narrow Profile over navigation; masked layer painting must retain real occlusion. Check actual payload/resources/notices/private exclusions, signing profile and 140,000,000-byte budget. Preserve only owned mount/process/lease settlement; never force-detach or activate the operator app.
+3. Windows: explicitly dispatch `windows.yml` at the selected reviewed ref with `release_export=true` (default is false). Require the observed immutable `headSha` to equal the frozen merged SHA, event workflow_dispatch, and successful final run/attempt. The job builds/packages/verifies natively, exercises the **same installer** in the actual installed app, captures six masked synthetic views with restoration, shuts down owned processes, replaces program files with that exact same-version installer, rechecks payload/registration/DB/settings preservation, then preserving uninstall/settlement. It exports the exact public-safe triple plus receipt separately from the six-image artifact; both request three-day retention. It does not publish a release. Retain the exact artifact IDs/expiry and download before runner/artifact expiry.
+4. Transport from that exact successful run, using physical canonical task destinations. Do not select the newest run, wildcard download or trust archive filenames/receipt booleans. The consumer checks live workflow/run/attempt/head/artifact identity, provider archive digest/size, exact bounded regular ZIP members, exclusive extraction and all record/checksum/current-byte identities. Preserve its sibling ZIP: later requalification compares local members with that provider-authenticated archive, so a self-consistent edited record/receipt cannot forge native attribution. Foreign checks are **portable digests + attributed native run**, never native producer admission. Download the separate image artifact through its existing strict consumer and inspect all six images individually.
+
+```bash
+# Explicit dispatch only; compare actual run headSha with the frozen COMMIT.
+gh workflow run windows.yml --repo codexa-bh/ai-garmin-trainer --ref "$REVIEWED_REF" -f release_export=true
+# Select exact RUN / ATTEMPT / ARTIFACT from provider facts, not a latest-run guess.
+python3 scripts/desktop/windows_release_export.py download --source "$COMMIT" \
+  --run "$RUN" --attempt "$ATTEMPT" --artifact "$ARTIFACT" --directory "$WINDOWS_DIRECTORY"
+python3 scripts/desktop/windows_release_export.py verify --source "$COMMIT" --directory "$WINDOWS_DIRECTORY"
+# WINDOWS_RECORD = "$WINDOWS_DIRECTORY/release-windows-x64.json"
+# SET_DIRECTORY is a new task-owned existing directory. The set is never overwritten.
+npm run release -- release-set --version 0.1.3 --scratch "$SET_DIRECTORY" \
+  --platform-record "$MAC_RECORD" --platform-record "$WINDOWS_RECORD"
+# Keep original macOS producer admission, plus all seven current assets and Windows attribution.
+npm run release -- status --repository codexa-bh/ai-garmin-trainer --commit "$COMMIT" --version 0.1.3 \
+  --scratch "$SCRATCH" --bundle "$BUNDLE" --record "$MAC_RECORD" \
+  --release-set "$SET_DIRECTORY/release-set.json" --platform-record "$MAC_RECORD" \
+  --platform-record "$WINDOWS_RECORD" --prerelease no --latest yes
+# Repeat IDENTICAL inputs with draft (plan), draft --execute, then publish --execute.
+# status is read-only reconciliation; publication never rebuilds/retags/replaces bytes.
+```
+
+5. Before tag/draft, finish the coverage matrix: installation/startup/onboarding/persistence/program-replacement/uninstall, exact native/ordinary/debug/synthetic evidence, 27→28 copy-only backup/migration/refusal/compatible restore, unchanged versioned settings, actual available integrations or exact unavailable access. Native contracts and DOM actions are not trusted input, normal onboarding or real-service certification. Windows source-CLI existing-DB migration remains unqualified due POSIX maintenance assumptions; no prior public Windows upgrade baseline exists. Keep originals/private account state untouched; no primary back-sync/activation follows.
+6. Assemble/requalify the set and retain accepted release outputs under primary workspace artifacts, independently of runner/worktree expiry. Seven public assets only: macOS DMG/checksum/`release.json`, Windows installer/checksum/`release-windows-x64.json`, and `release-set.json`. The receipt/import/ZIP/images/logs are not public release assets. Notes/download labels say **Windows x64 alpha**; stable/no-prerelease/Latest applies to the shared GitHub release.
+7. Use existing separate status/draft/publish owners. Every effect rechecks original local macOS admission, clean exact merged source/notes, entire stored set/current bytes and live Windows attribution. Dry run is the default. Record original unknown-effect journals, reconcile exact provider IDs/assets with status before an explicit resumed action; never blindly retry uploads, overwrite/delete assets, move/force a tag or rebuild as recovery. Authority for this cut comes from its task, not a receipt; no extra per-cut approval pause is implied, and actual failed guards/provider/private/scope gates still bind.
+8. After publication, anonymously verify release and Latest, lightweight tag target, exact body/channel/source and **complete downloads of all seven assets**, both checksums/records and set/shared identities. API metadata alone is insufficient. Verify previous 0.1.1/0.1.2 tags/bodies/assets unchanged. Reconcile final runbook/download/result facts by checked docs PR; distinguish that later docs SHA from binary source. No operator installation, restart, trust change, private migration, rollout or worktree disposal is part of release publication.
+
 ## Manual download and app placement — only after an actual authorized release
 
 1. Check the exact repository/tag/source and signing/rights/upgrade warnings. Download its DMG and checksum; in their directory run `shasum -a 256 -c Garmin-Trainer-<version>-macos-arm64.dmg.sha256`. A checksum hosted beside a download does not authenticate its publisher.
@@ -197,6 +235,8 @@ No clean-machine/minimum-OS/Gatekeeper/normal-singleton/trusted-input/real-servi
 
 3. Verify upgraded copy integrity/FK/schema and preserved high-level original data, then exercise the compatible app on that copy. Obtain separate explicit approval for the exact actual target and stop/cutover/migration/reopen. Repeat the reviewed procedure only on that approved stopped target. Foundation delivery grants none of those operations. Native startup and **Use existing data never migrate**: an old/unsupported DB refuses until explicitly prepared.
 4. Recovery is a **prior compatible build plus its compatible pre-upgrade DB/settings**, or a forward fix. Verify backup via readonly status/integrity and restore only to a new exclusive disposable target first. Never downgrade a DB, overwrite newer settings/writes, blindly copy a backup back, delete originals or force an old build onto new state. If newer writes exist, preserve both versions and reconcile them with the owner before choosing recovery. A rollback backup is earlier data, not authority to discard new work. Use native Settings to select only a compatible explicitly approved stopped target; account for versioned plaintext settings/catalog compatibility separately.
+
+**0.1.3 moves schema 27 (0.1.2) to 28** by adding weekly recipe/measurement tables without transforming existing rows. Startup/Use existing refuse 27 until explicit migration, and 0.1.2 refuses 28. Rehearse the existing procedure on authored/disposable online copies and retain the pre-upgrade compatible 27 backup/build pair. Settings version 3 compatibility is independent; originals/legacy settings remain preserved. Windows source-CLI migration is not qualified: current maintenance code has POSIX uid/mode assumptions. This release grants no primary migration or Windows older/dev-install upgrade claim.
 
 **0.1.2 moves the schema from 26 (0.1.1) to 27** ([details](cross-chat-summary.md#local-debug-revisions)): an additive change with no row transformation. A 0.1.1 database is refused by 0.1.2 until explicitly upgraded with the procedure above from the 0.1.2 release commit, and schema 27 is refused by 0.1.1; keep the 0.1.1 app and pre-upgrade backup as the recovery pair. Authored populated 26→27 regressions cover preservation, integrity/FK and idempotent reopen; no real database was used. Publishing a release upgrades no existing database: primary activation stays a separately approved, backed-up exact-target step.
 

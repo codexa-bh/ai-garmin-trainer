@@ -1,6 +1,6 @@
-# Windows x64 build foundation
+# Windows x64 alpha
 
-The source tree builds a **Windows x64 (`x86_64-pc-windows-msvc`)** desktop app and an **unsigned per-user NSIS installer** next to the existing macOS ARM64 app. This is a CI-tested build foundation, **not** qualified Windows 11 support: no Windows 11 machine has run the installer or the native app, and nothing has been released. Windows 10 and Windows ARM64 are not targets.
+The source tree builds a **Windows x64 (`x86_64-pc-windows-msvc`)** desktop app and an **unsigned per-user NSIS installer** next to the existing macOS ARM64 app. The specifically requested **0.1.3 Windows x64 alpha** cut is prepared, not yet a published download. Its accepted qualification is hosted **Windows Server 2025 x64 only**, **not** Windows 11 support: no Windows 11 machine has run this installer/app. Windows ARM testing is deferred; availability of an ARM runner is not evidence. Windows 10 and Windows ARM64 are not targets.
 
 ## What is the same
 
@@ -38,7 +38,7 @@ The installer installs for the current user under `%LOCALAPPDATA%\Garmin Trainer
 
 - **WebView2** is a prerequisite. If it is missing, the installer stops with guidance and installs nothing; it never downloads or installs WebView2 itself.
 - **Uninstall never deletes your data.** Settings, databases and tokens under `%APPDATA%\com.codexa.garmin-trainer.desktop` remain until you manage them yourself. (The stock Tauri "delete app data" option is removed.)
-- **Upgrades** replace program files in the same install directory and never touch private data or databases; downgrades over a newer install are refused in silent/update modes. Existing databases still require the matching source CLI upgrade procedure with stopped owners and verified backups ([release runbook](release.md#existing-database-upgrades-and-recovery)); the app never upgrades a database at startup.
+- **Program replacement** uses the same install directory and preserves private data; the finite alpha scenario re-executes only the exact same-version installer after owned shutdown and rechecks installed payload/registration/DB/settings before uninstall. There is no prior public Windows installer baseline; older/dev upgrades and downgrades remain unqualified. Installer downgrade refusal in silent/update modes is a contract, not normal-use certification. **Existing-database source-CLI migration is not qualified on Windows**: current maintenance tooling has POSIX uid/mode assumptions. Do not use macOS migration instructions as a tested Windows path. The app never upgrades a database at startup.
 
 ## Package and verify without installing
 
@@ -62,6 +62,8 @@ gh run list --repo codexa-bh/ai-garmin-trainer --workflow windows.yml --event wo
 gh run view <run-id> --repo codexa-bh/ai-garmin-trainer --json headSha,event,status,conclusion,url
 ```
 
+Optional `-f release_export=true` explicitly selects the exact qualified public-safe release triple export below; default dispatch does not export binaries. It grants no tag/upload/publication and changes no automatic triggers.
+
 The selected ref is resolved to the dispatch's immutable `github.sha`; checkout and the recorded `TESTED_SOURCE` use that SHA, and the job refuses a different HEAD. Compare the observed run `headSha` with the intended PR head before relying on evidence. A later branch push does not update an earlier dispatch's evidence; explicitly request a new run when needed. Missing automatic Windows PR checks are expected, not a green Windows result.
 
 ## Installed-app scenario and narrow evidence exception
@@ -74,7 +76,7 @@ Known stderr classifications include fixed Node exception classes only, never ex
 
 Six fixed Trainer/Sync/Profile × wide (1280×850) and narrow (420×850) **logical own-WebView** captures use WebView2 `CapturePreview`, the existing hide-by-default geometry-preserving masks and confirmed restoration before private publication. Native diagnostic and image dimensions must agree; unsupported DPI/geometry fails rather than stretching pixels. Every PNG is fully bounded/CRC/deflate/filter-decoded and checked for nonuniform pixels; **these checks do not replace individual visual inspection**. Failure or timeout cannot publish raw pixels.
 
-Only after owned native/backend/profile-WebView/endpoints/writer/namespace settlement does the installed uninstaller run. The scenario verifies program and uninstall-registration removal, no shortcuts under `/NS`, unchanged saved synthetic DB/settings and an exact marker in the newly owned real `%APPDATA%\\com.codexa.garmin-trainer.desktop` boundary. Stock NSIS retains the manufacturer `Software\\codexa\\Garmin Trainer` install-location metadata; it is inventoried and must remain unchanged, not falsely reported deleted. No unrelated registration/data is adopted or removed. Synthetic state remains only until runner expiry; no primary access or copy-back.
+Only after owned native/backend/profile-WebView/endpoints/writer/namespace settlement does exact same-version program replacement run. The same verified installer is re-executed, payload/registration/shortcuts and synthetic DB/settings/app-data marker must remain unchanged. Then the installed uninstaller runs. The scenario verifies program and uninstall-registration removal, no shortcuts under `/NS`, unchanged saved synthetic DB/settings and an exact marker in the newly owned real `%APPDATA%\\com.codexa.garmin-trainer.desktop` boundary. Stock NSIS retains the manufacturer `Software\\codexa\\Garmin Trainer` install-location metadata; it is inventoried and must remain unchanged, not falsely reported deleted. No unrelated registration/data is adopted or removed. Synthetic state remains only until runner expiry; no primary access or copy-back.
 
 **Task-scoped publication exception:** GitHub Actions may retain exactly the six already-masked synthetic PNGs plus one closed sanitized source/runtime/scenario manifest for **three days**. The pinned upload step names all seven files explicitly. No binaries/installers, DBs/sidecars, settings/keys/tokens, descriptors/capabilities, raw/unverified captures or logs are eligible. A failed/incomplete scenario uploads nothing. This public repository's artifacts must be safe to disclose; three days is requested retention, not guaranteed private access or immediate erasure. All other smoke images, including macOS captures, retain their no-upload rule. No release, image mirror or broader standing exception follows.
 
@@ -89,6 +91,16 @@ python3 scripts/desktop/windows_smoke_evidence.py --archive <downloaded.zip> \
 ```
 
 The destination must not already exist. This validates member paths/types/bounds before exclusive extraction and then checks the closed manifest, hashes and PNGs; it still reports visual inspection as required separately. Retain source/run/boot/view/preset/hash plus actual per-image findings in task/PR text, never copy these images into public Git or a long-lived mirror.
+
+## Explicit exact-candidate release export
+
+Separate from the unchanged three-day six-image exception, manual `release_export=true` permits exactly four public-safe files after successful native verification and the complete installed scenario: `Garmin-Trainer-<version>-windows-x64-setup.exe`, its `.exe.sha256`, `release-windows-x64.json`, and `windows-release-export.json`. The closed version 1 receipt binds source/run/attempt, installer/payload, exact member sizes/digests, scenario manifest digest and passed finite outcomes. No private paths/env/logs/DB/settings/keys/capabilities or images enter it. Artifact name binds run/attempt/full source; retention is three days, actual provider expiry must be observed. This transports the exercised installer, never rebuilds or publishes it.
+
+Use `windows_release_export.py download --source <SHA> --run <id> --attempt <attempt> --artifact <id> --directory <fresh-canonical-task-destination>`. It selects exact live successful manual workflow/attempt/head/artifact facts, bounds and hashes the API ZIP against provider identity, rejects nonregular/unsafe/extra/missing/duplicate/overbound members before exclusive extraction, verifies checksum/record/readback and retains a sibling ZIP plus local import correlation. Keep both directory and ZIP for requalification: editable receipt booleans are not authority. `verify --source <SHA> --directory <destination>` compares every current local member with that live provider-attributed archive. A copied foreign record is portable digest + attributed native-run evidence, not local native producer admission. Missing/expired/mismatched evidence refuses; never choose another run/rebuild after creating a tag.
+
+See the [dual-platform release procedure](release.md#dual-platform-candidate-and-publication-procedure) for set assembly, original macOS producer admission, seven-asset publication, unchanged-byte unknown-effect recovery and complete anonymous-download verification. The transport receipt/import/ZIP are not public release-set members. Downloading is not installation or primary-data authority.
+
+Current image manifests are schema 2, adding explicit same-version programReplacement to passed outcomes. Historical schema 1 images remain historical; they do not qualify a new candidate. Every fresh image still needs individual inspection after strict download validation.
 
 ## Evidence and deferred qualification
 
