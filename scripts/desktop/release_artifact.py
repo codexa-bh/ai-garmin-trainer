@@ -11,12 +11,34 @@ import stat
 import subprocess
 import uuid
 
-from ordinary_identity import document, inventory_hash, provenance, verify_ordinary
+from ordinary_identity import document, inventory_hash, provenance, verify_ordinary, ordinary_preparation
 import platform_files
 from release_metadata import REPOSITORY, check, git
 from release_smoke import audit
 from release_timing import stage
 import smoke_resources as resources
+
+@contextlib.contextmanager
+def candidate_preparation(repo, bundle, source, scratch, record_path=None):
+    """Finite feature consumers share the existing original-producer/DMG owner.
+
+    The copy source may be the mounted payload; the admitted producer never changes.
+    Each consumer installs verify_current as its pre-boot callback. Exit rechecks
+    even after a failed scenario; transported retains original failure semantics.
+    """
+    with ordinary_preparation(repo, bundle, source, scratch) as (verified, inventory):
+        def verify_current():
+            verify_ordinary(repo, bundle, source, inventory, scratch)
+        if record_path is None:
+            try:
+                yield bundle, verify_current, verified, inventory, None
+            finally:
+                with resources.preserve_failure():
+                    verify_current()
+        else:
+            with transported(repo, bundle, source, verified, inventory, record_path, scratch) as (payload, recheck, record):
+                yield payload, recheck, verified, inventory, record
+
 
 APP_NAME = 'Garmin Trainer.app'
 SIGNING = 'unsigned-or-linker-adhoc; not notarized; no verified publisher'

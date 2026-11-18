@@ -5,6 +5,7 @@ import datetime
 import hashlib
 import json
 import os
+from pathlib import Path
 import signal
 import subprocess
 import time
@@ -12,7 +13,8 @@ import uuid
 import smoke_resources as resources
 from native_smoke import REPO, Observer, canonical, fingerprint, private_json, readonly, source_identity
 from ordinary_smoke import OrdinaryRun, private_directory
-from ordinary_identity import ordinary_preparation, inventory_hash
+from ordinary_identity import inventory_hash
+from release_artifact import candidate_preparation
 from release_smoke import audit
 from chat_smoke import api
 
@@ -102,10 +104,16 @@ def wait_kpis(run, progress=False):
     raise TimeoutError('Weekly KPI rendered readiness')
 
 
-def scenario(run, automatic=False):
-    captures = []
+def enter_weekly(run):
     run.command({'type': 'click', 'target': 'Training Plan'})
-    observed = wait_kpis(run)
+    return wait_kpis(run)
+
+
+def scenario(run, automatic=False, refresh_only=False):
+    captures = []
+    observed = enter_weekly(run)
+    if refresh_only:
+        return captures  # Actual refresh/grid assertions/captures remain refresh_proof's owner.
     if (not automatic and not observed['aboveHundred']) or not observed['unknown']:
         raise ValueError('Saved above100/unknown facts missing')
     for view in ['current', 'next', 'previous', 'progress', 'oneMonth', 'threeMonths', 'twelveMonths']:
@@ -145,29 +153,34 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
+    parser.add_argument('--release-record', type=Path, help='Selected final DMG record; original bundle admission remains required')
     parser.add_argument('--automatic-points', action='store_true', help='Finite mixed reviewed/automatic fixture; source KPI bytes remain unchanged by refresh')
+    parser.add_argument('--refresh-only', action='store_true', help='Risk-selected six-image actual two-week refresh/grid proof; omits full historical/period presentation')
     args = parser.parse_args()
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
     bundle = canonical(args.bundle)
     source = source_identity()
-    with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
+    with candidate_preparation(REPO, bundle, source, scratch, args.release_record) as (bundle, verify_current, verified, inventory, release_record):
         allocation = resources.directory(resources.runtime_path(scratch / ('kpi-seed-' + str(uuid.uuid4()))))
         name = 'ci-seed-' + str(uuid.uuid4())
         subprocess.run(['npm', 'run', 'ci:seed', '--', str(allocation), name, '--weekly-auto-points' if args.automatic_points else '--weekly-kpis'], cwd=REPO, check=True, timeout=60)
         database = allocation / name / 'synthetic.sqlite'
         resources.file_created(database)
-        run = OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified)
+        run = OrdinaryRun(scratch, database, source, bundle, inventory, verified=verified, macos_metadata=bool(release_record))
+        run.before_start = verify_current
         expected = saved_hash(run.database)
         observer = None
         errors = []
-        receipt = {'source': source, 'scenario': 'T0337-two-week-measured-refresh-independent-points-preset-periods-real-pane-bottom', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. One synthetic DOM Refresh click runs the real bounded recipe child on the run copy. Synthetic DOM input, not trusted input, real trainer/provider recipe writes or production migration.', 'resourceDisposition': resources.disposition()}
+        receipt = {'source': source, 'scenario': 'T0337-two-week-measured-refresh-independent-points-preset-periods-real-pane-bottom', 'artifactKind': 'ordinary', 'releaseTransport': release_record, 'artifactInventoryHash': inventory_hash(inventory), 'passed': False, 'run': str(run.root), 'privateInputs': 'none; independently authored KPI state', 'providerAndGarmin': 'not invoked', 'limits': 'Actual isolated ordinary WebView; only exact authored/static KPI text revealed at actual geometry. One synthetic DOM Refresh click runs the real bounded recipe child on the run copy. Synthetic DOM input, not trusted input, real trainer/provider recipe writes or production migration.', 'resourceDisposition': resources.disposition()}
         try:
             observer = Observer(scratch, preparation_locked=True)
             run.observer = observer
             run.start(run.binary)
             receipt['automaticPoints'] = args.automatic_points
-            receipt['captures'] = scenario(run, args.automatic_points)
+            receipt['scope'] = 'two-week-refresh-only' if args.refresh_only else 'full-weekly-presentation-and-refresh'
+            receipt['omitted'] = ['historical/period presentation; no pass claimed'] if args.refresh_only else []
+            receipt['captures'] = scenario(run, args.automatic_points, args.refresh_only)
             week = current_week()
             refreshed, receipt['refresh'] = refresh_proof(run, week, args.automatic_points)
             receipt['captures'] += refreshed

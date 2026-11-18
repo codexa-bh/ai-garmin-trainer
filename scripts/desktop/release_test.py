@@ -206,6 +206,38 @@ class PayloadTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifact.tree_identity(self.app)
 
+    def test_feature_candidate_handoff_keeps_original_admission_per_boot_and_final_recheck(self):
+        verified, inventory, record = {'native': 'original'}, {'complete': 'inventory'}, {'artifact': 'selected-DMG'}
+        recheck = Mock()
+        @contextlib.contextmanager
+        def preparation(*_args):
+            yield verified, inventory
+        @contextlib.contextmanager
+        def transport(*args):
+            self.assertEqual(args[:5], (self.root, self.app, 'source', verified, inventory))
+            self.assertEqual(args[5], self.root / 'release.json')
+            try:
+                yield self.root / 'mounted/Garmin Trainer.app', recheck, record
+            finally:
+                recheck()
+        with patch.object(artifact, 'ordinary_preparation', side_effect=preparation), patch.object(artifact, 'transported', side_effect=transport):
+            with artifact.candidate_preparation(self.root, self.app, 'source', self.root, self.root / 'release.json') as selected:
+                self.assertEqual(selected[0], self.root / 'mounted/Garmin Trainer.app')
+                self.assertEqual(selected[2:], (verified, inventory, record))
+                selected[1]()  # First boot.
+                selected[1]()  # Restart.
+            self.assertEqual(recheck.call_count, 3)
+        with patch.object(artifact, 'ordinary_preparation', side_effect=preparation), patch.object(artifact, 'transported', side_effect=ValueError('transport refused')):
+            with self.assertRaisesRegex(ValueError, 'transport refused'):
+                with artifact.candidate_preparation(self.root, self.app, 'source', self.root, self.root / 'release.json'):
+                    self.fail('No fallback to producer after selected transport refusal')
+        with patch.object(artifact, 'ordinary_preparation', side_effect=preparation), patch.object(artifact, 'verify_ordinary') as original:
+            with artifact.candidate_preparation(self.root, self.app, 'source', self.root) as selected:
+                self.assertEqual(selected[0], self.app)
+                self.assertIsNone(selected[4])
+                selected[1]()
+            self.assertEqual(original.call_count, 2)
+
     def fake_hdi(self, args, **kwargs):
         if args[1] == 'attach':
             mount = Path(args[args.index('-mountpoint') + 1])

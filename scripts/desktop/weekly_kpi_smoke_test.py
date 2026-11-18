@@ -33,6 +33,11 @@ class Run:
 
 
 class WeeklyKpiRunnerTests(unittest.TestCase):
+    def test_refresh_selection_enters_real_weekly_without_claiming_omitted_period_captures(self):
+        run = Run()
+        self.assertEqual(kpis.scenario(run, automatic=True, refresh_only=True), [])
+        self.assertEqual(run.commands, [{'type': 'click', 'target': 'Training Plan'}, {'type': 'weeklyKpis', 'action': 'observe'}])
+
     def test_finite_scenario_captures_both_views_and_sizes_without_write_actions(self):
         run = Run()
         result = kpis.scenario(run)

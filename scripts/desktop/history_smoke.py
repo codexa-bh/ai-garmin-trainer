@@ -19,6 +19,7 @@ import uuid
 from native_smoke import Observer, canonical, fingerprint, private_json, readonly, source_identity, listening
 from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
+from release_artifact import candidate_preparation
 
 
 def setup_modes(args):
@@ -847,6 +848,7 @@ def main():
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--input-file', required=True)
     parser.add_argument('--bundle', required=True)
+    parser.add_argument('--release-record', type=Path, help='Selected final DMG record; original bundle admission remains required')
     parser.add_argument('--dependency-guidance', action='store_true', help='Three fixed synthetic launcher scenarios, no account calls')
     parser.add_argument('--synthetic-sync', action='store_true', help='Finite authored stdio data on stopped owned copies; no account calls')
     parser.add_argument('--token-input', help='Explicit private selector; never normal-settings discovery')
@@ -872,19 +874,22 @@ def main():
     database = canonical(value['database'])
     bundle = canonical(args.bundle)
     source = source_identity()
-    inventory = audit(bundle)
-    if json.loads((bundle / 'Contents/Resources/resources/provenance.json').read_text()).get('sourceFingerprint') != source:
-        raise ValueError('Build current final source before history evidence')
+    with candidate_preparation(REPO, bundle, source, scratch, args.release_record) as (bundle, verify_current, verified, inventory, release_record):
+        history_scenario(args, scratch, database, bundle, source, verified, inventory, verify_current, release_record)
+
+
+def history_scenario(args, scratch, database, bundle, source, verified, inventory, verify_current, release_record):
     runs = []
     observer = None
     token_source = None
     receipt = {'scenarioPassed': False, 'source': source, 'artifactKind': 'ordinary',
-               'syntheticDomInput': True, 'normalDefaultModeCertified': False,
+               'syntheticDomInput': True, 'normalDefaultModeCertified': False, 'releaseTransport': release_record,
                'captures': [], 'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back'}
     try:
         observer = Observer(scratch)
         for mode in setup_modes(args):
-            run = HistoryRun(scratch, database, source, bundle, inventory, history_setup=mode)
+            run = HistoryRun(scratch, database, source, bundle, inventory, history_setup=mode, verified=verified, macos_metadata=bool(release_record))
+            run.before_start = verify_current
             runs.append(run)
             run.observer = observer
             receipt['captures'].extend(run.onboarding())
