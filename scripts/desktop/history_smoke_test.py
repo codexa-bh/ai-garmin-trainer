@@ -27,6 +27,19 @@ class HistoryTokenContracts(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_history_observer_reuses_already_held_candidate_preparation_lock(self):
+        import history_smoke as history
+        import sqlite3
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        database = self.root / 'empty-authored.sqlite'
+        sqlite3.connect(database).close()
+        args = SimpleNamespace(token_input=None)
+        with patch.object(history, 'Observer', side_effect=RuntimeError('before any launch')) as observer, patch.object(history, 'private_json'):
+            with self.assertRaisesRegex(RuntimeError, 'before any launch'):
+                history.history_scenario(args, self.root, database, self.root, 'source', {}, {}, lambda: None, None)
+            observer.assert_called_once_with(self.root, preparation_locked=True)
+
     def test_cli_reaches_original_repo_candidate_owner_and_never_launches_after_refusal(self):
         import history_smoke as history
         import sys

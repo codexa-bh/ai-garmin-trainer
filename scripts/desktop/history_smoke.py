@@ -886,7 +886,7 @@ def history_scenario(args, scratch, database, bundle, source, verified, inventor
                'syntheticDomInput': True, 'normalDefaultModeCertified': False, 'releaseTransport': release_record,
                'captures': [], 'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back'}
     try:
-        observer = Observer(scratch)
+        observer = Observer(scratch, preparation_locked=True)
         for mode in setup_modes(args):
             run = HistoryRun(scratch, database, source, bundle, inventory, history_setup=mode, verified=verified, macos_metadata=bool(release_record))
             run.before_start = verify_current
