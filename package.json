@@ -6,6 +6,7 @@
     "release:check": "node scripts/desktop/python.mjs scripts/desktop/release.py check",
     "desktop:resources": "npm run build && npm run desktop:assemble",
     "desktop:assemble": "node scripts/desktop/assemble.mjs",
+    "smoke:help": "node scripts/smoke-help.mjs",
     "smoke:quick": "python3 scripts/desktop/quick_smoke.py",
     "desktop:build": "node scripts/desktop/python.mjs scripts/desktop/ordinary_identity.py",
     "desktop:dev": "npm run desktop:resources && tauri dev",

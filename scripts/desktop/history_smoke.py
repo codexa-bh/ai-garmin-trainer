@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Finite ordinary-artifact no-date setup and explicitly copied-token Sync evidence."""
+"""Finite ordinary-artifact keyless setup and authored Sync; legacy live route unavailable."""
 import argparse
 import contextlib
 from datetime import datetime, timedelta, timezone
@@ -867,15 +867,15 @@ class HistoryRun(OrdinaryRun):
 
 @resources.invocation
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scratch', required=True)
-    parser.add_argument('--input-file', required=True)
-    parser.add_argument('--bundle', required=True)
+    parser = argparse.ArgumentParser(description=__doc__, epilog='Discovery: npm run smoke:help -- search sync. Build/run card: docs/synthetic-sync-smoke.md; setup and independent live authority: docs/smoke/sync.md. Run plain npm from the canonical physical task checkout. Outputs include scenario/capture and owned-disposition evidence; synthetic DOM is not trusted input or real Garmin proof.')
+    parser.add_argument('--scratch', required=True, help='Canonical allocator-returned task root, not its evidence/disposable child')
+    parser.add_argument('--input-file', required=True, help='Owner-private database-only selection.json from smoke:prepare; no token discovery')
+    parser.add_argument('--bundle', required=True, help='Current full ordinary desktop:build .app from the same physical source/invocation context')
     parser.add_argument('--release-record', type=Path, help='Selected final DMG record; original bundle admission remains required')
     parser.add_argument('--dependency-guidance', action='store_true', help='Three fixed synthetic launcher scenarios, no account calls')
     parser.add_argument('--synthetic-sync', action='store_true', help='Finite authored stdio data on stopped owned copies; no account calls')
-    parser.add_argument('--token-input', help='Explicit private selector; never normal-settings discovery')
-    parser.add_argument('--continuation-only', action='store_true', help='One explicitly selected prior-checkpoint continuation; no repeated Cancel/start batch')
+    parser.add_argument('--token-input', help='UNAVAILABLE legacy route: always refuses before private input access; old T0238 authority does not apply')
+    parser.add_argument('--continuation-only', action='store_true', help='UNAVAILABLE legacy route: requires --token-input, which is refused; not a supported continuation recipe')
     args = parser.parse_args()
     if args.dependency_guidance and (args.synthetic_sync or args.token_input or args.continuation_only):
         parser.error('Dependency evidence is synthetic-only and cannot combine execution scopes')

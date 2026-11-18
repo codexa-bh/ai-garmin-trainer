@@ -1,0 +1,88 @@
+# Ordinary setup and Sync scenarios
+
+[Playbook](../dev-bridge.md) · [Commands](../smoke-commands.md) · [Synthetic build/run card](../synthetic-sync-smoke.md)
+
+[Shared ownership/build/settlement](ownership.md) and [protocol/result deadlines](protocol.md) apply. These runners retain copy-only diagnostics/captures to scratch expiry, never copy back. Inspect required masked images; isolated ordinary synthetic DOM proves neither trusted input/default singleton nor real Garmin. No recurring scenario change or durable fixture service.
+
+## Bounded ordinary history setup and copied-token Sync
+
+`smoke:history` uses current unmodified outside-checkout ordinary bundle, online copies, pinned boot/capability/namespace, observer and owned shutdown. **Without tokens it never requests an account:** default proves both wizard paths, keyless idle Sync and saved-limit restarts. Historical token/continuation options currently refuse; live authority is separate below.
+
+`historySetup` is only `create-new|use-existing`, both requiring genuinely missing run v1/v2/v3 settings. Invalid/legacy state is not blank-install authority. Create requires absent exact DB, refuses collisions and binds publication only through onboarding's verified `OwnedDatabase`; external appearance/replacement refuses. Existing requires compatible populated copy. Missing settings use current private-owner v3 destination; committed newest file remains authoritative even invalid. Version/filename conflicts are errors, no fallback. Ordinary preflight/init/revision/no-overwrite remain; baseline/default gains no grant.
+
+History requires retained runner stdin pipe: EOF/error/unexpected data self-stops only instance/owned backend, never saved-PID recovery. Observer has its own owner pipe and stops on loss.
+
+### Setup control and proof
+
+`historySettings`: `open|observe|createNew|useExisting|next|finish|save|automatic|legacyLimit|capture|close`, plus finite `dismissRestart`. Selection must match descriptor. `observe` can return loading/missing document `windowReady:false`; verify true before **single** Open. Wrong/foreign document refuses. Backend origin/hydration may precede startup Settings hide: wait native `runtimeReady` (service-owner lock settled); `windowVisible` is actual native visibility, and hidden-window mutation refuses. Listener/CSS presence is not readiness/visibility.
+
+Finish requires pinned DB, unchanged keyless catalog/default/provider intents and blank history. Save permits only automatic blank or fixed compatibility date **2024-01-01**, not arbitrary input. Real Use exploration limit toggle controls inactive Automatic versus required Limited date; browser constraints/all active-field validation remain, never disabled by adapter. Result: strict bounded booleans and nullable `setupFailure` ≤**512 bytes**, native compile-time static text only, no renderer/vendor payload. Failed Finish is retained immediately, no retry. `dismissRestart` clicks only focused local notice OK after changed limit Save; other mutations/capture refuse while open; it neither restarts nor replays Save.
+
+Default scenario: genuine blank Create and populated Existing without date → Finish/hydrated Trainer → saved direct launch → limit Save (running backend unchanged) → explicit restart → clear limit → restart. Setup masks hide paths/keys/connection/status/review/unrelated surfaces; fixed semantic Data/Review/history scroll preserves layout, no global input. Restore on success/failure/expiry. No general Settings grant, trainer callback, arbitrary path/value/eval/auth/MFA/adoption/picker.
+
+### Sync control
+
+History-scoped `sync` actions: `observe|start|cancel|continue|refresh|details`. Start = Sync latest; Continue = visible Import older data/Continue historical import, never latest; Details toggles only visible Technical details. Duplicate/disabled/hidden/private/extra targets refuse. Exact result booleans: `ok,running,paused,completed,failed,startEnabled,cancelEnabled,progressStarted`; no logs/replies/copied values.
+
+Click completion is not settlement. Observe durable/server ownership before another action; cancellation must settle real claim and explicitly refresh summary before continuation. No unknown-effect mutation retry. Static reasons/labels use exact closed allowlist; dates/counts/logs stay masked, including expanded details. Empty-direct-text ancestor containers may remain for WebKit scroll composition; private descendants hidden, injected direct text refuses/restores. Idle captures prove no active/cancel/continuation.
+
+### Current finite synthetic Sync scenario
+
+`--synthetic-sync` follows the [card](../synthetic-sync-smoke.md). Only **populated Use existing**, not blank-onboarding/resource-enrollment repair. Actual app/SQLite/stdio progression, not Garmin.
+
+**Connector admission:** stopped owned keyless run only; authored executable/sentinel tokens via allowlisted custom executable. Absolute Python shebang, exact reviewed argv, no network/Garmin imports. No configurable arguments/product override/new endpoint/native grant/bundle rewrite. Unexpected action/field, active/foreign owner, preconfigured key/token, alias/insecure sentinel/whitespace-ambiguous argument refuses. Defaults remain unconnected.
+
+Fixed enabled tools, ≤**480 frames**, three stable authored activity IDs per page-zero window (including older windows), altitude/distance/speed details preventing real FIT supplements; records-disabled baseline preserves empty zone target. Presets exactly `delayed|unknown|known|last-used|new-activity`; honor `GARMIN_ENABLED_TOOLS`. `get_device_last_used` uses pinned server process-zone `fromtimestamp`/`strftime`. `last-used` omits primary direct upload and names primary fallback; others name non-primary. Private call log only bounded operation names/FIT-records boolean, no args/replies. **0.4 seconds/tool** plus native observation/capture is authored timing, not Garmin latency.
+
+**At most twelve explicit operations.** Stopped setup uses existing exploration limit UTC today −**35 days**. Each history operation ≤**150 seconds / 150 admitted attempts**; latest settles ≤**90 seconds**. Restarts are explicit/passive, no replay.
+
+**Operations → Actual required behavior**
+
+- **1–3:** Latest `delayed`, then stopped/restarted `unknown`, `known`: fresh latest creates no history checkpoint, exhausts multiple actual details/zero known remainder. Delayed keeps mutable days; unknown makes exactly one nonmatching fallback and finalizes none; known makes no fallback and re-downloads/finalizes ended days, today mutable.
+- **4–5:** History start/cancel after **two durable batches**; restart/explicit Continue finishes selected range with zero known details. Verify cancellation/settlement/reload/navigation/disclosure/no passive restart.
+- **6–7:** Stopped `last-used` catch-up, then restart/identical backend-route latest: exactly one devices + one matched fallback; today plus ≥**15** older open dates read, final count grows ≥15, only today mutable. Repeat reads only today's three health tools and preserves counts.
+- **8:** Stopped `new-activity` latest: new IDs require one applicable baseline FIT; no same-day profile/FTP/fallback.
+- **9–12:** Stopped remove authored limit **only**, not checkpoints. Relaunch offers Discover/unchanged history; latest preserves it. Visible Discover advances past old limit, cancel/settle/relaunch. Explicit Continue finishes itself with `noDataBefore` older than old limit (steps begin UTC today −**80 days**). Passive relaunch, final latest.
+
+Latest preserves checkpoint bytes. Steady direct-upload repeat: **seven** core reads (devices, three today-health, recent activities, body composition, weigh-ins), **eight** with matched fallback. Unchanged effort backfill may add one `get_activity` for older missing effort facts: report actual breakdown, never suppress to force 7/8. No repeated profile/FTP/baseline FIT. Snapshots contain integrity/FKs/legacy hashes/normalized non-null-row counts/weight-activity preservation, not raw rows. Writes/durable counts/stop reasons are real, no injected cursor/clock/budget/replies. Owned-finally bounds failure.
+
+**Control/capture:** wide/narrow detail/history progression, completion, Discover offered/latest success, active/cancelled discovery and expanded Technical details. Busy disclosure survives away/back then collapses. Backend-route repeat keeps actual POST response open while UI refreshes: server-only busy disables both Start/Cancel, then settlement reconciles without replay. Closed disclosure with child rectangles refuses capture.
+
+Masks reveal only static controls/status/current phase/sanitized incomplete-recovery/Discover vocabulary and empty aria-hidden decorative spinner. Dates/counts/remaining work/logs/copied values stay hidden; unknown nesting/text/private replacement refuses/restores. Hidden values are proved by supplied ports/SQLite/UI/runner tests, not screenshots. Reduced-motion CSS has deterministic coverage; still/hidden-WebView images cannot prove advancing animation, change OS motion preference or add visibility/default-app control.
+
+**Separate 6/14 presentation fixture:** after actual progression and native/backend/writer/run-lease settlement, retain history fields but set failed/no-progress; seed existing latest checkpoint with exactly **6 activities / 14 health dates**, once settled and once failed. Reject private/preconfigured keys, nonsentinel token, wrong/aliased/insecure DB or unsettled owner. Passive reopen shows blocked history/unknown remote bound/selected latest outcome with no work. Wide/narrow success/details/failed-latest images reveal closed primary/history-warning copy only; values remain masked. UI/hook tests prove fresh settlement/exact units. This is stopped presentation seeding, **not progression/recovery/account access/product injection API**.
+
+Before use: current Python history/connector, native/controller/DOM masks/restoration/denials, affected Sync, sufficient aggregate and exact-source ordinary build/native checks. Original standalone input unchanged; safe hashes/aggregates and inspected captures local. Recurring/default scopes unchanged.
+
+### Finite dependency-guidance evidence
+
+`smoke:history --dependency-guidance`: three stopped authored executable presets—missing task launcher, owned executable exiting without protocol, healthy synthetic connector. One rendered Sync per preset; explicitly cancel healthy. Verify saved Trainer/Health navigation each time. No account/network/private input/system-interpreter removal/package acquisition/retry/bundle change. Cannot combine private token/continuation/synthetic-batch scopes.
+
+Capture only exact application-owned heading, one of two summaries and fixed setup/offline/retry paragraph. Fixed help scroll preserves layout; off-viewport geometry/unknown text/nesting refuses; native completion/expiry restores scroll/masks. Private progress/other surfaces hidden. Not real Garmin/sign-in/missing system Python/default singleton/trusted input; deterministic process/DOM tests separately cover installed-Python/unknown/cancel.
+
+Separate debug `smoke:settings --dependency-guidance` (verified `--resources-ready` optional) proves notice-free wide/narrow footer, Connect/later/cancel without login, keyless Save/reload and native Settings reopen after owned backend stops. `captureFooterWide|captureFooterNarrow` reveal only exact Save/Cancel at real scrolled geometry after blanket paragraph absent/trailing external forms empty. Fields/status/keys/paths masked; restore/expiry, original checks and disposition apply. No auth/picker/adoption/Finish; ordinary rejects debug Settings. Not unmasked full window/default-menu/trusted input.
+
+### Independent real-service evidence gate
+
+`smoke:history:live --scratch <private-task-child> --input-file <authorized-db-selector> --token-input <authorized-token-selector> --settings-integrity <private-integrity> --bundle <current-app>` is **independently authorized T0260 evidence**, not a permission grant. Obtain attributable current input/account authority **before access**. Purpose exactly `T0260 authorized finite copied-account smoke only`. Integrity record contains selected settings path/hash, saved history limit/authority reference, never keys/full settings. No discovery/fresh login.
+
+Existing native POST accepts only safety-reducing header `x-trainer-sync-budget: finite-live-smoke`: **150 cumulative MCP/FIT attempts / 180 seconds per operation**, unchanged serial pacing, internal **96/180**, nested **30-second** caps. Unknown selector refuses before connector construction; ordinary UI/tools unchanged. No numeric override/larger budget/new endpoint/grant/bypass.
+
+One exclusive claim permits **two API effects**:
+
+1. Close actual NDJSON response/socket after successfully imported health date; verify durable cancellation.
+2. Native stop/restart preserves progress with zero account calls; explicit finite POST resumes through multiple internal batches.
+
+Retain bounded stage/count/outcome, not response text/private facts. Settled native captures show masked durable Resume, **not live UI-hook streaming**; synthetic UI proof separate. Bind original DB/token/settings, artifact/source and owned shutdown. Claimed/unknown effect refuses replay; failure consumes authority, no third request.
+
+Only diagnosed runner repair may use `--remaining-envelope`: exact retained two-effect claim, matching operation0 marker, task-owned stopped durably-cancelled copy ≤150 attempts and unchanged production input. Online-copy reconciled state into new owned current-artifact run; exclusively claim **only operation1**. Never delete/replace claim/replay operation0/accept unsettled writer/reclaim operation1. Observe/navigate finite Sync before API/refresh, never force hidden control. New private copies stay diagnostic/expiry-deferred, no copy-back. Validate budget HTTP/composition and Python stream/disconnect/claim contracts before account calls.
+
+### Retained legacy contract — not executable authority
+
+`smoke:history --token-input|--continuation-only` **refuses before private input**. T0238's **96 attempts/180-second invocation** cannot authorize current interactive **480 attempts/30 minutes**. Re-enabling needs separately attributable current private grant and reviewed live envelope. Synthetic success waives nothing.
+
+Retained copy primitives accept canonical owner-private directory and known `garmin_tokens.json`/optional `garmin_tokens.base64` via `0600` single-link `{tokenDirectory,tokenFiles,purpose:"T0238 private copied-token smoke only"}`. Pin directory, no-follow/nonblocking private single-link regular files, bounded stable-identity reads, exclusive run `tokens` copies; author only stopped run keyless settings. Original token hashes/DB integrity verified; refresh only copy. No normal settings/keys, fresh login/MFA/original rotation/raw payload/copy-back.
+
+Historical continuation requires explicit tokens and stopped existing checkpoint; active/missing refuses, exactly one ≤96-attempt/180-second effect, no repeated Cancel/start. A validated changed-content repair could finish remaining authorized invocation, never reset budget. Earlier full method: immediate cancel plus two finite continuations (**288 attempts/540 seconds total**, **30 seconds/remote operation**). These describe retained methods/tests, **not today's interactive POST or CLI permission**. Progress/cancel stages retain safe aggregate/source/boot/captures immediately on success/failure, so later refusal does not erase partial evidence; overall failure remains failure.
+
+Auth expiry/rate/network failures grant no login/retry. Readers distinguish pinned legitimate empty replies and typed metadata-only stats/sleep/battery summaries from errors: no invented metric/remote inception. Unrecognized health diagnostics retain only fixed `stats|sleep|bodyBattery` label, never vendor/reply text. Fresh DBs are task-scratch wizard tests only, not recurring fixture enrollment.

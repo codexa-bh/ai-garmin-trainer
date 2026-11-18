@@ -849,12 +849,12 @@ def feature_scenarios(run, args, plan, perform):
 
 @resources.invocation
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scratch', required=True)
+    parser = argparse.ArgumentParser(description=__doc__, epilog='Discovery: npm run smoke:help -- search ordinary. Playbook: docs/dev-bridge.md; scope/build/settlement: docs/smoke/ownership.md. Run plain npm from the canonical physical task checkout after desktop:build. Default full scope plus affected features remains required for shared/unknown changes. Inspect selected native images and receipts; synthetic DOM does not prove trusted input or real services.')
+    parser.add_argument('--scratch', required=True, help='Canonical allocator-returned task root, not its evidence/disposable child')
     from smoke_input import arguments, prepare
     arguments(parser)
     parser.add_argument('--bundle', required=True, help='Actual unmodified desktop:build .app; copied outside checkout per run')
-    parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--prepare-only', action='store_true', help='Retain prepared copies for later use, zero launches; not scenario-pass evidence')
     parser.add_argument('--release-record', type=Path, help='Finite final-DMG handoff; original --bundle producer remains stamped and locked')
     parser.add_argument('--conversation-selection', action='store_true', help='Finite keyless synthetic conversation create/select/restart/delete on empty-chat populated copies')
     parser.add_argument('--composer-footer', action='store_true', help='Finite keyless explicit choice/draft/restart and wide/narrow masked capture; no provider send')

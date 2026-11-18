@@ -239,8 +239,8 @@ def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
 
 @resources.invocation
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--scratch', required=True)
+    parser = argparse.ArgumentParser(description=__doc__, epilog='Discovery: npm run smoke:help -- show prepare. Contract: docs/smoke-inputs.md. Default is authored synthetic data, no private input or app launch. Run plain npm from the canonical physical task checkout. Use the stdout JSON object containing prepared, then <prepared>/selection.json; resource disposition is a separate record. Retention survives this exit, not scheduled expiry.')
+    parser.add_argument('--scratch', required=True, help='Canonical allocator-returned task root, not its evidence/disposable child')
     arguments(parser)
     args = parser.parse_args()
     os.umask(0o077)
