@@ -73,7 +73,7 @@ describe("economical CI profiles", () => {
     const windows = read(".github/workflows/windows.yml");
     const events = windows.split("on:\n")[1]?.split("\npermissions:")[0];
     expect(
-      [...(events ?? "").matchAll(/^  ([a-z_]+):/gm)].map((match) => match[1]),
+      [...(events ?? "").matchAll(/^ {2}([a-z_]+):/gm)].map((match) => match[1]),
     ).toEqual(["workflow_dispatch"]);
     expect(events).toContain("release_export:");
     expect(events).toContain("type: boolean\n        default: false");
