@@ -27,7 +27,7 @@ class MetadataTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()
         (self.root / 'src-tauri').mkdir()
-        (self.root / 'release-notes').mkdir()
+        (self.root / 'release-notes/releases').mkdir(parents=True)
         for name, value in [
             ('package.json', {'name': 'test', 'version': '0.1.0'}),
             ('package-lock.json', {'version': '0.1.0', 'packages': {'': {'version': '0.1.0'}}}),
@@ -40,7 +40,7 @@ class MetadataTests(unittest.TestCase):
         (self.root / 'src-tauri/Cargo.lock').write_text(
             '[[package]]\nname = "garmin-trainer-desktop"\nversion = "0.1.0"\n\n[[package]]\nname = "dependency"\nversion = "0.1.0"\n'
         )
-        (self.root / 'release-notes/0.1.0.md').write_text(
+        (self.root / 'release-notes/releases/0.1.0.md').write_text(
             '# Garmin Trainer 0.1.0\n\nStatus: unreleased\n\n' + metadata.WARNINGS
         )
 
@@ -77,8 +77,93 @@ class MetadataTests(unittest.TestCase):
         tauri.write_text('{"version": "0.1.1", "plugin": {"version": "0.1.1"}}')
         with self.assertRaisesRegex(ValueError, 'Ambiguous Tauri'):
             metadata.prepare(self.root, '0.1.2', 'Reviewed synthetic future changes')
-        self.assertFalse((self.root / 'release-notes/0.1.2.md').exists())
+        self.assertFalse((self.root / 'release-notes/releases/0.1.2.md').exists())
         self.assertEqual(json.loads((self.root / 'package.json').read_text())['version'], '0.1.1')
+
+    def fragment(self, name, *, required=True, category='Changed', body='- Note.'):
+        directory = self.root / 'release-notes/unreleased'
+        directory.mkdir(exist_ok=True)
+        path = directory / name
+        head = f'---\ntask: {name[:5]}\npr: none\ncategory: {category}\n'
+        path.write_text(
+            head
+            + (
+                'release_note_required: true\n---\n'
+                if required
+                else 'release_note_required: false\nreason: internal only\n---\n'
+            )
+            + (body if required else '')
+            + '\n'
+        )
+        return path
+
+    def snapshot(self):
+        return {
+            str(path.relative_to(self.root)): path.read_bytes()
+            for path in sorted(self.root.rglob('*'))
+            if path.is_file()
+        }
+
+    def test_prepare_promotes_required_fragments_and_consumes_only_them(self):
+        old_note = (self.root / 'release-notes/releases/0.1.0.md').read_bytes()
+        self.fragment('T0002-fix.md', category='Fixed', body='- Fixed sync.')
+        self.fragment('T0001-add.md', category='Added', body='- Added thing.')
+        marker = self.fragment('T0003-tests.md', required=False, category='Internal')
+        (self.root / 'release-notes/unreleased/README.md').write_text('guide')
+        metadata.prepare(self.root, '0.2.0')
+        _, text = metadata.check(self.root, '0.2.0', prepared=True)
+        self.assertTrue(text.startswith('# Garmin Trainer 0.2.0\n\nStatus: prepared\n\n'))
+        self.assertIn(
+            '## Changes\n\n### Added\n\n- Added thing.\n\n### Fixed\n\n- Fixed sync.\n', text
+        )
+        self.assertNotIn('internal only', text)
+        remaining = sorted(path.name for path in (self.root / 'release-notes/unreleased').iterdir())
+        self.assertEqual(remaining, ['README.md', marker.name])
+        self.assertEqual((self.root / 'release-notes/releases/0.1.0.md').read_bytes(), old_note)
+
+    def test_prepare_with_no_required_fragments_states_no_changes(self):
+        marker = self.fragment('T0003-tests.md', required=False, category='Internal')
+        metadata.prepare(self.root, '0.2.0')
+        _, text = metadata.check(self.root, '0.2.0', prepared=True)
+        self.assertIn('\n' + metadata.fragments.NO_CHANGES + '\n', text)
+        self.assertTrue(marker.exists())
+
+    def test_reviewed_text_precedes_generated_changes_without_dropping_fragments(self):
+        fragment = self.fragment('T0001-add.md', category='Added', body='- Added thing.')
+        metadata.prepare(self.root, '0.2.0', 'Reviewed summary.\n')
+        _, text = metadata.check(self.root, '0.2.0', prepared=True)
+        self.assertLess(text.index('Reviewed summary.'), text.index('- Added thing.'))
+        self.assertEqual(text.count('- Added thing.'), 1)
+        self.assertFalse(fragment.exists())
+
+    def test_refusals_leave_every_input_unchanged(self):
+        self.fragment('T0001-add.md', category='Added')
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'no overwrite'):
+            metadata.prepare(self.root, '0.1.0')
+        with self.assertRaises(ValueError):
+            metadata.prepare(self.root, 'v9')
+        (self.root / 'release-notes/unreleased/T0004-bad.md').write_text('no front matter')
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'T0004-bad.md'):
+            metadata.prepare(self.root, '0.2.0')
+        (self.root / 'src-tauri/tauri.conf.json').write_text(
+            '{"version": "0.1.0", "x": {"version": "0.1.0"}}'
+        )
+        (self.root / 'release-notes/unreleased/T0004-bad.md').unlink()
+        before = self.snapshot()
+        with self.assertRaisesRegex(ValueError, 'Ambiguous Tauri'):
+            metadata.prepare(self.root, '0.2.0')
+        self.assertEqual(before, self.snapshot())
+
+    def test_failed_final_check_keeps_pending_fragments(self):
+        fragment = self.fragment('T0001-add.md', category='Added')
+        with (
+            patch('release_metadata.check', side_effect=[('0.1.0', ''), ValueError('mid-write')]),
+            self.assertRaisesRegex(ValueError, 'mid-write'),
+        ):
+            metadata.prepare(self.root, '0.2.0')
+        self.assertTrue(fragment.exists())
 
     def test_malformed_versions_and_mirrors_refuse(self):
         for version in ['v1.2.3', '01.2.3', '1.2', '1.2.3+ambiguous', '../1.2.3', '1.2.3-01']:

@@ -1,10 +1,12 @@
 """Version and exact-source contract. No build, tag or provider mutations here."""
 
 import json
+from pathlib import Path
 import re
 import subprocess
 
 from ordinary_identity import document
+import release_note_fragments as fragments
 
 REPOSITORY = 'codexa-bh/ai-garmin-trainer'
 WARNINGS = (
@@ -12,6 +14,8 @@ WARNINGS = (
     'Existing databases require the matching source CLI, a stopped owner and verified backups; startup never upgrades them.\n'
     'Bundled notices are not redistribution authorization.\n'
 )
+RELEASES = Path('release-notes/releases')
+UNRELEASED = Path('release-notes/unreleased')
 VERSION = (
     r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?'
 )
@@ -58,7 +62,7 @@ def check(root, expected=None, *, prepared=False):
     ]
     if any(value != version for value in mirrors) or expected not in (None, version):
         raise ValueError('Version mirrors/expected version disagree')
-    notes = root / 'release-notes' / (version + '.md')
+    notes = root / RELEASES / (version + '.md')
     text = notes.read_text()
     if notes.is_symlink() or not text.startswith('# Garmin Trainer ' + version + '\n\nStatus: '):
         raise ValueError('Versioned notes missing or mismatched')
@@ -72,13 +76,31 @@ def check(root, expected=None, *, prepared=False):
     return version, text
 
 
-def prepare(root, version, body):
-    """Local metadata diff only, intended for a separate future cut PR."""
+def promotion(root, reviewed=''):
+    """Validate unreleased fragments and return (body, consumed fragment paths).
+
+    Reviewed text, when given, precedes the generated changes; required fragments are
+    never dropped. With neither, the body states explicitly that nothing changed.
+    """
+    required = fragments.required_fragments(fragments.collect(root / UNRELEASED))
+    parts = [reviewed.strip(), fragments.render(required).strip()]
+    body = '\n\n'.join(part for part in parts if part) or fragments.NO_CHANGES
+    return body, [item.path for item in required]
+
+
+def prepare(root, version, reviewed=''):
+    """Local metadata diff only, intended for a separate future cut PR.
+
+    Everything is validated before the first write. The consumed fragments are removed
+    only after the version note and mirrors were written and re-checked, so a failure
+    keeps every pending note.
+    """
     old, _ = check(root)
     version_value(version)
-    destination = root / 'release-notes' / (version + '.md')
-    if old == version or destination.exists() or destination.is_symlink() or not body.strip():
-        raise ValueError('Select a new version and nonempty reviewed notes; no overwrite')
+    destination = root / RELEASES / (version + '.md')
+    if old == version or destination.exists() or destination.is_symlink():
+        raise ValueError('Select a new version; no overwrite')
+    body, consumed = promotion(root, reviewed)
     changes = {}
     for name in ('package.json', 'package-lock.json'):
         path = root / name
@@ -127,6 +149,8 @@ def prepare(root, version, body):
     for path, text in changes.items():
         path.write_text(text)
     check(root, version, prepared=True)
+    for path in consumed:
+        path.unlink()
 
 
 def git(root, *args):
