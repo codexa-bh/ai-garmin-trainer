@@ -11,7 +11,16 @@ import uuid
 
 from ordinary_identity import build_ordinary, ordinary_preparation, source_snapshot, document
 import platform_target
-from release_metadata import REPOSITORY, check, exact_source, prepare, version_value
+from release_metadata import (
+    REPOSITORY,
+    UNRELEASED,
+    check,
+    exact_source,
+    prepare,
+    promotion,
+    version_value,
+)
+from release_note_fragments import collect
 import release_timing as timing
 import smoke_resources as resources
 
@@ -57,7 +66,9 @@ def main():
     )
     parser.add_argument('--version')
     parser.add_argument(
-        '--notes', type=Path, help='Reviewed body for future metadata preparation only'
+        '--notes',
+        type=Path,
+        help='prepare: optional reviewed text placed before the generated fragment changes',
     )
     parser.add_argument('--commit', help='Full reviewed merged SHA, never inferred newest main')
     parser.add_argument('--repository', choices=(REPOSITORY,))
@@ -116,27 +127,38 @@ def run(parser, args):
         )
         return
     if args.action == 'check':
-        print(json.dumps({'version': version, 'status': 'consistent; no release effects'}))
+        pending = collect(ROOT / UNRELEASED)
+        print(
+            json.dumps(
+                {
+                    'version': version,
+                    'status': 'consistent; no release effects',
+                    'unreleasedFragments': len(pending),
+                }
+            )
+        )
         return
     if args.action == 'prepare':
-        if args.version is None or args.notes is None:
-            parser.error(
-                'prepare requires an explicitly selected future --version and --notes body'
-            )
+        if args.version is None:
+            parser.error('prepare requires an explicitly selected future --version')
         version_value(args.version)
+        reviewed = args.notes.read_text() if args.notes else ''
+        # Validate and plan before any effect, for both the dry run and --execute.
+        _, consumed = promotion(ROOT, reviewed)
         if args.execute:
             # Preparation also refuses unexplained dirty input before generating a diff.
             from release_metadata import git
 
             if git(ROOT, 'status', '--porcelain', '--untracked-files=all'):
                 raise ValueError('Metadata preparation requires clean source')
-            prepare(ROOT, args.version, args.notes.read_text())
+            prepare(ROOT, args.version, reviewed)
         print(
             json.dumps(
                 {
                     'executed': args.execute,
                     'operation': 'local metadata diff only',
                     'version': args.version,
+                    'promotedFragments': [path.name for path in consumed],
                 }
             )
         )
