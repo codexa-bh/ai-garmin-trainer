@@ -25,6 +25,7 @@
     "scripts/migrate.ts!",
     "scripts/reconcile-weekly-kpi-sources.ts!",
     "scripts/smoke-help.mjs!",
+    "src/lib/garmin/official-reader.ts!",
     "src-tauri/ui/setup.js!",
     "src-tauri/debug/smoke.js!",
     "src-tauri/debug/setup-smoke.js!",

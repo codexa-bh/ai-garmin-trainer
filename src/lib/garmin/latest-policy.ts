@@ -1,9 +1,19 @@
 import { shiftDate } from "./history-policy";
+import type { DayCoverage } from "./coverage-policy";
 import type { PrimaryUpload } from "./primary-upload";
 
 export const FRESHNESS_CHECKPOINT = "garmin_latest_freshness_v1";
 type HealthDownload =
   | { final: true; source: "legacy" }
+  | {
+      /** Official reader: final only after a validated whole-local-day read. */
+      final: boolean;
+      source: "coverage";
+      downloadedAt: string;
+      coverage: DayCoverage["kind"];
+      /** Closed reason when the read did not prove whole-day coverage. */
+      reason?: string;
+    }
   | {
       final: boolean;
       source: "download";
@@ -21,6 +31,8 @@ export type LatestFreshness = {
   profileDay: string | null;
   ftpDay: string | null;
   fitActivity: string | null;
+  /** Set once by the coverage-based reader's first run; absent for MCP state. */
+  coverageTransition?: { version: 1; at: string; recheckedFrom: string };
 };
 
 /** Only latest health/cadence uses the desktop's local calendar. */
@@ -66,6 +78,13 @@ export function latestFreshness(
       !(
         state.fitActivity === null ||
         (typeof state.fitActivity === "string" && state.fitActivity.length > 0)
+      ) ||
+      !(
+        state.coverageTransition === undefined ||
+        (record(state.coverageTransition) &&
+          state.coverageTransition.version === 1 &&
+          instant(state.coverageTransition.at) &&
+          validDate(state.coverageTransition.recheckedFrom))
       )
     )
       throw new Error("Unsupported latest freshness; saved state preserved.");
@@ -76,6 +95,12 @@ export function latestFreshness(
         typeof day.final !== "boolean" ||
         !(
           (day.source === "legacy" && day.final === true) ||
+          (day.source === "coverage" &&
+            instant(day.downloadedAt) &&
+            ["full", "partial", "unknown"].includes(day.coverage as string) &&
+            day.final === (day.coverage === "full") &&
+            (day.reason === undefined ||
+              (typeof day.reason === "string" && day.reason.length <= 64))) ||
           (day.source === "download" &&
             instant(day.downloadedAt) &&
             instant(day.dayEndedAt) &&
@@ -169,5 +194,67 @@ export function downloadedHealth(
     ...(known && upload.uploadedThrough
       ? { uploadedThrough: upload.uploadedThrough }
       : {}),
+  };
+}
+
+/** Coverage evidence for a successfully normalized read. Never proves an upload;
+ * today and any day the source did not prove whole stay retryable. */
+export function coveredHealth(
+  date: string,
+  coverage: DayCoverage,
+  today: string,
+  downloadedAt: Date,
+): HealthDownload {
+  const full = coverage.kind === "full" && date < today;
+  return {
+    source: "coverage",
+    final: full,
+    downloadedAt: downloadedAt.toISOString(),
+    coverage: full
+      ? "full"
+      : coverage.kind === "full"
+        ? "partial"
+        : coverage.kind,
+    ...(full
+      ? {}
+      : {
+          reason:
+            coverage.kind === "full"
+              ? "day-not-ended"
+              : coverage.reason.slice(0, 64),
+        }),
+  };
+}
+
+/**
+ * First official run over MCP-era state: the recent 14 local dates lose any
+ * upload-based finality so they are rechecked, older upload-based finals stay as
+ * explicit legacy evidence, and non-final days remain non-final. A pure,
+ * idempotent function of saved state, so an interrupted transition replays; the
+ * caller persists the result before reading. Corrupt state never reaches here.
+ */
+export function transitionToCoverage(
+  state: LatestFreshness,
+  today: string,
+  now: Date,
+): LatestFreshness {
+  if (state.coverageTransition) return state;
+  const recentStart = shiftDate(today, -13);
+  const days: LatestFreshness["days"] = {};
+  for (const [date, day] of Object.entries(state.days)) {
+    if (day.final && day.source === "download") {
+      if (date >= recentStart) continue;
+      days[date] = { final: true, source: "legacy" };
+    } else days[date] = day;
+  }
+  return {
+    ...state,
+    startDate: state.startDate < recentStart ? state.startDate : recentStart,
+    days,
+    coverageTransition: {
+      version: 1,
+      at: now.toISOString(),
+      recheckedFrom: recentStart,
+    },
   };
 }

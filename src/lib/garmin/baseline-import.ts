@@ -1,5 +1,9 @@
 import type { GarminReader, BaselineStore } from "./import-ports";
-import type { GarminAthleteBaselineDto, GarminBodyMetricsDto } from "./types";
+import type {
+  GarminAthleteBaselineDto,
+  GarminBodyMetricsDto,
+  GarminDataSource,
+} from "./types";
 import {
   hasUsableGarminAthleteBaseline,
   mergeGarminAthleteBaseline,
@@ -57,6 +61,7 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
       ftpPayload,
       fitPayload,
       fetchedAt: clock(),
+      source: client.source,
     });
     const merged = mergeGarminAthleteBaseline(previous.values, snapshot);
     const hasUsableSnapshot = hasUsableGarminAthleteBaseline(merged);
@@ -70,10 +75,14 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
     return getGarminAthleteBaseline();
   }
 
-  function storeFitBaseline(fitPayload: unknown): boolean {
+  function storeFitBaseline(
+    fitPayload: unknown,
+    source?: GarminDataSource,
+  ): boolean {
     const snapshot = normalizeGarminAthleteBaseline({
       fitPayload,
       fetchedAt: clock(),
+      source,
     });
     if (!hasUsableGarminAthleteBaseline(snapshot)) return false;
     const previous = getGarminAthleteBaseline();
@@ -151,6 +160,7 @@ export function createBaselineImports(store: BaselineStore, clock: () => Date) {
       historyFailed,
       weighInFailed,
       fetchedAt: clock(),
+      source: client.source,
     });
     const hasUsableSnapshot = hasUsableGarminBodyMetrics(snapshot);
     writeGarminBodyMetricsRefresh({

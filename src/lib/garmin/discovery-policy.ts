@@ -29,7 +29,7 @@ export type GarminDiscoveryState = {
   /** Oldest day of a positive steps week seen by automatic discovery. */
   oldestPositive?: string;
   hint: {
-    source: "get_weekly_steps";
+    source: "get_weekly_steps" | "official_daily_summaries";
     startDate: string;
     endDate: string;
     weeksWithData: number;
@@ -93,7 +93,9 @@ export function discoveryState(
       new Set(saved.positiveDates).size !== saved.positiveDates.length ||
       (hint !== null &&
         (!hint ||
-          hint.source !== "get_weekly_steps" ||
+          !["get_weekly_steps", "official_daily_summaries"].includes(
+            hint.source,
+          ) ||
           !discoveryDate(hint.startDate) ||
           !discoveryDate(hint.endDate) ||
           hint.startDate > hint.endDate ||
