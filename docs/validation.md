@@ -183,6 +183,10 @@ quick/ordinary scenarios are unchanged.
 
 After the before-use marker/DOM/Python/native checks, use `smoke:settings -- --scratch <canonical-root> --input-file <authored-selection> --chatgpt-presentation` for fixed fictional account/model controls and inspected native wide/narrow presentation without credentials or a broker. Keep full ordinary two-instance regression plus affected eligibility/chat/summary proof for shared lifetime changes. Real browser authorization/renewal and finite subscription inference require separately explicit operator account/usage/data/window authority; record exact unavailable proof instead of treating a mock/native image as real integration. See [connection contract](chatgpt.md).
 
+## Official Personal API reader (dormant)
+
+The official reader is exercised only by tests until the product cutover, so the ordinary desktop smoke below still verifies the unchanged MCP path. Its own evidence is authored and synthetic: `tests/official-{client,fit,coverage,reader,mixed-provenance}.test.ts` cover transport, ZIP/FIT admission, zones and coverage policy; `tests/official-composed-sync.test.ts` runs the official reader through the real import application into a real SQLite file against an in-memory Personal API (`tests/official-api-fixture.ts`), covering range request counts, legacy transition, replay, cancellation and non-null preservation. FIT inputs are built by `tests/official-fit-fixture.ts`; no recorded or personal file is used. These tests do not call Garmin, use a key, or certify real-account, other-device, rate-limit or terms behaviour. Native proof of the official path belongs to the cutover.
+
 ## Generated Next.js declarations
 
 `next-env.d.ts` and `.next/` are framework-owned, ignored local output. Do not
