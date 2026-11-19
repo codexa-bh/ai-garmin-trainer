@@ -84,7 +84,7 @@ const callCount = (value: unknown): value is number =>
 const exactKeys = (value: object, allowed: string[]) =>
   Object.keys(value).every((key) => allowed.includes(key));
 /** Validate the whole closed receipt value; anything else is omitted whole. */
-export function safeReceiptDiagnostic(
+function safeReceiptDiagnostic(
   value: unknown,
 ): ReceiptMismatchDiagnostic | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value))

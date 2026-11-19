@@ -1,3 +1,5 @@
+type ModelOption =
+  import("../src/lib/model-settings/contracts").ModelSettingsSnapshot["options"][number];
 /** @vitest-environment jsdom */
 import React from "react";
 import {
@@ -15,10 +17,7 @@ import { ModelSettingsCard } from "@/app/dashboard/model-settings-card";
 import { useModelSettings } from "@/app/dashboard/use-model-settings";
 import { createModelSettings } from "@/lib/model-settings/application";
 import { validateChatCatalog } from "@/lib/model-settings/catalog";
-import type {
-  ModelOption,
-  ModelSettingsSnapshot,
-} from "@/lib/model-settings/contracts";
+import type { ModelSettingsSnapshot } from "@/lib/model-settings/contracts";
 const entries: ModelOption[] = [
   {
     id: "entry_one",

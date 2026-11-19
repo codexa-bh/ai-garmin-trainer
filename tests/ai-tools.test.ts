@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { asSchema } from "ai";
-import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { authoredWeeklyKpis } from "./kpi-fixture";
 
 vi.mock("ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("ai")>()),

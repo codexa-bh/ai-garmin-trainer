@@ -178,7 +178,7 @@ it("rejects unknown scopes and retains uncaught malformed JSON without mutation"
 });
 
 it("wires list/dashboard/health/summary/reference/tool reads to the same populated adapter", async () => {
-  const storage = await import("../src/lib/db/repository");
+  const storage = await import("./storage-fixture");
   const activity = normalizeActivity({
     activityId: 1,
     activityType: "running",

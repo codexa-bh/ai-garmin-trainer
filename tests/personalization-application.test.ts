@@ -6,7 +6,7 @@ import {
 } from "../src/lib/memory/extraction-policy";
 import type { TrainerProfile } from "../src/lib/profile/contracts";
 import { createMemoryManagement } from "../src/lib/memory/management";
-import { createLegacyMemory } from "../src/lib/memory/legacy-application";
+
 import { createProfile } from "../src/lib/profile/application";
 import type {
   MemoryPorts,
@@ -14,10 +14,7 @@ import type {
   SemanticMemoryRow,
   LegacyMemoryRow,
 } from "../src/lib/memory/ports";
-import type {
-  LegacyMemoryStorage,
-  StoredTrainerMemory,
-} from "../src/lib/memory/legacy-contracts";
+
 import {
   LOCAL_MEMORY_USER_ID,
   type CompletedTurn,
@@ -443,80 +440,4 @@ describe("extraction and management use cases", () => {
     });
     expect(storage.save.mock.calls[0]?.[0].preferences).toBe(preferences);
   });
-});
-
-it("legacy lifecycle remains synchronous, validates before mutation, expires before listing and delegates one atomic confirmation", () => {
-  const events: string[] = [];
-  const memory: StoredTrainerMemory = {
-    id: "new",
-    category: "learned_preference",
-    value: "hikes",
-    status: "pending_confirmation",
-    sourceType: "test",
-    sourceRef: null,
-    provenanceText: "test",
-    validFrom: null,
-    expiresAt: null,
-    reconfirmAfter: null,
-    supersedesId: "old",
-    supersededById: null,
-    createdAt: new Date(1),
-    updatedAt: new Date(1),
-  };
-  const storage: LegacyMemoryStorage = {
-    get: vi.fn(() => {
-      events.push("get");
-      return memory;
-    }),
-    insert: vi.fn(),
-    confirm: vi.fn(() => {
-      events.push("atomic-confirm");
-    }),
-    expire: vi.fn(() => {
-      events.push("expire");
-      return 1;
-    }),
-    listActive: vi.fn(() => {
-      events.push("list");
-      return [memory];
-    }),
-    listReview: vi.fn(() => []),
-    setStatus: vi.fn(),
-  };
-  const app = createLegacyMemory({
-    storage,
-    now: () => {
-      events.push("now");
-      return 10;
-    },
-    id: () => "new",
-  });
-  expect(app.confirm("new")).toBe(memory);
-  expect(events).toEqual(["now", "get", "atomic-confirm", "get"]);
-  expect(storage.confirm).toHaveBeenCalledWith("new", "old", 10);
-  events.length = 0;
-  app.listActive(100);
-  expect(events).toEqual(["now", "expire", "list"]);
-  expect(storage.listActive).toHaveBeenCalledWith(20);
-  app.listReview(0);
-  expect(storage.listReview).toHaveBeenCalledWith(1);
-  memory.status = "confirmed";
-  expect(() => app.reject("new")).toThrow("Only pending");
-  expect(storage.setStatus).not.toHaveBeenCalled();
-  expect(app.forget("new")).toBe(memory);
-  expect(storage.setStatus).toHaveBeenCalledWith("new", "deleted", 10);
-  app.propose({
-    category: "commitment",
-    value: "x".repeat(1100),
-    sourceType: "test",
-    provenanceText: "y".repeat(600),
-  });
-  expect(storage.insert).toHaveBeenCalledWith(
-    "new",
-    expect.objectContaining({
-      value: "x".repeat(1000),
-      provenanceText: "y".repeat(500),
-    }),
-    10,
-  );
 });

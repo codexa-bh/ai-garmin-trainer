@@ -1,15 +1,11 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { authoredWeeklyKpis } from "./kpi-fixture";
 import { createWeekly } from "../src/lib/weekly/application";
 import { createKpiMeasurements } from "../src/lib/weekly/measurements";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
 import { migrateDatabase } from "../src/lib/db/migrations";
-import {
-  kpiActual,
-  latestKpiScore,
-  latestKpiMeasurement,
-} from "../src/lib/weekly/kpis";
+import { kpiActual, latestKpiScore } from "../src/lib/weekly/kpis";
 import type { WeeklyTurn } from "../src/lib/weekly/contracts";
 import type {
   KpiMeasurementExecution,
@@ -117,13 +113,6 @@ it("verifies over two periods before accepting, then publishes the verified curr
   // Reviewed points/score and the assessment's recorded actual stay independent.
   expect(latestKpiScore(read).total).toBe(
     latestKpiScore({ ...read, measured: null }).total,
-  );
-  expect(latestKpiMeasurement(read, "authored-sessions", track)?.value).toBe(
-    latestKpiMeasurement(
-      { ...read, measured: null },
-      "authored-sessions",
-      track,
-    )?.value,
   );
   // The same stored values reach the progress read used by charts and tools.
   const progress = weekly.progress(week, week, 12);

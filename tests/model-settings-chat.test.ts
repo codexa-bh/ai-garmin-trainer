@@ -165,12 +165,12 @@ it("retains the admitted live revision for generation and delayed titles without
   const boot = "12345678-1234-1234-1234-123456789abc";
   env.initializeLiveConfiguration(boot);
   const old = env.getOptionalEnv();
-  const memory = await import("@/lib/memory/composition");
-  const originalStore = memory.trainerMemoryStore;
+  const memory = await import("@/lib/memory/application");
+  const originalStore = memory.createMemoryStore;
   const captured: string[] = [];
-  vi.spyOn(memory, "trainerMemoryStore").mockImplementation(() => {
+  vi.spyOn(memory, "createMemoryStore").mockImplementation((ports) => {
     captured.push(env.getOptionalEnv().OPENAI_API_KEY ?? "absent");
-    return originalStore();
+    return originalStore(ports);
   });
   const title = await import("@/lib/chat/title-adapter");
   vi.spyOn(title, "generateConversationTitle").mockImplementation(async () => {

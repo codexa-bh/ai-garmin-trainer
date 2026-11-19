@@ -1,7 +1,7 @@
+import { ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC } from "./expected-quality-inputs";
+import { ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC } from "./expected-quality-inputs";
 import { describe, expect, it } from "vitest";
 import {
-  ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC,
-  ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC,
   buildActivityDashboardCharts,
   buildActivityDashboardRoute,
 } from "../src/lib/analytics/activity-dashboard-calculations";

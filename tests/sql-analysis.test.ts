@@ -12,7 +12,7 @@ beforeEach(() => {
 });
 
 async function seedActivities() {
-  const repository = await import("../src/lib/db/repository");
+  const repository = await import("./storage-fixture");
   repository.upsertActivities([
     {
       garminId: "run-1",

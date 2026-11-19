@@ -1,9 +1,9 @@
+type AnalyticalQuerySession = ReturnType<
+  import("../src/lib/ai/analytics/contracts").AnalyticalExecution["openQuery"]
+>;
 import { describe, expect, it, vi } from "vitest";
 import { createSqlAnalysis } from "../src/lib/ai/analytics/application";
-import type {
-  AnalyticalExecution,
-  AnalyticalQuerySession,
-} from "../src/lib/ai/analytics/contracts";
+import type { AnalyticalExecution } from "../src/lib/ai/analytics/contracts";
 import { SQL_LIMITS } from "../src/lib/ai/analytics/contracts";
 import {
   clampRows,

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   lastUsedUpload,
   parseCuratedDeviceJson,
-  primaryUpload,
   selectPrimary,
 } from "../src/lib/garmin/primary-upload";
 
@@ -10,20 +9,28 @@ const now = new Date("2026-11-16T12:00:00Z");
 const device = { device_id: 123, last_sync_time: "2026-11-16T10:00:00Z" };
 describe("curated primary upload", () => {
   it("uses exactly one flag or an unflagged singleton, never another device", () => {
-    expect(primaryUpload([device], now)).toEqual({
-      kind: "known",
+    expect(selectPrimary([device], now)).toEqual({
+      kind: "selected",
       primaryId: "123",
-      uploadedAt: new Date(device.last_sync_time).toISOString(),
+      upload: {
+        kind: "known",
+        primaryId: "123",
+        uploadedAt: new Date(device.last_sync_time).toISOString(),
+      },
     });
     expect(
-      primaryUpload(
+      selectPrimary(
         [
           { ...device, is_primary: true },
           { ...device, device_id: 2, last_sync_time: "2026-11-16T11:00:00Z" },
         ],
         now,
       ),
-    ).toMatchObject({ kind: "known", primaryId: "123" });
+    ).toMatchObject({
+      kind: "selected",
+      primaryId: "123",
+      upload: { kind: "known" },
+    });
     for (const payload of [
       [],
       [device, device],
@@ -35,7 +42,7 @@ describe("curated primary upload", () => {
       [null],
       {},
     ])
-      expect(primaryUpload(payload, now).kind).toBe("unknown");
+      expect(selectPrimary(payload, now).kind).toBe("unselected");
   });
   it("accepts epoch seconds/milliseconds and offset-bearing instants only", () => {
     for (const timestamp of [
@@ -44,10 +51,13 @@ describe("curated primary upload", () => {
       "2026-11-16T11:00:00+01:00",
     ])
       expect(
-        primaryUpload([{ ...device, last_sync_time: timestamp }], now),
+        selectPrimary([{ ...device, last_sync_time: timestamp }], now),
       ).toMatchObject({
-        kind: "known",
-        uploadedAt: new Date(device.last_sync_time).toISOString(),
+        kind: "selected",
+        upload: {
+          kind: "known",
+          uploadedAt: new Date(device.last_sync_time).toISOString(),
+        },
       });
     for (const timestamp of [
       null,
@@ -63,8 +73,11 @@ describe("curated primary upload", () => {
       "2026-11-17T10:00:00Z",
     ])
       expect(
-        primaryUpload([{ ...device, last_sync_time: timestamp }], now),
-      ).toMatchObject({ kind: "unknown", reason: "invalid-upload" });
+        selectPrimary([{ ...device, last_sync_time: timestamp }], now),
+      ).toMatchObject({
+        kind: "selected",
+        upload: { kind: "unknown", reason: "invalid-upload" },
+      });
   });
   it("retains validated selected identity only when direct time is unusable", () => {
     expect(selectPrimary([{ device_id: 123 }], now)).toEqual({

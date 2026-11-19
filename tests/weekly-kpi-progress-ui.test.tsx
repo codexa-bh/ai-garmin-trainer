@@ -12,7 +12,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { WeeklyKpiProgress } from "../src/app/dashboard/weekly-kpi-progress";
 import { useWeeklyFeature } from "../src/app/dashboard/use-weekly";
 import { projectKpis } from "../src/lib/weekly/kpis";
-import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { authoredWeeklyKpis } from "./kpi-fixture";
 import type { KpiProgress } from "../src/lib/weekly/kpi-contracts";
 import { addDays } from "../src/lib/weekly/calendar";
 import { WeeklyPlanView } from "../src/app/dashboard/weekly-plan-view";

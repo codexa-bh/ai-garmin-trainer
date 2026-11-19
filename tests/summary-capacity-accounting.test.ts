@@ -1,3 +1,5 @@
+import { SUMMARY_MODEL_OUTPUT } from "./expected-quality-inputs";
+import { CONVERSATION_INPUT_LIMIT } from "./expected-quality-inputs";
 import Database from "better-sqlite3";
 import { mkdtempSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,12 +14,8 @@ import { conversationHistory as history } from "@/lib/db/conversation-history";
 import {
   summaryLimits,
   SUMMARY_MODEL_CONTEXT,
-  SUMMARY_MODEL_OUTPUT,
 } from "@/lib/memory/summary-policy";
-import {
-  conversationInputLimit,
-  CONVERSATION_INPUT_LIMIT,
-} from "@/lib/chat/conversation-replay";
+import { conversationInputLimit } from "@/lib/chat/conversation-replay";
 import { removeSizeAwareSummaryFixtureSchema } from "./conversation-migration-fixture";
 
 let db: Database.Database;

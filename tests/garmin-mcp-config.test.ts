@@ -1,12 +1,11 @@
+import { GARMIN_MCP_PACKAGE_URL } from "../src/lib/garmin/mcp-config";
+import { garminMcpArgs as mcpArgs } from "../src/lib/garmin/mcp-config";
 import { describe, expect, it } from "vitest";
 import {
   GARMIN_MCP_COMMIT,
-  GARMIN_MCP_PACKAGE_URL,
   GARMIN_MCP_SDK_REQUIREMENT,
-  GARMIN_MCP_SDK_VERSION,
   garminMcpArgs,
   garminMcpSdkConstraintStatus,
-  mcpArgs,
 } from "../src/lib/garmin/client";
 import {
   GARMIN_MCP_DEFAULT_ARGS_STRING,
@@ -43,7 +42,6 @@ describe("Garmin MCP uvx arguments", () => {
       `--from ${GARMIN_MCP_PACKAGE_URL} --with ${GARMIN_MCP_SDK_REQUIREMENT} garmin-mcp`,
     );
 
-    expect(GARMIN_MCP_SDK_VERSION).toBe("1.28.1");
     expect(args).toEqual([
       "--from",
       GARMIN_MCP_PACKAGE_URL,

@@ -211,7 +211,7 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
   });
 
   it("replays safely after normalized commit but failed cursor persistence", async () => {
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const { getDatabase } = await import("../src/lib/db/connection");
     const db = getDatabase();
     db.exec(`create trigger checkpoint_write_fault before update on sync_checkpoint
@@ -241,7 +241,7 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
   });
 
   it("moves the repair SQL window beyond a capped prefix rather than starving later candidates", async () => {
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const { getDatabase } = await import("../src/lib/db/connection");
     const db = getDatabase();
     const insert = db.prepare(
@@ -271,7 +271,7 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
   });
 
   it("refuses corrupt/unknown checkpoints without resetting or constructing a connector", async () => {
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const app = await import("../src/lib/garmin/composition");
     const saved = {
       ...historyState(null, null, "2026-09-21"),
@@ -287,7 +287,7 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
   });
   it("keeps the legacy caller bounded while continuing past old empty dates without claiming remote exhaustion", async () => {
     const app = await import("../src/lib/garmin/composition");
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const first = await app.runGarminSync();
     expect(first).toMatchObject({
       status: "budget-limited",
@@ -327,7 +327,7 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
   });
 
   it("retains sparse, metric-specific islands and older weight records while preserving current body facts", async () => {
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const app = await import("../src/lib/garmin/composition");
     const saved = historyState(null, null, "2026-09-21");
     saved.health.nextDate = "2020-01-10";
@@ -382,7 +382,7 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
       expect(result.history.health.checks).toBe(0);
       expect(result.history.unresolvedHealth).toContain("2026-09-21");
       expect(result.detail).not.toContain("private");
-      const repo = await import("../src/lib/db/repository");
+      const repo = await import("./storage-fixture");
       expect(repo.dataCounts().healthDays).toBe(0);
       if (["rate-limit", "auth"].includes(failureClass))
         expect(remote.calls).toHaveLength(1);
@@ -391,7 +391,7 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
 
   it("cancels between nested date reads without committing a partial date, then resumes idempotently", async () => {
     const app = await import("../src/lib/garmin/composition");
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     remote.cancelAt = 2;
     const stopped = await app.runGarminSync(undefined, {
       cancelled: () => remote.cancelled,
@@ -430,13 +430,13 @@ describe("bounded discovery through the real HTTP/composition/reader/SQLite seam
     await first.body!.cancel();
     const app = await import("../src/lib/garmin/composition");
     await vi.waitFor(() => expect(app.isGarminSyncRunning()).toBe(false));
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     expect(repo.importSummary().history?.outcome).toBe("cancelled");
     expect(repo.dataCounts().healthDays).toBe(0);
   });
 
   it("preserves global legacy checkpoints and normalized rows; a changed limit never resets via legacy callers", async () => {
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     repo.saveCheckpoint("activity_page", "99");
     repo.saveCheckpoint("health_next_date", "2030-01-01");
     const app = await import("../src/lib/garmin/composition");
@@ -469,7 +469,7 @@ describe("interactive operation through actual HTTP/NDJSON/SQLite", () => {
   it("automatically commits multiple batches, refreshes common work once and resumes preserved v1 state", async () => {
     vi.useFakeTimers();
     vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-08-22");
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const initial = historyState(null, "2026-08-22", "2026-09-21");
     repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(initial));
     repo.saveCheckpoint("health_next_date", "retained-legacy");
@@ -615,7 +615,7 @@ describe("explicit Sync intents and durable eligibility", () => {
   it("keeps latest separate, preserves completed scope byte-for-byte and agrees after reload/repeat", async () => {
     vi.useFakeTimers();
     vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-07");
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const route = await import("../src/app/api/summary/route");
     const { getDatabase } = await import("../src/lib/db/connection");
     const db = getDatabase();
@@ -679,7 +679,7 @@ describe("explicit Sync intents and durable eligibility", () => {
   it("latest on a fresh database never creates history and retains the meaningful older-data entry", async () => {
     vi.useFakeTimers();
     const latest = (await explicit("latest")).events.at(-1);
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     expect(repo.getCheckpoint(HISTORY_CHECKPOINT)).toBeNull();
     expect(repo.getCheckpoint(DISCOVERY_CHECKPOINT)).toBeNull();
     expect(latest.sync.historical).toMatchObject({
@@ -692,7 +692,7 @@ describe("explicit Sync intents and durable eligibility", () => {
   });
   it("retains corrupt checkpoints, permits latest only, and rejects unknown or extra action input", async () => {
     vi.useFakeTimers();
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     repo.saveCheckpoint(HISTORY_CHECKPOINT, "{broken");
     const route = await import("../src/app/api/summary/route");
     expect((await (await route.GET()).json()).sync.historical.state).toBe(
@@ -718,7 +718,7 @@ describe("explicit Sync intents and durable eligibility", () => {
   it("preserves actionable backlog during latest and advances it only on explicit history", async () => {
     vi.useFakeTimers();
     vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-06");
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const saved = historyState(null, "2026-09-06", "2026-09-21");
     saved.outcome = "cancelled";
     repo.saveCheckpoint(HISTORY_CHECKPOINT, JSON.stringify(saved));
@@ -759,7 +759,7 @@ describe("explicit finite limit -> automatic discovery through HTTP/NDJSON/SQLit
   }
   // Authored populated copy: settled pair limited to 2026-09-07, automatic now.
   async function seedSettledPair() {
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const { getDatabase } = await import("../src/lib/db/connection");
     const db = getDatabase();
     for (const [date, steps] of [

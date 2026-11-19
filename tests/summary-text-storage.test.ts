@@ -1,7 +1,8 @@
+import { SCHEMA_MIGRATIONS } from "./historical-schema-fixture";
 import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { migrateDatabase, SCHEMA_MIGRATIONS } from "@/lib/db/migrations";
+import { migrateDatabase } from "@/lib/db/migrations";
 import {
   summaryStorage as storage,
   noteSummaryActivity,

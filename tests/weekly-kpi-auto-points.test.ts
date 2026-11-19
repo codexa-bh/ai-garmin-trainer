@@ -1,9 +1,11 @@
+type PointsRule = NonNullable<
+  import("../src/lib/weekly/kpi-contracts").KpiTrack["pointsRule"]
+>;
 import { expect, it } from "vitest";
 import type {
   KpiRead,
   KpiSetInput,
   KpiTrack,
-  PointsRule,
 } from "../src/lib/weekly/kpi-contracts";
 import { latestKpiScore, validateKpiSet } from "../src/lib/weekly/kpis";
 

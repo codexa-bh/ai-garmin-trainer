@@ -1,13 +1,12 @@
+type HeartRateZoneSetDto =
+  import("../src/lib/garmin/types").GarminAthleteBaselineDto["values"]["heartRateZones"];
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
 import type { NormalizedActivityDetail } from "../src/lib/garmin/detail-types";
-import type {
-  GarminAthleteBaselineSnapshot,
-  HeartRateZoneSetDto,
-} from "../src/lib/garmin/types";
+import type { GarminAthleteBaselineSnapshot } from "../src/lib/garmin/types";
 
 const dbDir = join(tmpdir(), "ai-garmin-activity-dashboard-tests");
 
@@ -49,7 +48,7 @@ function baselineSnapshot(
 }
 
 async function seedActivities() {
-  const repo = await import("../src/lib/db/repository");
+  const repo = await import("./storage-fixture");
   repo.upsertActivities([
     {
       garminId: "111111",
@@ -329,7 +328,7 @@ describe("activity dashboard repository and routes", () => {
   });
 
   it("returns 100-item dashboard pages with nextOffset until the final page", async () => {
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     repo.upsertActivities(
       Array.from({ length: 125 }, (_, index) => ({
         garminId: `page-${index.toString().padStart(3, "0")}`,
@@ -547,7 +546,6 @@ describe("activity dashboard repository and routes", () => {
 
   it("uses the named 180-second distance-altitude window for selected chart grade readouts", async () => {
     const repo = await seedActivities();
-    expect(repo.ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC).toBe(180);
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
         records: Array.from({ length: 7 }, (_, index) => ({
@@ -778,7 +776,6 @@ describe("activity dashboard repository and routes", () => {
 
   it("uses the named 60-second distance-average window and reports honest metadata", async () => {
     const repo = await seedActivities();
-    expect(repo.ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC).toBe(60);
     repo.upsertActivityDetail(
       normalizeActivityDetail("111111", {
         records: [

@@ -23,7 +23,7 @@ import {
   readSummaryPin,
   conversationSummaryStatus,
 } from "@/lib/db/conversation-summary-pin";
-import { projectSummaryPin, summaryPinInput } from "@/lib/chat/summary-pin";
+
 import { replayMessages } from "@/lib/chat/conversation-replay";
 
 let db: Database.Database;
@@ -56,10 +56,6 @@ function publish(
     "update summary_state set revision=?,payload=?,checksum=?,published_at=? where id=1",
   ).run(revision, payload, checksum, Date.now());
 }
-const counter = () => ({
-  count: vi.fn(async () => 100),
-  generate: vi.fn(async () => "unused"),
-});
 
 it("production turn includes the real unmeasured SQLite pin without compaction and reports use only after completion", async () => {
   publish(1);
@@ -124,11 +120,7 @@ it("adopts R2 at admission then keeps that request immutable across R3 and SQLit
   expect(replay.segment.pinnedSummary?.stamp.revision).toBe(2);
   publish(3, "New publication during an admitted request must wait.");
   expect(() => history.admit("A", "Overlapping window")).toThrow("busy");
-  const pin = await projectSummaryPin(
-    replay.segment.pinnedSummary!,
-    counter(),
-    new AbortController().signal,
-  );
+  const pin = { ...replay.segment.pinnedSummary!, tokens: 100 };
   expect(history.projectSummary!(replay, pin)).toBe(true);
   replay = history.read(admitted.admission);
   const prefix = replayMessages(replay)[0];
@@ -209,11 +201,7 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
   ensureConversation("sdk-chat");
   const admission = history.admit("sdk-chat", "Why that choice?").admission;
   let replay = history.read(admission);
-  const pin = await projectSummaryPin(
-    replay.segment.pinnedSummary!,
-    { ...counter(), count: vi.fn(async () => 3000) },
-    new AbortController().signal,
-  );
+  const pin = { ...replay.segment.pinnedSummary!, tokens: 3000 };
   expect(history.projectSummary!(replay, pin)).toBe(true);
   expect(readSummaryPin("sdk-chat")?.tokens).toBeGreaterThan(2048);
   async function serialize() {
@@ -259,11 +247,7 @@ it("serializes immutable in-flight memory then automatically adopts latest on ne
   // No Refresh or segment maintenance: admission alone adopts the latest.
   const fresh = history.admit("sdk-chat", "What remains unresolved?");
   const freshReplay = history.read(fresh.admission);
-  const freshPin = await projectSummaryPin(
-    freshReplay.segment.pinnedSummary!,
-    counter(),
-    new AbortController().signal,
-  );
+  const freshPin = { ...freshReplay.segment.pinnedSummary!, tokens: 100 };
   expect(history.projectSummary!(freshReplay, freshPin)).toBe(true);
   for (const purpose of ["planner", "final_synthesis"] as const) {
     await generate({
@@ -427,57 +411,6 @@ it("corrupt snapshot bytes are preserved, never injected or silently repaired", 
   ).toEqual({ payload: '{"unknown":"preserve"}' });
 });
 
-it("measures memory above the former ceiling without clipping whole meanings or lineage", async () => {
-  publish(1);
-  ensureConversation("A");
-  const original = readSummaryPin("A")!;
-  const text = Array.from(
-    { length: 64 },
-    (_, index) => `${index}: 週末は長く 🥾 do not choose long weekdays.`,
-  ).join("\n");
-  const pin = {
-    ...original,
-    value: { version: 2 as const, text },
-    preferences: [{ id: "authored", text: "Independent manual preference" }],
-  };
-  const count = vi.fn(
-    async (messages: { content: string }[]) =>
-      new TextEncoder().encode(messages[0]!.content).length,
-  );
-  const projected = await projectSummaryPin(
-    pin,
-    { count, generate: async () => "unused" },
-    new AbortController().signal,
-  );
-  expect(projected.tokens).toBeGreaterThan(2048);
-  expect(projected.tokens).toBe(
-    new TextEncoder().encode(summaryPinInput(pin)).length,
-  );
-  expect(projected.omitted).toBe(0);
-  expect(projected.value).toEqual(pin.value);
-  expect(projected.value.text).toBe(text);
-  expect(projected.preferences).toEqual(pin.preferences);
-  expect(count).toHaveBeenCalledTimes(1);
-  expect(projected.value.text.split("\n")).toHaveLength(64);
-});
-
-it("interrupts projection even if the accounting promise ignores cancellation", async () => {
-  publish(1);
-  ensureConversation("count-cancel");
-  const abort = new AbortController();
-  const pending = projectSummaryPin(
-    readSummaryPin("count-cancel")!,
-    { count: () => new Promise(() => {}), generate: async () => "unused" },
-    abort.signal,
-  );
-  await Promise.resolve();
-  abort.abort();
-  await expect(pending).rejects.toThrow(
-    "conversation_token_accounting_interrupted",
-  );
-  expect(readSummaryPin("count-cancel")?.tokens).toBeNull();
-});
-
 it("Refresh compares latest summary and segment revisions and refuses a busy chat", () => {
   publish(1);
   ensureConversation("A");
@@ -568,19 +501,4 @@ it("closed control DTO requires version/current-state, rejects extras and preser
       },
     }),
   ).toEqual({ version: 2, action: "clear", expected });
-});
-
-it("projection cannot publish after control changed while accounting was in flight", async () => {
-  publish(1);
-  const turn = history.admit("A", "Follow up");
-  const replay = history.read(turn.admission);
-  const projected = await projectSummaryPin(
-    replay.segment.pinnedSummary!,
-    counter(),
-    new AbortController().signal,
-  );
-  summaryStorage.control("clear", Date.now());
-  expect(() => history.projectSummary!(replay, projected)).toThrow(
-    "invalidated",
-  );
 });

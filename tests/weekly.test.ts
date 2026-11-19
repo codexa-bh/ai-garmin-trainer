@@ -1,3 +1,4 @@
+import type { AnalysisRow } from "../src/lib/ai/analytics/contracts";
 import Database from "better-sqlite3";
 import { removeConversationHistoryFixtureSchema } from "./conversation-migration-fixture";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
@@ -10,7 +11,7 @@ import {
 } from "../src/lib/training-plan/composition";
 import { TRAINER_SYSTEM_PROMPT } from "../src/lib/ai/trainer-instructions";
 import { createSqlAnalysis } from "../src/lib/ai/analytics/application";
-import type { AnalysisRow } from "../src/lib/ai/analytics/contracts";
+
 import { executeAnalyticsTool } from "../src/lib/ai/tool-analytics";
 import { GET } from "../src/app/api/weekly/route";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
@@ -20,10 +21,8 @@ import {
   validWeek,
   validTimeZone,
 } from "../src/lib/weekly/calendar";
-import {
-  createWeekly,
-  renderWeeklyProposal,
-} from "../src/lib/weekly/application";
+import { createWeekly } from "../src/lib/weekly/application";
+import { displayedWeeklyProposal as renderWeeklyProposal } from "./weekly-proposal-fixture";
 import type { WeeklyChange, WeeklyTurn } from "../src/lib/weekly/contracts";
 import { migrateDatabase, databaseHasUserData } from "../src/lib/db/migrations";
 import { weeklyStore } from "../src/lib/db/weekly-repository";

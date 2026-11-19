@@ -1,4 +1,4 @@
-export type PointsRule =
+type PointsRule =
   | { kind: "proportional" }
   | { kind: "threshold" }
   | { kind: "perUnit"; points: number; cap: number };

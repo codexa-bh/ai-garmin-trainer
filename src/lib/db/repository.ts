@@ -7,10 +7,7 @@ import {
   storedHeartRateZoneTime,
   streamHeartRateZoneTime,
 } from "../local-data/heart-rate-policy";
-import {
-  boundedInteger,
-  interpretActivityReference,
-} from "../local-data/activity-policy";
+import { boundedInteger } from "../local-data/activity-policy";
 import {
   dailyHealthMetricFields,
   mergeDailyHealth,
@@ -18,32 +15,18 @@ import {
   dailyHealthRefreshCutoff,
   shiftIsoDate,
 } from "../local-data/health-policy";
-export { DAILY_HEALTH_MUTABLE_TRAILING_DAYS } from "../local-data/health-policy";
 import type {
   ActivityDashboardListPage,
   ActivityDashboardHeartRateZoneTime,
   ActivityDashboardDetail,
   ActivityEffortCoverage,
-  ActivityReferenceInput,
-  ActivityVerificationEvidence,
-  DailyHealthFreshnessEvidence,
   ActivityAnalyticsDetail,
   LocalDataCounts,
   LocalImportSummary,
 } from "../local-data/contracts";
 export type {
-  ActivityDashboardListItem,
-  ActivityDashboardListPage,
-  ActivityDashboardHeartRateZoneBucket,
-  ActivityDashboardHeartRateZoneTime,
   ActivityDashboardDetail,
   ActivityEffortCoverage,
-  ActivityReferenceInput,
-  ActivityVerificationEvidence,
-  DailyHealthFreshnessEvidence,
-  ActivityAnalyticsDetail,
-  LocalDataCounts,
-  LocalImportSummary,
 } from "../local-data/contracts";
 import {
   buildActivityDashboardCharts,
@@ -53,12 +36,7 @@ import type {
   ActivityDashboardChartRow,
   ActivityDashboardRoutePoint,
 } from "../analytics/activity-dashboard-calculations";
-export {
-  ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC,
-  ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC,
-} from "../analytics/activity-dashboard-calculations";
 import { getDatabase } from "./connection";
-export { getDatabase } from "./connection";
 import { EMPTY_GARMIN_ATHLETE_VALUES } from "../garmin/athlete-normalize";
 import { EMPTY_GARMIN_BODY_METRIC_VALUES } from "../garmin/body-metrics-normalize";
 import type {
@@ -87,11 +65,6 @@ import type {
   NormalizedActivityDetail,
 } from "../garmin/detail-types";
 export { getTrainerProfile, saveTrainerProfile } from "./profile-repository";
-export type {
-  TrainerMemoryStatus,
-  TrainerMemoryCategory,
-  StoredTrainerMemory,
-} from "../memory/legacy-contracts";
 import {
   redactGarminRawPayload,
   type GarminRawContentType,
@@ -258,15 +231,6 @@ export function upsertDailyHealth(days: NormalizedDailyHealth[]): number {
   return days.length;
 }
 
-export function saveCheckpoint(key: string, value: string): void {
-  getDatabase()
-    .prepare(
-      `insert into sync_checkpoint (key, value, updated_at) values (?, ?, ?)
-       on conflict(key) do update set value=excluded.value, updated_at=excluded.updated_at`,
-    )
-    .run(key, value, Date.now());
-}
-
 /** Commit related checkpoints together or not at all. */
 export function saveCheckpoints(entries: [key: string, value: string][]): void {
   const db = getDatabase();
@@ -285,53 +249,6 @@ export function getCheckpoint(key: string): string | null {
     .prepare("select value from sync_checkpoint where key = ?")
     .get(key) as { value: string } | undefined;
   return row?.value ?? null;
-}
-
-export function getDailyHealthFreshnessEvidence(
-  date: string,
-): DailyHealthFreshnessEvidence | null {
-  const row = getDatabase()
-    .prepare(
-      `select ? as date,
-              daily_health.availability as availability,
-              exists (
-                select 1 from garmin_raw_payload
-                where subject_type = 'daily_health'
-                  and source_tool = 'get_stats'
-                  and subject_id = ? || ':stats'
-              ) as hasStatsPayload,
-              exists (
-                select 1 from garmin_raw_payload
-                where subject_type = 'daily_health'
-                  and source_tool = 'get_sleep_summary'
-                  and subject_id = ? || ':sleep'
-              ) as hasSleepPayload,
-              exists (
-                select 1 from garmin_raw_payload
-                where subject_type = 'daily_health'
-                  and source_tool = 'get_body_battery'
-                  and subject_id = ? || ':body_battery'
-              ) as hasBodyBatteryPayload
-       from (select 1) seed
-       left join daily_health on daily_health.date = ?`,
-    )
-    .get(date, date, date, date, date) as
-    | {
-        date: string;
-        availability: NormalizedDailyHealth["availability"] | null;
-        hasStatsPayload: 0 | 1;
-        hasSleepPayload: 0 | 1;
-        hasBodyBatteryPayload: 0 | 1;
-      }
-    | undefined;
-  if (!row) return null;
-  return {
-    date: row.date,
-    availability: row.availability,
-    hasStatsPayload: Boolean(row.hasStatsPayload),
-    hasSleepPayload: Boolean(row.hasSleepPayload),
-    hasBodyBatteryPayload: Boolean(row.hasBodyBatteryPayload),
-  };
 }
 
 export function listDailyHealthMissingGapDates(input: {
@@ -555,6 +472,8 @@ function normalizeActivityRow<T extends ActivityRow>(
   return { ...row, startedAt: new Date(row.startedAt) };
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function listRecentActivities(limit = 12): NormalizedActivity[] {
   const rows = getDatabase()
     .prepare(
@@ -614,6 +533,8 @@ export function activityEffortCoverage(): ActivityEffortCoverage {
   return interpretEffortCoverage(row);
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function listActivitiesForDashboard(
   options: {
     query?: string | null;
@@ -659,6 +580,8 @@ export function listActivitiesForDashboard(
   };
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function listRecentDailyHealth(limit = 14): NormalizedDailyHealth[] {
   return getDatabase()
     .prepare(
@@ -865,6 +788,8 @@ export function recordGarminAthleteBaselineFailure(input: {
     );
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
   const db = getDatabase();
   const baseline = db
@@ -1084,6 +1009,8 @@ export function recordGarminBodyMetricsFailure(input: {
     );
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function getGarminBodyMetrics(): GarminBodyMetricsDto {
   const db = getDatabase();
   const metrics = db
@@ -1348,6 +1275,8 @@ export function listActivityIdsNeedingDetail(limit?: number): string[] {
   return rows.map((row) => row.garminId);
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function activityDetailCoverage(): ActivityDetailCoverage {
   const row = getDatabase()
     .prepare(
@@ -1368,6 +1297,8 @@ export function activityDetailCoverage(): ActivityDetailCoverage {
   };
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function getActivityByGarminId(
   garminId: string,
 ): NormalizedActivity | null {
@@ -1381,6 +1312,8 @@ export function getActivityByGarminId(
   return row ? { ...row, startedAt: new Date(row.startedAt) } : null;
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function listActivityDetailAvailability(
   limit = 25,
 ): ActivityDetailAvailability[] {
@@ -1411,6 +1344,8 @@ export function listActivityDetailAvailability(
   }));
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function getActivityDetailForAnalytics(
   garminId: string,
 ): ActivityAnalyticsDetail {
@@ -1562,6 +1497,8 @@ export function getActivityDashboardDetail(
   );
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function listActivitiesForComparison(
   limit?: number,
 ): NormalizedActivity[] {
@@ -1592,18 +1529,7 @@ export function listActivitiesForComparison(
   return rows.map((row) => ({ ...row, startedAt: new Date(row.startedAt) }));
 }
 
-export function verifyActivityReference(
-  reference: ActivityReferenceInput,
-  matchLimit = 5,
-): ActivityVerificationEvidence {
-  return interpretActivityReference(
-    listActivitiesForComparison(),
-    reference,
-    matchLimit,
-  );
-}
-
-export function healthCoverage(): HealthCoverage {
+function healthCoverage(): HealthCoverage {
   const row = getDatabase()
     .prepare(
       `select count(*) as totalRows,
@@ -1637,6 +1563,8 @@ export function healthCoverage(): HealthCoverage {
   return interpretHealthCoverage(row);
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function dataCounts(): LocalDataCounts {
   const activityRow = getDatabase()
     .prepare("select count(*) as count from activity")
@@ -1677,6 +1605,8 @@ function summaryCheckpoint<T>(raw: string | null): T | null {
   }
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function importSummary(): LocalImportSummary {
   const counts = dataCounts();
   const history = getCheckpoint("garmin_history_v1");
@@ -1767,60 +1697,6 @@ export function upsertGarminRawPayload(input: {
   };
 }
 
-function parseRawPayload(row: {
-  id: string;
-  sourceTool: string;
-  subjectType: GarminRawSubjectType;
-  subjectId: string;
-  fetchedAt: number;
-  contentType: GarminRawContentType;
-  payloadJson: string | null;
-  payloadText: string | null;
-  sha256: string;
-  redactionVersion: number;
-  redactedFieldCount: number;
-}): GarminRawPayloadRecord {
-  return {
-    ...row,
-    fetchedAt: new Date(row.fetchedAt),
-    payload:
-      row.contentType === "json" && row.payloadJson
-        ? (JSON.parse(row.payloadJson) as unknown)
-        : row.payloadText,
-  };
-}
-
-export function listGarminRawPayloadsForAnalysis(
-  limit = 100,
-): GarminRawPayloadRecord[] {
-  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
-  const rows = getDatabase()
-    .prepare(
-      `select id, source_tool as sourceTool, subject_type as subjectType, subject_id as subjectId, fetched_at as fetchedAt, content_type as contentType, payload_json as payloadJson, payload_text as payloadText, sha256, redaction_version as redactionVersion, redacted_field_count as redactedFieldCount
-       from garmin_raw_payload
-       order by fetched_at desc
-       limit ?`,
-    )
-    .all(safeLimit) as Parameters<typeof parseRawPayload>[0][];
-  return rows.map(parseRawPayload);
-}
-
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export { clearChatAndProfile, clearGarminData } from "./local-data-lifecycle";
-
-export {
-  DEFAULT_CONVERSATION_ID,
-  safeConversationId,
-  getConversation,
-  ensureConversation,
-  createConversation,
-  listConversations,
-  renameConversation,
-  appendChatMessage,
-  listRecentChatMessages,
-  listChatMessagePage,
-} from "./conversation-repository";
-
-export {
-  deleteConversation,
-  clearConversationHistory,
-} from "./conversation-lifecycle";

@@ -62,16 +62,6 @@ export function formatActiveChatTranscript(
   return selected.reverse();
 }
 
-export function formatRecentChatHistory(
-  messages: RecentConversationMessage[],
-  limit = 10,
-): string[] {
-  return formatActiveChatTranscript(
-    messages.slice(-limit),
-    DEFAULT_ACTIVE_CHAT_CONTEXT_CHAR_BUDGET,
-  );
-}
-
 import type { TrainerProfile } from "../profile/contracts";
 import type { TrainerMemory } from "../memory/legacy-contracts";
 export type { TrainerProfile } from "../profile/contracts";
@@ -94,7 +84,7 @@ function formatServerLocalDate(date: Date): string {
   return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
 }
 
-export function formatCurrentDateContext(currentDate: Date): string {
+function formatCurrentDateContext(currentDate: Date): string {
   return `Server current date basis: ${formatServerLocalDate(currentDate)} (server-local date; ISO date-time ${currentDate.toISOString()}; UTC offset ${formatUtcOffset(currentDate)}). Use this server-owned date for relative terms like "today" and derive "yesterday" from it; Garmin import freshness and newest activity/health rows are separate evidence.`;
 }
 

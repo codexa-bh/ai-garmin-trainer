@@ -55,7 +55,7 @@
     "validate": "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test && npm run build",
     "validate:ci": "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test",
     "backfill:activity-effort": "tsx scripts/backfill-activity-effort.ts",
-    "knip": "knip"
+    "knip": "knip && knip --production"
   },
   "dependencies": {
     "@ai-sdk/deepseek": "3.0.11",

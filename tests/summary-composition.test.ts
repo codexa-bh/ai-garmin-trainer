@@ -12,15 +12,13 @@ import {
 import {
   tickCrossChatSummary,
   readCrossChatSummary,
-  changeCrossChatSummary,
   catchUpCrossChatSummary,
-  prepareSummaryAdoption,
   executeSummaryCommand,
 } from "@/lib/memory/summary-composition";
 import {
   stopSummaryLifetime,
   summaryLifetime,
-  installSummaryWake,
+  createSummarySchedule,
   notifySummaryActivity,
 } from "@/lib/memory/summary-lifetime";
 import { ensureConversation } from "@/lib/db/conversation-repository";
@@ -247,7 +245,11 @@ describe("actual production summary composition and foreground cancellation", ()
       action: "densify-discard",
       id: "eligible",
     });
-    changeCrossChatSummary("disable");
+    await executeSummaryCommand({
+      version: 2,
+      action: "disable",
+      expected: summaryStorage.version(),
+    });
     await expect(
       executeSummaryCommand({
         version: 2,
@@ -437,15 +439,18 @@ describe("actual production summary composition and foreground cancellation", ()
     statements.mockRestore();
     expect(db.serialize()).toEqual(before);
   });
-  it("owns activity notification only in the native lifetime and stops it on shutdown", () => {
-    const wake = vi.fn();
+  it("owns activity notification only in the native lifetime and stops it on shutdown", async () => {
+    const tick = vi.fn(async () => false);
     notifySummaryActivity();
-    installSummaryWake(wake);
+    const schedule = createSummarySchedule(tick);
     notifySummaryActivity();
-    expect(wake).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(tick).toHaveBeenCalledTimes(1);
     stopSummaryLifetime();
     notifySummaryActivity();
-    expect(wake).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(tick).toHaveBeenCalledTimes(1);
+    schedule.stop();
   });
   it("bounds explicit catch-up at 8 seconds and never adopts late work into a newly frozen null pin", async () => {
     await tickCrossChatSummary(boot);
@@ -477,7 +482,7 @@ describe("actual production summary composition and foreground cancellation", ()
     seed();
     ensureConversation("refresh-target");
     f.generate.mockImplementation(() => new Promise(() => {}));
-    const prepared = prepareSummaryAdoption({
+    const prepared = executeSummaryCommand({
       version: 2,
       action: "refresh",
       expected: summaryStorage.version(),
@@ -486,7 +491,11 @@ describe("actual production summary composition and foreground cancellation", ()
     });
     const observed = expect(prepared).rejects.toThrow("summary_stale_action");
     await vi.advanceTimersByTimeAsync(2000);
-    changeCrossChatSummary("disable");
+    await executeSummaryCommand({
+      version: 2,
+      action: "disable",
+      expected: summaryStorage.version(),
+    });
     await vi.advanceTimersByTimeAsync(1000);
     await observed;
     expect(readSummaryPin("refresh-target")).toBeNull();
@@ -611,7 +620,11 @@ describe("actual production summary composition and foreground cancellation", ()
     expect(f.keys).toContain("synthetic-one");
     expect(getOptionalEnv().SUMMARY_MODEL).toBe("gpt-6-luna");
     expect(getOptionalEnv().AI_MODEL).toBe("gpt-6-luna");
-    changeCrossChatSummary("retry");
+    await executeSummaryCommand({
+      version: 2,
+      action: "retry",
+      expected: summaryStorage.version(),
+    });
     vi.setSystemTime(Date.now() + 30001);
     f.generate.mockImplementation(async (system: string, prompt: string) =>
       valid(system, prompt),
@@ -626,7 +639,11 @@ describe("actual production summary composition and foreground cancellation", ()
     );
     expect(f.generate).not.toHaveBeenCalled();
     await tickCrossChatSummary(boot);
-    changeCrossChatSummary("disable");
+    await executeSummaryCommand({
+      version: 2,
+      action: "disable",
+      expected: summaryStorage.version(),
+    });
     await tickCrossChatSummary(boot);
     expect(readCrossChatSummary()).toMatchObject({
       state: "disabled",

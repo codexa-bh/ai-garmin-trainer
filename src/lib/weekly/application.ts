@@ -21,7 +21,7 @@ import {
   TRAINING_PLAN_TITLE_MAX_LENGTH,
 } from "../training-plan/limits";
 
-export function renderWeeklyProposal(proposal: WeeklyProposal): string {
+function renderWeeklyProposal(proposal: WeeklyProposal): string {
   return `## Weekly draft — not saved\nProposal: ${proposal.id}\nCalendar basis: ${proposal.timeZone}\n\n${proposal.changes.map((change) => `### ${change.kind === "plan" ? "Plan" : "Review"}: ${change.weekStart} – ${addDays(change.weekStart, 6)}\n${change.kind === "review" ? `As of: ${change.asOf}\n` : ""}Title: ${change.title}\n\n${change.contentMarkdown}`).join("\n\n---\n\n")}\n\nConfirm this exact proposal to save ${proposal.changes.length === 2 ? "both documents together" : "this document"}, or ask for changes. Nothing above has been saved as a weekly artifact.`;
 }
 export function createWeekly(

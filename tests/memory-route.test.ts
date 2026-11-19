@@ -188,9 +188,9 @@ describe("semantic memory API route", () => {
         }),
     );
     vi.stubGlobal("fetch", network);
-    const { activeMemoryStatus, trainerMemoryStore, memoryManagement } =
+    const { activeMemoryStatus, memoryManagement } =
       await import("../src/lib/memory/composition");
-    await trainerMemoryStore().health();
+    await memoryManagement.read();
     expect(activeMemoryStatus()).toMatchObject({
       health: "local-observed",
       extractionProvider: "deterministic",
@@ -213,18 +213,11 @@ describe("semantic memory API route", () => {
     process.env.MEMORY_ENABLED = "true";
     process.env.MEMORY_EMBEDDING_PROVIDER = "deterministic";
     process.env.MEMORY_EXTRACTION_MODE = "deterministic";
-    const { trainerMemoryStore, memoryManagement, activeMemoryStatus } =
+    const { memoryManagement, activeMemoryStatus } =
       await import("../src/lib/memory/composition");
     const { getDatabase } = await import("../src/lib/db/connection");
-    const store = trainerMemoryStore();
-    await store.addCompletedTurn({
-      conversationId: "T0241-unit",
-      userMessageId: "T0241-unit-user",
-      assistantMessageId: "T0241-unit-assistant",
-      userText: "Remember that I prefer morning workouts.",
-      assistantText: "Noted.",
-      completedAt: new Date(),
-    });
+    const { seedSemanticMemory } = await import("./memory-fixture");
+    seedSemanticMemory("T0241-unit", "I prefer morning workouts");
     const db = getDatabase();
     db.exec(
       "insert into trainer_profile(id,goals_json,updated_at) values('T0241-unit','[\"synthetic goal\"]',1); insert into training_plan(id,title,content_markdown,revised_at,updated_at) values('T0241-unit','Synthetic plan','synthetic plan',1,1); insert into conversation(id,title,created_at,updated_at) values('T0241-unit','Synthetic chat',1,1)",

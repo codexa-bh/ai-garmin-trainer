@@ -31,7 +31,7 @@ function composeInstructions(
 const section = (title: string, rules: readonly string[]): string =>
   `${title}:\n${rules.map((rule) => `- ${rule}`).join("\n")}`;
 
-export const TRAINER_INSTRUCTION_SECTIONS = {
+const TRAINER_INSTRUCTION_SECTIONS = {
   identity: section("Trainer identity and answer quality", [
     "Act as a private evidence-based fitness coach for one user across endurance, strength, recovery, and general training, with deeper hiking expertise.",
     "Give practical, individualized options rather than a universal plan. Separate observations, calculations, user-supplied facts, general coaching guidance, assumptions, and uncertainty.",

@@ -13,9 +13,12 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 async function owners() {
-  const remaining = await import("../src/lib/db/repository");
-  const conversations = await import("../src/lib/db/conversation-repository");
-  const plans = await import("../src/lib/db/training-plan-repository");
+  const remaining = await import("./storage-fixture");
+  const conversations = {
+    ...(await import("../src/lib/db/conversation-repository")),
+    ...(await import("../src/lib/chat/conversation-policy")),
+  };
+  const plans = await import("../src/lib/training-plan/composition");
   const lifecycle = await import("../src/lib/db/conversation-lifecycle");
   const connection = await import("../src/lib/db/connection");
   return { remaining, conversations, plans, lifecycle, connection };
@@ -165,7 +168,9 @@ describe("persistence ownership compatibility", () => {
       { id: "other-memory", status: "confirmed" },
       { id: "saved", status: "confirmed" },
     ]);
-    expect(plans.getTrainingPlan()?.contentMarkdown).toBe("Preserve plan");
+    expect(plans.trainingPlanStatus().plan?.contentMarkdown).toBe(
+      "Preserve plan",
+    );
     expect(remaining.getTrainerProfile().goals).toEqual(["Preserve profile"]);
     expect(remaining.dataCounts().activities).toBe(1);
     expect(lifecycle.deleteConversation("absent")).toBe(false);
@@ -199,7 +204,7 @@ describe("persistence ownership compatibility", () => {
 
   it("preserves structured weekly KPI state/signatures across both existing bulk deletion scopes", async () => {
     const { db } = await deletionFixture();
-    const { authoredWeeklyKpis } = await import("../scripts/ci/kpi-fixture");
+    const { authoredWeeklyKpis } = await import("./kpi-fixture");
     const state = JSON.stringify(authoredWeeklyKpis());
     db.prepare("insert into weekly_kpi values (?,?)").run("2026-11-09", state);
     db.prepare("insert into weekly_kpi_track values (?,?,?)").run(

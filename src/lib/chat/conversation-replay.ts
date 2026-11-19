@@ -123,8 +123,8 @@ export class ConversationCapacityError extends Error {
 
 export const CONVERSATION_POLICY_ID =
   "conversation-v1/openai.responses/gpt-6-luna";
-export const CONVERSATION_INPUT_LIMIT = 27033;
-export const CONVERSATION_OUTPUT_LIMIT = 4096;
+const CONVERSATION_INPUT_LIMIT = 27033;
+const CONVERSATION_OUTPUT_LIMIT = 4096;
 /** Preserve the existing non-memory allocation. Add only the exact measured pin,
  * capped by the qualified context after unchanged output and safety reserves.
  */

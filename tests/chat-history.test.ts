@@ -13,7 +13,7 @@ beforeEach(() => {
 
 describe("local chat history repository", () => {
   it("persists, bounds, and clears chronological chat messages", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
 
     repository.ensureConversation();
     repository.appendChatMessage({
@@ -51,7 +51,7 @@ describe("local chat history repository", () => {
   });
 
   it("persists bounded assistant debug traces as valid JSON and loads older messages without traces", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
 
     repository.appendChatMessage({
       conversationId: "debug-chat",
@@ -114,7 +114,7 @@ describe("local chat history repository", () => {
   });
 
   it("keeps optional failure diagnostics compatible with legacy rows, compaction and whole-trace omission", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
     const { debugProviderCall, buildLlmDebugTrace } =
       await import("../src/lib/ai/debug-trace");
     const call = debugProviderCall({
@@ -187,7 +187,7 @@ describe("local chat history repository", () => {
   });
 
   it("reads historical checker failure diagnostics without changing their answer, reasons or saved bytes", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
     const refusal =
       "I could not validate the model's completion or its declared evidence.";
     const saved = repository.appendChatMessage({
@@ -248,7 +248,7 @@ describe("local chat history repository", () => {
   });
 
   it("keeps manual new-chat conversations separate without deleting existing transcript", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
 
     repository.appendChatMessage({
       conversationId: repository.DEFAULT_CONVERSATION_ID,
@@ -274,7 +274,7 @@ describe("local chat history repository", () => {
   });
 
   it("lists conversations by recent activity with deterministic first-message titles", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
 
     repository.createConversation({ id: "empty-chat", title: "New chat" });
     repository.appendChatMessage({
@@ -300,7 +300,7 @@ describe("local chat history repository", () => {
   });
 
   it("renames a conversation and preserves a manual generic title from first-message retitle", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
 
     repository.createConversation({ id: "rename-chat", title: "New chat" });
     const renamed = repository.renameConversation(
@@ -323,7 +323,7 @@ describe("local chat history repository", () => {
   });
 
   it("rejects empty renames and returns null when the target conversation is absent", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
 
     repository.createConversation({ id: "rename-present", title: "New chat" });
 
@@ -336,7 +336,7 @@ describe("local chat history repository", () => {
   });
 
   it("paginates display transcript history independently from recent grounding", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
 
     for (let index = 1; index <= 7; index += 1) {
       repository.appendChatMessage({
@@ -370,7 +370,7 @@ describe("local chat history repository", () => {
   });
 
   it("renames one conversation through the route while preserving messages and other local data", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
     const route =
       await import("../src/app/api/conversations/[conversationId]/route");
 
@@ -477,7 +477,7 @@ describe("local chat history repository", () => {
   });
 
   it("deletes one conversation through the route while preserving other local data", async () => {
-    const repository = await import("../src/lib/db/repository");
+    const repository = await import("./storage-fixture");
     const route =
       await import("../src/app/api/conversations/[conversationId]/route");
 
@@ -504,15 +504,12 @@ describe("local chat history repository", () => {
         trainingEffect: 3.1,
       },
     ]);
-    const legacy = await import("../src/lib/memory/legacy-composition");
-    const memory = legacy.createTrainerMemoryProposal({
-      category: "learned_preference",
-      value: "Prefers morning hikes",
-      sourceType: "chat",
-      sourceRef: "keep-chat",
-      provenanceText: "User asked to remember this preference.",
-    });
-    legacy.confirmTrainerMemory(memory.id);
+    const { seedLegacyMemory } = await import("./memory-fixture");
+    seedLegacyMemory("preserved-memory", "confirmed", "Prefers morning hikes");
+    const preservedMemory = repository
+      .getDatabase()
+      .prepare("select * from trainer_memory order by id")
+      .all();
     repository.appendChatMessage({
       conversationId: "delete-chat",
       role: "user",
@@ -552,7 +549,12 @@ describe("local chat history repository", () => {
     expect(repository.getTrainerProfile().goals).toEqual([
       "Preserve this profile",
     ]);
-    expect(legacy.listActiveTrainerMemories()).toHaveLength(1);
+    expect(
+      repository
+        .getDatabase()
+        .prepare("select * from trainer_memory order by id")
+        .all(),
+    ).toEqual(preservedMemory);
     expect(repository.dataCounts().activities).toBe(1);
   });
 });

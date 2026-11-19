@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  OLLAMA_CHAT_DEFAULT_BASE_URL,
-  OLLAMA_CHAT_DEFAULT_MODEL,
   aiProviderStatus,
   isLoopbackAiBaseUrl,
   selectedMemoryExtractionModel,
@@ -221,13 +219,13 @@ describe("AI provider selection", () => {
       requested: "ollama",
       selected: "ollama",
       selectionMode: "explicit",
-      modelName: OLLAMA_CHAT_DEFAULT_MODEL,
+      modelName: "qwen3.5:4b",
       deepseekKeyConfigured: false,
       openaiKeyConfigured: false,
       ollamaBaseUrlLoopback: true,
       failureClass: null,
     });
-    expect(isLoopbackAiBaseUrl(OLLAMA_CHAT_DEFAULT_BASE_URL)).toBe(true);
+    expect(isLoopbackAiBaseUrl("http://127.0.0.1:11434/v1")).toBe(true);
   });
 
   it("rejects explicit Ollama chat configured with a non-loopback endpoint", () => {

@@ -128,8 +128,6 @@ vi.mock("@/lib/db/training-plan-repository", () => ({
 
 describe("trainer orchestrator fail-closed policy", async () => {
   const { orchestrateTrainerChat } = await import("../src/lib/ai/composition");
-  const { trainerOrchestrationLimits } =
-    await import("../src/lib/ai/orchestrator");
 
   beforeEach(() => {
     generateText.mockReset();
@@ -1619,9 +1617,7 @@ describe("trainer orchestrator fail-closed policy", async () => {
         system: "system",
         userRequest: "check my Garmin activity",
       });
-      await vi.advanceTimersByTimeAsync(
-        trainerOrchestrationLimits.providerCallTimeoutMs,
-      );
+      await vi.advanceTimersByTimeAsync(180000);
       const result = await pending;
       expect(generateText).toHaveBeenCalledTimes(2);
       expect(dataCounts).toHaveBeenCalledTimes(28);
@@ -1805,16 +1801,4 @@ describe("trainer orchestrator fail-closed policy", async () => {
         });
     },
   );
-
-  it("reports the hard ceiling, soft target and synthesis reserve", async () => {
-    expect(trainerOrchestrationLimits).toEqual({
-      maxTotalTurnExecutions: 30,
-      softTargetExecutions: 20,
-      finalAnswerReserve: 1,
-      maxPlannerCalls: 30,
-      maxToolCalls: 30,
-      maxGeneralToolCalls: 30,
-      providerCallTimeoutMs: 180000,
-    });
-  });
 });

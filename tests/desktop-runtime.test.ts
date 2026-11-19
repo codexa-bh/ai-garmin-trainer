@@ -12,10 +12,7 @@ import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import {
-  desktopNextConfiguration,
-  resolveExecutable,
-} from "../scripts/desktop/config";
+import { activateConfiguration } from "./desktop-configuration-fixture";
 import { acceptsDesktopRequest } from "../scripts/desktop/http-policy";
 import { assertDesktopDatabase } from "../src/lib/db/desktop-preflight";
 import {
@@ -58,10 +55,36 @@ describe("desktop reference boundary", () => {
       experimental: { isrFlushToDisk: true },
       images: { unoptimized: false },
     };
-    const result = desktopNextConfiguration(original);
-    expect(result.experimental?.isrFlushToDisk).toBe(false);
-    expect(result.images?.unoptimized).toBe(true);
-    expect(result.cacheMaxMemorySize).toBe(50 * 1024 * 1024);
+    const result = JSON.parse(
+      execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "-e",
+          `
+      const {configureDesktopNext}=require(process.cwd()+'/scripts/desktop/config.ts');
+      const original=JSON.parse(process.argv[1]);
+      console.log(JSON.stringify({configuration:configureDesktopNext(original),original}));
+    `,
+          JSON.stringify(original),
+        ],
+        {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          env: {
+            NODE_ENV: "production",
+            PATH: process.env.PATH,
+            HOME: process.env.HOME,
+          },
+        },
+      ),
+    );
+    expect(result.original).toEqual(original);
+    const configuration = result.configuration;
+    expect(configuration.experimental?.isrFlushToDisk).toBe(false);
+    expect(configuration.images?.unoptimized).toBe(true);
+    expect(configuration.cacheMaxMemorySize).toBe(50 * 1024 * 1024);
     expect(original.experimental.isrFlushToDisk).toBe(true);
     expect(original.images.unoptimized).toBe(false);
   });
@@ -213,9 +236,19 @@ describe("desktop reference boundary", () => {
     },
   );
   it("never resolves relative commands, shell text or unavailable tools through inherited PATH", () => {
-    expect(resolveExecutable("./uv")).toBeUndefined();
-    expect(resolveExecutable("uv; echo unsafe")).toBeUndefined();
-    expect(resolveExecutable("/unavailable-trainer-test/uv")).toBeUndefined();
+    const database = join(directory(), "test.sqlite");
+    writeFileSync(database, "authored-path");
+    for (const command of [
+      "./uv",
+      "uv; echo unsafe",
+      "/unavailable-trainer-test/uv",
+    ])
+      expect(() =>
+        activateConfiguration({
+          DATABASE_PATH: database,
+          GARMIN_MCP_COMMAND: command,
+        }),
+      ).toThrow();
   });
 });
 

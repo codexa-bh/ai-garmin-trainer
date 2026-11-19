@@ -14,7 +14,7 @@ beforeEach(() => {
 });
 
 async function repository() {
-  return import("../src/lib/db/repository");
+  return import("./storage-fixture");
 }
 
 function dailyHealth(
@@ -99,7 +99,7 @@ describe("import summary health coverage", () => {
       }),
     ]);
 
-    expect(repo.healthCoverage()).toEqual({
+    expect(repo.dataCounts().healthCoverage).toEqual({
       totalRows: 3,
       completeDays: 1,
       partialDays: 1,
@@ -117,7 +117,7 @@ describe("import summary health coverage", () => {
     });
     expect(repo.importSummary()).toMatchObject({
       healthDays: 3,
-      healthCoverage: repo.healthCoverage(),
+      healthCoverage: repo.dataCounts().healthCoverage,
       healthStartDate: "2026-07-20",
       healthEndDate: "2026-07-22",
     });

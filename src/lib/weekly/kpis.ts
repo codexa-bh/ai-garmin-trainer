@@ -789,39 +789,6 @@ export function kpiPointsProjection(kpis: KpiRead): KpiPointsProjection {
   };
 }
 
-/** Exact stable identity, never renderer fuzzy matching or cross-revision mixing. */
-export function latestKpiMeasurement(
-  kpis: KpiRead,
-  conceptId: string,
-  selected: KpiSet["items"][number]["tracks"][number],
-) {
-  const { set, assessment } = selectLatestKpis(kpis);
-  if (!kpis.complete) return null;
-  const items =
-    set?.items.filter((value) => value.conceptId === conceptId) ?? [];
-  const item = items.length === 1 ? items[0] : undefined;
-  const tracks =
-    item?.tracks.filter(
-      (value) =>
-        value.key === selected.key &&
-        value.kind === selected.kind &&
-        value.unit === selected.unit &&
-        value.meaning === selected.meaning,
-    ) ?? [];
-  const track = tracks.length === 1 ? tracks[0] : undefined;
-  if (!item || !track) return null;
-  const result = assessment?.items.find((value) => value.itemId === item.id);
-  return {
-    item,
-    track,
-    assessment,
-    result,
-    value:
-      result?.actuals.find((value) => value.trackKey === track.key)?.value ??
-      null,
-  };
-}
-
 /**
  * The one actual for a latest-plan track, shared by grid, charts and tools: a
  * stored measurement with the same track meaning wins; otherwise the reviewed

@@ -144,16 +144,6 @@ export function selectPrimary(
   };
 }
 
-export function primaryUpload(
-  payload: unknown,
-  observedAt: Date,
-): PrimaryUpload {
-  const selection = selectPrimary(payload, observedAt);
-  return selection.kind === "selected"
-    ? selection.upload
-    : unknown(selection.reason);
-}
-
 /**
  * Pinned get_device_last_used curated reply, read only from the dedicated
  * connector process whose local zone is fixed to UTC. Upstream renders the

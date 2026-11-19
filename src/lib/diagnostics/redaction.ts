@@ -8,7 +8,7 @@ const PRECISE_COORDINATE =
 const PROMPT_BLOCK =
   /\b(prompt|messages?|conversation|rawPayload|raw_payload|fitBytes|connectorPayload)\b\s*[:=]\s*(["']).*?\2/gi;
 
-export function redactSensitiveText(value: string): string {
+function redactSensitiveText(value: string): string {
   return value
     .replace(KEY_VALUE_SECRET, "$1=<redacted>")
     .replace(PROVIDER_KEY, "<redacted-provider-key>")

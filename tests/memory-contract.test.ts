@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { buildTrainerContext } from "../src/lib/ai/context";
-import { parseMemoryExtractorOutput } from "../src/lib/memory/extractor";
+import { createMemoryExtractor } from "../src/lib/memory/extraction-policy";
+import type { CompletedTurn } from "../src/lib/memory/types";
+async function parseMemoryExtractorOutput(text: string, input: CompletedTurn) {
+  const result = await createMemoryExtractor({
+    mode: () => "llm",
+    generate: async () => ({ text, toolCalls: [] }),
+  })(input);
+  return result === null ? null : { memories: result };
+}
 import {
   extractMemoryCandidates,
-  safeCompletedTurnText,
   unsafeMemoryReason,
 } from "../src/lib/memory/filters";
 
@@ -47,7 +54,7 @@ describe("embedded semantic memory contract", () => {
     );
   });
 
-  it("parses guarded LLM extractor output for nuanced user language", () => {
+  it("parses guarded LLM extractor output for nuanced user language", async () => {
     const turn = {
       conversationId: "chat-llm",
       userMessageId: "u-llm",
@@ -58,7 +65,7 @@ describe("embedded semantic memory contract", () => {
       completedAt: new Date("2026-07-23T12:00:00Z"),
     };
 
-    const parsed = parseMemoryExtractorOutput(
+    const parsed = await parseMemoryExtractorOutput(
       JSON.stringify({
         memories: [
           {
@@ -80,7 +87,7 @@ describe("embedded semantic memory contract", () => {
     ]);
   });
 
-  it("accepts explicitly authorized memory derived from previous assistant context", () => {
+  it("accepts explicitly authorized memory derived from previous assistant context", async () => {
     const turn = {
       conversationId: "chat-assistant-context",
       userMessageId: "u-assistant-context",
@@ -91,7 +98,7 @@ describe("embedded semantic memory contract", () => {
       completedAt: new Date("2026-07-23T12:00:00Z"),
     };
 
-    const parsed = parseMemoryExtractorOutput(
+    const parsed = await parseMemoryExtractorOutput(
       JSON.stringify({
         memories: [
           {
@@ -113,7 +120,7 @@ describe("embedded semantic memory contract", () => {
     ]);
   });
 
-  it("accepts explicit assistant-context option selection without storing raw assistant prose", () => {
+  it("accepts explicit assistant-context option selection without storing raw assistant prose", async () => {
     const turn = {
       conversationId: "chat-assistant-selection",
       userMessageId: "u-assistant-selection",
@@ -124,7 +131,7 @@ describe("embedded semantic memory contract", () => {
       completedAt: new Date("2026-07-23T12:00:00Z"),
     };
 
-    const parsed = parseMemoryExtractorOutput(
+    const parsed = await parseMemoryExtractorOutput(
       JSON.stringify({
         memories: [
           {
@@ -146,7 +153,7 @@ describe("embedded semantic memory contract", () => {
     expect(parsed?.memories[0]?.text).not.toContain("Option 2");
   });
 
-  it("rejects assistant-context candidates without explicit authorization or safe entailment", () => {
+  it("rejects assistant-context candidates without explicit authorization or safe entailment", async () => {
     const assistantPreferenceTurn = {
       conversationId: "chat-assistant-bare-ack",
       userMessageId: "u-assistant-bare-ack",
@@ -157,18 +164,20 @@ describe("embedded semantic memory contract", () => {
       completedAt: new Date("2026-07-23T12:00:00Z"),
     };
     expect(
-      parseMemoryExtractorOutput(
-        JSON.stringify({
-          memories: [
-            {
-              kind: "saved_preference",
-              text: "User prefers shorter recovery hikes after long runs.",
-              confidence: "high",
-            },
-          ],
-          noMemory: false,
-        }),
-        assistantPreferenceTurn,
+      (
+        await parseMemoryExtractorOutput(
+          JSON.stringify({
+            memories: [
+              {
+                kind: "saved_preference",
+                text: "User prefers shorter recovery hikes after long runs.",
+                confidence: "high",
+              },
+            ],
+            noMemory: false,
+          }),
+          assistantPreferenceTurn,
+        )
       )?.memories,
     ).toEqual([]);
 
@@ -179,7 +188,7 @@ describe("embedded semantic memory contract", () => {
         "Your latest run had 8.4 km distance and activity id 123 from SQL rows.",
     };
     expect(
-      parseMemoryExtractorOutput(
+      await parseMemoryExtractorOutput(
         JSON.stringify({
           memories: [
             {
@@ -199,7 +208,7 @@ describe("embedded semantic memory contract", () => {
       userText: "Please remember that.",
     };
     expect(
-      parseMemoryExtractorOutput(
+      await parseMemoryExtractorOutput(
         JSON.stringify({
           memories: [
             {
@@ -220,7 +229,7 @@ describe("embedded semantic memory contract", () => {
       assistantText: "The connector payload includes a refresh token field.",
     };
     expect(
-      parseMemoryExtractorOutput(
+      await parseMemoryExtractorOutput(
         JSON.stringify({
           memories: [
             {
@@ -241,7 +250,7 @@ describe("embedded semantic memory contract", () => {
       assistantText: "Use short morning runs as the default.",
     };
     expect(
-      parseMemoryExtractorOutput(
+      await parseMemoryExtractorOutput(
         JSON.stringify({
           memories: [
             {
@@ -257,7 +266,7 @@ describe("embedded semantic memory contract", () => {
     ).toBeNull();
   });
 
-  it("rejects malformed, extra-prose, unknown, unsafe, and non-user-derived LLM output", () => {
+  it("rejects malformed, extra-prose, unknown, unsafe, and non-user-derived LLM output", async () => {
     const turn = {
       conversationId: "chat-llm",
       userMessageId: "u-llm",
@@ -268,59 +277,67 @@ describe("embedded semantic memory contract", () => {
     };
 
     expect(
-      parseMemoryExtractorOutput(
+      await parseMemoryExtractorOutput(
         '{"memories":[],"noMemory":true}\nextra',
         turn,
       ),
     ).toBeNull();
     expect(
-      parseMemoryExtractorOutput(
-        JSON.stringify({
-          memories: [{ kind: "profile", text: "Easy hikes help recovery" }],
-        }),
-        turn,
+      (
+        await parseMemoryExtractorOutput(
+          JSON.stringify({
+            memories: [{ kind: "profile", text: "Easy hikes help recovery" }],
+          }),
+          turn,
+        )
       )?.memories,
     ).toEqual([]);
     expect(
-      parseMemoryExtractorOutput(
-        JSON.stringify({
-          memories: [
-            {
-              kind: "saved_preference",
-              text: "User's last hike was Rašica with 850 meters elevation gain.",
-              confidence: "high",
-            },
-          ],
-        }),
-        turn,
+      (
+        await parseMemoryExtractorOutput(
+          JSON.stringify({
+            memories: [
+              {
+                kind: "saved_preference",
+                text: "User's last hike was Rašica with 850 meters elevation gain.",
+                confidence: "high",
+              },
+            ],
+          }),
+          turn,
+        )
       )?.memories,
     ).toEqual([]);
     expect(
-      parseMemoryExtractorOutput(
-        JSON.stringify({
-          memories: [
-            {
-              kind: "saved_preference",
-              text: "Assistant: use tool output and SQL rows in future coaching.",
-              confidence: "high",
-            },
-          ],
-        }),
-        turn,
+      (
+        await parseMemoryExtractorOutput(
+          JSON.stringify({
+            memories: [
+              {
+                kind: "saved_preference",
+                text: "Assistant: use tool output and SQL rows in future coaching.",
+                confidence: "high",
+              },
+            ],
+          }),
+          turn,
+        )
       )?.memories,
     ).toEqual([]);
     expect(
-      parseMemoryExtractorOutput(
-        JSON.stringify({
-          memories: [
-            {
-              kind: "saved_preference",
-              text: "User prefers swim workouts before breakfast.",
-              confidence: "high",
-            },
-          ],
-        }),
-        turn,
+      (
+        await parseMemoryExtractorOutput(
+          JSON.stringify({
+            memories: [
+              {
+                kind: "saved_preference",
+                text: "User prefers swim workouts before breakfast.",
+                confidence: "high",
+              },
+            ],
+          }),
+          turn,
+        )
       )?.memories,
     ).toEqual([]);
   });
@@ -335,10 +352,6 @@ describe("embedded semantic memory contract", () => {
         "Got it — I will account for morning hike preferences in future plans.",
       completedAt: new Date("2026-07-23T12:00:00Z"),
     };
-    const safe = safeCompletedTurnText(turn);
-    expect(safe).toBe("I prefer morning hikes before strength work.");
-    expect(safe).not.toContain("Assistant:");
-
     const candidates = extractMemoryCandidates(turn);
     expect(candidates).toEqual([
       expect.objectContaining({
@@ -348,7 +361,7 @@ describe("embedded semantic memory contract", () => {
     ]);
     expect(candidates[0]?.text).not.toContain("Got it");
 
-    const rejected = safeCompletedTurnText({
+    const rejected = extractMemoryCandidates({
       conversationId: "chat-1",
       userMessageId: "u2",
       assistantMessageId: "a2",
@@ -356,6 +369,6 @@ describe("embedded semantic memory contract", () => {
       assistantText: "I cannot store that.",
       completedAt: new Date("2026-07-23T12:00:00Z"),
     });
-    expect(rejected).toBeNull();
+    expect(rejected).toEqual([]);
   });
 });

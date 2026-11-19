@@ -1,6 +1,8 @@
 import { getDatabase } from "./connection";
 import { invalidateConversationHistory } from "./conversation-history";
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function clearChatAndProfile(): string[] {
   const db = getDatabase();
   db.transaction(() => {
@@ -18,6 +20,8 @@ export function clearChatAndProfile(): string[] {
   return ["messages", "conversations", "trainer_profile"];
 }
 
+/** @public Runtime capability passed by namespace through local-data/composition to
+ * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function clearGarminData(): string[] {
   const db = getDatabase();
   db.transaction(() => {

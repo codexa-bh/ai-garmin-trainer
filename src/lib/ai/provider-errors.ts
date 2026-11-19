@@ -3,7 +3,6 @@ import { safeFailureDiagnostic } from "../diagnostics/provider-failure";
 export {
   safeFailureDiagnostic,
   safeFailureCategory,
-  safeReceiptDiagnostic,
   RECEIPT_CALL_DIFFERENCES,
   SDK_DROPPED_KINDS,
 } from "../diagnostics/provider-failure";

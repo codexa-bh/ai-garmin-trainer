@@ -1,5 +1,5 @@
 import type { TrainingPlan } from "../training-plan/contracts";
-import { createTrainingPlan } from "../training-plan/application";
+
 import { getDatabase } from "./connection";
 
 function rowToTrainingPlan(row: {
@@ -38,11 +38,3 @@ export function persistTrainingPlan(input: {
     )
     .run(title, contentMarkdown, nowMs, nowMs);
 }
-
-// Compatibility entry points for existing repository consumers; policy is feature-owned.
-const application = createTrainingPlan(
-  { read: getTrainingPlan, persist: persistTrainingPlan },
-  () => new Date(),
-);
-export const trainingPlanStatus = application.status;
-export const replaceTrainingPlan = application.saveManual;

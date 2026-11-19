@@ -17,18 +17,16 @@ import { TerrainTable } from "../src/app/dashboard/terrain-table";
 import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
 import { emptySyncRun } from "../src/app/dashboard/contracts";
 import { AssistantContent } from "../src/app/dashboard/markdown";
-import {
-  simpleTableFixture,
-  tableFixture,
-  tableProse,
-} from "../scripts/ci/table-fixture";
+import { simpleTableFixture, tableFixture } from "../scripts/ci/table-fixture";
 import { HealthDashboardView } from "../src/app/dashboard/health-metrics";
 import { ModelSettingsCard } from "../src/app/dashboard/model-settings-card";
 import { useModelSettings } from "../src/app/dashboard/use-model-settings";
 import { modelSettingsSnapshot } from "../src/lib/model-settings/policy";
 import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 import { WeeklyKpiScorecard } from "../src/app/dashboard/weekly-kpi-scorecard";
-import { authoredAssessedLatestKpis } from "../scripts/ci/kpi-fixture";
+import { authoredAssessedLatestKpis } from "./kpi-fixture";
+const tableProse =
+  "Synthetic evidence describes duration and partial credit with explicit limitations; descriptive prose should wrap at word boundaries.";
 import { projectKpis } from "../src/lib/weekly/kpis";
 import { WeeklyPlanView } from "../src/app/dashboard/weekly-plan-view";
 import { useWeeklyFeature } from "../src/app/dashboard/use-weekly";

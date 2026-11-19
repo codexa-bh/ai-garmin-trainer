@@ -12,7 +12,7 @@ import {
   type ReviewedKpiPointMapping,
 } from "../src/lib/weekly/backfill";
 import { latestKpiScore, projectKpis } from "../src/lib/weekly/kpis";
-import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { authoredWeeklyKpis } from "./kpi-fixture";
 import type { WeeklyRecord } from "../src/lib/weekly/contracts";
 import type { WeeklyKpis } from "../src/lib/weekly/kpi-contracts";
 

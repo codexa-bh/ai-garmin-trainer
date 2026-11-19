@@ -4,7 +4,7 @@ import type { ProviderFailureDiagnostic } from "../ai/debug-types";
 
 // Historical observations, not current paid-test admission or output-token caps.
 export const SUMMARY_MODEL_CONTEXT = 1_050_000;
-export const SUMMARY_MODEL_OUTPUT = 128_000;
+const SUMMARY_MODEL_OUTPUT = 128_000;
 export const SUMMARY_PRICE_BASIS =
   "luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input";
 export function summaryModelAvailable(raw: string): boolean {
@@ -400,88 +400,6 @@ export function validateSummaryReplacement(
             : "excluded",
     })),
   };
-}
-/** Output-only edits of captured ordinary state, never a persisted item ledger. */
-export function validateSummaryIncrement(
-  raw: unknown,
-  batch: SummaryBatch,
-  inputs: MinimizedSource[],
-  onRejection?: (
-    code: SummaryPatchRejection,
-    diagnostic?: SummaryValueDiagnostic,
-  ) => void,
-): SummaryCandidate | null {
-  const reject = () => {
-    onRejection?.("shape");
-    return null;
-  };
-  if (
-    !object(raw) ||
-    !keys(raw, "action,edits,addition") ||
-    typeof raw.action !== "string" ||
-    !["update", "unchanged", "uncertain"].includes(raw.action) ||
-    !Array.isArray(raw.edits) ||
-    typeof raw.addition !== "string" ||
-    batch.import ||
-    batch.rebuild ||
-    batch.manualRewrite ||
-    !batch.previous.text
-  )
-    return reject();
-  if (raw.action !== "update") {
-    if (raw.edits.length || raw.addition || raw.action === "uncertain")
-      return reject();
-    return validateSummaryReplacement(
-      { summary: batch.previous.text, exclude: [] },
-      batch,
-      inputs,
-      onRejection,
-    );
-  }
-  const prior = batch.previous.text;
-  const texts = [raw.addition];
-  const ranges: { start: number; end: number; text: string }[] = [];
-  for (const edit of raw.edits) {
-    if (
-      !object(edit) ||
-      !keys(edit, "before,after") ||
-      typeof edit.before !== "string" ||
-      !edit.before ||
-      typeof edit.after !== "string" ||
-      edit.before === edit.after
-    )
-      return reject();
-    // Match against the original only, never text inserted by another edit.
-    const start = prior.indexOf(edit.before);
-    if (start < 0 || prior.indexOf(edit.before, start + 1) >= 0)
-      return reject();
-    texts.push(edit.before, edit.after);
-    ranges.push({ start, end: start + edit.before.length, text: edit.after });
-  }
-  try {
-    for (const text of texts) characters(text);
-  } catch {
-    onRejection?.("value", { invariant: "unicode" });
-    return null;
-  }
-  ranges.sort((a, b) => a.start - b.start);
-  let text = "",
-    end = 0;
-  for (const range of ranges) {
-    if (range.start < end) return reject();
-    text += prior.slice(end, range.start) + range.text;
-    end = range.end;
-  }
-  text += prior.slice(end);
-  if (raw.addition) text += (text ? "\n\n" : "") + raw.addition;
-  if (text === prior) return reject();
-  // The same scalar-valid value and application-owned dispositions reach CAS.
-  return validateSummaryReplacement(
-    { summary: text, exclude: [] },
-    batch,
-    inputs,
-    onRejection,
-  );
 }
 export function emptySummary(): SummaryValue {
   return { version: 2, text: "" };

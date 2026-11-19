@@ -15,7 +15,7 @@ export type ChatCatalog = {
   defaultEntryId: string | null;
 };
 export type ChatModelId = string;
-export type ModelOption = ChatEntry & {
+type ModelOption = ChatEntry & {
   label: string;
   available: boolean;
   unavailableReason?: string;

@@ -220,7 +220,7 @@ describe("HTTP through real production composition, reader and SQLite", () => {
   it("streams progress/result, persists normalized data and redacts archives; repeated sync preserves coverage", async () => {
     vi.useFakeTimers();
     const sync = await import("../src/app/api/sync/route");
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     for (let i = 0; i < 2; i += 1) {
       const response = await sync.POST();
       expect(response.status).toBe(200);
@@ -273,7 +273,7 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     vi.stubEnv("TZ", "UTC");
     vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-01");
     const sync = await import("../src/app/api/sync/route");
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const { normalizeDailyHealth } =
       await import("../src/lib/garmin/normalize");
     const { getDatabase } = await import("../src/lib/db/connection");
@@ -368,7 +368,7 @@ describe("HTTP through real production composition, reader and SQLite", () => {
       await import("../src/lib/garmin/latest-policy");
     const { normalizeDailyHealth } =
       await import("../src/lib/garmin/normalize");
-    let repo = await import("../src/lib/db/repository");
+    let repo = await import("./storage-fixture");
     const open = Array.from(
       { length: 15 },
       (_, index) => `2026-09-${String(6 + index).padStart(2, "0")}`,
@@ -480,7 +480,7 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     expect(
       state.calls.filter((name) => name === "get_device_last_used"),
     ).toHaveLength(1);
-    repo = await import("../src/lib/db/repository");
+    repo = await import("./storage-fixture");
     expect([
       repo.getCheckpoint("garmin_history_v1"),
       repo.getCheckpoint("garmin_discovery_v1"),
@@ -502,7 +502,7 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-19");
     const { FRESHNESS_CHECKPOINT } =
       await import("../src/lib/garmin/latest-policy");
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     state.devices = [{ device_id: "watch-1", device_name: "private" }];
     state.lastUsed = JSON.stringify({
       user_device_id: "bike-2",
@@ -546,7 +546,7 @@ describe("HTTP through real production composition, reader and SQLite", () => {
       (await route.POST(detailRequest({ garminId: "unknown" }))).status,
     ).toBe(404);
     expect(state.constructions).toBe(0);
-    const repo = await import("../src/lib/db/repository");
+    const repo = await import("./storage-fixture");
     const { normalizeActivity } = await import("../src/lib/garmin/normalize");
     repo.upsertActivities([
       normalizeActivity({
@@ -624,7 +624,7 @@ describe("KPI measurements through real composition (T0328)", () => {
       await import("../src/lib/db/weekly-repository");
     const { getDatabase } = await import("../src/lib/db/connection");
     const store = createWeeklyStore(getDatabase);
-    const { authoredWeeklyKpis } = await import("../scripts/ci/kpi-fixture");
+    const { authoredWeeklyKpis } = await import("./kpi-fixture");
     const kpis = authoredWeeklyKpis(new Date("2026-09-21T12:00:00Z"));
     kpis.timeZone = timeZone;
     store.saveKpis("2026-09-21", kpis);
@@ -671,7 +671,7 @@ describe("KPI measurements through real composition (T0328)", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-22T12:00:00Z"));
     const { store, timeZone } = await seed();
-    const { upsertActivities } = await import("../src/lib/db/repository");
+    const { upsertActivities } = await import("./storage-fixture");
     upsertActivities([
       {
         garminId: "w1",

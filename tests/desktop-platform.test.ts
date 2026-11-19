@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chmodSync,
   mkdirSync,
@@ -12,11 +12,8 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { resolveExecutable } from "../scripts/desktop/config";
-import {
-  isCanonicalLocalPath,
-  windowsLocalForm,
-} from "../src/lib/db/local-path";
+import { activateConfiguration } from "./desktop-configuration-fixture";
+import { isCanonicalLocalPath } from "../src/lib/db/local-path";
 import { acquireDatabaseWriter } from "../src/lib/db/writer-ownership";
 
 const windows = process.platform === "win32";
@@ -36,32 +33,42 @@ afterEach(() => {
 });
 
 describe("desktop local path form", () => {
-  it("accepts only local drive-letter Windows spellings", () => {
-    for (const ok of [
-      "C:\\",
-      "C:\\Users\\Ana Lopez\\AppData\\Roaming\\trainer.sqlite",
-      "D:\\Données\\训练\\trainer.sqlite",
-    ])
-      expect(windowsLocalForm(ok), ok).toBe(true);
-    for (const bad of [
-      "\\\\server\\share\\trainer.sqlite",
-      "\\\\?\\C:\\trainer.sqlite",
-      "\\\\.\\C:\\trainer.sqlite",
-      "C:trainer.sqlite",
-      "C:/Users/trainer.sqlite",
-      "C:\\Users\\..\\trainer.sqlite",
-      "C:\\Users\\.\\trainer.sqlite",
-      "C:\\Users\\\\trainer.sqlite",
-      "C:\\trainer.sqlite:secret",
-      "C:\\NUL",
-      "C:\\com1.txt",
-      "C:\\Lpt9",
-      "C:\\trailing.",
-      "C:\\trailing ",
-      "C:\\a?b",
-      "/Users/trainer.sqlite",
-    ])
-      expect(windowsLocalForm(bad), bad).toBe(false);
+  it("accepts only local drive-letter Windows spellings before canonical filesystem resolution", () => {
+    const canonical = vi.spyOn(realpathSync, "native");
+    try {
+      for (const ok of [
+        "C:\\",
+        "C:\\Users\\Ana Lopez\\AppData\\Roaming\\trainer.sqlite",
+        "D:\\Données\\训练\\trainer.sqlite",
+      ]) {
+        canonical.mockReturnValue(ok);
+        expect(isCanonicalLocalPath(ok, "win32"), ok).toBe(true);
+      }
+      for (const bad of [
+        "\\\\server\\share\\trainer.sqlite",
+        "\\\\?\\C:\\trainer.sqlite",
+        "\\\\.\\C:\\trainer.sqlite",
+        "C:trainer.sqlite",
+        "C:/Users/trainer.sqlite",
+        "C:\\Users\\..\\trainer.sqlite",
+        "C:\\Users\\.\\trainer.sqlite",
+        "C:\\Users\\\\trainer.sqlite",
+        "C:\\trainer.sqlite:secret",
+        "C:\\NUL",
+        "C:\\com1.txt",
+        "C:\\Lpt9",
+        "C:\\trailing.",
+        "C:\\trailing ",
+        "C:\\a?b",
+        "/Users/trainer.sqlite",
+      ]) {
+        canonical.mockClear();
+        expect(isCanonicalLocalPath(bad, "win32"), bad).toBe(false);
+        expect(canonical).not.toHaveBeenCalled();
+      }
+    } finally {
+      canonical.mockRestore();
+    }
   });
   it("requires the exact existing canonical spelling on the host", () => {
     const root = directory();
@@ -81,13 +88,32 @@ describe("desktop local path form", () => {
 describe("desktop executable resolution", () => {
   it("refuses relative, shell, script and non-executable selections", () => {
     const root = directory();
-    expect(resolveExecutable("uv; echo unsafe")).toBeUndefined();
-    expect(resolveExecutable("../uv")).toBeUndefined();
-    expect(resolveExecutable("bin\\uv")).toBeUndefined();
+    const database = join(root, "test.sqlite");
+    writeFileSync(database, "authored-path");
+    for (const command of ["uv; echo unsafe", "../uv", "bin\\uv"])
+      expect(() =>
+        activateConfiguration({
+          DATABASE_PATH: database,
+          GARMIN_MCP_COMMAND: command,
+        }),
+      ).toThrow();
     const script = join(root, windows ? "uv.cmd" : "uv-script");
     writeFileSync(script, windows ? "@echo off" : "#!/bin/sh\n");
     if (!windows) chmodSync(script, 0o600);
-    expect(resolveExecutable(script)).toBeUndefined();
+    if (windows)
+      expect(() =>
+        activateConfiguration({
+          DATABASE_PATH: database,
+          GARMIN_MCP_COMMAND: script,
+        }),
+      ).toThrow();
+    else
+      expect(
+        activateConfiguration({
+          DATABASE_PATH: database,
+          GARMIN_MCP_COMMAND: script,
+        }).available.uvx,
+      ).toBe(false);
   });
   it("uses only the fixed per-user Windows uv locations, never PATH", () => {
     const home = directory();
@@ -97,10 +123,17 @@ describe("desktop executable resolution", () => {
       const bin = join(home, ".local", "bin");
       mkdirSync(bin, { recursive: true });
       writeFileSync(join(bin, "uv.exe"), "synthetic");
-      const resolved = resolveExecutable("uv", "win32");
-      if (windows) expect(resolved).toBe(join(bin, "uv.exe"));
-      else expect(resolved).toBeUndefined(); // No drive root on this host.
-      expect(resolveExecutable("uv.cmd", "win32")).toBeUndefined();
+      const database = join(home, "test.sqlite");
+      writeFileSync(database, "authored-path");
+      const resolved = activateConfiguration({ DATABASE_PATH: database });
+      if (windows) expect(resolved.uv).toBe(join(bin, "uv.exe"));
+      else expect(resolved.uv).not.toBe(join(bin, "uv.exe")); // Unix never searches the Windows user profile.
+      expect(() =>
+        activateConfiguration({
+          DATABASE_PATH: database,
+          GARMIN_MCP_COMMAND: "uv.cmd",
+        }),
+      ).toThrow();
     } finally {
       if (saved === undefined) delete process.env.USERPROFILE;
       else process.env.USERPROFILE = saved;

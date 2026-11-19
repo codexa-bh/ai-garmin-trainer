@@ -9,7 +9,7 @@ async function freshRepository() {
     mkdtempSync(join(tmpdir(), "training-plan-repo-")),
     "trainer.sqlite",
   );
-  return import("../src/lib/db/training-plan-repository");
+  return import("../src/lib/training-plan/composition");
 }
 
 describe("training plan repository", () => {
@@ -20,7 +20,7 @@ describe("training plan repository", () => {
   it("supports no-plan read, save/read, and advisory review status without writing", async () => {
     const repository = await freshRepository();
 
-    expect(repository.getTrainingPlan()).toBeNull();
+    expect(repository.trainingPlanStatus().plan).toBeNull();
     expect(
       repository.trainingPlanStatus(new Date("2026-08-12T00:00:00Z").getTime()),
     ).toMatchObject({
@@ -40,7 +40,7 @@ describe("training plan repository", () => {
       contentMarkdown: "# Week 1\n- Easy aerobic hike",
       revisedAt: "2026-08-01T09:00:00.000Z",
     });
-    expect(repository.getTrainingPlan()).toEqual(saved);
+    expect(repository.trainingPlanStatus().plan).toEqual(saved);
     expect(
       repository.trainingPlanStatus(new Date("2026-09-30T09:00:00Z").getTime())
         .stale,
@@ -50,7 +50,7 @@ describe("training plan repository", () => {
         new Date("2026-09-30T09:00:00.001Z").getTime(),
       ).stale,
     ).toBe(true);
-    expect(repository.getTrainingPlan()).toEqual(saved);
+    expect(repository.trainingPlanStatus().plan).toEqual(saved);
   });
 
   it("rejects empty and oversized replacement content", async () => {
