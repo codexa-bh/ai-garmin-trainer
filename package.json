@@ -4,6 +4,8 @@
   "scripts": {
     "release": "node scripts/desktop/python.mjs scripts/desktop/release.py",
     "release:check": "node scripts/desktop/python.mjs scripts/desktop/release.py check",
+    "release:notes:check": "node scripts/desktop/python.mjs scripts/desktop/release_note_fragments.py check",
+    "release:notes:preview": "node scripts/desktop/python.mjs scripts/desktop/release_note_fragments.py preview",
     "desktop:resources": "npm run build && npm run desktop:assemble",
     "desktop:assemble": "node scripts/desktop/assemble.mjs",
     "smoke:help": "node scripts/smoke-help.mjs",

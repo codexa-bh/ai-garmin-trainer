@@ -6,12 +6,14 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 import release
+import release_metadata as metadata
 import release_set
 from release_set_test import NOTES, write_platform
 from release_test import FakeGitHub
@@ -133,6 +135,113 @@ class CliTests(unittest.TestCase):
         self.assertEqual(len(self.gh.effects), 3)
         self.cli('status')
         self.assertEqual(len(self.gh.effects), 3)
+
+
+class PrepareCliTests(unittest.TestCase):
+    """Real CLI check/prepare composition in a disposable Git fixture; no remote effects."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        (self.root / 'src-tauri').mkdir()
+        (self.root / 'release-notes/releases').mkdir(parents=True)
+        (self.root / 'release-notes/unreleased').mkdir()
+        for name, value in [
+            ('package.json', {'name': 'test', 'version': '0.1.0'}),
+            ('package-lock.json', {'version': '0.1.0', 'packages': {'': {'version': '0.1.0'}}}),
+            ('src-tauri/tauri.conf.json', {'version': '0.1.0'}),
+        ]:
+            (self.root / name).write_text(json.dumps(value))
+        (self.root / 'src-tauri/Cargo.toml').write_text(
+            '[package]\nname = "garmin-trainer-desktop"\nversion = "0.1.0"\n'
+        )
+        (self.root / 'src-tauri/Cargo.lock').write_text(
+            '[[package]]\nname = "garmin-trainer-desktop"\nversion = "0.1.0"\n'
+        )
+        (self.root / 'release-notes/releases/0.1.0.md').write_text(
+            '# Garmin Trainer 0.1.0\n\nStatus: unreleased\n\n' + metadata.WARNINGS
+        )
+        self.fix = self.root / 'release-notes/unreleased/T0001-fix.md'
+        self.fix.write_text(
+            '---\ntask: T0001\npr: 5\ncategory: Fixed\nrelease_note_required: true\n---\n\n- Fixed it.\n'
+        )
+        self.marker = self.root / 'release-notes/unreleased/T0002-tests.md'
+        self.marker.write_text(
+            '---\ntask: T0002\npr: none\ncategory: Internal\nrelease_note_required: false\nreason: tests only\n---\n'
+        )
+        for command in (
+            ['init', '-q'],
+            ['add', '.'],
+            ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'fixture'],
+        ):
+            subprocess.run(['git', *command], cwd=self.root, check=True)
+        mask = os.umask(0o077)
+        os.umask(mask)
+        self.addCleanup(os.umask, mask)
+
+    def cli(self, *args):
+        output = io.StringIO()
+        with (
+            patch.object(release, 'ROOT', self.root),
+            patch.object(sys, 'argv', ['release', *args]),
+            contextlib.redirect_stdout(output),
+        ):
+            release.main.__wrapped__()
+        return json.loads(output.getvalue())
+
+    def tree(self):
+        return {
+            str(path.relative_to(self.root)): path.read_bytes()
+            for path in self.root.rglob('*')
+            if path.is_file() and '.git' not in path.parts
+        }
+
+    def test_check_counts_pending_fragments_and_refuses_a_malformed_one(self):
+        self.assertEqual(self.cli('check')['unreleasedFragments'], 2)
+        self.marker.write_text('broken')
+        with self.assertRaisesRegex(ValueError, 'T0002-tests.md'):
+            self.cli('check')
+
+    def test_dry_run_reports_promotion_and_changes_nothing(self):
+        before = self.tree()
+        result = self.cli('prepare', '--version', '0.2.0')
+        self.assertEqual(
+            (result['executed'], result['promotedFragments']), (False, ['T0001-fix.md'])
+        )
+        self.assertEqual(before, self.tree())
+
+    def test_execute_promotes_consumes_required_only_and_rechecks(self):
+        result = self.cli('prepare', '--version', '0.2.0', '--execute')
+        self.assertEqual(result['promotedFragments'], ['T0001-fix.md'])
+        self.assertFalse(self.fix.exists())
+        self.assertTrue(self.marker.exists())
+        self.assertIn('- Fixed it.', (self.root / 'release-notes/releases/0.2.0.md').read_text())
+        self.assertEqual(self.cli('check')['version'], '0.2.0')
+
+    def test_bad_input_and_dirty_source_refuse_without_effects(self):
+        self.marker.write_text('broken')
+        subprocess.run(['git', 'add', '.'], cwd=self.root, check=True)
+        subprocess.run(
+            ['git', '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'bad'],
+            cwd=self.root,
+            check=True,
+        )
+        before = self.tree()
+        for argv in (
+            ['prepare', '--version', '0.2.0', '--execute'],
+            ['prepare', '--version', '0.2.0'],
+        ):
+            with self.subTest(argv=argv), self.assertRaises(ValueError):
+                self.cli(*argv)
+        self.assertEqual(before, self.tree())
+        self.marker.write_text(
+            '---\ntask: T0002\npr: none\ncategory: Internal\nrelease_note_required: false\nreason: ok\n---\n'
+        )
+        before = self.tree()
+        with self.assertRaisesRegex(ValueError, 'clean source'):
+            self.cli('prepare', '--version', '0.2.0', '--execute')
+        self.assertEqual(before, self.tree())
 
 
 if __name__ == '__main__':

@@ -31,7 +31,7 @@ Public body SHA-256: `365ca878cfef84f34ab977106b8ddb8538c478549f50d054de5d04866a
 
 Pre-freeze full validation passed 2977 Vitest tests (two existing skips), 419 desktop Python tests (four Windows-only skips on macOS), format/lint/type/architecture/CI contracts and production build; exact-head trusted Validate and manual Windows feedback preceded PR223 merge. Earlier different-byte feedback did not substitute final-package qualification. One outer-budget-interrupted synthetic-history invocation remains failed/unknown; after exact owned actor/mount reconciliation, a sufficient-budget fresh invocation passed with originals preserved. No assertion was weakened or candidate rebuilt for recovery. Successful invocations have independent preservation/settlement/disposition evidence; standalone/rehearsal/failed scratch keeps normal expiry, not cleanup authority.
 
-Rights/notices, plaintext-state/prerequisite limits and fresh npm/target-native OSV/auth advisories are disclosed in [unchanged notes](../release-notes/0.1.3.md). macOS needs manual app placement; Windows needs preinstalled WebView2 ([alpha limits and retained attribution](windows.md#published-013-evidence)). No primary app/settings/data activation, migration or copy-back occurred; production back-sync is a no-op. See the [repeatable procedure](#dual-platform-candidate-and-publication-procedure) and [compatible recovery](#existing-database-upgrades-and-recovery).
+Rights/notices, plaintext-state/prerequisite limits and fresh npm/target-native OSV/auth advisories are disclosed in [unchanged notes](../release-notes/releases/0.1.3.md). macOS needs manual app placement; Windows needs preinstalled WebView2 ([alpha limits and retained attribution](windows.md#published-013-evidence)). No primary app/settings/data activation, migration or copy-back occurred; production back-sync is a no-op. See the [repeatable procedure](#dual-platform-candidate-and-publication-procedure) and [compatible recovery](#existing-database-upgrades-and-recovery).
 
 ## Published 0.1.2
 
@@ -115,18 +115,27 @@ npm run release -- publish ... same inputs ... --execute
 
 ## Version and notes
 
-`package.json` → `version` is canonical. `npm run release:check` checks the root npm lock/version, root crate Cargo manifest/lock, Tauri version and `release-notes/<version>.md`. The current source version is **0.1.3**, published above; `Status: prepared` is the historical metadata contract, not a statement of live GitHub visibility. 0.1.0 remains unreleased foundation history, not an earlier download. No dependency versions are changed by metadata preparation.
+`package.json` → `version` is canonical. `npm run release:check` checks the root npm lock/version, root crate Cargo manifest/lock, Tauri version, `release-notes/releases/<version>.md` and the syntax of every pending fragment in `release-notes/unreleased/`. The current source version is **0.1.3**, published above; `Status: prepared` is the historical metadata contract, not a statement of live GitHub visibility. 0.1.0 remains unreleased foundation history, not an earlier download. No dependency versions are changed by metadata preparation.
+
+**Release notes are written per change.** Each change adds one fragment to `release-notes/unreleased/` (format, categories and the no-note marker: [release-notes/README.md](../release-notes/README.md)); nothing edits a shared Unreleased section. Before a cut, review what will be published:
+
+```bash
+npm run release:notes:check     # validate fragments; no effects
+npm run release:notes:preview   # print the generated categorized text; no effects
+```
 
 Metadata preparation is local, requires clean source and produces an ordinary reviewable PR diff, not a release:
 
 ```bash
-npm run release -- prepare --version "$VERSION" --notes "$REVIEWED_BODY"
-# Writes the diff; omit --execute for a plan:
-npm run release -- prepare --version "$VERSION" --notes "$REVIEWED_BODY" --execute
+npm run release -- prepare --version "$VERSION"
+# Plans only and names the fragments it would promote; add --execute to write the diff:
+npm run release -- prepare --version "$VERSION" --execute
 npm run release:check
 ```
 
-Use an unused SemVer (optional explicit prerelease; no build metadata), never a tag or path as the version. The helper preserves the old version's notes and adds signing/upgrade/rights warnings. Review all generated changes, then deliver/merge through the normal feature PR route. `Status: prepared` means notes prepared, not published or approved. Tests use temporary fixture repositories. Real preparation/publication belongs only to its explicitly scoped release task.
+`prepare` validates the version, every mirror and every fragment before writing. It writes `releases/$VERSION.md` (Trainer heading, `Status: prepared`, the signing/upgrade/rights warnings, then the required fragments by category) and the owned version mirrors, re-checks the result and only then deletes the fragments it published. No-note markers and supporting files stay. A refusal leaves every input unchanged; if a write fails midway, inspect the partial diff with `git status` and restore it with Git, because pending fragments are never deleted ahead of success. With no required fragments the note states that no changes were recorded; routine cut bookkeeping is never a product entry.
+
+To add reviewed wording, pass `--notes "$REVIEWED_TEXT_FILE"`: its text is placed before the generated changes and never replaces them. Edit a fragment instead when its own wording should change. Use an unused SemVer (optional explicit prerelease; no build metadata), never a tag or path as the version. The helper preserves earlier version notes. Review all generated changes, then deliver/merge through the normal feature PR route. `Status: prepared` means notes prepared, not published or approved. Tests use temporary fixture repositories. Real preparation/publication belongs only to its explicitly scoped release task.
 
 ## Build versus downloaded runtime
 
