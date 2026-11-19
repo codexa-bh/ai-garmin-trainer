@@ -796,7 +796,7 @@ class OrdinaryContracts(unittest.TestCase):
             patch('ordinary_smoke.source_snapshot', return_value=verified['current']),
             patch('ordinary_smoke.source_identity', return_value='a' * 64),
             patch('ordinary_smoke.security') as security,
-            patch('summary_smoke.prepare_summary') as summary_prepare,
+            patch('summary_smoke.prepare_summary'),
             patch('summary_smoke.scenario') as summary,
             patch('summary_smoke.presentation_scenario') as presentations,
         ):

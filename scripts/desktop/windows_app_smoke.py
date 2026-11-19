@@ -20,7 +20,7 @@ import time
 import uuid
 
 from native_smoke import REPO, Run, fingerprint, listening, port, private_json, readonly
-from ordinary_identity import inventory_hash, ordinary_preparation, provenance, source_snapshot
+from ordinary_identity import inventory_hash, ordinary_preparation, source_snapshot
 import platform_files
 import windows_package
 import windows_release

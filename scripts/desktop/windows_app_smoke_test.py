@@ -11,6 +11,7 @@ import subprocess
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 import uuid
@@ -483,10 +484,23 @@ class WindowsStateContracts(unittest.TestCase):
     def test_job_timeout_settles_only_its_owned_tree(self):
         with tempfile.TemporaryDirectory() as name:
             root = Path(name).resolve()
-            parent = 'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"]); time.sleep(30)'
-            with self.assertRaises(subprocess.TimeoutExpired) as result:
-                process.execute(Path(sys.executable), ['-c', parent], cwd=root, timeout=1)
-            self.assertTrue(result.exception.owned_tree_settled)
+            marker = root / 'owned-heartbeat'
+            child = (
+                'from pathlib import Path; import time; marker=Path(' + repr(str(marker)) + '); '
+                'exec("while True:\\n marker.write_text(str(time.monotonic_ns()))\\n time.sleep(.05)")'
+            )
+            parent = (
+                'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",'
+                + repr(child)
+                + ']); time.sleep(30)'
+            )
+            with self.assertRaises(subprocess.TimeoutExpired):
+                process.execute(Path(sys.executable), ['-c', parent], cwd=root, timeout=3)
+            # Observe actual owned-child termination, not unused exception metadata.
+            self.assertTrue(marker.is_file())
+            settled = marker.read_bytes()
+            time.sleep(0.3)
+            self.assertEqual(marker.read_bytes(), settled)
 
     def test_readonly_live_backend_handle_identity_and_settlement(self):
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])

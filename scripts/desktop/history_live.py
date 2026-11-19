@@ -237,7 +237,10 @@ def main():
     if set(integrity) != {'settings', 'settingsSha256', 'historyLimit', 'authority'}:
         raise ValueError('Exact metadata-only settings integrity record required')
     settings = canonical(integrity['settings'])
-    settings_hash = lambda: hashlib.sha256(settings.read_bytes()).hexdigest()
+
+    def settings_hash():
+        return hashlib.sha256(settings.read_bytes()).hexdigest()
+
     if settings_hash() != integrity['settingsSha256']:
         raise ValueError('Selected production settings changed; do not reselect silently')
     claim_root = private_directory(Path(args.token_input).parent)

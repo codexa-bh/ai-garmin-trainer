@@ -449,7 +449,9 @@ def presentation_scenario(run, families):
 def presentation_family(run, family):
     """Cohesive existing fixture sequences; prerequisite state stays within a family."""
     images = []
-    action = lambda name: run.command({'type': 'memory', 'action': name})
+
+    def action(name):
+        return run.command({'type': 'memory', 'action': name})
 
     def capture(label, presets=('wide', 'narrow')):
         run.capture_state = label

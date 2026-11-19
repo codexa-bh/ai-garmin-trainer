@@ -1,6 +1,5 @@
 """Real classifier/context/producer/consumer contracts; no app build or provider calls."""
 
-import contextlib
 import json
 import os
 from pathlib import Path

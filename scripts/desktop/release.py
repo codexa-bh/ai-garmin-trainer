@@ -246,7 +246,7 @@ def run(parser, args):
                 raise ValueError(
                     'Remote actions publish one verified release set; use release-set first (fake-provider tested only)'
                 )
-            from release_remote import GitHub, Release, assets_for
+            from release_remote import GitHub, Release
 
             journal = scratch / ('release-remote-' + str(uuid.uuid4()) + '.jsonl')
             print(json.dumps({'journal': str(journal)}), flush=True)

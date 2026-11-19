@@ -205,7 +205,6 @@ def execute(executable, arguments, *, cwd, timeout):
                 while active() and time.monotonic() < settlement:
                     time.sleep(0.05)
                 error = subprocess.TimeoutExpired(str(executable), timeout)
-                error.owned_tree_settled = active() == 0
                 raise error
             time.sleep(0.05)
         code = wintypes.DWORD()

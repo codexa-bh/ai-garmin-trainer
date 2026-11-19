@@ -4,7 +4,6 @@ import argparse
 import contextlib
 import json
 import os
-from pathlib import Path
 import signal
 import subprocess
 import time

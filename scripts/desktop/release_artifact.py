@@ -14,7 +14,6 @@ import uuid
 
 from ordinary_identity import (
     document,
-    inventory_hash,
     provenance,
     verify_ordinary,
     ordinary_preparation,
@@ -115,7 +114,9 @@ def digest(path):
 
 
 def _digest_windows(path):
-    content = lambda info: (info.st_ino, info.st_size, info.st_mtime_ns)
+    def content(info):
+        return info.st_ino, info.st_size, info.st_mtime_ns
+
     value = hashlib.sha256()
     with os.fdopen(platform_files.open_nofollow(path, os.O_RDONLY), 'rb') as stream:
         before = os.fstat(stream.fileno())

@@ -17,7 +17,7 @@ import uuid
 import platform_files
 import platform_target
 from release_timing import stage
-from smoke_build import build_inputs, digest_file, preparation_lock
+from smoke_build import build_inputs, preparation_lock
 
 VERSION = 2
 MODE = 'ordinary-release/v2'
@@ -281,7 +281,6 @@ def verify_ordinary(repo, bundle, source, inventory, workspace=None):
 def ordinary_preparation(repo, bundle, source, scratch):
     """Serialize the original artifact through final preservation, never share writable runs."""
     from native_smoke import private_json
-    from release_smoke import audit
 
     decision = {
         'mode': MODE,

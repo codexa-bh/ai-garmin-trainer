@@ -11,7 +11,6 @@ import http.client
 import json
 import os
 from pathlib import Path
-import shutil
 import smoke_resources as resources
 import signal
 import stat
@@ -1498,7 +1497,6 @@ def main():
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
     prepared = prepare(scratch, args, 'ordinary', synthetic_empty_chat=args.conversation_selection)
-    database = prepared.database
     bundle = canonical(args.bundle)
     source = source_identity()
     with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):

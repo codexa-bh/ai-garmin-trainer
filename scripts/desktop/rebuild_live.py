@@ -17,11 +17,11 @@ import uuid
 
 SOURCE = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(SOURCE / 'scripts/desktop'))
-from native_smoke import canonical, private_json, source_identity
-from ordinary_smoke import OrdinaryRun, audit, private_directory
-from smoke_input import prepare, json_document
-from integrated_memory_live import configure, durable_claim, request_deadline, PRESET
-import smoke_resources as resources
+from native_smoke import canonical, private_json, source_identity  # noqa: E402  # Requires the helper path above.
+from ordinary_smoke import OrdinaryRun, audit, private_directory  # noqa: E402  # Requires the helper path above.
+from smoke_input import prepare, json_document  # noqa: E402  # Requires the helper path above.
+from integrated_memory_live import configure, durable_claim, request_deadline, PRESET  # noqa: E402  # Requires the helper path above.
+import smoke_resources as resources  # noqa: E402  # Requires the helper path above.
 
 CAP = 20000  # milli-USD cumulative operator ceiling, not per attempt.
 BOOT_RESERVE = 9000

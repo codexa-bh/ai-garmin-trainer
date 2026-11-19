@@ -15,6 +15,7 @@ import subprocess
 import time
 import uuid
 from native_smoke import REPO, canonical, fingerprint, private_json, readonly
+import smoke_resources as resources
 
 CLASSES = ['numeric-activity-summaries', 'daily-health', 'synthetic-profile']
 SCENARIOS = ['native', 'ordinary', 'health-comparison']
@@ -212,9 +213,6 @@ def recipe_command(arguments):
     if result.returncode or len(result.stdout) > 8192 or len(result.stderr) > 8192:
         raise ValueError('Smoke recipe/compatibility/coverage refused; no native launch')
     return json.loads(result.stdout)
-
-
-import smoke_resources as resources
 
 
 class PreparedInput:

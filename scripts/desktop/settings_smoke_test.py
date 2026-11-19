@@ -4,8 +4,9 @@ import json
 import pathlib
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import settings_smoke
+from settings_smoke import capture_garmin, verify_choice_catalog, wait_settings
 
 
 class Run:
@@ -136,10 +137,6 @@ class LiveRunnerTests(unittest.TestCase):
         ]:
             with self.subTest(fault=fault), self.assertRaises(ValueError):
                 self.scenario(fault)
-
-
-from unittest.mock import Mock
-from settings_smoke import capture_garmin, verify_choice_catalog, wait_settings
 
 
 class SettingsCaptureTests(unittest.TestCase):

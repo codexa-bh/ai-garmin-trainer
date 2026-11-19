@@ -10,7 +10,6 @@ import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-from pathlib import Path
 import signal
 import sqlite3
 import threading
@@ -20,7 +19,6 @@ from native_smoke import (
     REPO,
     Observer,
     canonical,
-    fingerprint,
     private_json,
     readonly,
     source_identity,
@@ -285,7 +283,6 @@ class AuthoredProvider:
         self.calls = []
         self.memory_curation = memory_curation
         self.summary_calls = []
-        self.title_calls = 0
         today = datetime.date.today()
         self.week = (today - datetime.timedelta(days=today.weekday())).isoformat()
         self.expected_zones = None
@@ -360,8 +357,6 @@ class AuthoredProvider:
                                 'excludedInputs': len(json.loads(message['content'])['exclude']),
                             }
                         )
-                    else:
-                        owner.title_calls += 1
                 else:
                     owner.calls.append(
                         {

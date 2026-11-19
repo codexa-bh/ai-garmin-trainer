@@ -58,18 +58,6 @@ def extractor():
     )
 
 
-def extractor_version(seven_zip):
-    output = subprocess.run([str(seven_zip)], capture_output=True, timeout=30).stdout.decode(
-        'utf8', 'replace'
-    )
-    line = next(
-        (line.strip() for line in output.splitlines() if line.strip().startswith('7-Zip')), ''
-    )
-    if not line:
-        raise ValueError('7-Zip version unavailable')
-    return line
-
-
 def members(seven_zip, installer):
     """Validated member list; installer bytes are only read."""
     listing = subprocess.run(
