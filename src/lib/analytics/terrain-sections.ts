@@ -1,5 +1,5 @@
 /** Mechanical elevation-profile evidence, never a terrain/difficulty judgment. */
-export const TERRAIN_PARAMETERS = {
+const TERRAIN_PARAMETERS = {
   maxPoints: 100000,
   maxRows: 100,
   anchorMeters: 25,

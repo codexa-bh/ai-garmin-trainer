@@ -190,7 +190,7 @@ export async function catchUpCrossChatSummary(): Promise<void> {
   }
 }
 
-export async function prepareSummaryAdoption(
+async function prepareSummaryAdoption(
   command: SummaryCommand,
 ): Promise<SummaryCommand> {
   if (command.action !== "refresh") return command;
@@ -356,7 +356,7 @@ function applySummaryCommand(command: SummaryCommand) {
     changeCrossChatSummary(command.action);
   else throw new Error("summary_unsupported_control");
 }
-export function changeCrossChatSummary(
+function changeCrossChatSummary(
   action: "clear" | "disable" | "enable" | "retry",
 ) {
   summaryLifetime().active?.abort();

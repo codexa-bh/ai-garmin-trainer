@@ -164,7 +164,8 @@ mod tests {
         assert_eq!(installed_python(b"[]"), Python::Missing);
         // uv reports host-absolute interpreter paths.
         let synthetic = if cfg!(windows) {
-            br#"[{"version_parts":{"major":3,"minor":12},"path":"C:\\synthetic\\python.exe"}]"#.as_slice()
+            br#"[{"version_parts":{"major":3,"minor":12},"path":"C:\\synthetic\\python.exe"}]"#
+                .as_slice()
         } else {
             br#"[{"version_parts":{"major":3,"minor":12},"path":"/synthetic/python"}]"#.as_slice()
         };

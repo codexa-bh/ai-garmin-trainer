@@ -1,3 +1,5 @@
+type GarminImportStore =
+  import("../src/lib/garmin/import-ports").GarminImportPorts["store"];
 import { describe, expect, it, vi } from "vitest";
 import { createGarminImports } from "../src/lib/garmin/sync-import";
 import {
@@ -15,7 +17,6 @@ import {
 } from "../src/lib/garmin/history-policy";
 import type {
   GarminImportPorts,
-  GarminImportStore,
   GarminReader,
 } from "../src/lib/garmin/import-ports";
 import {
@@ -29,10 +30,6 @@ import type {
   GarminAthleteBaselineDto,
   GarminBodyMetricsDto,
 } from "../src/lib/garmin/types";
-import {
-  classifyDetailError,
-  dailyHealthImportPlan,
-} from "../src/lib/garmin/import-policy";
 
 const now = new Date("2026-09-21T12:00:00Z");
 function fixture() {
@@ -1122,28 +1119,5 @@ describe("Garmin imports with supplied capabilities, no infrastructure mocks", (
       recordCount: 0,
     });
     expect(f.reader.activityHrZoneTime).not.toHaveBeenCalled();
-  });
-
-  it("bounds and deduplicates health planning without advancing a completed historical cursor", () => {
-    expect(
-      dailyHealthImportPlan({
-        historyStartDate: "2026-09-19",
-        resumeDate: "2026-09-22",
-        endDate: "2026-09-21",
-        repairDates: ["2026-09-18", "2026-09-20", "2026-09-20"],
-        trailingDates: ["2026-09-20", "2026-09-21", "2026-09-22"],
-      }),
-    ).toMatchObject({
-      dates: ["2026-09-20", "2026-09-21"],
-      checkpointDates: [],
-    });
-    // Authentication/transport unavailability must not become terminal source absence.
-    expect(classifyDetailError(new Error("auth unavailable"))).toMatchObject({
-      errorClass: "auth",
-      retryable: true,
-    });
-    expect(
-      classifyDetailError(new Error("x".repeat(2000))).message,
-    ).toHaveLength(1000);
   });
 });

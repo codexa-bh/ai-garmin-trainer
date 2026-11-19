@@ -3,7 +3,6 @@ import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 import {
   dailyHealthBounds,
   dailyHealthRange,
-  isHealthDate,
   resolveHealthRange,
   shiftHealthDate,
 } from "../src/app/dashboard/health-daily-range";
@@ -23,7 +22,7 @@ describe("Daily civil-date comparison", () => {
     "",
     "2026-00-12",
   ])("rejects malformed/impossible %s", (date) =>
-    expect(isHealthDate(date)).toBe(false),
+    expect(dailyHealthBounds(rows(date), today)).toBeNull(),
   );
   it.each([
     ["2024-03-01", -1, "2024-02-29"],

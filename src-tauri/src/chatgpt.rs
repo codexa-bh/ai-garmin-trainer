@@ -1,9 +1,9 @@
 //! Native-only ChatGPT credential ownership. No renderer receives a token or URL.
+use crate::private_fs::FileId;
+use crate::process_tree::{self, Killer, Tree};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
-use crate::private_fs::FileId;
-use crate::process_tree::{self, Killer, Tree};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -230,7 +230,13 @@ impl Owner {
         let root = root.join("chatgpt-v1");
         let path = root.join("records").join("credentials-v2.json");
         let legacy = root.join("records").join("credentials-v1.json");
-        let source_path = if present(&path)? { path.clone() } else if present(&legacy)? { legacy } else { path.clone() };
+        let source_path = if present(&path)? {
+            path.clone()
+        } else if present(&legacy)? {
+            legacy
+        } else {
+            path.clone()
+        };
         // Newest presence is authoritative, including unsafe/unsupported objects.
         // Legacy reads never migrate; the first explicit write exclusively publishes v2.
         if !present(&source_path)? {
@@ -331,7 +337,9 @@ impl Owner {
     fn verify_store(&self, store: &Store) -> Result<(), &'static str> {
         store._owner.verify()?;
         store.records.verify()?;
-        if store.source_path != self.path && present(&self.path)? { return Err(ERROR); }
+        if store.source_path != self.path && present(&self.path)? {
+            return Err(ERROR);
+        }
         let (identity, mut current) = crate::private_store::capture(&store.source_path)?;
         let unchanged = store.file_identity == Some(identity)
             && current == store.bytes
@@ -357,7 +365,15 @@ impl Owner {
             return Err(ERROR);
         }
         let next = serde_json::to_vec(&store.document).map_err(|_| ERROR)?;
-        let confirmed = match crate::private_store::publish(&self.path, &next, if store.source_path == self.path { Some(&store.bytes) } else { None }) {
+        let confirmed = match crate::private_store::publish(
+            &self.path,
+            &next,
+            if store.source_path == self.path {
+                Some(&store.bytes)
+            } else {
+                None
+            },
+        ) {
             Ok(confirmed) => confirmed,
             Err(error) => {
                 // Failed precommit mutation must not become in-memory authority.
@@ -384,11 +400,24 @@ impl Owner {
         Ok(())
     }
     fn select_active(store: &mut Store, id: &str) -> Result<bool, &'static str> {
-        if !store.document.registrations.iter().any(|r| r.id == id) { return Err(ERROR); }
-        if active_id(&store.document) == Some(id) { return Ok(false); }
+        if !store.document.registrations.iter().any(|r| r.id == id) {
+            return Err(ERROR);
+        }
+        if active_id(&store.document) == Some(id) {
+            return Ok(false);
+        }
         // Fence every prior admission, including ambiguous legacy registrations.
-        if store.document.registrations.iter().any(|r| r.epoch >= 9_007_199_254_740_991) { return Err(ERROR); }
-        for r in &mut store.document.registrations { r.epoch += 1; }
+        if store
+            .document
+            .registrations
+            .iter()
+            .any(|r| r.epoch >= 9_007_199_254_740_991)
+        {
+            return Err(ERROR);
+        }
+        for r in &mut store.document.registrations {
+            r.epoch += 1;
+        }
         store.document.version = 2;
         store.document.active_registration_id = Some(id.to_owned());
         Ok(true)
@@ -396,10 +425,16 @@ impl Owner {
     pub fn activate(&self, id: &str, scope: Option<(&AtomicU64, u64)>) -> Result<(), &'static str> {
         let mut store = self.store.lock().map_err(|_| ERROR)?;
         let _commit = self.attempt_gate.lock().map_err(|_| ERROR)?;
-        if !ui_current(scope) || self.stopped.load(Ordering::SeqCst) { return Err(ERROR); }
+        if !ui_current(scope) || self.stopped.load(Ordering::SeqCst) {
+            return Err(ERROR);
+        }
         self.verify_store(&store)?;
-        if active_id(&store.document).is_some_and(|active| active != id) { return Err("Use Switch account to replace the active connection."); }
-        if Self::select_active(&mut store, id)? { self.publish(&mut store)?; }
+        if active_id(&store.document).is_some_and(|active| active != id) {
+            return Err("Use Switch account to replace the active connection.");
+        }
+        if Self::select_active(&mut store, id)? {
+            self.publish(&mut store)?;
+        }
         Ok(())
     }
     fn helper(
@@ -607,7 +642,9 @@ impl Owner {
                 })
                 .transpose()?;
             if let Some(id) = selected.as_deref() {
-                if active_id(&store.document) != Some(id) { return Err("Choose the active ChatGPT connection before reconnecting."); }
+                if active_id(&store.document) != Some(id) {
+                    return Err("Choose the active ChatGPT connection before reconnecting.");
+                }
             }
             if registration.is_none() && store.document.registrations.len() >= 16 {
                 return Err("Maximum 16 saved ChatGPT registrations.");
@@ -667,24 +704,48 @@ impl Owner {
                 .ok_or(ERROR)?;
             store.document.registrations[position] = connection;
         } else {
-            let matches: Vec<_> = store.document.registrations.iter()
-                .filter(|r| r.issuer == connection.issuer && r.subject == connection.subject).collect();
-            let saved = matches.iter().copied().find(|r| active_id(&store.document) == Some(r.id.as_str()))
-                .or_else(|| if matches.len() == 1 { matches.first().copied() } else { None });
+            let matches: Vec<_> = store
+                .document
+                .registrations
+                .iter()
+                .filter(|r| r.issuer == connection.issuer && r.subject == connection.subject)
+                .collect();
+            let saved = matches
+                .iter()
+                .copied()
+                .find(|r| active_id(&store.document) == Some(r.id.as_str()))
+                .or_else(|| {
+                    if matches.len() == 1 {
+                        matches.first().copied()
+                    } else {
+                        None
+                    }
+                });
             if !matches.is_empty() && saved.is_none() {
                 return Err("Choose one legacy connection to keep active before switching accounts; no records were changed.");
             }
             if let Some(saved) = saved {
                 let registration_id = saved.id.clone();
-                if Self::select_active(&mut store, &registration_id)? { self.publish(&mut store)?; }
+                if Self::select_active(&mut store, &registration_id)? {
+                    self.publish(&mut store)?;
+                }
                 *self.pending_client.lock().map_err(|_| ERROR)? = None;
                 return Ok(SignIn {
                     registration_id,
                     reused: true,
                 });
             }
-            if store.document.registrations.iter().any(|r| r.epoch >= 9_007_199_254_740_991) { return Err(ERROR); }
-            for r in &mut store.document.registrations { r.epoch += 1; }
+            if store
+                .document
+                .registrations
+                .iter()
+                .any(|r| r.epoch >= 9_007_199_254_740_991)
+            {
+                return Err(ERROR);
+            }
+            for r in &mut store.document.registrations {
+                r.epoch += 1;
+            }
             store.document.version = 2;
             store.document.active_registration_id = Some(id.clone());
             store.document.registrations.push(connection);
@@ -703,7 +764,9 @@ impl Owner {
         epoch: u64,
     ) -> Result<Registration, &'static str> {
         self.verify_store(store)?;
-        if active_id(&store.document) != Some(id) { return Err("Archived ChatGPT connection is not active."); }
+        if active_id(&store.document) != Some(id) {
+            return Err("Archived ChatGPT connection is not active.");
+        }
         let position = store
             .document
             .registrations
@@ -816,7 +879,9 @@ impl Owner {
     pub fn disclose(&self, id: &str, scope: Option<(&AtomicU64, u64)>) -> Result<(), &'static str> {
         let mut store = self.store.lock().map_err(|_| ERROR)?;
         self.verify_store(&store)?;
-        if active_id(&store.document) != Some(id) { return Err(ERROR); }
+        if active_id(&store.document) != Some(id) {
+            return Err(ERROR);
+        }
         let _commit = self.attempt_gate.lock().map_err(|_| ERROR)?;
         if !ui_current(scope) {
             return Err(ERROR);
@@ -850,7 +915,9 @@ impl Owner {
                 return Err(ERROR);
             }
             self.verify_store(&store)?;
-            if active_id(&store.document) != Some(id) { return Err(ERROR); }
+            if active_id(&store.document) != Some(id) {
+                return Err(ERROR);
+            }
             self.cancel_locked();
             let registration = store
                 .document
@@ -960,7 +1027,9 @@ impl Owner {
             }
             if value.operation == BrokerOperation::Current {
                 self.verify_store(&store)?;
-                if active_id(&store.document) != Some(id) { return Err(ERROR); }
+                if active_id(&store.document) != Some(id) {
+                    return Err(ERROR);
+                }
                 let r = store
                     .document
                     .registrations
@@ -988,6 +1057,12 @@ impl Owner {
         sent.map_err(|_| ERROR)
     }
 }
+impl Drop for Owner {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1228,7 +1303,8 @@ mod tests {
         );
     }
     #[test]
-    fn duplicate_recovery_records_reuse_only_the_explicit_active_identity_and_preserve_every_record() {
+    fn duplicate_recovery_records_reuse_only_the_explicit_active_identity_and_preserve_every_record(
+    ) {
         let fixture = Fixture::new();
         let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
         let prior = connected(&owner);
@@ -1245,66 +1321,106 @@ mod tests {
         next.client_id = "oaiapp_third_authored".into();
         fake_helper(&fixture, json!({"ok":true,"result":next}), "");
         let epoch = owner.reserve_sign_in().unwrap();
-        assert_eq!(owner.sign_in(None, false, epoch, None), Ok(SignIn { registration_id: prior.id, reused: true }));
+        assert_eq!(
+            owner.sign_in(None, false, epoch, None),
+            Ok(SignIn {
+                registration_id: prior.id,
+                reused: true
+            })
+        );
         assert_eq!(before, crate::private_store::read(&owner.path).unwrap());
         assert_eq!(owner.metadata().as_array().unwrap().len(), 1);
         assert_eq!(owner.store.lock().unwrap().document.registrations.len(), 2);
     }
     #[test]
-    fn reconnect_uses_the_selected_client_without_retargeting_identity_or_restoring_plan_permission() {
-        let fixture=Fixture::new();
-        let owner=Owner::start(&fixture.0,&fixture.0).unwrap();
-        let first=connected(&owner);
-        owner.disconnect(&first.id,|| {},None).unwrap();
-        let mut renewed=first.clone();
-        renewed.access_token=Some("authored_reissued_access".into());
-        renewed.scopes=vec!["openid".into()];
-        fake_helper(&fixture,json!({"ok":true,"result":renewed}),"");
-        let epoch=owner.reserve_sign_in().unwrap();
-        let result=owner.sign_in(Some(first.id.clone()),false,epoch,None).unwrap();
-        assert_eq!(result.registration_id,first.id);
+    fn reconnect_uses_the_selected_client_without_retargeting_identity_or_restoring_plan_permission(
+    ) {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let first = connected(&owner);
+        owner.disconnect(&first.id, || {}, None).unwrap();
+        let mut renewed = first.clone();
+        renewed.access_token = Some("authored_reissued_access".into());
+        renewed.scopes = vec!["openid".into()];
+        fake_helper(&fixture, json!({"ok":true,"result":renewed}), "");
+        let epoch = owner.reserve_sign_in().unwrap();
+        let result = owner
+            .sign_in(Some(first.id.clone()), false, epoch, None)
+            .unwrap();
+        assert_eq!(result.registration_id, first.id);
         assert!(!result.reused);
-        let store=owner.store.lock().unwrap();
-        assert_eq!(store.document.registrations.len(),1);
-        let current=&store.document.registrations[0];
-        assert_eq!(current.client_id,first.client_id);
-        assert_eq!(current.subject,first.subject);
-        assert_eq!(current.access_token.as_deref(),Some("authored_reissued_access"));
+        let store = owner.store.lock().unwrap();
+        assert_eq!(store.document.registrations.len(), 1);
+        let current = &store.document.registrations[0];
+        assert_eq!(current.client_id, first.client_id);
+        assert_eq!(current.subject, first.subject);
+        assert_eq!(
+            current.access_token.as_deref(),
+            Some("authored_reissued_access")
+        );
         assert!(!plan(current));
-        assert_eq!(current.state,"identity-only");
-        assert!(current.epoch>first.epoch);
+        assert_eq!(current.state, "identity-only");
+        assert!(current.epoch > first.epoch);
     }
     #[test]
-    fn switching_accounts_projects_one_connection_fences_old_epochs_and_retains_recovery_on_restart() {
-        let fixture=Fixture::new();
-        let owner=Owner::start(&fixture.0,&fixture.0).unwrap();
-        let first=connected(&owner);
-        let mut replacement=registration();
-        replacement.subject="other-subject".into();
-        replacement.client_id="oaiapp_other_authored".into();
-        fake_helper(&fixture,json!({"ok":true,"result":replacement}),"");
-        let epoch=owner.reserve_sign_in().unwrap();
-        let switched=owner.sign_in(None,false,epoch,None).unwrap();
-        assert_ne!(switched.registration_id,first.id);
-        assert_eq!(owner.metadata().as_array().unwrap().len(),1);
-        assert_eq!(owner.metadata()[0]["id"],switched.registration_id);
-        let header=format!("x-chatgpt-owner: {}\r\n",owner.capability);
-        assert!(request(&owner,&header,json!({"operation":"current","registrationId":first.id,"epoch":first.epoch})).starts_with("HTTP/1.1 409"));
-        assert!(request(&owner,&header,json!({"operation":"credential","registrationId":first.id,"epoch":first.epoch+1})).starts_with("HTTP/1.1 409"));
-        assert!(request(&owner,&header,json!({"operation":"current","registrationId":switched.registration_id,"epoch":1})).starts_with("HTTP/1.1 200"));
+    fn switching_accounts_projects_one_connection_fences_old_epochs_and_retains_recovery_on_restart(
+    ) {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let first = connected(&owner);
+        let mut replacement = registration();
+        replacement.subject = "other-subject".into();
+        replacement.client_id = "oaiapp_other_authored".into();
+        fake_helper(&fixture, json!({"ok":true,"result":replacement}), "");
+        let epoch = owner.reserve_sign_in().unwrap();
+        let switched = owner.sign_in(None, false, epoch, None).unwrap();
+        assert_ne!(switched.registration_id, first.id);
+        assert_eq!(owner.metadata().as_array().unwrap().len(), 1);
+        assert_eq!(owner.metadata()[0]["id"], switched.registration_id);
+        let header = format!("x-chatgpt-owner: {}\r\n", owner.capability);
+        assert!(request(
+            &owner,
+            &header,
+            json!({"operation":"current","registrationId":first.id,"epoch":first.epoch})
+        )
+        .starts_with("HTTP/1.1 409"));
+        assert!(request(
+            &owner,
+            &header,
+            json!({"operation":"credential","registrationId":first.id,"epoch":first.epoch+1})
+        )
+        .starts_with("HTTP/1.1 409"));
+        assert!(request(
+            &owner,
+            &header,
+            json!({"operation":"current","registrationId":switched.registration_id,"epoch":1})
+        )
+        .starts_with("HTTP/1.1 200"));
         {
-            let store=owner.store.lock().unwrap();
-            assert_eq!(store.document.registrations.len(),2);
-            assert_eq!(store.document.registrations[0].access_token,first.access_token);
-            assert_eq!(store.document.registrations[0].refresh_token,first.refresh_token);
+            let store = owner.store.lock().unwrap();
+            assert_eq!(store.document.registrations.len(), 2);
+            assert_eq!(
+                store.document.registrations[0].access_token,
+                first.access_token
+            );
+            assert_eq!(
+                store.document.registrations[0].refresh_token,
+                first.refresh_token
+            );
         }
-        let mut returning=first.clone();
-        returning.client_id="oaiapp_new_client_not_transferred".into();
-        fake_helper(&fixture,json!({"ok":true,"result":returning}),"");
-        let epoch=owner.reserve_sign_in().unwrap();
-        assert_eq!(owner.sign_in(None,false,epoch,None).unwrap(),SignIn { registration_id:first.id.clone(),reused:true });
-        assert_eq!(owner.metadata()[0]["id"],first.id);
-        assert!(owner.metadata()[0]["epoch"].as_u64().unwrap()>first.epoch);
+        let mut returning = first.clone();
+        returning.client_id = "oaiapp_new_client_not_transferred".into();
+        fake_helper(&fixture, json!({"ok":true,"result":returning}), "");
+        let epoch = owner.reserve_sign_in().unwrap();
+        assert_eq!(
+            owner.sign_in(None, false, epoch, None).unwrap(),
+            SignIn {
+                registration_id: first.id.clone(),
+                reused: true
+            }
+        );
+        assert_eq!(owner.metadata()[0]["id"], first.id);
+        assert!(owner.metadata()[0]["epoch"].as_u64().unwrap() > first.epoch);
         owner.stop();
         let held = owner.clone();
         drop(owner);
@@ -1315,7 +1431,10 @@ mod tests {
         let mut remaining = held;
         loop {
             match Arc::try_unwrap(remaining) {
-                Ok(settled) => { drop(settled); break; }
+                Ok(settled) => {
+                    drop(settled);
+                    break;
+                }
                 Err(active) => {
                     assert!(std::time::Instant::now() < deadline, "owner did not settle");
                     remaining = active;
@@ -1323,76 +1442,135 @@ mod tests {
                 }
             }
         }
-        let reopened=Owner::start(&fixture.0,&fixture.0).unwrap();
-        assert_eq!(reopened.metadata().as_array().unwrap().len(),1);
-        assert_eq!(reopened.metadata()[0]["id"],first.id);
-        assert_eq!(reopened.store.lock().unwrap().document.registrations.len(),2);
+        let reopened = Owner::start(&fixture.0, &fixture.0).unwrap();
+        assert_eq!(reopened.metadata().as_array().unwrap().len(), 1);
+        assert_eq!(reopened.metadata()[0]["id"], first.id);
+        assert_eq!(
+            reopened.store.lock().unwrap().document.registrations.len(),
+            2
+        );
     }
     #[test]
-    fn legacy_read_is_nonmutating_and_explicit_selection_preserves_originals_and_denies_archived_access() {
+    fn legacy_read_is_nonmutating_and_explicit_selection_preserves_originals_and_denies_archived_access(
+    ) {
         for multiple in [false, true] {
             let fixture = Fixture::new();
             let first = registration();
             let mut second = first.clone();
             second.id = format!("registration_{}", uuid::Uuid::new_v4());
             second.subject = "other-authored-subject".into();
-            let document = Document { version: 1, host_id: format!("urn:uuid:{}",uuid::Uuid::new_v4()), registrations: if multiple { vec![first.clone(),second.clone()] } else { vec![first.clone()] }, active_registration_id: None };
-            let legacy = fixture.0.join("chatgpt-v1").join("records").join("credentials-v1.json");
+            let document = Document {
+                version: 1,
+                host_id: format!("urn:uuid:{}", uuid::Uuid::new_v4()),
+                registrations: if multiple {
+                    vec![first.clone(), second.clone()]
+                } else {
+                    vec![first.clone()]
+                },
+                active_registration_id: None,
+            };
+            let legacy = fixture
+                .0
+                .join("chatgpt-v1")
+                .join("records")
+                .join("credentials-v1.json");
             let bytes = serde_json::to_vec(&document).unwrap();
-            assert!(crate::private_store::publish(&legacy,&bytes,None).unwrap());
-            let owner = Owner::start(&fixture.0,&fixture.0).unwrap();
+            assert!(crate::private_store::publish(&legacy, &bytes, None).unwrap());
+            let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
             assert!(!owner.path.exists());
-            assert_eq!(crate::private_store::read(&legacy).unwrap(),bytes);
+            assert_eq!(crate::private_store::read(&legacy).unwrap(), bytes);
             let metadata = owner.metadata();
             if !multiple {
-                assert_eq!(metadata.as_array().unwrap().len(),1);
-                assert_eq!(metadata[0]["planEnabled"],true);
+                assert_eq!(metadata.as_array().unwrap().len(), 1);
+                assert_eq!(metadata[0]["planEnabled"], true);
                 continue;
             }
-            assert!(metadata.as_array().unwrap().iter().all(|r| r["state"] == "unavailable" && r["planEnabled"] == false));
-            let header = format!("x-chatgpt-owner: {}\r\n",owner.capability);
-            assert!(request(&owner,&header,json!({"operation":"current","registrationId":first.id,"epoch":first.epoch})).starts_with("HTTP/1.1 409"));
-            owner.activate(&second.id,None).unwrap();
-            assert_eq!(crate::private_store::read(&legacy).unwrap(),bytes);
-            assert_eq!(owner.metadata().as_array().unwrap().len(),1);
-            assert_eq!(owner.metadata()[0]["id"],second.id);
-            assert!(request(&owner,&header,json!({"operation":"credential","registrationId":first.id,"epoch":first.epoch})).starts_with("HTTP/1.1 409"));
-            assert!(owner.activate(&first.id,None).is_err());
-            assert!(owner.disclose(&first.id,None).is_err());
-            assert!(owner.discover_models(&first.id,None).is_err());
-            assert!(owner.disconnect(&first.id,||panic!("archived effect"),None).is_err());
-            let store=owner.store.lock().unwrap();
-            assert_eq!(store.document.version,2);
-            assert_eq!(store.document.registrations.len(),2);
-            assert_eq!(store.document.registrations[0].refresh_token,first.refresh_token);
+            assert!(metadata
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|r| r["state"] == "unavailable" && r["planEnabled"] == false));
+            let header = format!("x-chatgpt-owner: {}\r\n", owner.capability);
+            assert!(request(
+                &owner,
+                &header,
+                json!({"operation":"current","registrationId":first.id,"epoch":first.epoch})
+            )
+            .starts_with("HTTP/1.1 409"));
+            owner.activate(&second.id, None).unwrap();
+            assert_eq!(crate::private_store::read(&legacy).unwrap(), bytes);
+            assert_eq!(owner.metadata().as_array().unwrap().len(), 1);
+            assert_eq!(owner.metadata()[0]["id"], second.id);
+            assert!(request(
+                &owner,
+                &header,
+                json!({"operation":"credential","registrationId":first.id,"epoch":first.epoch})
+            )
+            .starts_with("HTTP/1.1 409"));
+            assert!(owner.activate(&first.id, None).is_err());
+            assert!(owner.disclose(&first.id, None).is_err());
+            assert!(owner.discover_models(&first.id, None).is_err());
+            assert!(owner
+                .disconnect(&first.id, || panic!("archived effect"), None)
+                .is_err());
+            let store = owner.store.lock().unwrap();
+            assert_eq!(store.document.version, 2);
+            assert_eq!(store.document.registrations.len(), 2);
+            assert_eq!(
+                store.document.registrations[0].refresh_token,
+                first.refresh_token
+            );
         }
     }
     #[test]
     fn newer_presence_and_migration_races_refuse_without_legacy_fallback_or_overwrite() {
-        let fixture=Fixture::new();
-        let first=registration();
-        let legacy=fixture.0.join("chatgpt-v1").join("records").join("credentials-v1.json");
-        let document=Document { version:1,host_id:format!("urn:uuid:{}",uuid::Uuid::new_v4()),registrations:vec![first],active_registration_id:None };
-        let original=serde_json::to_vec(&document).unwrap();
-        crate::private_store::publish(&legacy,&original,None).unwrap();
-        let owner=Owner::start(&fixture.0,&fixture.0).unwrap();
-        let unsupported=br#"{"version":999}"#;
-        crate::private_store::publish(&owner.path,unsupported,None).unwrap();
-        assert!(Owner::start(&fixture.0,&fixture.0).is_err());
-        let mut store=owner.store.lock().unwrap();
-        store.document.registrations[0].disclosed=true;
+        let fixture = Fixture::new();
+        let first = registration();
+        let legacy = fixture
+            .0
+            .join("chatgpt-v1")
+            .join("records")
+            .join("credentials-v1.json");
+        let document = Document {
+            version: 1,
+            host_id: format!("urn:uuid:{}", uuid::Uuid::new_v4()),
+            registrations: vec![first],
+            active_registration_id: None,
+        };
+        let original = serde_json::to_vec(&document).unwrap();
+        crate::private_store::publish(&legacy, &original, None).unwrap();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let unsupported = br#"{"version":999}"#;
+        crate::private_store::publish(&owner.path, unsupported, None).unwrap();
+        assert!(Owner::start(&fixture.0, &fixture.0).is_err());
+        let mut store = owner.store.lock().unwrap();
+        store.document.registrations[0].disclosed = true;
         assert!(owner.publish(&mut store).is_err());
-        assert_eq!(crate::private_store::read(&legacy).unwrap(),original);
-        assert_eq!(crate::private_store::read(&owner.path).unwrap(),unsupported);
-        for alias in [false,true] {
-            let fresh=Fixture::new();
-            let old=fresh.0.join("chatgpt-v1").join("records").join("credentials-v1.json");
-            let newest=fresh.0.join("chatgpt-v1").join("records").join("credentials-v2.json");
-            crate::private_store::publish(&old,&original,None).unwrap();
-            if alias { crate::private_fs::testing::symlink(&old,&newest).unwrap(); }
-            else { crate::private_store::publish(&newest,unsupported,None).unwrap(); }
-            assert!(Owner::start(&fresh.0,&fresh.0).is_err());
-            assert_eq!(crate::private_store::read(&old).unwrap(),original);
+        assert_eq!(crate::private_store::read(&legacy).unwrap(), original);
+        assert_eq!(
+            crate::private_store::read(&owner.path).unwrap(),
+            unsupported
+        );
+        for alias in [false, true] {
+            let fresh = Fixture::new();
+            let old = fresh
+                .0
+                .join("chatgpt-v1")
+                .join("records")
+                .join("credentials-v1.json");
+            let newest = fresh
+                .0
+                .join("chatgpt-v1")
+                .join("records")
+                .join("credentials-v2.json");
+            crate::private_store::publish(&old, &original, None).unwrap();
+            if alias {
+                crate::private_fs::testing::symlink(&old, &newest).unwrap();
+            } else {
+                crate::private_store::publish(&newest, unsupported, None).unwrap();
+            }
+            assert!(Owner::start(&fresh.0, &fresh.0).is_err());
+            assert_eq!(crate::private_store::read(&old).unwrap(), original);
         }
     }
     #[test]
@@ -1531,7 +1709,8 @@ mod tests {
     }
     #[test]
     fn browser_frame_is_revalidated_bounded_and_never_returned_as_output() {
-        let url = "https://auth.openai.com/api/accounts/authorize?id_token_hint=authored-private-id";
+        let url =
+            "https://auth.openai.com/api/accounts/authorize?id_token_hint=authored-private-id";
         let frame = format!("{}\n{{\"ok\":true}}", json!({"type":"browser","url":url}));
         let mut seen = None;
         let rest = read_helper(frame.as_bytes(), |opened| {
@@ -1543,7 +1722,10 @@ mod tests {
         // Refused opener, foreign route, extra fields and unterminated frames fail closed.
         assert!(read_helper(frame.as_bytes(), |_| false).is_none());
         for bad in [
-            format!("{}\n{{}}", json!({"type":"browser","url":"https://evil.invalid/api/accounts/authorize"})),
+            format!(
+                "{}\n{{}}",
+                json!({"type":"browser","url":"https://evil.invalid/api/accounts/authorize"})
+            ),
             format!("{{\"type\":\"browser\",\"url\":\"{url}\",\"extra\":1}}\n{{}}"),
             format!("{}\n{{}}", json!({"type":"other","url":url})),
             json!({"type":"browser","url":url}).to_string(),
@@ -1551,9 +1733,15 @@ mod tests {
             assert!(read_helper(bad.as_bytes(), |_| panic!("opened {bad}")).is_none());
         }
         // Ordinary documents pass unchanged; oversize output is bounded.
-        assert_eq!(read_helper(&b"{\"ok\":false}"[..], |_| unreachable!()).unwrap(), b"{\"ok\":false}");
+        assert_eq!(
+            read_helper(&b"{\"ok\":false}"[..], |_| unreachable!()).unwrap(),
+            b"{\"ok\":false}"
+        );
         let large = vec![b' '; 200 * 1024];
-        assert_eq!(read_helper(&large[..], |_| unreachable!()).unwrap().len(), 128 * 1024 + 1);
+        assert_eq!(
+            read_helper(&large[..], |_| unreachable!()).unwrap().len(),
+            128 * 1024 + 1
+        );
     }
     fn wait_until(mut condition: impl FnMut() -> bool) {
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -1660,7 +1848,10 @@ mod tests {
         fake_helper(
             &fixture,
             json!({"ok":true,"result":r}),
-            &format!("fs.appendFileSync({}, 'x');", shell_quote(counter.to_str().unwrap())),
+            &format!(
+                "fs.appendFileSync({}, 'x');",
+                shell_quote(counter.to_str().unwrap())
+            ),
         );
         let a = owner.clone();
         let b = owner.clone();
@@ -1719,7 +1910,10 @@ mod tests {
             assert!(
                 response.starts_with("HTTP/1.1 409"),
                 "terminal={terminal}; broker status={:?}; response_bytes={}",
-                response.lines().next().map(|line| line.chars().take(64).collect::<String>()),
+                response
+                    .lines()
+                    .next()
+                    .map(|line| line.chars().take(64).collect::<String>()),
                 response.len()
             );
             let store = owner.store.lock().unwrap();
@@ -1802,10 +1996,5 @@ mod tests {
         assert_eq!(store.document.registrations[0].email, r.email);
         assert_eq!(store.bytes, original);
         assert_eq!(crate::private_store::read(&owner.path).unwrap(), external);
-    }
-}
-impl Drop for Owner {
-    fn drop(&mut self) {
-        self.stop();
     }
 }

@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTrainerContext,
-  formatCurrentDateContext,
-  formatRecentChatHistory,
+  formatActiveChatTranscript,
   TRAINER_SYSTEM_PROMPT,
 } from "../src/lib/ai/context";
-import { applyProfilePatch } from "../src/lib/ai/profile";
 
 describe("trainer AI", () => {
   it("builds bounded grounded context", () => {
@@ -92,9 +90,6 @@ describe("trainer AI", () => {
       recentMessages: [],
     });
 
-    expect(formatCurrentDateContext(currentDate)).toContain(
-      "Server current date basis: 2026-08-14",
-    );
     expect(context).toContain("Server current date basis: 2026-08-14");
     expect(context).toContain("Use this server-owned date");
     expect(context).toContain('derive "yesterday"');
@@ -213,39 +208,20 @@ describe("trainer AI", () => {
     expect(context).not.toContain("start a weekly weigh-in");
   });
 
-  it("preserves source facts when applying profile corrections", () => {
-    expect(
-      applyProfilePatch(
-        {
-          goals: [],
-          sports: [],
-          preferences: { tone: "brief" },
-          constraints: [],
-        },
-        { goals: ["base fitness"] },
-      ).preferences.tone,
-    ).toBe("brief");
-  });
-
   it("keeps bounded recent chat history with concise tool evidence", () => {
-    const history = formatRecentChatHistory(
-      [
-        { role: "user", content: "old turn that should fall out" },
-        { role: "assistant", content: "older answer" },
-        { role: "user", content: "Analyze my latest hike" },
-        {
-          role: "assistant",
-          content: "Latest hike answer",
-          grounding: {
-            tool: "runMathAnalysis",
-            activityId: "123456",
-            activityName: "Vrh Zakotja",
-            summary: "12 km hike with normalized local stream evidence",
-          },
+    const history = formatActiveChatTranscript([
+      { role: "user", content: "Analyze my latest hike" },
+      {
+        role: "assistant",
+        content: "Latest hike answer",
+        grounding: {
+          tool: "runMathAnalysis",
+          activityId: "123456",
+          activityName: "Vrh Zakotja",
+          summary: "12 km hike with normalized local stream evidence",
         },
-      ],
-      2,
-    );
+      },
+    ]);
 
     expect(history).toHaveLength(2);
     expect(history.join("\n")).not.toContain("old turn");
@@ -259,7 +235,7 @@ describe("trainer AI", () => {
   });
 
   it("retains ungrounded assistant prose as unverified continuity, not fresh facts", () => {
-    const history = formatRecentChatHistory([
+    const history = formatActiveChatTranscript([
       {
         role: "assistant",
         content: "The invented activity was 2025-10-18 Snežnik.",

@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { COACHING_SCENARIOS } from "../src/lib/ai/coaching-scenarios";
+import { COACHING_SCENARIOS } from "./coaching-scenarios";
 import {
   buildFinalSynthesisInstructions,
   buildPlannerInstructions,
-  TRAINER_INSTRUCTION_SECTIONS,
   TRAINER_SYSTEM_PROMPT,
 } from "../src/lib/ai/trainer-instructions";
 import { minimizeSummarySource } from "../src/lib/memory/summary-policy";
@@ -82,14 +81,14 @@ describe("canonical trainer instruction package", () => {
     expect(TRAINER_SYSTEM_PROMPT).not.toMatch(
       /give grounded, non-medical|do not diagnose|seek qualified care/i,
     );
-    expect(Object.keys(TRAINER_INSTRUCTION_SECTIONS)).toEqual([
-      "identity",
-      "coaching",
-      "hiking",
-      "sources",
-      "data",
-      "privacy",
-    ]);
+    // Assert the public assembled prompt, not its private section inventory.
+    for (const heading of [
+      "Trainer identity",
+      "Evidence-based coaching",
+      "Hiking specialization",
+      "Source hierarchy",
+    ])
+      expect(TRAINER_SYSTEM_PROMPT).toContain(heading);
   });
 
   it("scopes calculation and synthesis rules to their model-call responsibilities", () => {

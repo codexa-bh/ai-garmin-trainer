@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateDeterministicReliability,
-  RELIABILITY_FIXTURES,
   summarizeReliability,
 } from "../src/lib/ai/reliability-fixtures";
 
 describe("provider-neutral reliability fixture gate", () => {
   it("covers critical privacy, prompt-injection, memory, and calculation gates", () => {
-    const ids = RELIABILITY_FIXTURES.map((item) => item.id);
+    const results = evaluateDeterministicReliability();
+    const ids = results.map((item) => item.id);
     expect(ids).toEqual(
       expect.arrayContaining([
         "PRIV-01",
@@ -18,8 +18,7 @@ describe("provider-neutral reliability fixture gate", () => {
       ]),
     );
     expect(
-      RELIABILITY_FIXTURES.filter((item) => item.severity === "critical")
-        .length,
+      results.filter((item) => item.severity === "critical").length,
     ).toBeGreaterThanOrEqual(4);
   });
 

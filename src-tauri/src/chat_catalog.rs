@@ -7,7 +7,11 @@ pub struct Entry {
     pub id: String,
     pub provider: String,
     pub model_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "literal_string")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "literal_string"
+    )]
     pub registration_id: Option<String>,
     #[serde(
         default,
@@ -62,8 +66,23 @@ impl Catalog {
                     .contains(&entry.provider.as_str())
                 || !text(&entry.model_id, 256)
                 || if entry.provider == "chatgpt" {
-                    !entry.registration_id.as_ref().map(|id| id.strip_prefix("registration_").and_then(|suffix| uuid::Uuid::parse_str(suffix).ok().map(|parsed| parsed.get_version_num()==4 && parsed.to_string()==suffix)).unwrap_or(false)).unwrap_or(false)
-                } else { entry.registration_id.is_some() }
+                    !entry
+                        .registration_id
+                        .as_ref()
+                        .map(|id| {
+                            id.strip_prefix("registration_")
+                                .and_then(|suffix| {
+                                    uuid::Uuid::parse_str(suffix).ok().map(|parsed| {
+                                        parsed.get_version_num() == 4
+                                            && parsed.to_string() == suffix
+                                    })
+                                })
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false)
+                } else {
+                    entry.registration_id.is_some()
+                }
                 || entry
                     .display_name
                     .as_ref()

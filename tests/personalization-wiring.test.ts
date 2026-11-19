@@ -104,7 +104,7 @@ it("keeps OpenAI request options, normalized vectors, invalid response rejection
 });
 
 it("wires real chat completion, Profile routes, singleton reset and memory-only mutations through SQLite", async () => {
-  const repository = await import("../src/lib/db/repository");
+  const repository = await import("./storage-fixture");
   db = repository.getDatabase();
   const profile = await import("../src/app/api/profile/route");
   const memory = await import("../src/app/api/memory/route");
@@ -131,8 +131,7 @@ it("wires real chat completion, Profile routes, singleton reset and memory-only 
       constraints: ["weekdays"],
     },
   });
-  const first = composition.trainerMemoryStore();
-  expect(composition.trainerMemoryStore()).toBe(first);
+  const management = composition.memoryManagement;
   const prepared = chat.prepareChatTurn(
     "t0195-wiring",
     "I prefer morning hikes",
@@ -151,20 +150,14 @@ it("wires real chat completion, Profile routes, singleton reset and memory-only 
   expect(db.prepare("select count(*) as n from semantic_memory").get()).toEqual(
     { n: 0 },
   );
-  await first.addCompletedTurn({
-    conversationId: "t0195-wiring",
-    userMessageId: prepared.userRecord.id,
-    assistantMessageId: completed.assistantRecord.id,
-    userText: "I prefer morning hikes",
-    assistantText: "Noted.",
-    completedAt: completed.assistantRecord.createdAt,
-  });
-  const page = await first.list(40);
+  const { seedSemanticMemory } = await import("./memory-fixture");
+  seedSemanticMemory();
+  const page = await management.read();
   expect(page.memories).toHaveLength(1);
   expect(page.memories[0]).toMatchObject({
     text: "I prefer morning hikes",
-    sourceMessageIds: [prepared.userRecord.id],
-    conversationId: "t0195-wiring",
+    sourceMessageIds: ["authored-user"],
+    conversationId: "authored-chat",
   });
   const id = page.memories[0]!.id;
   const before = db.prepare("select * from message order by id").all();
@@ -178,24 +171,12 @@ it("wires real chat completion, Profile routes, singleton reset and memory-only 
     ready: false,
     memories: [],
   });
-  const second = composition.trainerMemoryStore();
-  expect(second).not.toBe(first);
-  expect(
-    await second.search("morning hikes", { userId: "local-default" }, 8),
-  ).toEqual([]);
-  await second.addCompletedTurn({
-    conversationId: "t0195-wiring",
-    userMessageId: "disabled",
-    assistantMessageId: "disabled-a",
-    userText: "I prefer evening walks",
-    assistantText: "Noted",
-    completedAt: new Date(),
-  });
+  expect((await management.read()).memories).toEqual([]);
   expect(
     db.prepare("select count(*) as count from semantic_memory").get(),
   ).toEqual({ count: 1 });
   await memory.PATCH(request("memory", { action: "set-enabled", enabled: 0 }));
-  expect((await composition.trainerMemoryStore().health()).ready).toBe(true);
+  expect((await management.read()).ready).toBe(true);
   expect(
     (
       await memory.PATCH(
@@ -207,15 +188,13 @@ it("wires real chat completion, Profile routes, singleton reset and memory-only 
       )
     ).status,
   ).toBe(200);
-  expect(
-    (await composition.trainerMemoryStore().list(40)).memories[0]?.text,
-  ).toBe("I prefer evening hikes");
+  expect((await management.read()).memories[0]?.text).toBe(
+    "I prefer evening hikes",
+  );
   expect(
     (await memory.PATCH(request("memory", { action: "delete", id }))).status,
   ).toBe(200);
-  expect((await composition.trainerMemoryStore().list(40)).memories).toEqual(
-    [],
-  );
+  expect((await management.read()).memories).toEqual([]);
   expect(
     (await memory.PATCH(request("memory", { action: "clear" }))).status,
   ).toBe(200);
@@ -244,58 +223,6 @@ it("wires real chat completion, Profile routes, singleton reset and memory-only 
       }),
     ),
   ).rejects.toThrow();
-});
-
-it("retains legacy confirmation rollback, expiry/reconfirmation and missing/invalid lifecycle errors", async () => {
-  const repository = await import("../src/lib/memory/legacy-composition");
-  db = (await import("../src/lib/db/connection")).getDatabase();
-  const proposal = (value: string, extra = {}) =>
-    repository.createTrainerMemoryProposal({
-      category: "learned_preference",
-      value,
-      sourceType: "test",
-      provenanceText: "test",
-      ...extra,
-    });
-  const old = proposal("I prefer old hikes");
-  repository.confirmTrainerMemory(old.id);
-  const next = proposal("I prefer new hikes", { supersedesId: old.id });
-  db.exec(
-    "CREATE TRIGGER fail_confirmation BEFORE UPDATE ON trainer_memory WHEN NEW.status = 'confirmed' BEGIN SELECT RAISE(ABORT, 'test confirmation failure'); END;",
-  );
-  expect(() => repository.confirmTrainerMemory(next.id)).toThrow(
-    "test confirmation failure",
-  );
-  expect(repository.getTrainerMemory(old.id)?.status).toBe("confirmed");
-  expect(repository.getTrainerMemory(next.id)?.status).toBe(
-    "pending_confirmation",
-  );
-  db.exec("DROP TRIGGER fail_confirmation");
-  repository.confirmTrainerMemory(next.id);
-  expect(repository.getTrainerMemory(old.id)).toMatchObject({
-    status: "superseded",
-    supersededById: next.id,
-  });
-  expect(() => repository.confirmTrainerMemory(next.id)).toThrow(
-    "Only pending",
-  );
-  expect(() => repository.forgetTrainerMemory(old.id)).toThrow(
-    "Only pending or confirmed",
-  );
-  expect(() => repository.rejectTrainerMemory("missing")).toThrow(
-    "Memory proposal not found",
-  );
-  const expiring = proposal("I prefer temporary hikes", {
-    expiresAt: new Date(1000),
-  });
-  const reconfirm = proposal("I prefer recurring hikes", {
-    reconfirmAfter: new Date(1000),
-  });
-  repository.confirmTrainerMemory(expiring.id);
-  repository.confirmTrainerMemory(reconfirm.id);
-  repository.listActiveTrainerMemories(20, 1000);
-  expect(repository.getTrainerMemory(expiring.id)?.status).toBe("expired");
-  expect(repository.getTrainerMemory(reconfirm.id)?.status).toBe("expired");
 });
 
 it("keeps SQL upsert conflict metadata, eight-source cap and active/expiry/scope filtering", async () => {

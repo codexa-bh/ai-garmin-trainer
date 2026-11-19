@@ -10,11 +10,27 @@ class TerrainContracts(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         calls = []
-        state = {'choicesReady': True, 'ready': True, 'selected': False, 'highlighted': False,
-                 'compact': True, 'partial': False, 'capped': False, 'contained': True,
-                 'paragraphVisible': True, 'headerVisible': True, 'gridValues': True,
-                 'singleLine': True, 'gapVisible': True, 'edgeReached': True,
-                 'viewportWidth': 1280, 'contentWidth': 1100, 'tableWidth': 1000, 'gapPixels': 12}
+        state = {
+            'choicesReady': True,
+            'ready': True,
+            'selected': False,
+            'highlighted': False,
+            'compact': True,
+            'partial': False,
+            'capped': False,
+            'contained': True,
+            'paragraphVisible': True,
+            'headerVisible': True,
+            'gridValues': True,
+            'singleLine': True,
+            'gapVisible': True,
+            'edgeReached': True,
+            'viewportWidth': 1280,
+            'contentWidth': 1100,
+            'tableWidth': 1000,
+            'gapPixels': 12,
+        }
+
         def command(value):
             calls.append(value)
             if value['type'] == 'captureView':
@@ -22,13 +38,23 @@ class TerrainContracts(unittest.TestCase):
             if value['type'] == 'terrain':
                 action = value['action']
                 if action in ['supported', 'partial', 'capped']:
-                    state.update(selected=False, highlighted=False, partial=action != 'supported', capped=action == 'capped')
+                    state.update(
+                        selected=False,
+                        highlighted=False,
+                        partial=action != 'supported',
+                        capped=action == 'capped',
+                    )
                 if action == 'toggle':
-                    state.update(selected=not state['selected'], highlighted=not state['highlighted'])
+                    state.update(
+                        selected=not state['selected'], highlighted=not state['highlighted']
+                    )
                 if fail and action == 'start':
                     state['contained'] = False
             return dict(state)
-        run = SimpleNamespace(root=Path(temporary.name), command=command, wait=lambda predicate, label: None)
+
+        run = SimpleNamespace(
+            root=Path(temporary.name), command=command, wait=lambda predicate, label: None
+        )
         return run, calls
 
     def test_finite_cases_toggle_reset_and_twelve_grid_captures(self):
@@ -37,8 +63,22 @@ class TerrainContracts(unittest.TestCase):
         self.assertEqual(len(captures), 12)
         self.assertEqual(sum(value.get('action') == 'collapse' for value in calls), 3)
         self.assertEqual(sum(value.get('action') == 'expand' for value in calls), 3)
-        self.assertEqual(sum(value.get('preset') == 'medium' and value['type'] == 'captureView' for value in calls), 3)
-        self.assertEqual([value['action'] for value in calls if value['type'] == 'terrain' and value['action'] in ['supported', 'partial', 'capped']], ['supported', 'partial', 'capped'])
+        self.assertEqual(
+            sum(
+                value.get('preset') == 'medium' and value['type'] == 'captureView'
+                for value in calls
+            ),
+            3,
+        )
+        self.assertEqual(
+            [
+                value['action']
+                for value in calls
+                if value['type'] == 'terrain'
+                and value['action'] in ['supported', 'partial', 'capped']
+            ],
+            ['supported', 'partial', 'capped'],
+        )
         self.assertEqual(sum(value.get('action') == 'toggle' for value in calls), 9)
         self.assertNotIn('selector', repr(calls))
         self.assertEqual(len(list(run.root.glob('terrain-*.json'))), 12)
@@ -46,11 +86,13 @@ class TerrainContracts(unittest.TestCase):
     def test_desktop_fit_failure_is_not_a_pass(self):
         run, calls = self.run_scenario()
         original = run.command
+
         def command(value):
             result = original(value)
             if value['type'] == 'terrain':
                 result['tableWidth'] = 1200
             return result
+
         run.command = command
         with self.assertRaisesRegex(ValueError, 'desktop fit'):
             scenario(run)

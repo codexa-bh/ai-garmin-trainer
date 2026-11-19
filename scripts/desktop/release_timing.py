@@ -5,6 +5,7 @@ current, verified or published. It holds stage names, UTC correlation stamps,
 monotonic durations, outcomes and error class names only: no messages, paths,
 environment or provider payloads. Writing it must never replace an owner failure.
 """
+
 import contextlib
 import contextvars
 from datetime import datetime, timezone
@@ -28,17 +29,30 @@ class Recorder:
         self.open = []
         self.started = time.monotonic()
         # A hard kill leaves this start state on disk: unknown, not success or zero time.
-        self.value = {'schemaVersion': 1, 'kind': 'release-timing', 'note': NOTE, 'action': action,
-                      'startedAt': utc(), 'endedAt': None, 'elapsedSeconds': None, 'outcome': 'incomplete',
-                      'correlation': {key: value for key, value in correlation.items() if value is not None},
-                      'references': [], 'stages': []}
+        self.value = {
+            'schemaVersion': 1,
+            'kind': 'release-timing',
+            'note': NOTE,
+            'action': action,
+            'startedAt': utc(),
+            'endedAt': None,
+            'elapsedSeconds': None,
+            'outcome': 'incomplete',
+            'correlation': {key: value for key, value in correlation.items() if value is not None},
+            'references': [],
+            'stages': [],
+        }
 
     def save(self):
         if self.path is None:
             return
         try:
             temporary = self.path.with_suffix('.partial')
-            with open(temporary, 'w', opener=lambda p, flags: os.open(p, flags | getattr(os, 'O_NOFOLLOW', 0), 0o600)) as output:
+            with open(
+                temporary,
+                'w',
+                opener=lambda p, flags: os.open(p, flags | getattr(os, 'O_NOFOLLOW', 0), 0o600),
+            ) as output:
                 json.dump(self.value, output, indent=2)
                 output.write('\n')
             os.replace(temporary, self.path)
@@ -59,11 +73,21 @@ def recording(action, **correlation):
         raise
     finally:
         _CURRENT.reset(token)
-        recorder.value.update({'endedAt': utc(), 'elapsedSeconds': round(time.monotonic() - recorder.started, 3)})
+        recorder.value.update(
+            {'endedAt': utc(), 'elapsedSeconds': round(time.monotonic() - recorder.started, 3)}
+        )
         recorder.save()
         if recorder.path is not None:
-            print(json.dumps({'timing': str(recorder.path), 'elapsedSeconds': recorder.value['elapsedSeconds'],
-                              'outcome': recorder.value['outcome']}), flush=True)
+            print(
+                json.dumps(
+                    {
+                        'timing': str(recorder.path),
+                        'elapsedSeconds': recorder.value['elapsedSeconds'],
+                        'outcome': recorder.value['outcome'],
+                    }
+                ),
+                flush=True,
+            )
 
 
 def attach(directory):
@@ -71,9 +95,15 @@ def attach(directory):
     recorder = _CURRENT.get()
     if recorder is None or recorder.path is not None:
         return
-    path = directory / ('release-timing-' + recorder.value['action'] + '-' + str(uuid.uuid4()) + '.json')
+    path = directory / (
+        'release-timing-' + recorder.value['action'] + '-' + str(uuid.uuid4()) + '.json'
+    )
     try:
-        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600))
+        os.close(
+            os.open(
+                path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600
+            )
+        )
     except OSError as error:
         print('Release timing evidence unavailable: ' + type(error).__name__, file=sys.stderr)
         return
@@ -103,8 +133,14 @@ def stage(name):
     if recorder is None:
         yield
         return
-    entry = {'name': name, 'parent': recorder.open[-1] if recorder.open else None, 'startedAt': utc(),
-             'endedAt': None, 'elapsedSeconds': None, 'outcome': 'incomplete'}
+    entry = {
+        'name': name,
+        'parent': recorder.open[-1] if recorder.open else None,
+        'startedAt': utc(),
+        'endedAt': None,
+        'elapsedSeconds': None,
+        'outcome': 'incomplete',
+    }
     recorder.value['stages'].append(entry)
     recorder.open.append(name)
     started = time.monotonic()

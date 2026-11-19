@@ -9,9 +9,7 @@ import {
   garminMcpArgs,
 } from "../../src/lib/garmin/mcp-config";
 
-export function desktopNextConfiguration(
-  base: Record<string, unknown>,
-): NextConfig {
+function desktopNextConfiguration(base: Record<string, unknown>): NextConfig {
   return {
     ...base,
     distDir: ".next",
@@ -48,7 +46,7 @@ function toolDirectories(platform: NodeJS.Platform): string[] {
     : [];
 }
 
-export function resolveExecutable(
+function resolveExecutable(
   command: string,
   platform: NodeJS.Platform = process.platform,
 ): string | undefined {

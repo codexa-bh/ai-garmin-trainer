@@ -1,6 +1,6 @@
+import type { AnalysisRow } from "../src/lib/ai/analytics/contracts";
 import { describe, expect, it } from "vitest";
 import { runMathAnalysis } from "../src/lib/ai/math-analysis";
-import type { AnalysisRow } from "../src/lib/ai/sql-analysis";
 
 function rowsByResult(rows: AnalysisRow[]) {
   return new Map<string, AnalysisRow[]>([["activity_rows", rows]]);

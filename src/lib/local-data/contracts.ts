@@ -1,6 +1,5 @@
 import type {
   NormalizedActivity,
-  NormalizedDailyHealth,
   GarminAthleteBaselineDto,
   GarminBodyMetricsDto,
 } from "../garmin/types";
@@ -16,7 +15,7 @@ import type {
   ActivityDashboardRoute,
 } from "../analytics/activity-dashboard-calculations";
 import type { HealthCoverage } from "../garmin/import-contracts";
-export type ActivityDashboardListItem = NormalizedActivity & {
+type ActivityDashboardListItem = NormalizedActivity & {
   detailStatus: ActivityDetailStatus | null;
 };
 
@@ -37,7 +36,7 @@ export type ActivityDashboardListPage = {
   offset: number;
 };
 
-export type ActivityDashboardHeartRateZoneBucket = {
+type ActivityDashboardHeartRateZoneBucket = {
   zone: 1 | 2 | 3 | 4 | 5;
   label: string | null;
   lowerBpm: number;
@@ -149,14 +148,6 @@ export type ActivityVerificationEvidence = {
     latestDate: string | null;
   };
   privacy: string;
-};
-
-export type DailyHealthFreshnessEvidence = {
-  date: string;
-  availability: NormalizedDailyHealth["availability"] | null;
-  hasStatsPayload: boolean;
-  hasSleepPayload: boolean;
-  hasBodyBatteryPayload: boolean;
 };
 
 export type ActivitySearch = {

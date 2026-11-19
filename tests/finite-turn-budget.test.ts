@@ -1,10 +1,8 @@
+import { CONVERSATION_INPUT_LIMIT } from "./expected-quality-inputs";
+import { CONVERSATION_OUTPUT_LIMIT } from "./expected-quality-inputs";
 import { describe, expect, it, vi } from "vitest";
 import { trainerExecutionBudget } from "@/lib/ai/execution-budget";
 import { orchestrateTrainerChat } from "@/lib/ai/orchestrator";
-import {
-  CONVERSATION_INPUT_LIMIT,
-  CONVERSATION_OUTPUT_LIMIT,
-} from "@/lib/chat/conversation-replay";
 
 describe("fixed safety-reducing live turn envelope", () => {
   it("reserves both pre/post-compaction orchestration attempts at worst reviewed cache-write pricing", () => {

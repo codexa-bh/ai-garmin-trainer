@@ -21,7 +21,6 @@ const allowed = new Set([
   "memory/retrieval-policy.ts",
   "memory/extraction-policy.ts",
   "memory/management.ts",
-  "memory/legacy-application.ts",
   "memory/legacy-contracts.ts",
   "profile/application.ts",
   "profile/contracts.ts",
@@ -106,17 +105,15 @@ it("keeps personalization applications and all erased contracts independent of s
     "memory/application",
     "memory/management",
     "memory/extraction-policy",
-    "memory/legacy-application",
     "profile/application",
   ])
     check(path.join(root, `src/lib/${file}.ts`));
 });
 it.each([
   'import type { MemoryRuntimeConfig } from "./config";',
-  'export type { StoredTrainerMemory } from "../db/repository";',
+  'export type { SyncRunOptions } from "../db/repository";',
   'type Store = import("../db/repository");',
-  'import { trainerMemoryStore } from "./composition";',
-  'import { trainerMemoryStore } from "./sqlite-adapter";',
+  'import { activeMemoryStatus } from "./composition";',
   'import { createEmbedding } from "./embedding-adapter";',
   'import type { NextRequest } from "next/server";',
   'import type { LanguageModel } from "ai";',

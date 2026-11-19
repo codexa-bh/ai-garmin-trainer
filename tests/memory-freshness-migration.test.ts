@@ -1,6 +1,7 @@
+import { SCHEMA_MIGRATIONS } from "./historical-schema-fixture";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { migrateDatabase, SCHEMA_MIGRATIONS } from "@/lib/db/migrations";
+import { migrateDatabase } from "@/lib/db/migrations";
 import { conversationHistory as history } from "@/lib/db/conversation-history";
 import {
   summaryStorage as storage,

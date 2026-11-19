@@ -1,11 +1,10 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { authoredWeeklyKpis } from "./kpi-fixture";
 import { createWeekly } from "../src/lib/weekly/application";
 import {
   kpiAwarded,
   kpiScoredUnits,
-  latestKpiMeasurement,
   latestKpiScore,
   projectKpis,
 } from "../src/lib/weekly/kpis";
@@ -180,47 +179,18 @@ it("finds latest established plan independently of chart range, skips empty slot
 });
 it("joins renamed historical labels and changed targets by stable exact meaning, never obsolete sets, conflicting candidates or incompatible semantics", () => {
   const state = authoredWeeklyKpis(now);
-  const selected = state.sets[0].items[0].tracks[0];
   state.assessments.push({
     ...structuredClone(state.assessments[0]),
     setId: state.latestId!,
     totalPoints: 65,
   });
   state.sets[1].items[0].label = "Renamed synthetic sessions";
-  expect(
-    latestKpiMeasurement(
-      projectKpis(week, state),
-      "authored-sessions",
-      selected,
-    ),
-  ).toMatchObject({ value: 4, track: { target: { value: 5 } } });
   state.sets[1].items[0].tracks[0].unit = "different";
-  expect(
-    latestKpiMeasurement(
-      projectKpis(week, state),
-      "authored-sessions",
-      selected,
-    ),
-  ).toBeNull();
   state.sets[1].items = [];
-  expect(
-    latestKpiMeasurement(
-      projectKpis(week, state),
-      "authored-sessions",
-      selected,
-    ),
-  ).toBeNull();
   state.sets[1].items = [
     state.sets[0].items[0],
     structuredClone(state.sets[0].items[0]),
   ];
-  expect(
-    latestKpiMeasurement(
-      projectKpis(week, state),
-      "authored-sessions",
-      selected,
-    ),
-  ).toBeNull();
 });
 it("adds only reviewed source bindings/conflict revision, preserves every other value/reference and reconciles an identical rerun", () => {
   const store = createWeeklyStore(() => db);

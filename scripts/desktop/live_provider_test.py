@@ -1,4 +1,5 @@
 """Finite synthetic provider admission/result/owned-shutdown contracts, no native launch."""
+
 import http.client
 import json
 import unittest
@@ -20,7 +21,12 @@ class LiveProviderTests(unittest.TestCase):
                 client.close()
 
         try:
-            for value in [None, [], {'model': 'arbitrary', 'messages': []}, {'model': OLD, 'messages': [], 'stream': True}]:
+            for value in [
+                None,
+                [],
+                {'model': 'arbitrary', 'messages': []},
+                {'model': OLD, 'messages': [], 'stream': True},
+            ]:
                 self.assertEqual(send(value)[0], 400)
             self.assertEqual(send({'model': OLD, 'messages': []}, '/arbitrary')[0], 400)
             self.assertEqual(provider.models, [])
@@ -30,7 +36,9 @@ class LiveProviderTests(unittest.TestCase):
                 value = json.loads(raw)
                 self.assertEqual(value['model'], model)
                 self.assertEqual(value['choices'][0]['finish_reason'], 'stop')
-                self.assertEqual(value['choices'][0]['message'], {'role': 'assistant', 'content': ANSWER})
+                self.assertEqual(
+                    value['choices'][0]['message'], {'role': 'assistant', 'content': ANSWER}
+                )
             self.assertEqual(provider.models, [OLD, NEW])
             self.assertEqual(send({'model': NEW, 'messages': []})[0], 409)
         finally:

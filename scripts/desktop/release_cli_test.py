@@ -1,4 +1,5 @@
 """Executable CLI parsing/orchestration with fake native admission/provider only."""
+
 import contextlib
 import copy
 import io
@@ -39,18 +40,45 @@ class CliTests(unittest.TestCase):
         def native(*_args):
             self.native()
             yield {}, {}
+
         @contextlib.contextmanager
         def transported(*_args):
             yield self.mac, Mock(), self.record
-        argv = ['release', action, '--repository', self.record['repository'], '--commit', self.record['commit'],
-                '--version', '1.2.3', '--scratch', str(self.root), '--bundle', str(self.root / 'producer'),
-                '--record', str(self.mac), '--prerelease', 'no', '--latest', 'yes']
+
+        argv = [
+            'release',
+            action,
+            '--repository',
+            self.record['repository'],
+            '--commit',
+            self.record['commit'],
+            '--version',
+            '1.2.3',
+            '--scratch',
+            str(self.root),
+            '--bundle',
+            str(self.root / 'producer'),
+            '--record',
+            str(self.mac),
+            '--prerelease',
+            'no',
+            '--latest',
+            'yes',
+        ]
         if use_set:
-            argv += ['--release-set', str(self.set_path), '--platform-record', str(self.mac), '--platform-record', str(self.win)]
+            argv += [
+                '--release-set',
+                str(self.set_path),
+                '--platform-record',
+                str(self.mac),
+                '--platform-record',
+                str(self.win),
+            ]
         with contextlib.ExitStack() as stack:
             for target, kwargs in [
                 ('release.check', {'return_value': ('1.2.3', NOTES)}),
-                ('release.exact_source', {}), ('release.platform_target.require_host', {}),
+                ('release.exact_source', {}),
+                ('release.platform_target.require_host', {}),
                 ('release.source_snapshot', {'return_value': {'source': 'b' * 64}}),
                 ('release.ordinary_preparation', {'side_effect': native}),
                 ('release.artifacts', {'return_value': (None, transported)}),

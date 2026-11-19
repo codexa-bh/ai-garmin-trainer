@@ -1,6 +1,5 @@
 import { expect, it, vi } from "vitest";
 import {
-  chatgptFetch,
   chatgptModel,
   ChatgptRequestError,
 } from "../src/lib/ai/chatgpt-transport";
@@ -470,20 +469,16 @@ it.each([
 ] as const)(
   "non-stream response keeps only a closed shape category, never accepts JSON as stream success: %s",
   async (body, kind) => {
-    const transport = chatgptFetch(
+    const model = chatgptModel(
       admission,
       undefined,
       async () => Response.json(body),
       async () => ({ accessToken: "authored-private-token" }),
     );
-    const error = await transport("https://api.openai.com/v1/responses", {
-      method: "POST",
-      body: JSON.stringify({
-        model: admission.model,
-        store: false,
-        stream: true,
-        input: [],
-      }),
+    const error = await createTrainerGeneration(model)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
     }).catch((error: unknown) => error);
     expect(error).toBeInstanceOf(ChatgptRequestError);
     expect((error as ChatgptRequestError).code).toBe(
@@ -499,43 +494,33 @@ it.each([
 ] as const)(
   "absent media type still refuses empty, malformed and JSON-as-stream bodies without private echo: %s",
   async (body, kind) => {
-    const transport = chatgptFetch(
+    const model = chatgptModel(
       admission,
       undefined,
       async () => new Response(new TextEncoder().encode(body)),
       async () => ({ accessToken: "authored-private-token" }),
     );
-    const error = await transport("https://api.openai.com/v1/responses", {
-      method: "POST",
-      body: JSON.stringify({
-        model: admission.model,
-        store: false,
-        stream: true,
-        input: [],
-      }),
-    })
-      .then((response) => response.text())
-      .catch((error: unknown) => error);
+    const error = await createTrainerGeneration(model)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
+    }).catch((error: unknown) => error);
     expect(error).toBeInstanceOf(ChatgptRequestError);
     expect((error as ChatgptRequestError).code).toBe(kind);
     expect(String(error)).not.toContain("PRIVATE");
   },
 );
 it("sanitizes nonstandard admission errors and never echoes private detail", async () => {
-  const transport = chatgptFetch(
+  const model = chatgptModel(
     admission,
     undefined,
     async () => Response.json({ detail: "PRIVATE ECHO" }, { status: 403 }),
     async () => ({ accessToken: "authored-private-token" }),
   );
-  const error = await transport("https://api.openai.com/v1/responses", {
-    method: "POST",
-    body: JSON.stringify({
-      model: admission.model,
-      store: false,
-      stream: true,
-      input: [],
-    }),
+  const error = await createTrainerGeneration(model)({
+    purpose: "planner",
+    system: "Policy",
+    prompt: "Question",
   }).catch((error: unknown) => error);
   expect(error).toBeInstanceOf(ChatgptRequestError);
   expect(String(error)).not.toContain("PRIVATE");

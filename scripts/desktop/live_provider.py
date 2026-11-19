@@ -1,4 +1,5 @@
 """Finite task-owned fake Ollama service for captured native chat evidence only."""
+
 import http.client
 import json
 import threading
@@ -34,12 +35,21 @@ class LiveProvider:
             def do_POST(self):
                 self.connection.settimeout(5)
                 length = self.headers.get('Content-Length', '')
-                if self.path != '/v1/chat/completions' or not length.isdigit() or not 0 < int(length) <= 256 * 1024 or self.headers.get('Transfer-Encoding'):
+                if (
+                    self.path != '/v1/chat/completions'
+                    or not length.isdigit()
+                    or not 0 < int(length) <= 256 * 1024
+                    or self.headers.get('Transfer-Encoding')
+                ):
                     self.send_error(400)
                     return
                 try:
                     body = json.loads(self.rfile.read(int(length)))
-                    if body.get('model') not in [OLD, NEW] or body.get('stream') is True or not isinstance(body.get('messages'), list):
+                    if (
+                        body.get('model') not in [OLD, NEW]
+                        or body.get('stream') is True
+                        or not isinstance(body.get('messages'), list)
+                    ):
                         raise ValueError('Fixed synthetic protocol only')
                 except (ValueError, TypeError, AttributeError):
                     self.send_error(400)
@@ -54,9 +64,16 @@ class LiveProvider:
                     if not owner.release.wait(20):
                         self.send_error(504)
                         return
-                value = {'id': 'synthetic-completion', 'object': 'chat.completion', 'created': 1, 'model': model,
-                         'choices': [{'index': 0, 'finish_reason': 'stop', 'message': response_message()}],
-                         'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}}
+                value = {
+                    'id': 'synthetic-completion',
+                    'object': 'chat.completion',
+                    'created': 1,
+                    'model': model,
+                    'choices': [
+                        {'index': 0, 'finish_reason': 'stop', 'message': response_message()}
+                    ],
+                    'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2},
+                }
                 raw = json.dumps(value).encode()
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
@@ -82,15 +99,35 @@ class LiveProvider:
     def chat(self, run, conversation, stream):
         client = http.client.HTTPConnection(HOST, int(run.origin.rsplit(':', 1)[1]), timeout=25)
         try:
-            client.request('POST', '/api/chat', json.dumps({'conversationId': conversation, 'message': 'T0257 synthetic local configuration retention check.', 'stream': stream}), {'Content-Type': 'application/json'})
+            client.request(
+                'POST',
+                '/api/chat',
+                json.dumps(
+                    {
+                        'conversationId': conversation,
+                        'message': 'T0257 synthetic local configuration retention check.',
+                        'stream': stream,
+                    }
+                ),
+                {'Content-Type': 'application/json'},
+            )
             response = client.getresponse()
             raw = response.read(256 * 1024 + 1)
-            self.observations.append({'httpStatus': response.status, 'bounded': len(raw) <= 256 * 1024, 'syntheticAnswerPresent': ANSWER.encode() in raw, 'stream': stream})
+            self.observations.append(
+                {
+                    'httpStatus': response.status,
+                    'bounded': len(raw) <= 256 * 1024,
+                    'syntheticAnswerPresent': ANSWER.encode() in raw,
+                    'stream': stream,
+                }
+            )
             if response.status != 200 or len(raw) > 256 * 1024 or ANSWER.encode() not in raw:
                 raise ValueError('Actual synthetic chat did not complete')
             if stream:
                 events = [json.loads(line) for line in raw.splitlines() if line]
-                if not any(event.get('type') == 'done' for event in events) or any(event.get('type') == 'error' for event in events):
+                if not any(event.get('type') == 'done' for event in events) or any(
+                    event.get('type') == 'error' for event in events
+                ):
                     raise ValueError('Actual native stream did not settle successfully')
             return True
         finally:
@@ -115,7 +152,12 @@ class LiveProvider:
             self.release.set()
             if not self.pending.result(timeout=8):
                 raise ValueError('Captured stream failed after live Save')
-            return {'capturedStreamCompleted': True, 'oldModelRetained': True, 'subsequentModelUpdated': True, 'provider': 'fixed task-owned loopback synthetic; no real service'}
+            return {
+                'capturedStreamCompleted': True,
+                'oldModelRetained': True,
+                'subsequentModelUpdated': True,
+                'provider': 'fixed task-owned loopback synthetic; no real service',
+            }
         finally:
             self.release.set()
             self.pool.shutdown(wait=True)

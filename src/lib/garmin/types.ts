@@ -85,7 +85,7 @@ export type HeartRateZoneBoundaryDto = {
   upperBpm: number | null;
 };
 
-export type HeartRateZoneSetDto = {
+type HeartRateZoneSetDto = {
   status: "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
   source: "garmin_mcp" | "derived" | null;
   formula: string | null;

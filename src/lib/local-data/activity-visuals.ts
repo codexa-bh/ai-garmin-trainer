@@ -2,12 +2,7 @@ import type { ActivityDashboardDetail } from "./contracts";
 import type { projectDashboardOverview } from "./dashboard-overview";
 type DashboardOverview = ReturnType<typeof projectDashboardOverview>;
 
-export const ACTIVITY_PANELS = [
-  "heartRate",
-  "elevation",
-  "speed",
-  "route",
-] as const;
+const ACTIVITY_PANELS = ["heartRate", "elevation", "speed", "route"] as const;
 export type ActivityPanel = (typeof ACTIVITY_PANELS)[number];
 
 /** Captured synchronously with the numerical projection. Never printable evidence. */

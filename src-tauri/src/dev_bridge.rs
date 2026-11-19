@@ -661,15 +661,20 @@ fn renderer_diagnostic(app: &tauri::AppHandle) -> Value {
 }
 #[cfg(windows)]
 fn renderer_diagnostic(app: &tauri::AppHandle) -> Value {
-    let Some(window) = app.get_webview_window("trainer") else { return json!({"window":false}); };
+    let Some(window) = app.get_webview_window("trainer") else {
+        return json!({"window":false});
+    };
     let mut diagnostic = match crate::windows_webview::diagnostic(&window) {
         Ok(bytes) => diagnostic_result(&bytes),
         Err(_) => json!({"evaluationFailed":true}),
     };
     if let (Ok(size), Ok(scale)) = (window.inner_size(), window.scale_factor()) {
         let logical = size.to_logical::<f64>(scale);
-        if logical.width.is_finite() && logical.height.is_finite()
-            && (0.0..=8192.0).contains(&logical.width) && (0.0..=8192.0).contains(&logical.height) {
+        if logical.width.is_finite()
+            && logical.height.is_finite()
+            && (0.0..=8192.0).contains(&logical.width)
+            && (0.0..=8192.0).contains(&logical.height)
+        {
             diagnostic["nativeWidth"] = json!(logical.width);
             diagnostic["nativeHeight"] = json!(logical.height);
         }
@@ -1329,18 +1334,31 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
     };
     // Restore on dispatch, callback, schema, timeout and snapshot failure as well as success.
     if capturing {
-        let restored = window.eval("window.__trainerSmokeRestore && window.__trainerSmokeRestore()").is_ok()
+        let restored = window
+            .eval("window.__trainerSmokeRestore && window.__trainerSmokeRestore()")
+            .is_ok()
             && renderer_diagnostic(app)["maskActive"] == false;
         let publication = if !restored {
             Err("Capture mask restoration unconfirmed".to_owned())
         } else if let Some(bytes) = captured {
-            capture::publish(&state.config.root.join("screenshots"), &request.request_id, &bytes)
-                .map(Some)
-        } else { Ok(None) };
+            capture::publish(
+                &state.config.root.join("screenshots"),
+                &request.request_id,
+                &bytes,
+            )
+            .map(Some)
+        } else {
+            Ok(None)
+        };
         match publication {
             Ok(Some(path)) => response.1["result"]["capture"] = json!(path),
-            Ok(None) => {},
-            Err(error) => response = (409, json!({"requestId":request.request_id,"result":{"ok":false,"error":error}})),
+            Ok(None) => {}
+            Err(error) => {
+                response = (
+                    409,
+                    json!({"requestId":request.request_id,"result":{"ok":false,"error":error}}),
+                )
+            }
         }
     }
     response

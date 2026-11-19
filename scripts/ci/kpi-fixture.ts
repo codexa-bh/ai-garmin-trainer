@@ -11,7 +11,7 @@ import {
 } from "../../src/lib/weekly/calendar";
 
 // Independently authored finite presentation corpus. No operator-derived values.
-export function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
+function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
   const savedAt = "2026-11-01T12:00:00.000Z";
   const original: KpiSet = {
     id: "T0319-original",
@@ -106,7 +106,7 @@ export function authoredWeeklyKpis(now = new Date()): WeeklyKpis {
     assessments: [assessment],
   };
 }
-export function authoredAssessedLatestKpis(now = new Date()): WeeklyKpis {
+function authoredAssessedLatestKpis(now = new Date()): WeeklyKpis {
   const state = authoredWeeklyKpis(now);
   const latest = structuredClone(state.assessments[0]);
   latest.setId = state.latestId!;

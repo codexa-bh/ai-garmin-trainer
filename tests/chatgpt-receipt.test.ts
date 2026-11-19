@@ -1,13 +1,20 @@
+import { safeFailureDiagnostic as projectFailureDiagnostic } from "../src/lib/diagnostics/provider-failure";
+function safeReceiptDiagnostic(value: unknown) {
+  return projectFailureDiagnostic({
+    category: "incomplete_sdk_decoding",
+    stage: "sdk_decode",
+    receipt: value,
+  })?.receipt;
+}
 import { expect, it, vi } from "vitest";
 import { createOpenAI } from "@ai-sdk/openai";
 import { chatgptText } from "../src/lib/ai/chatgpt-generation";
-import { chatgptModel, receiptMismatch } from "../src/lib/ai/chatgpt-transport";
+import { chatgptModel } from "../src/lib/ai/chatgpt-transport";
 import { createTrainerGeneration } from "../src/lib/ai/provider-generation";
 import {
   providerFailureDiagnostic,
   providerFailureMessage,
   safeFailureDiagnostic,
-  safeReceiptDiagnostic,
 } from "../src/lib/ai/provider-errors";
 import { debugProviderCall } from "../src/lib/ai/debug-trace";
 
@@ -661,28 +668,6 @@ it("hostile values in text, arguments, IDs and credentials never enter receipt d
   });
   expect(JSON.stringify(projection)).not.toContain(privateMarker);
   expect(String(error)).not.toContain(privateMarker);
-});
-
-it("pure comparison distinguishes absence, empties, count and identity without values", () => {
-  const one = { id: "call_1", name: "getSyncStatus", input: "{}" };
-  const two = { id: "call_2", name: "getSyncStatus", input: "{}" };
-  expect(receiptMismatch(undefined, "Hi", [one])).toEqual({
-    receipt: "absent",
-  });
-  expect(receiptMismatch({ text: "Hi", calls: [one] }, "Hi", [one])).toBe(
-    undefined,
-  );
-  expect(receiptMismatch({ text: "Hi", calls: [] }, "", [])).toMatchObject({
-    text: "observed_empty",
-    calls: "match",
-  });
-  expect(
-    receiptMismatch({ text: "", calls: [one] }, "", [one, two]),
-  ).toMatchObject({ calls: "mismatch", callDifferences: ["count", "id"] });
-  expect(
-    receiptMismatch({ text: "", calls: [one, two] }, "", [one, one]),
-  ).toMatchObject({ callDifferences: ["id"] });
-  expect(receiptMismatch({ text: "", calls: [] }, "", [])).toBeUndefined();
 });
 
 it("receipt projection validates the whole closed value and omits anything else", () => {

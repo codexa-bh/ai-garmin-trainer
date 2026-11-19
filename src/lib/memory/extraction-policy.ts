@@ -216,7 +216,7 @@ function uniqueCandidates(candidates: MemoryCandidate[]): MemoryCandidate[] {
   });
 }
 
-export function parseMemoryExtractorOutput(
+function parseMemoryExtractorOutput(
   output: string,
   input: CompletedTurn,
 ): ParsedExtractorResult | null {

@@ -6,14 +6,12 @@ const groups = [
     "domain",
     "lib/ai",
     [
-      "coaching-scenarios",
       "context",
       "debug-trace",
       "debug-types",
       "execution-budget",
       "math-analysis",
       "orchestration-ports",
-      "profile",
       "provider-errors",
       "reliability-fixtures",
       "tool-contracts",
@@ -133,7 +131,6 @@ const groups = [
       "summary-privacy",
       "summary-import",
       "summary-rebuild",
-      "legacy-memory-repository",
       "local-data-lifecycle",
       "migrations",
       "profile-repository",
@@ -171,7 +168,6 @@ const groups = [
       "primary-upload",
       "import-ports",
       "normalize",
-      "sync",
       "types",
     ],
   ],
@@ -199,7 +195,7 @@ const groups = [
       "token-location",
     ],
   ],
-  ["garmin", "composition", "lib/garmin", ["composition", "importer"]],
+  ["garmin", "composition", "lib/garmin", ["composition"]],
   [
     "local-data",
     "domain",
@@ -225,7 +221,6 @@ const groups = [
     "lib/memory",
     [
       "extraction-policy",
-      "extractor",
       "filters",
       "legacy-contracts",
       "ports",
@@ -240,13 +235,7 @@ const groups = [
     "memory",
     "application",
     "lib/memory",
-    [
-      "application",
-      "legacy-application",
-      "management",
-      "summary-application",
-      "summary-densify",
-    ],
+    ["application", "management", "summary-application", "summary-densify"],
   ],
   [
     "memory",
@@ -266,12 +255,7 @@ const groups = [
     "memory",
     "composition",
     "lib/memory",
-    [
-      "composition",
-      "legacy-composition",
-      "sqlite-adapter",
-      "summary-composition",
-    ],
+    ["composition", "summary-composition"],
   ],
   [
     "weekly",
@@ -406,11 +390,9 @@ export function allowedExternalDependency(source, layer, specifier, runtime) {
   if (!["domain", "application"].includes(layer)) return true;
   return (
     specifier === "zod" &&
-    [
-      "lib/ai/profile.ts",
-      "lib/ai/tool-contracts.ts",
-      "lib/training-plan/snapshot.ts",
-    ].includes(source)
+    ["lib/ai/tool-contracts.ts", "lib/training-plan/snapshot.ts"].includes(
+      source,
+    )
   );
 }
 

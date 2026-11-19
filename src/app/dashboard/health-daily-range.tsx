@@ -1,7 +1,7 @@
 import type { HealthDashboardDay } from "./contracts";
 
 /** Strict civil keys: reject impossible dates rather than normalizing them. */
-export function isHealthDate(value: string): boolean {
+function isHealthDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return (

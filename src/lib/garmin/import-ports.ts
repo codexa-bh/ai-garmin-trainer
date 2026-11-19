@@ -101,7 +101,7 @@ export interface DetailStore {
 
 type DateRange = { startDate: string; endDate: string };
 
-export interface GarminImportStore extends BaselineStore, DetailStore {
+interface GarminImportStore extends BaselineStore, DetailStore {
   recordSyncRun(
     status: "running",
     options: { coverageStart: string; coverageEnd: string },

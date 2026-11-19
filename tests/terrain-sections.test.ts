@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   analyzeTerrainSections,
   type TerrainPoint,
-  TERRAIN_PARAMETERS,
 } from "../src/lib/analytics/terrain-sections";
 import { createTerrainAnalysis } from "../src/lib/local-data/application";
 function profile(
@@ -173,11 +172,9 @@ describe("shared terrain-v2", () => {
     expect(limited.sections).toEqual(full.sections.slice(0, 1));
     expect(limited.ascentMeters).toBe(full.ascentMeters);
     expect(limited.supportedDistanceMeters).toBe(2400);
-    expect(
-      analyze(
-        Array.from({ length: TERRAIN_PARAMETERS.maxPoints + 1 }, () => p[0]),
-      ).reason,
-    ).toBe("point_limit_exceeded");
+    expect(analyze(Array.from({ length: 100_001 }, () => p[0])).reason).toBe(
+      "point_limit_exceeded",
+    );
     expect(analyze([]).reason).toBe("missing_stream");
     expect(analyze(p.slice(0, 1)).reason).toBe("missing_stream");
     expect(analyze(profile(() => 0, 40)).reason).toBe(

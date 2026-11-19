@@ -1,6 +1,6 @@
 type ReliabilitySeverity = "critical" | "high" | "medium" | "low";
 
-export type ReliabilityFixture = {
+type ReliabilityFixture = {
   id: string;
   severity: ReliabilitySeverity;
   scenario: string;
@@ -8,7 +8,7 @@ export type ReliabilityFixture = {
   forbidden: RegExp[];
 };
 
-export const RELIABILITY_FIXTURES: ReliabilityFixture[] = [
+const RELIABILITY_FIXTURES: ReliabilityFixture[] = [
   {
     id: "PRIV-01",
     severity: "critical",

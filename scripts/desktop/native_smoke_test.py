@@ -13,6 +13,7 @@ from native_smoke import Run, canonical, fingerprint, readonly
 class OwnershipTests(unittest.TestCase):
     def test_fresh_onboarding_enrolls_preparation_and_new_database_as_distinct_inodes(self):
         import smoke_resources as resources
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             root.chmod(0o700)
@@ -21,6 +22,7 @@ class OwnershipTests(unittest.TestCase):
                 db.execute('create table example(id integer)')
                 db.execute('insert into example values(1)')
             paths = []
+
             @resources.invocation
             def scenario():
                 scratch = resources.configure(root)
@@ -40,6 +42,7 @@ class OwnershipTests(unittest.TestCase):
                 resources.file_created(run.database)
                 self.assertNotEqual(run.database.stat().st_ino, before)
                 paths.extend((prepared, run.database))
+
             scenario()
             self.assertTrue(all(not path.exists() for path in paths))
             with sqlite3.connect(source) as db:
@@ -47,6 +50,7 @@ class OwnershipTests(unittest.TestCase):
 
     def test_profile_and_model_restart_evidence_remain_exclusive_and_distinct(self):
         from unittest.mock import Mock
+
         with tempfile.TemporaryDirectory() as directory:
             run = object.__new__(Run)
             run.root = Path(directory).resolve()
@@ -67,7 +71,11 @@ class OwnershipTests(unittest.TestCase):
 
     def test_synthetic_provider_preparation_and_persistence_are_finite_debug_only(self):
         from settings_smoke import verify_keys
-        initial = {'OPENAI_API_KEY': 'synthetic-openai-original', 'DEEPSEEK_API_KEY': 'synthetic-deepseek-original'}
+
+        initial = {
+            'OPENAI_API_KEY': 'synthetic-openai-original',
+            'DEEPSEEK_API_KEY': 'synthetic-deepseek-original',
+        }
         verify_keys(initial)
         verify_keys({'OPENAI_API_KEY': 'synthetic-openai-replacement'}, edited=True)
         for keys in [{}, {'OPENAI_API_KEY': 'private'}, {**initial, 'unknown': 'private'}]:
@@ -91,21 +99,54 @@ class OwnershipTests(unittest.TestCase):
         from copy import deepcopy
         import uuid
         from settings_smoke import verify_catalog
+
         providers = ['openai', 'deepseek', 'ollama', 'openrouter']
-        entries = [dict(id='entry_legacy_' + provider, provider=provider, modelId=f'synthetic/{provider}:Case', displayName='Synthetic model') for provider in providers]
-        entries += [dict(id='entry_' + str(uuid.uuid4()), provider=provider, modelId=f'synthetic/{provider}:Second') for provider in providers]
+        entries = [
+            dict(
+                id='entry_legacy_' + provider,
+                provider=provider,
+                modelId=f'synthetic/{provider}:Case',
+                displayName='Synthetic model',
+            )
+            for provider in providers
+        ]
+        entries += [
+            dict(
+                id='entry_' + str(uuid.uuid4()),
+                provider=provider,
+                modelId=f'synthetic/{provider}:Second',
+            )
+            for provider in providers
+        ]
         catalog = dict(version=1, entries=entries, defaultEntryId=None)
         verify_catalog(catalog)
-        for case in ['text', 'identity', 'name', 'provider', 'default', 'extra', 'order', 'duplicate']:
+        for case in [
+            'text',
+            'identity',
+            'name',
+            'provider',
+            'default',
+            'extra',
+            'order',
+            'duplicate',
+        ]:
             changed = deepcopy(catalog)
-            if case == 'text': changed['entries'][4]['modelId'] = 'private'
-            if case == 'identity': changed['entries'][4]['id'] = 'entry_not_uuid'
-            if case == 'name': changed['entries'][4]['displayName'] = 'private'
-            if case == 'provider': changed['entries'][4]['provider'] = 'ollama'
-            if case == 'default': changed['defaultEntryId'] = 'entry_legacy_ollama'
-            if case == 'extra': changed['secret'] = 'private'
-            if case == 'order': changed['entries'].reverse()
-            if case == 'duplicate': changed['entries'][5]['id'] = changed['entries'][4]['id']
+            if case == 'text':
+                changed['entries'][4]['modelId'] = 'private'
+            if case == 'identity':
+                changed['entries'][4]['id'] = 'entry_not_uuid'
+            if case == 'name':
+                changed['entries'][4]['displayName'] = 'private'
+            if case == 'provider':
+                changed['entries'][4]['provider'] = 'ollama'
+            if case == 'default':
+                changed['defaultEntryId'] = 'entry_legacy_ollama'
+            if case == 'extra':
+                changed['secret'] = 'private'
+            if case == 'order':
+                changed['entries'].reverse()
+            if case == 'duplicate':
+                changed['entries'][5]['id'] = changed['entries'][4]['id']
             with self.subTest(case=case), self.assertRaises(ValueError):
                 verify_catalog(changed)
 
@@ -140,14 +181,21 @@ class OwnershipTests(unittest.TestCase):
 
     def test_health_preparation_is_bounded_copy_only_prelaunch_and_never_repeated(self):
         from datetime import date, timedelta
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             source = root / 'populated.sqlite'
             with contextlib.closing(sqlite3.connect(source)) as db:
-                db.execute('create table daily_health(date text primary key, availability text, steps real)')
-                db.executemany('insert into daily_health values (?, ?, ?)', [
-                    ((date(2026, 1, 31) - timedelta(days=index)).isoformat(), 'partial', index)
-                    for index in range(30)])
+                db.execute(
+                    'create table daily_health(date text primary key, availability text, steps real)'
+                )
+                db.executemany(
+                    'insert into daily_health values (?, ?, ?)',
+                    [
+                        ((date(2026, 1, 31) - timedelta(days=index)).isoformat(), 'partial', index)
+                        for index in range(30)
+                    ],
+                )
                 db.commit()
                 baseline = fingerprint(db)
                 run = Run(root, source, 'a' * 64)
@@ -155,8 +203,15 @@ class OwnershipTests(unittest.TestCase):
                 self.assertEqual(fingerprint(db), baseline)
             with contextlib.closing(readonly(run.database)) as copy:
                 self.assertEqual(fingerprint(copy)['counts']['daily_health'], 29)
-                self.assertIsNone(copy.execute("select date from daily_health where date='2026-01-21'").fetchone())
-                self.assertEqual(copy.execute('select count(*) from daily_health where availability=\'partial\'').fetchone()[0], 29)
+                self.assertIsNone(
+                    copy.execute("select date from daily_health where date='2026-01-21'").fetchone()
+                )
+                self.assertEqual(
+                    copy.execute(
+                        "select count(*) from daily_health where availability='partial'"
+                    ).fetchone()[0],
+                    29,
+                )
             gapped = Run(root, run.database, 'a' * 64)
             with contextlib.closing(readonly(gapped.database)) as copy:
                 gapped_before = fingerprint(copy)
@@ -185,6 +240,7 @@ class OwnershipTests(unittest.TestCase):
 
     def test_failed_settlement_remains_failed_after_native_handle_is_reaped(self):
         from unittest.mock import Mock
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             source = root / 'populated.sqlite'
@@ -195,7 +251,11 @@ class OwnershipTests(unittest.TestCase):
             run.child.poll.return_value = -9
             run.launches = 1
             Path(str(run.database) + '.trainer-writer').write_text('unknown owner')
-            with patch('native_smoke.time.monotonic', side_effect=[0, 20]), patch('native_smoke.listening', return_value=False), patch('native_smoke.os.killpg') as kill:
+            with (
+                patch('native_smoke.time.monotonic', side_effect=[0, 20]),
+                patch('native_smoke.listening', return_value=False),
+                patch('native_smoke.os.killpg') as kill,
+            ):
                 with self.assertRaisesRegex(RuntimeError, 'shutdown incomplete'):
                     run.stop()
                 self.assertIsNone(run.child)
@@ -205,6 +265,7 @@ class OwnershipTests(unittest.TestCase):
 
     def test_client_never_retries_a_mismatched_or_failed_mutation(self):
         from unittest.mock import Mock
+
         for response in [{'requestId': 'wrong', 'result': {'ok': True}}, {'result': {'ok': False}}]:
             run = Run.__new__(Run)
             run.id = 'unit'
@@ -216,6 +277,7 @@ class OwnershipTests(unittest.TestCase):
 
     def test_health_scenario_is_finite_and_never_retries_failed_actions(self):
         from unittest.mock import Mock
+
         run = Run.__new__(Run)
         run.root = Path('/unused')
         run.wait = Mock()
@@ -225,11 +287,28 @@ class OwnershipTests(unittest.TestCase):
             self.assertTrue(receipt.call_args.args[1]['rangeTabsAwayBack'])
             self.assertTrue(receipt.call_args.args[1]['syntheticCalories'])
         actions = [call.args[0] for call in run.command.call_args_list]
-        self.assertEqual([action['action'] for action in actions if action['type'] == 'health'], [
-            'previous', 'next', 'previous', 'remember-range', 'weekly', 'monthly', 'daily',
-            'assert-range', 'assert-range', 'calories', 'capture-narrow', 'capture-wide', 'latest'])
+        self.assertEqual(
+            [action['action'] for action in actions if action['type'] == 'health'],
+            [
+                'previous',
+                'next',
+                'previous',
+                'remember-range',
+                'weekly',
+                'monthly',
+                'daily',
+                'assert-range',
+                'assert-range',
+                'calories',
+                'capture-narrow',
+                'capture-wide',
+                'latest',
+            ],
+        )
         self.assertFalse(any(action['type'] in ['input', 'assert'] for action in actions))
-        run.command = Mock(side_effect=[{'healthPreviousEnabled': True}, ValueError('effect unknown')])
+        run.command = Mock(
+            side_effect=[{'healthPreviousEnabled': True}, ValueError('effect unknown')]
+        )
         with self.assertRaises(ValueError):
             run.health_scenario()
         self.assertEqual(run.command.call_count, 2)
@@ -240,6 +319,7 @@ class OwnershipTests(unittest.TestCase):
 
     def test_readonly_resources_preserve_executable_node(self):
         from release_smoke import protect_resources
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             executable = root / 'node'
@@ -254,6 +334,7 @@ class OwnershipTests(unittest.TestCase):
 
     def test_ordinary_audit_requires_supported_contract_and_excludes_legacy_admission(self):
         from release_smoke import audit, MARKERS, REQUIRED
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             file = root / 'ordinary-fixture'
@@ -282,6 +363,7 @@ class OwnershipTests(unittest.TestCase):
 
     def test_occupied_endpoint_never_launches_or_kills(self):
         import socket
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             source = root / 'populated.sqlite'

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Owned real-native representative smoke. No OS input, secrets, server substitute or stale-PID kills."""
+
 import argparse
 import contextlib
 import hashlib
@@ -12,7 +13,6 @@ import signal
 import socket
 import sqlite3
 import subprocess
-import sys
 import time
 import uuid
 
@@ -33,6 +33,7 @@ def canonical(path):
 
 def source_identity():
     from ordinary_identity import source_snapshot
+
     return source_snapshot(REPO)['source']
 
 
@@ -41,7 +42,9 @@ def fingerprint(database):
     counts = {}
     database.execute('begin')
     try:
-        for (name,) in database.execute("select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name"):
+        for (name,) in database.execute(
+            "select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name"
+        ):
             quoted = '"' + name.replace('"', '""') + '"'
             rows = sorted(repr(row) for row in database.execute('select * from ' + quoted))
             digest.update((name + '\n' + '\n'.join(rows)).encode())
@@ -67,7 +70,7 @@ def listening(number):
     if not number:
         return False
     with socket.socket() as endpoint:
-        endpoint.settimeout(.2)
+        endpoint.settimeout(0.2)
         return endpoint.connect_ex(('127.0.0.1', number)) == 0
 
 
@@ -76,9 +79,16 @@ class Observer:
         self.log = scratch / ('focus-' + str(uuid.uuid4()) + '.log')
         binary = resources.runtime_path(scratch / ('observer-' + str(uuid.uuid4())))
         from smoke_build import observer_binary
+
         resources.copy_file(observer_binary(REPO, preparation_locked=preparation_locked), binary)
         with self.log.open('xb') as output:
-            self.child = subprocess.Popen([str(binary)], stdin=subprocess.PIPE, stdout=output, stderr=subprocess.DEVNULL, start_new_session=True)
+            self.child = subprocess.Popen(
+                [str(binary)],
+                stdin=subprocess.PIPE,
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
         resources.guard(self.verify_settled)
 
     def verify_settled(self):
@@ -86,7 +96,9 @@ class Observer:
             raise RuntimeError('Observer still live; retain invocation resources')
 
     def samples(self):
-        return [line.split() for line in self.log.read_text().splitlines() if len(line.split()) == 4]
+        return [
+            line.split() for line in self.log.read_text().splitlines() if len(line.split()) == 4
+        ]
 
     def check(self, pids):
         if self.child.poll() is not None:
@@ -105,18 +117,39 @@ class Observer:
             self.child.wait(timeout=5)
         if not rows:
             raise RuntimeError('No noninterference samples available')
-        return {'samples': len(rows), 'ownedNativeFrontmost': False, 'pointerPositions': len({tuple(row[2:]) for row in rows}), 'limit': '10ms sampled read-only observation cannot exclude shorter transitions; operator pointer movement is not synthesized input'}
+        return {
+            'samples': len(rows),
+            'ownedNativeFrontmost': False,
+            'pointerPositions': len({tuple(row[2:]) for row in rows}),
+            'limit': '10ms sampled read-only observation cannot exclude shorter transitions; operator pointer movement is not synthesized input',
+        }
 
 
 class Run:
-    def __init__(self, scratch, database, source, *, ordinary=False, synthetic_provider_fields=False, fresh_database=False):
+    def __init__(
+        self,
+        scratch,
+        database,
+        source,
+        *,
+        ordinary=False,
+        synthetic_provider_fields=False,
+        fresh_database=False,
+    ):
         if fresh_database and not ordinary:
             raise ValueError('Fresh native database requires isolated ordinary onboarding')
         if synthetic_provider_fields and ordinary:
             raise ValueError('Synthetic provider fields require admitted debug Settings')
         self.id = str(uuid.uuid4())
-        self.root = resources.run_directory(scratch / (('ordinary-' if ordinary else 'native-') + self.id))
-        for name in (['app-data', 'setup-profile'] if ordinary else ['home']) + ['tmp', 'profile', 'config', 'screenshots']:
+        self.root = resources.run_directory(
+            scratch / (('ordinary-' if ordinary else 'native-') + self.id)
+        )
+        for name in (['app-data', 'setup-profile'] if ordinary else ['home']) + [
+            'tmp',
+            'profile',
+            'config',
+            'screenshots',
+        ]:
             (self.root / name).mkdir(mode=0o700)
         (self.root / 'owner').write_text(self.id)
         (self.root / 'owner').chmod(0o600)
@@ -135,14 +168,41 @@ class Run:
                 if fingerprint(target) != self.original:
                     raise ValueError('Online backup mismatch')
         copy.chmod(0o600)
-        self.config = {'runId': self.id, 'token': os.urandom(32).hex(), 'root': str(self.root), 'source': source, 'port': port()}
+        self.config = {
+            'runId': self.id,
+            'token': os.urandom(32).hex(),
+            'root': str(self.root),
+            'source': source,
+            'port': port(),
+        }
         if not ordinary:
             private_json(self.root / 'config.json', self.config)
-        private_json(self.root / 'config/settings-v2.json', {'version': 2, 'keys': {
-            'OPENAI_API_KEY': 'synthetic-openai-original', 'DEEPSEEK_API_KEY': 'synthetic-deepseek-original'
-        } if synthetic_provider_fields else {}, 'fields': {
-            'DATABASE_PATH': str(self.database), 'AI_PROVIDER': 'ollama', 'MEMORY_ENABLED': 'false'}})
-        private_json(self.root / 'provenance.json', {'source': source, 'original': self.original, 'copy': 'SQLite online backup', 'primaryWriteRequested': False})
+        private_json(
+            self.root / 'config/settings-v2.json',
+            {
+                'version': 2,
+                'keys': {
+                    'OPENAI_API_KEY': 'synthetic-openai-original',
+                    'DEEPSEEK_API_KEY': 'synthetic-deepseek-original',
+                }
+                if synthetic_provider_fields
+                else {},
+                'fields': {
+                    'DATABASE_PATH': str(self.database),
+                    'AI_PROVIDER': 'ollama',
+                    'MEMORY_ENABLED': 'false',
+                },
+            },
+        )
+        private_json(
+            self.root / 'provenance.json',
+            {
+                'source': source,
+                'original': self.original,
+                'copy': 'SQLite online backup',
+                'primaryWriteRequested': False,
+            },
+        )
         self.child = None
         self.shutdown_failure = None
         self.origin = None
@@ -150,23 +210,47 @@ class Run:
         self.pids = []
         self.commands = []
         self.observer = None
-        self.before_start = lambda: None  # Prepared-input authority may be rechecked for every boot.
+        self.before_start = lambda: (
+            None
+        )  # Prepared-input authority may be rechecked for every boot.
         resources.guard(self.verify_settled)
 
     def verify_settled(self):
-        if self.child is not None or self.shutdown_failure or listening(self.config['port']) or (self.origin and listening(int(self.origin.rsplit(':', 1)[1]))) or Path(str(self.database) + '.trainer-writer').exists():
+        if (
+            self.child is not None
+            or self.shutdown_failure
+            or listening(self.config['port'])
+            or (self.origin and listening(int(self.origin.rsplit(':', 1)[1])))
+            or Path(str(self.database) + '.trainer-writer').exists()
+        ):
             raise RuntimeError('Run not finally settled; retain invocation resources')
 
     def spawn(self, binary, log):
-        env = {'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'HOME': str(self.root / 'home'),
-               'TMPDIR': str(self.root / 'tmp'), 'TRAINER_SMOKE_CONFIG': str(self.root / 'config.json')}
+        env = {
+            'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin',
+            'HOME': str(self.root / 'home'),
+            'TMPDIR': str(self.root / 'tmp'),
+            'TRAINER_SMOKE_CONFIG': str(self.root / 'config.json'),
+        }
         with open(log, 'xb', opener=lambda p, flags: os.open(p, flags, 0o600)) as output:
-            return subprocess.Popen([str(binary)], cwd=self.root, env=env, stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+            return subprocess.Popen(
+                [str(binary)],
+                cwd=self.root,
+                env=env,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
 
     def accept_identity(self, identity):
-        return (identity['runId'] == self.id and identity['source'] == self.config['source']
-                and identity['pid'] == self.child.pid and identity['database'] == str(self.database)
-                and identity['appIdentity'] == 'com.codexa.garmin-trainer.smoke.r' + self.id.replace('-', ''))
+        return (
+            identity['runId'] == self.id
+            and identity['source'] == self.config['source']
+            and identity['pid'] == self.child.pid
+            and identity['database'] == str(self.database)
+            and identity['appIdentity']
+            == 'com.codexa.garmin-trainer.smoke.r' + self.id.replace('-', '')
+        )
 
     def start(self, binary, timeout=100):
         self.before_start()
@@ -190,22 +274,31 @@ class Run:
                     if not evidence.exists():
                         private_json(evidence, identity)
                     self.origin = identity['origin']
-                    if not self.origin.startswith('http://127.0.0.1:') or int(self.origin.rsplit(':', 1)[1]) == self.config['port']:
+                    if (
+                        not self.origin.startswith('http://127.0.0.1:')
+                        or int(self.origin.rsplit(':', 1)[1]) == self.config['port']
+                    ):
                         raise ValueError('Invalid backend origin')
                     if identity.get('runtimeReady') is not True:
-                        time.sleep(.1)
+                        time.sleep(0.1)
                         continue
                     observation = self.command({'type': 'observe'})
                     if observation['dashboard'] and observation['hydrated']:
-                        private_json(self.root / f'readiness-{self.launches}.json', {**identity, 'rendererRoundTrip': True})
+                        private_json(
+                            self.root / f'readiness-{self.launches}.json',
+                            {**identity, 'rendererRoundTrip': True},
+                        )
                         return
             except (OSError, http.client.HTTPException, RuntimeError, KeyError) as error:
                 # Preserve distinct bounded failures; read-only readiness only, never mutation replay.
                 failure = (type(error).__name__ + ': ' + str(error))[:240]
                 if failure not in failures and len(failures) < 20:
                     failures.add(failure)
-                    private_json(self.root / f'readiness-failure-{self.launches}-{len(failures)}.json', {'failure': failure})
-            time.sleep(.1)
+                    private_json(
+                        self.root / f'readiness-failure-{self.launches}-{len(failures)}.json',
+                        {'failure': failure},
+                    )
+            time.sleep(0.1)
         raise TimeoutError('Native + renderer readiness deadline; retained run logs')
 
     def http(self, path, body=None, extra=None, expected=200):
@@ -215,14 +308,21 @@ class Run:
         headers.update(extra or {})
         client = http.client.HTTPConnection('127.0.0.1', self.config['port'], timeout=12)
         try:
-            client.request('GET' if body is None else 'POST', path, None if body is None else json.dumps(body), headers)
+            client.request(
+                'GET' if body is None else 'POST',
+                path,
+                None if body is None else json.dumps(body),
+                headers,
+            )
             response = client.getresponse()
             raw = response.read(2 * 1024 * 1024 + 1)
             if len(raw) > 2 * 1024 * 1024:
                 raise ValueError('Output bound exceeded')
             value = json.loads(raw)
             if response.status != expected:
-                raise RuntimeError(f'Bridge status {response.status}: {value.get("error", value.get("result", {}).get("error", "failed"))}')
+                raise RuntimeError(
+                    f'Bridge status {response.status}: {value.get("error", value.get("result", {}).get("error", "failed"))}'
+                )
             return value
         finally:
             client.close()
@@ -246,14 +346,19 @@ class Run:
             value = self.command({'type': 'observe'})
             if predicate(value):
                 return value
-            time.sleep(.1)
-        private_json(self.root / ('failed-observation-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': value, 'launch': self.launches})
+            time.sleep(0.1)
+        private_json(
+            self.root / ('failed-observation-' + str(uuid.uuid4()) + '.json'),
+            {'assertion': label, 'observation': value, 'launch': self.launches},
+        )
         raise TimeoutError('Rendered assertion deadline: ' + label)
 
     def other_profile_fields(self):
         if not self.origin:
             raise ValueError('Verified owned origin required')
-        client = http.client.HTTPConnection('127.0.0.1', int(self.origin.rsplit(':', 1)[1]), timeout=5)
+        client = http.client.HTTPConnection(
+            '127.0.0.1', int(self.origin.rsplit(':', 1)[1]), timeout=5
+        )
         try:
             client.request('GET', '/api/profile')
             response = client.getresponse()
@@ -261,24 +366,48 @@ class Run:
             if response.status != 200 or len(raw) > 128 * 1024:
                 raise ValueError('Owned Profile read failed/bounded')
             profile = json.loads(raw)
-            return hashlib.sha256(json.dumps({key: profile.get(key) for key in ['sports', 'constraints', 'preferences']}, sort_keys=True).encode()).hexdigest()
+            return hashlib.sha256(
+                json.dumps(
+                    {key: profile.get(key) for key in ['sports', 'constraints', 'preferences']},
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
         finally:
             client.close()
 
     def prepare_health_comparison(self):
         """Preserve existing gaps, or prepare one only on an owned prelaunch copy."""
         from datetime import date, datetime, timedelta, timezone
-        if self.launches or self.child is not None or (self.root / 'health-preparation.json').exists() or canonical(self.database).parent != canonical(self.root):
+
+        if (
+            self.launches
+            or self.child is not None
+            or (self.root / 'health-preparation.json').exists()
+            or canonical(self.database).parent != canonical(self.root)
+        ):
             raise ValueError('Health preparation requires an unlaunched owned copy')
         if self.database.stat().st_nlink != 1 or self.database.stat().st_uid != os.getuid():
             raise ValueError('Health copy identity refused')
         with contextlib.closing(sqlite3.connect(self.database)) as copy:
-            dates = [row[0] for row in copy.execute('select date from daily_health where date <= ? order by date desc limit 21', (datetime.now(timezone.utc).date().isoformat(),))]
-            if len(dates) < 14 or any(date.fromisoformat(value).isoformat() != value for value in dates):
+            dates = [
+                row[0]
+                for row in copy.execute(
+                    'select date from daily_health where date <= ? order by date desc limit 21',
+                    (datetime.now(timezone.utc).date().isoformat(),),
+                )
+            ]
+            if len(dates) < 14 or any(
+                date.fromisoformat(value).isoformat() != value for value in dates
+            ):
                 raise ValueError('Health comparison requires fourteen eligible source dates')
             latest = date.fromisoformat(dates[0])
             historical = [(latest - timedelta(days=index)).isoformat() for index in range(7, 14)]
-            rows = dict(copy.execute('select date, availability from daily_health where date between ? and ?', (historical[-1], historical[0])))
+            rows = dict(
+                copy.execute(
+                    'select date, availability from daily_health where date between ? and ?',
+                    (historical[-1], historical[0]),
+                )
+            )
             partial_count = sum(value == 'partial' for value in rows.values())
             if not partial_count:
                 raise ValueError('Historical Health page lacks a partial source record')
@@ -287,13 +416,34 @@ class Run:
             if not existing_gap and partial_count == 1 and rows[omitted] == 'partial':
                 raise ValueError('Health omission would remove the only partial record')
             before = fingerprint(copy)
-            changed = 0 if existing_gap else copy.execute('delete from daily_health where date=?', (omitted,)).rowcount
+            changed = (
+                0
+                if existing_gap
+                else copy.execute('delete from daily_health where date=?', (omitted,)).rowcount
+            )
             copy.commit()
             after = fingerprint(copy)
-            expected = {**before['counts'], 'daily_health': before['counts']['daily_health'] - changed}
-            if changed != (0 if existing_gap else 1) or after['counts'] != expected or copy.execute('pragma foreign_key_check').fetchall():
+            expected = {
+                **before['counts'],
+                'daily_health': before['counts']['daily_health'] - changed,
+            }
+            if (
+                changed != (0 if existing_gap else 1)
+                or after['counts'] != expected
+                or copy.execute('pragma foreign_key_check').fetchall()
+            ):
                 raise ValueError('Bounded Health copy preparation failed')
-        private_json(self.root / 'health-preparation.json', {'copyOnly': True, 'removedDailyRowCount': changed, 'existingInputGap': existing_gap, 'sourcePartialCoverageRetained': True, 'inputUnmodified': True, 'limit': 'Existing input gaps stay unchanged; any extra omission is copy-only, never an original-source missing-date claim. No values fabricated or copied back.'})
+        private_json(
+            self.root / 'health-preparation.json',
+            {
+                'copyOnly': True,
+                'removedDailyRowCount': changed,
+                'existingInputGap': existing_gap,
+                'sourcePartialCoverageRetained': True,
+                'inputUnmodified': True,
+                'limit': 'Existing input gaps stay unchanged; any extra omission is copy-only, never an original-source missing-date claim. No values fabricated or copied back.',
+            },
+        )
 
     def health_scenario(self, synthetic_calories=False):
         self.wait(lambda o: o['healthReady'], 'Daily seven-date chart readiness')
@@ -303,13 +453,24 @@ class Run:
         self.command({'type': 'health', 'action': 'previous'})
         self.wait(lambda o: o['healthNextEnabled'], 'Previous calendar page')
         self.command({'type': 'health', 'action': 'next'})
-        self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Next returns to latest page')
+        self.wait(
+            lambda o: o['healthReady'] and not o['healthLatestEnabled'],
+            'Next returns to latest page',
+        )
         self.command({'type': 'health', 'action': 'previous'})
-        self.wait(lambda o: o['healthLatestEnabled'] and o['healthMissingRecord'] and o['healthPartialRecord'], 'Historical calendar page with missing date and partial source coverage')
+        self.wait(
+            lambda o: (
+                o['healthLatestEnabled'] and o['healthMissingRecord'] and o['healthPartialRecord']
+            ),
+            'Historical calendar page with missing date and partial source coverage',
+        )
         self.command({'type': 'health', 'action': 'remember-range'})
         for mode in ['weekly', 'monthly', 'daily']:
             self.command({'type': 'health', 'action': mode})
-            self.wait(lambda o: o['healthMode'] == mode and o['healthReady'] == (mode == 'daily'), 'Health tab ' + mode)
+            self.wait(
+                lambda o: o['healthMode'] == mode and o['healthReady'] == (mode == 'daily'),
+                'Health tab ' + mode,
+            )
         self.command({'type': 'health', 'action': 'assert-range'})
         self.command({'type': 'click', 'target': 'Back to chat'})
         self.wait(lambda o: o['view'] == 'Trainer', 'Health away')
@@ -318,10 +479,25 @@ class Run:
         self.command({'type': 'health', 'action': 'assert-range'})
         if synthetic_calories:
             self.command({'type': 'health', 'action': 'calories'})
-        images = {size: self.command({'type': 'health', 'action': 'capture-' + size}) for size in ['narrow', 'wide']}
+        images = {
+            size: self.command({'type': 'health', 'action': 'capture-' + size})
+            for size in ['narrow', 'wide']
+        }
         self.command({'type': 'health', 'action': 'latest'})
-        self.wait(lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Explicit Latest reset')
-        private_json(self.root / 'health-scenario.json', {'passed': True, 'rangeTabsAwayBack': True, 'missingDateAndPartialObserved': True, 'captures': images, 'syntheticCalories': synthetic_calories, 'limit': 'Only explicitly checked canonical authored Calories can reveal components/legend/shared readout/date controls; axes and other source content remain masked. Synthetic DOM selection is not trusted input. Missing-date provenance is in health-preparation.json; image inspection remains required.'})
+        self.wait(
+            lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Explicit Latest reset'
+        )
+        private_json(
+            self.root / 'health-scenario.json',
+            {
+                'passed': True,
+                'rangeTabsAwayBack': True,
+                'missingDateAndPartialObserved': True,
+                'captures': images,
+                'syntheticCalories': synthetic_calories,
+                'limit': 'Only explicitly checked canonical authored Calories can reveal components/legend/shared readout/date controls; axes and other source content remain masked. Synthetic DOM selection is not trusted input. Missing-date provenance is in health-preparation.json; image inspection remains required.',
+            },
+        )
 
     def scenario(self, health_comparison=False):
         other_fields = self.other_profile_fields()
@@ -330,7 +506,9 @@ class Run:
             self.command({'type': 'click', 'target': view})
             self.wait(lambda o: o['view'] == view, view)
             if view == 'Health' and health_comparison:
-                self.health_scenario(synthetic_calories=getattr(self, 'synthetic_health_calories', False))
+                self.health_scenario(
+                    synthetic_calories=getattr(self, 'synthetic_health_calories', False)
+                )
             self.command({'type': 'click', 'target': 'Back to chat'})
             self.wait(lambda o: o['view'] == 'Trainer', 'Trainer return')
         return self.profile_scenario(capture=True, other_fields=other_fields)
@@ -339,7 +517,10 @@ class Run:
         if other_fields is None:
             other_fields = self.other_profile_fields()
         self.command({'type': 'click', 'target': 'Profile & data'})
-        self.wait(lambda o: o['view'] == 'Profile & data' and o['profileReady'], 'Profile & data readiness')
+        self.wait(
+            lambda o: o['view'] == 'Profile & data' and o['profileReady'],
+            'Profile & data readiness',
+        )
         sentinel = 'T0231-smoke-' + self.id
         self.command({'type': 'input', 'target': 'Goals', 'value': sentinel})
         self.wait(lambda o: not o['profileSaved'], 'React-controlled dirty state')
@@ -350,7 +531,18 @@ class Run:
         if self.other_profile_fields() != other_fields:
             raise ValueError('Non-Goals copied Profile fields changed')
         self.other_profile_hash = other_fields
-        private_json(self.root / 'scenario.json', {'navigation': 'passed' if capture else 'not enrolled: quick Profile only', 'goalsSave': 'passed', 'otherProfileFieldsUnchanged': True, 'sentinel': sentinel, 'capture': image, 'commands': self.commands, 'cleanup': 'copy-only Profile sentinel; final owned-disposal/retention receipt is authoritative; never copied back'})
+        private_json(
+            self.root / 'scenario.json',
+            {
+                'navigation': 'passed' if capture else 'not enrolled: quick Profile only',
+                'goalsSave': 'passed',
+                'otherProfileFieldsUnchanged': True,
+                'sentinel': sentinel,
+                'capture': image,
+                'commands': self.commands,
+                'cleanup': 'copy-only Profile sentinel; final owned-disposal/retention receipt is authoritative; never copied back',
+            },
+        )
         return sentinel
 
     def verify_restart(self, binary, sentinel, kind='profile'):
@@ -359,11 +551,22 @@ class Run:
         self.stop()
         self.start(binary)
         self.command({'type': 'click', 'target': 'Profile & data'})
-        self.wait(lambda o: o['view'] == 'Profile & data' and o['profileReady'] and o['profileSaved'], 'Relaunched persisted Profile')
+        self.wait(
+            lambda o: o['view'] == 'Profile & data' and o['profileReady'] and o['profileSaved'],
+            'Relaunched persisted Profile',
+        )
         self.command({'type': 'assert', 'target': 'Goals', 'value': sentinel})
         if self.other_profile_fields() != self.other_profile_hash:
             raise ValueError('Non-Goals Profile fields changed across restart')
-        private_json(self.root / ('model-restart.json' if kind == 'model' else 'restart.json'), {'otherProfileFieldsUnchanged': True, 'passed': True, 'sameOwnedCopy': True, 'newNativePid': self.pids[-1] != self.pids[-2]})
+        private_json(
+            self.root / ('model-restart.json' if kind == 'model' else 'restart.json'),
+            {
+                'otherProfileFieldsUnchanged': True,
+                'passed': True,
+                'sameOwnedCopy': True,
+                'newNativePid': self.pids[-1] != self.pids[-2],
+            },
+        )
 
     def stop(self):
         child = self.child
@@ -386,10 +589,25 @@ class Run:
         self.child = None
         backend_port = int(self.origin.rsplit(':', 1)[1]) if self.origin else None
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and (listening(self.config['port']) or listening(backend_port) or Path(str(self.database) + '.trainer-writer').exists()):
-            time.sleep(.1)
-        settled = not listening(self.config['port']) and not listening(backend_port) and not Path(str(self.database) + '.trainer-writer').exists()
-        private_json(self.root / f'shutdown-{self.launches}.json', {'nativeReaped': True, 'endpointsAndLeaseSettled': settled, 'exitCode': child.returncode})
+        while time.monotonic() < deadline and (
+            listening(self.config['port'])
+            or listening(backend_port)
+            or Path(str(self.database) + '.trainer-writer').exists()
+        ):
+            time.sleep(0.1)
+        settled = (
+            not listening(self.config['port'])
+            and not listening(backend_port)
+            and not Path(str(self.database) + '.trainer-writer').exists()
+        )
+        private_json(
+            self.root / f'shutdown-{self.launches}.json',
+            {
+                'nativeReaped': True,
+                'endpointsAndLeaseSettled': settled,
+                'exitCode': child.returncode,
+            },
+        )
         if not settled:
             self.shutdown_failure = 'Owned shutdown incomplete; no stale-PID cleanup attempted'
             raise RuntimeError(self.shutdown_failure)
@@ -402,7 +620,9 @@ def verify_resources(source):
         raise ValueError('Canonical resource root required')
     provenance = json.loads((resources / 'provenance.json').read_text())
     if provenance.get('sourceFingerprint') != source:
-        raise ValueError('Prepared resource source mismatch; assemble after same-input production build')
+        raise ValueError(
+            'Prepared resource source mismatch; assemble after same-input production build'
+        )
     files = provenance['files']
     expected = {item['path']: item['sha256'] for item in files}
     if len(expected) != len(files):
@@ -420,8 +640,16 @@ def verify_resources(source):
 
 def build(scratch, source, resources_ready=False, *, mode='debug'):
     from smoke_build import prepare
-    return prepare(REPO, scratch, source, source_identity, verify_resources,
-                   resources_ready=resources_ready, mode=mode)
+
+    return prepare(
+        REPO,
+        scratch,
+        source,
+        source_identity,
+        verify_resources,
+        resources_ready=resources_ready,
+        mode=mode,
+    )
 
 
 @resources.invocation
@@ -429,9 +657,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     from smoke_input import arguments, prepare
+
     arguments(parser)
     parser.add_argument('--prepare-only', action='store_true')
-    parser.add_argument('--health-comparison', action='store_true', help='Finite Daily range/tab/away-back and masked wide/narrow capture scenario; selected input must include older Health history')
+    parser.add_argument(
+        '--health-comparison',
+        action='store_true',
+        help='Finite Daily range/tab/away-back and masked wide/narrow capture scenario; selected input must include older Health history',
+    )
     args = parser.parse_args()
     os.umask(0o077)
     scratch = canonical(args.scratch)
@@ -453,7 +686,11 @@ def main():
                 run.prepare_health_comparison()
         if args.prepare_only:
             resources.retain('prepare-only outputs promised for later use; zero launches')
-            print(json.dumps({'prepared': [str(run.root) for run in runs], 'integrity': 'ok', 'launches': 0}))
+            print(
+                json.dumps(
+                    {'prepared': [str(run.root) for run in runs], 'integrity': 'ok', 'launches': 0}
+                )
+            )
             return
         binary = build(scratch, source)
         observer = Observer(scratch)
@@ -466,7 +703,12 @@ def main():
         for run in runs:
             prepared.verify_current()
             # Admission failures are real transport observations, not successful commands.
-            for extra in [{'Authorization': 'Bearer wrong'}, {'Origin': 'null'}, {'X-Smoke-Run': str(uuid.uuid4())}, {'Host': 'localhost'}]:
+            for extra in [
+                {'Authorization': 'Bearer wrong'},
+                {'Origin': 'null'},
+                {'X-Smoke-Run': str(uuid.uuid4())},
+                {'Host': 'localhost'},
+            ]:
                 run.http('/identity', extra=extra, expected=403)
             sentinel = run.scenario(health_comparison=args.health_comparison)
             run.verify_restart(binary, sentinel)
@@ -491,7 +733,17 @@ def main():
             prepared.verify_current()
             with contextlib.closing(readonly(database)) as original:
                 unchanged = all(fingerprint(original) == run.original for run in runs)
-            receipt = {'source': source, 'resourceDisposition': resources.disposition(), 'inputRoute': prepared.provenance['route'], 'preparation': str(prepared.root), 'runs': [str(run.root) for run in runs], 'primaryUnchanged': unchanged, 'shutdownErrors': errors, 'noninterference': noninterference, 'providerAndGarmin': 'not exercised; keyless offline representative flow'}
+            receipt = {
+                'source': source,
+                'resourceDisposition': resources.disposition(),
+                'inputRoute': prepared.provenance['route'],
+                'preparation': str(prepared.root),
+                'runs': [str(run.root) for run in runs],
+                'primaryUnchanged': unchanged,
+                'shutdownErrors': errors,
+                'noninterference': noninterference,
+                'providerAndGarmin': 'not exercised; keyless offline representative flow',
+            }
             private_json(scratch / ('native-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
             if not unchanged or errors:
                 raise RuntimeError('Original integrity/shutdown gate failed; retained evidence')
@@ -499,7 +751,9 @@ def main():
 
 
 if __name__ == '__main__':
+
     def interrupted(_signal, _frame):
         raise KeyboardInterrupt('Owned smoke interrupted')
+
     signal.signal(signal.SIGTERM, interrupted)
     main()

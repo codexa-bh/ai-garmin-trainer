@@ -17,7 +17,7 @@ describe("economical CI profiles", () => {
 
   it("preserves every blocking gate, fresh type generation and existing full semantics", () => {
     const fast =
-      "npm run format && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test";
+      "npm run format && npm run format:rust && npm run format:python && npm run lint:python && npm run deadcode:python && npm run lint && npm run architecture && npm run knip && npm run typecheck && npm run test";
     expect(manifest.scripts["validate:ci"]).toBe(fast);
     expect(manifest.scripts.validate).toBe(`${fast} && npm run build`);
     expect(manifest.scripts.typecheck).toBe("next typegen && tsc --noEmit");
@@ -31,12 +31,58 @@ describe("economical CI profiles", () => {
     expect(fast).not.toMatch(/build|desktop|coverage/);
   });
 
+  it("pins both Knip modes and all new language gates to the reviewed tools", () => {
+    expect(manifest.scripts.knip).toBe("knip && knip --production");
+    expect(manifest.scripts["format:rust"]).toBe(
+      "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
+    );
+    expect(manifest.scripts["lint:rust"]).toBe(
+      "cargo clippy --locked --all-targets --manifest-path src-tauri/Cargo.toml -- -D warnings -D clippy::dbg_macro -D clippy::todo -D clippy::unimplemented",
+    );
+    for (const [name, mode] of [
+      ["format:python", "format"],
+      ["lint:python", "lint"],
+      ["deadcode:python", "deadcode"],
+    ] as const)
+      expect(manifest.scripts[name]).toBe(
+        `python3 scripts/python_quality.py ${mode}`,
+      );
+    const pins = read("scripts/python-quality-requirements.txt")
+      .trim()
+      .split("\n");
+    expect(pins).toEqual(["ruff==0.17.5", "vulture==2.16"]);
+    expect(read("ruff.toml")).toContain(
+      `required-version = "${pins[0].split("==")[1]}"`,
+    );
+    expect(read("ruff.toml")).toContain('select = ["F", "E4", "E7", "E9"]');
+    for (const workflow of ["ci.yml", "nightly-macos.yml"]) {
+      const yaml = read(`.github/workflows/${workflow}`);
+      expect(yaml).toContain('python-version: "3.12"');
+      expect(yaml).toContain("RUSTUP_TOOLCHAIN: 1.98.0");
+      expect(yaml).toContain(
+        "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+      );
+      expect(yaml).toContain(
+        "python3 -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --no-deps -r scripts/python-quality-requirements.txt",
+      );
+      expect(yaml).toContain(
+        "rustup toolchain install 1.98.0 --profile minimal --component rustfmt",
+      );
+    }
+  });
+
   it("retains routine Validate identity and no build/native allocation", () => {
     const ci = read(".github/workflows/ci.yml");
     expect(ci).toContain("name: Validate");
     expect(ci).toContain("run: npm run validate:ci");
     expect(ci).toContain("cancel-in-progress: true");
     expect(ci).toContain("runs-on: ubuntu-24.04");
+    expect(
+      [...(ci.split("jobs:\n")[1] ?? "").matchAll(/^ {2}([a-z-]+):/gm)].map(
+        (match) => match[1],
+      ),
+    ).toEqual(["validate"]);
+    expect(ci).not.toMatch(/\bcache:/);
     expect(ci.match(/branches: \[main\]/g)).toHaveLength(2);
     expect(ci).not.toMatch(
       /run: npm run validate\s*$|macos|cargo|desktop:|upload-artifact|actions\/cache@/m,
@@ -60,6 +106,15 @@ describe("economical CI profiles", () => {
     expect(nightly).toContain("run: CI=true npm run validate");
     expect(nightly).toContain("npm run desktop:assemble");
     expect(nightly).toContain("npm run desktop:test:native");
+    expect(nightly).toContain("--component rustfmt --component clippy");
+    expect(nightly).toContain("npm run lint:rust");
+    expect(nightly.indexOf("npm run lint:rust")).toBeGreaterThan(
+      nightly.indexOf("npm run desktop:assemble"),
+    );
+    expect(nightly.indexOf("npm run lint:rust")).toBeLessThan(
+      nightly.indexOf("npm run desktop:test:native"),
+    );
+    expect(nightly).not.toContain("cargo check --locked");
     expect(nightly).toContain(
       'npm run smoke:quick -- --scratch "$CI_SMOKE_SCRATCH" --resources-ready',
     );
@@ -168,7 +223,7 @@ describe("economical CI profiles", () => {
     );
   });
 
-  it("pins reviewed actions, locked installs and npm-download-only cache", () => {
+  it("pins reviewed actions, locked installs and only existing non-push npm-download caches", () => {
     for (const name of ["ci.yml", "nightly-macos.yml", "windows.yml"]) {
       const yaml = read(`.github/workflows/${name}`);
       const actions = [...yaml.matchAll(/uses: ([^\s]+)/g)].map(
@@ -182,7 +237,8 @@ describe("economical CI profiles", () => {
       expect(yaml).toContain("contents: read");
       expect(yaml).toContain("persist-credentials: false");
       expect(yaml).toContain("npm ci --no-fund");
-      expect(yaml).toContain("cache-dependency-path: package-lock.json");
+      if (name === "ci.yml") expect(yaml).not.toMatch(/\bcache:/);
+      else expect(yaml).toContain("cache-dependency-path: package-lock.json");
       expect(yaml).not.toMatch(
         /secrets\.|write-all|contents: write|pull_request_target/,
       );

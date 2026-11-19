@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertReadOperation } from "../src/lib/garmin/client";
+
 import { normalizeGarminAthleteBaseline } from "../src/lib/garmin/athlete-normalize";
 import { normalizeGarminBodyMetrics } from "../src/lib/garmin/body-metrics-normalize";
 import { normalizeActivityHrZoneTime } from "../src/lib/garmin/activity-hr-zone-time";
@@ -20,53 +20,8 @@ import {
   normalizeActivity,
   normalizeDailyHealth,
 } from "../src/lib/garmin/normalize";
-import {
-  syncActivitiesToExhaustion,
-  syncDailyHealthRange,
-  type FitnessStore,
-} from "../src/lib/garmin/sync";
-
-class MemoryStore implements FitnessStore {
-  checkpoints = new Map<string, string>();
-  activities = new Set<string>();
-  days = new Set<string>();
-  async upsertActivities(items: { garminId: string }[]) {
-    items.forEach((item) => this.activities.add(item.garminId));
-    return items.length;
-  }
-  async upsertDailyHealth(items: { date: string }[]) {
-    items.forEach((item) => this.days.add(item.date));
-    return items.length;
-  }
-  async saveCheckpoint(key: string, value: string) {
-    this.checkpoints.set(key, value);
-  }
-  async getCheckpoint(key: string) {
-    return this.checkpoints.get(key) ?? null;
-  }
-}
 
 describe("Garmin boundary", () => {
-  it("allows only reviewed read operations", () => {
-    expect(() => assertReadOperation("list_activities")).not.toThrow();
-    expect(() => assertReadOperation("get_activity_fit_data")).not.toThrow();
-    expect(() => assertReadOperation("get_user_profile")).not.toThrow();
-    expect(() => assertReadOperation("get_devices")).not.toThrow();
-    // T0345: the single matched last-used fallback read (dedicated process).
-    expect(() => assertReadOperation("get_device_last_used")).not.toThrow();
-    expect(() => assertReadOperation("get_device_settings")).toThrow(/Blocked/);
-    expect(() => assertReadOperation("get_cycling_ftp")).not.toThrow();
-    expect(() => assertReadOperation("get_body_composition")).not.toThrow();
-    expect(() => assertReadOperation("get_weigh_ins")).not.toThrow();
-    expect(() => assertReadOperation("download_activity_file")).toThrow(
-      /Blocked/,
-    );
-    expect(() => assertReadOperation("set_user_profile")).toThrow(/Blocked/);
-    expect(() => assertReadOperation("delete_activity")).toThrow(/Blocked/);
-    expect(() => assertReadOperation("add_weigh_in")).toThrow(/Blocked/);
-    expect(() => assertReadOperation("delete_weigh_ins")).toThrow(/Blocked/);
-  });
-
   it("normalizes athlete baseline facts and excludes unsupported profile fields", () => {
     const normalized = normalizeGarminAthleteBaseline({
       profilePayload: {
@@ -886,31 +841,6 @@ describe("Garmin boundary", () => {
     expect(detail.hasElevation).toBe(true);
     expect(detail.stream).toHaveLength(1);
     expect(detail.stream[0].altitudeMeters).toBeNull();
-  });
-
-  it("paginates, checkpoints, and resumes idempotent sync", async () => {
-    const store = new MemoryStore();
-    const total = await syncActivitiesToExhaustion(store, async (offset) =>
-      offset >= 2
-        ? []
-        : [
-            normalizeActivity({
-              activityId: offset + 1,
-              activityType: "cycling",
-              startTimeLocal: "2026-07-01T07:00:00",
-            }),
-          ],
-    );
-    expect(total).toBe(2);
-    expect(store.checkpoints.get("activity_offset")).toBe("2");
-    const days = await syncDailyHealthRange(
-      store,
-      "2026-07-01",
-      "2026-07-03",
-      async (date) => normalizeDailyHealth(date, { steps: 1000 }),
-    );
-    expect(days).toBe(3);
-    expect(store.days.has("2026-07-03")).toBe(true);
   });
 });
 

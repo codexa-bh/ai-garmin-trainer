@@ -1,3 +1,4 @@
+import { GARMIN_MCP_PACKAGE_URL } from "../src/lib/garmin/mcp-config";
 import * as fs from "node:fs";
 vi.mock("node:fs", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:fs")>()),
@@ -7,17 +8,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getOptionalEnv } from "../src/lib/env";
-import { authCommand, runAuth } from "../src/lib/garmin/auth-command";
+import { runAuth } from "../src/lib/garmin/auth-command";
 import {
   garminTokenEnvironment,
   inspectTokenLocation,
   prepareAuthDirectory,
   resolveTokenLocation,
 } from "../src/lib/garmin/token-location";
-import {
-  GARMIN_MCP_PACKAGE_URL,
-  GARMIN_MCP_SDK_REQUIREMENT,
-} from "../src/lib/garmin/mcp-config";
+import { GARMIN_MCP_SDK_REQUIREMENT } from "../src/lib/garmin/mcp-config";
 
 const roots: string[] = [];
 function directory() {
@@ -163,18 +161,36 @@ describe("one explicit Garmin token location", () => {
       GARMIN_MCP_TOKEN_DIR: dir,
       GARMINTOKENS: "other",
     };
-    const command = authCommand(env, []);
-    expect(command.args).toEqual([
-      "--from",
-      GARMIN_MCP_PACKAGE_URL,
-      "--with",
-      GARMIN_MCP_SDK_REQUIREMENT,
-      "garmin-mcp-auth",
-    ]);
-    expect(command.env).toEqual(garminTokenEnvironment(env));
-    expect(() => authCommand(env, ["--token-path", "other"])).toThrow(
-      "no overrides",
+    const runner = vi.fn<typeof spawnSync>().mockReturnValue({
+      pid: 0,
+      status: 0,
+      signal: null,
+      output: [],
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+    });
+    expect(runAuth(env, [], true, runner as unknown as typeof spawnSync)).toBe(
+      0,
     );
+    expect(runner).toHaveBeenCalledWith(
+      "uvx",
+      [
+        "--from",
+        GARMIN_MCP_PACKAGE_URL,
+        "--with",
+        GARMIN_MCP_SDK_REQUIREMENT,
+        "garmin-mcp-auth",
+      ],
+      { env: garminTokenEnvironment(env), stdio: "inherit" },
+    );
+    expect(() =>
+      runAuth(
+        env,
+        ["--token-path", "other"],
+        true,
+        runner as unknown as typeof spawnSync,
+      ),
+    ).toThrow("no overrides");
     expect(() => runAuth(env, [], false)).toThrow("operator-only");
     prepareAuthDirectory(resolveTokenLocation(dir));
     fs.writeFileSync(join(dir, "garmin_tokens.json"), "preserve");

@@ -9,7 +9,7 @@ import {
   resolveTokenLocation,
 } from "./token-location";
 
-export function authCommand(input: NodeJS.ProcessEnv, args: string[]) {
+function authCommand(input: NodeJS.ProcessEnv, args: string[]) {
   if (args.length)
     throw new Error(
       "garmin:auth accepts no overrides. Configure only GARMIN_MCP_TOKEN_DIR in .env.local.",

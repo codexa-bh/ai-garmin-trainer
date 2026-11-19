@@ -64,7 +64,7 @@ export type SqlAnalysisInput = {
 
 // Consumer-owned capabilities: no Database or Statement crosses this boundary.
 // A session belongs to one admitted query and is closed by the application.
-export type AnalyticalQuerySession = {
+type AnalyticalQuerySession = {
   readRows(sql: string): Array<Record<string, unknown>>;
   readColumnNames(): string[];
   close(): void;

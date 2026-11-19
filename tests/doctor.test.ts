@@ -1,16 +1,11 @@
+import { GARMIN_MCP_PACKAGE_URL } from "../src/lib/garmin/mcp-config";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runDoctor } from "../src/lib/diagnostics/doctor";
-import {
-  redactDiagnosticValue,
-  redactSensitiveText,
-} from "../src/lib/diagnostics/redaction";
-import {
-  GARMIN_MCP_PACKAGE_URL,
-  GARMIN_MCP_SDK_REQUIREMENT,
-} from "../src/lib/garmin/client";
+import { redactDiagnosticValue } from "../src/lib/diagnostics/redaction";
+import { GARMIN_MCP_SDK_REQUIREMENT } from "../src/lib/garmin/client";
 
 const baseEnv = {
   NEXT_PUBLIC_APP_URL: "http://localhost:3000",
@@ -265,7 +260,7 @@ describe("source-beta doctor and redaction", () => {
 
   it("redacts credentials, token contents, prompts, precise GPS, and raw payload canaries", () => {
     const raw = `OPENAI_API_KEY=sk-live-secret refresh_token="garmin-refresh" prompt="what did I say" lat=46.123456 lon=13.987654 rawPayload="connector body"`;
-    const redacted = redactSensitiveText(raw);
+    const redacted = redactDiagnosticValue(raw);
     expect(redacted).not.toContain("sk-live-secret");
     expect(redacted).not.toContain("garmin-refresh");
     expect(redacted).not.toContain("what did I say");

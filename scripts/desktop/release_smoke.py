@@ -2,29 +2,50 @@
 """Audit ordinary production artifact, then separately run launch-only isolated release denial.
 This does NOT claim ordinary artifact launch or authorize operator-app interaction.
 """
+
 import argparse
 import contextlib
 import signal
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import time
-import uuid
 import smoke_resources as resources
-from native_smoke import REPO, Observer, Run, build, canonical, fingerprint, listening, private_json, readonly, source_identity
+from native_smoke import (
+    REPO,
+    Observer,
+    Run,
+    build,
+    canonical,
+    fingerprint,
+    listening,
+    private_json,
+    readonly,
+    source_identity,
+)
 
 # Ordinary binaries contain supported opt-in control, not legacy debug admission.
 # Exclude precise legacy admission/grant/probe, native-input and setup-only markers.
-MARKERS = [b'Smoke must use its exact private config/HOME/temp', b'com.codexa.garmin-trainer.smoke.r',
-           b'isolated-debug-result', b'allow-smoke-result', b'trainer-release-probe', b'__trainerSetupSmoke',
-           b'Local key deadline: effect unknown', b'Disclosure focus refused; no key dispatched']
+MARKERS = [
+    b'Smoke must use its exact private config/HOME/temp',
+    b'com.codexa.garmin-trainer.smoke.r',
+    b'isolated-debug-result',
+    b'allow-smoke-result',
+    b'trainer-release-probe',
+    b'__trainerSetupSmoke',
+    b'Local key deadline: effect unknown',
+    b'Disclosure focus refused; no key dispatched',
+]
 # Optimizers may encode CLI comparisons as instructions rather than contiguous strings.
 # Require the versioned identity contract actually serialized by the live endpoint instead.
-REQUIRED = [b'trainer-ordinary-isolated/v2', b'allow-isolated-result', b'__trainerOrdinaryIsolated',
-            b'Isolated ordinary-run admission refused']
+REQUIRED = [
+    b'trainer-ordinary-isolated/v2',
+    b'allow-isolated-result',
+    b'__trainerOrdinaryIsolated',
+    b'Isolated ordinary-run admission refused',
+]
 APP = REPO / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 
 
@@ -44,14 +65,21 @@ def audit(app, extra=None):
                 raise ValueError('Unexpected production artifact object')
             continue
         if file.stat().st_nlink != 1:
-            raise ValueError('Hardlinked production artifact refused: ' + file.relative_to(base).as_posix())
+            raise ValueError(
+                'Hardlinked production artifact refused: ' + file.relative_to(base).as_posix()
+            )
         data = file.read_bytes()
         if any(marker in data for marker in MARKERS):
-            raise ValueError('Debug/probe surface marker in ordinary production artifact: ' + str(file.relative_to(base)))
+            raise ValueError(
+                'Debug/probe surface marker in ordinary production artifact: '
+                + str(file.relative_to(base))
+            )
         admitted.update(marker for marker in REQUIRED if marker in data)
         inventory[file.relative_to(base).as_posix()] = hashlib.sha256(data).hexdigest()
     if not inventory or admitted != set(REQUIRED):
-        raise ValueError('Missing ordinary artifact or supported admission/control markers; static audit is not launch evidence')
+        raise ValueError(
+            'Missing ordinary artifact or supported admission/control markers; static audit is not launch evidence'
+        )
     return inventory
 
 
@@ -78,13 +106,25 @@ def main():
     artifact = hashlib.sha256(json.dumps(inventory, sort_keys=True).encode()).hexdigest()
     database = canonical(json.loads(selected.read_text())['database'])
     run = Run(scratch, database, source)
-    private_json(run.root / 'ordinary-artifact-audit.json', {'source': source, 'artifactHash': artifact, 'files': len(inventory), 'excludedMarkers': [m.decode() for m in MARKERS], 'requiredSupportedMarkers': [m.decode() for m in REQUIRED], 'ordinaryArtifactLaunched': False})
+    private_json(
+        run.root / 'ordinary-artifact-audit.json',
+        {
+            'source': source,
+            'artifactHash': artifact,
+            'files': len(inventory),
+            'excludedMarkers': [m.decode() for m in MARKERS],
+            'requiredSupportedMarkers': [m.decode() for m in REQUIRED],
+            'ordinaryArtifactLaunched': False,
+        },
+    )
     probe = build(scratch, source, resources_ready=True, mode='release-probe')
     app = run.root / 'Release Denial Probe.app'
+
     def prepare_probe(copy):
         # Only the newly exclusive probe copy is modified, before sealing its inventory.
         shutil.copy2(probe, copy / 'Contents/MacOS/garmin-trainer-desktop')
         protect_resources(copy / 'Contents/Resources')
+
     resources.copy_tree(APP, app, prepare=prepare_probe)
     binary = app / 'Contents/MacOS/garmin-trainer-desktop'
     observer = Observer(scratch)
@@ -92,7 +132,19 @@ def main():
     noninterference = None
     try:
         with (run.root / 'release-probe.log').open('xb') as log:
-            run.child = subprocess.Popen([str(binary)], cwd=run.root, env={'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin', 'HOME': str(run.root / 'home'), 'TMPDIR': str(run.root / 'tmp'), 'TRAINER_SMOKE_CONFIG': str(run.root / 'config.json')}, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            run.child = subprocess.Popen(
+                [str(binary)],
+                cwd=run.root,
+                env={
+                    'PATH': '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin',
+                    'HOME': str(run.root / 'home'),
+                    'TMPDIR': str(run.root / 'tmp'),
+                    'TRAINER_SMOKE_CONFIG': str(run.root / 'config.json'),
+                },
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
         run.launches = 1
         run.pids.append(run.child.pid)
         deadline = time.monotonic() + 100
@@ -102,7 +154,7 @@ def main():
                 raise ValueError('Release unexpectedly opened debug listener')
             if run.child.poll() is not None:
                 break
-            time.sleep(.05)
+            time.sleep(0.05)
         evidence = run.root / 'release-denial.json'
         if run.child.poll() != 0 or not evidence.exists():
             raise RuntimeError('Release denial probe incomplete; retained log')
@@ -123,18 +175,34 @@ def main():
             with contextlib.closing(readonly(database)) as original:
                 if fingerprint(original) != run.original:
                     errors.append('Original DB integrity changed during release probe')
-            private_json(run.root / 'release-settlement.json', {'errors': errors, 'noninterference': noninterference})
+            private_json(
+                run.root / 'release-settlement.json',
+                {'errors': errors, 'noninterference': noninterference},
+            )
             if errors:
                 raise RuntimeError('Release probe preservation/shutdown failed; retain diagnosis')
     if audit(APP) != inventory:
         raise ValueError('Ordinary artifact changed during separate probe build/launch')
-    result = {'source': source, 'resourceDisposition': resources.disposition(), 'ordinaryArtifactAudit': 'passed', 'ordinaryArtifactHash': artifact, 'ordinaryArtifactLaunched': False, 'instrumentedReleaseModeDenial': report, 'noDebugListener': True, 'noninterference': noninterference, 'ownedShutdown': 'passed', 'run': str(run.root)}
+    result = {
+        'source': source,
+        'resourceDisposition': resources.disposition(),
+        'ordinaryArtifactAudit': 'passed',
+        'ordinaryArtifactHash': artifact,
+        'ordinaryArtifactLaunched': False,
+        'instrumentedReleaseModeDenial': report,
+        'noDebugListener': True,
+        'noninterference': noninterference,
+        'ownedShutdown': 'passed',
+        'run': str(run.root),
+    }
     private_json(run.root / 'release-result.json', result)
     print(json.dumps(result))
 
 
 if __name__ == '__main__':
+
     def interrupted(_signal, _frame):
         raise KeyboardInterrupt('Owned release probe interrupted')
+
     signal.signal(signal.SIGTERM, interrupted)
     main()

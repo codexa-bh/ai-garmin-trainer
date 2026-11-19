@@ -182,37 +182,15 @@ afterEach(() => {
 });
 
 describe("Garmin daily health adaptive freshness", () => {
-  it("plans repair candidates and latest candidates without a fixed recent window", async () => {
-    const { dailyHealthImportPlan } =
-      await import("../src/lib/garmin/importer");
-
-    expect(
-      dailyHealthImportPlan({
-        historyStartDate: "2026-07-01",
-        resumeDate: "2026-07-24",
-        endDate: "2026-07-23",
-        latestCandidateDates: ["2026-07-23"],
-        repairDates: ["2026-06-30", "2026-07-03", "2026-07-21"],
-        trailingDates: ["2026-07-22", "2026-07-23"],
-      }),
-    ).toEqual({
-      dates: ["2026-07-03", "2026-07-21", "2026-07-22", "2026-07-23"],
-      checkpointDates: [],
-      latestDates: ["2026-07-23"],
-      repairDates: ["2026-07-03", "2026-07-21"],
-      trailingDates: ["2026-07-22", "2026-07-23"],
-    });
-  });
-
   it("refreshes complete recent history without replaying dates outside the tail", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const {
       getCheckpoint,
       getDatabase,
       saveCheckpoint,
       upsertDailyHealth,
       upsertGarminRawPayload,
-    } = await import("../src/lib/db/repository");
+    } = await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-24");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-23").map(completeDailyHealth),
@@ -251,9 +229,9 @@ describe("Garmin daily health adaptive freshness", () => {
   });
 
   it("refreshes mutable recent dates without moving a past-today checkpoint", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const { getCheckpoint, saveCheckpoint, upsertDailyHealth } =
-      await import("../src/lib/db/repository");
+      await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-24");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-22")
@@ -290,14 +268,14 @@ describe("Garmin daily health adaptive freshness", () => {
   });
 
   it("retries source-empty daily-health rows in the mutable trailing tail", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const {
       getDatabase,
       getCheckpoint,
       saveCheckpoint,
       upsertDailyHealth,
       upsertGarminRawPayload,
-    } = await import("../src/lib/db/repository");
+    } = await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-24");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-20")
@@ -355,13 +333,13 @@ describe("Garmin daily health adaptive freshness", () => {
   });
 
   it("does not retry non-trailing source-empty rows with terminal raw evidence", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const {
       getDatabase,
       saveCheckpoint,
       upsertDailyHealth,
       upsertGarminRawPayload,
-    } = await import("../src/lib/db/repository");
+    } = await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-24");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-23").map((date) =>
@@ -399,8 +377,8 @@ describe("Garmin daily health adaptive freshness", () => {
 
   it("records requested coverage before connector startup failures", async () => {
     mcpState.failStart = true;
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
-    const { getDatabase } = await import("../src/lib/db/repository");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
+    const { getDatabase } = await import("./storage-fixture");
 
     const result = await runGarminSync();
 
@@ -423,9 +401,9 @@ describe("Garmin daily health adaptive freshness", () => {
   });
 
   it("deduplicates historical backfill overlap with adaptive latest and repair candidates", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const { getCheckpoint, saveCheckpoint, upsertDailyHealth } =
-      await import("../src/lib/db/repository");
+      await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-20");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-19").map(completeDailyHealth),
@@ -448,13 +426,13 @@ describe("Garmin daily health adaptive freshness", () => {
   });
 
   it("repairs missing rows that have no raw daily-health payload evidence", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const {
       getDatabase,
       saveCheckpoint,
       upsertDailyHealth,
       upsertGarminRawPayload,
-    } = await import("../src/lib/db/repository");
+    } = await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-24");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-23")
@@ -508,13 +486,13 @@ describe("Garmin daily health adaptive freshness", () => {
   });
 
   it("repairs historical daily intensity coverage for source-stat rows missing raw stats payload evidence", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const {
       getDatabase,
       saveCheckpoint,
       upsertDailyHealth,
       upsertGarminRawPayload,
-    } = await import("../src/lib/db/repository");
+    } = await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-24");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-23")
@@ -562,9 +540,9 @@ describe("Garmin daily health adaptive freshness", () => {
   });
 
   it("bounds repeat complete-row refreshes to six calls inside the daily cadence", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const { saveCheckpoint, upsertDailyHealth, upsertGarminRawPayload } =
-      await import("../src/lib/db/repository");
+      await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-24");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-23").map(completeDailyHealth),
@@ -591,14 +569,14 @@ describe("Garmin daily health adaptive freshness", () => {
   });
 
   it("updates complete totals on the same day, next day, and after a multi-day delay", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const {
       getDatabase,
       getCheckpoint,
       saveCheckpoint,
       upsertDailyHealth,
       upsertGarminRawPayload,
-    } = await import("../src/lib/db/repository");
+    } = await import("./storage-fixture");
     saveCheckpoint("health_next_date", "2026-07-25");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-24").map(completeDailyHealth),
@@ -682,7 +660,7 @@ describe("Garmin daily health adaptive freshness", () => {
       listDailyHealthTrailingCandidateDates,
       upsertDailyHealth,
       upsertGarminRawPayload,
-    } = await import("../src/lib/db/repository");
+    } = await import("./storage-fixture");
     upsertDailyHealth(
       dateRange("2026-07-01", "2026-07-23").map(completeDailyHealth),
     );
@@ -744,9 +722,9 @@ describe("Garmin daily health adaptive freshness", () => {
     async (instant, yesterday, today) => {
       vi.setSystemTime(new Date(instant));
       process.env.GARMIN_HISTORY_START_DATE = yesterday;
-      const { runGarminSync } = await import("../src/lib/garmin/importer");
+      const { runGarminSync } = await import("../src/lib/garmin/composition");
       const { getDatabase, getCheckpoint, saveCheckpoint, upsertDailyHealth } =
-        await import("../src/lib/db/repository");
+        await import("./storage-fixture");
       saveCheckpoint("health_next_date", "2030-01-01");
       upsertDailyHealth([
         completeDailyHealth(yesterday),
@@ -779,7 +757,7 @@ describe("Garmin daily health adaptive freshness", () => {
 
   it("preserves stored non-null fields on partial refreshes and accepts new non-null arrivals", async () => {
     const { listRecentDailyHealth, upsertDailyHealth } =
-      await import("../src/lib/db/repository");
+      await import("./storage-fixture");
 
     upsertDailyHealth([
       dailyHealth("2026-07-23", {

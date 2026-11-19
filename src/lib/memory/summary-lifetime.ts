@@ -21,7 +21,7 @@ export function summaryLifetime(): SummaryLifetime {
   });
 }
 // Installed only by the native launcher, never by passive reads or module import.
-export function installSummaryWake(wake: () => void): void {
+function installSummaryWake(wake: () => void): void {
   const lifetime = summaryLifetime();
   if (!lifetime.stopping) lifetime.wake = wake;
 }

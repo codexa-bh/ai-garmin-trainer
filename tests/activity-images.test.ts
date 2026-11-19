@@ -1,3 +1,4 @@
+import { ACTIVITY_PANELS } from "./expected-quality-inputs";
 import { describe, expect, it, vi } from "vitest";
 import { inflateSync } from "node:zlib";
 import { createOpenAI } from "@ai-sdk/openai";
@@ -10,7 +11,6 @@ import {
   renderActivityImages,
 } from "../src/lib/local-data/activity-image-renderer";
 import {
-  ACTIVITY_PANELS,
   validActivityImage,
   type ActivityVisualInput,
   type ActivityPanelImage,

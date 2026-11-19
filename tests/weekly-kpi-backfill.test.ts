@@ -9,7 +9,7 @@ import { removeDeletionContinuityFixtureSchema } from "./conversation-migration-
 import { acquireDatabaseWriter } from "../src/lib/db/writer-ownership";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
 import { backfillWeeklyKpis } from "../src/lib/weekly/backfill";
-import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { authoredWeeklyKpis } from "./kpi-fixture";
 import type { WeeklyRecord } from "../src/lib/weekly/contracts";
 
 let db: Database.Database;

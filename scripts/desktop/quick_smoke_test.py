@@ -12,7 +12,10 @@ from quick_smoke import debug_scenario, require_platform
 class QuickTests(unittest.TestCase):
     def test_wrong_platform_refuses_before_any_launch(self):
         for system, machine in [('Linux', 'aarch64'), ('Darwin', 'x86_64')]:
-            with patch('quick_smoke.platform.system', return_value=system), patch('quick_smoke.platform.machine', return_value=machine):
+            with (
+                patch('quick_smoke.platform.system', return_value=system),
+                patch('quick_smoke.platform.machine', return_value=machine),
+            ):
                 with self.assertRaises(ValueError):
                     require_platform()
 
@@ -27,12 +30,15 @@ class QuickTests(unittest.TestCase):
         with patch('native_smoke.private_json') as receipt:
             sentinel = run.profile_scenario()
             self.assertEqual(sentinel, 'T0231-smoke-unit-uuid')
-            self.assertEqual([call.args[0] for call in run.command.call_args_list], [
-                {'type': 'click', 'target': 'Profile & data'},
-                {'type': 'input', 'target': 'Goals', 'value': sentinel},
-                {'type': 'click', 'target': 'Save Profile'},
-                {'type': 'assert', 'target': 'Goals', 'value': sentinel},
-            ])
+            self.assertEqual(
+                [call.args[0] for call in run.command.call_args_list],
+                [
+                    {'type': 'click', 'target': 'Profile & data'},
+                    {'type': 'input', 'target': 'Goals', 'value': sentinel},
+                    {'type': 'click', 'target': 'Save Profile'},
+                    {'type': 'assert', 'target': 'Goals', 'value': sentinel},
+                ],
+            )
             self.assertIsNone(receipt.call_args.args[1]['capture'])
         run.command.side_effect = RuntimeError('save failed')
         with self.assertRaises(RuntimeError):
@@ -49,8 +55,10 @@ class QuickTests(unittest.TestCase):
             self.assertEqual(len(evidence['states']), 7)
             self.assertEqual(receipt.call_count, 1)
         commands = [call.args[0] for call in run.command.call_args_list]
-        self.assertEqual([c for c in commands if c['type'] == 'debugKey'], [
-            {'type': 'debugKey', 'key': 'Enter'}, {'type': 'debugKey', 'key': 'Space'}])
+        self.assertEqual(
+            [c for c in commands if c['type'] == 'debugKey'],
+            [{'type': 'debugKey', 'key': 'Enter'}, {'type': 'debugKey', 'key': 'Space'}],
+        )
         self.assertTrue(all(c['type'] in ['click', 'debugKey', 'captureDebug'] for c in commands))
         run.command.reset_mock()
         run.command.side_effect = RuntimeError('original capture failure')
@@ -68,8 +76,13 @@ class QuickTests(unittest.TestCase):
             notice = resources / 'THIRD-PARTY-NOTICES.txt'
             notice.write_bytes(b'actual upstream notice fixture')
             provenance = resources / 'provenance.json'
-            record = {'sourceFingerprint': 'a' * 64, 'files': [
-                {'path': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in [file, notice]]}
+            record = {
+                'sourceFingerprint': 'a' * 64,
+                'files': [
+                    {'path': p.name, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
+                    for p in [file, notice]
+                ],
+            }
             provenance.write_text(json.dumps(record))
             with patch('native_smoke.REPO', repo):
                 verify_resources('a' * 64)

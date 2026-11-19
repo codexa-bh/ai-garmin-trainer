@@ -3,6 +3,7 @@
 No rebuild, clobber, deletion, tag move or automatic mutation retry. Transport failures
 are unknown effects, recorded before returning control for read-only reconciliation.
 """
+
 import hashlib
 import json
 import subprocess
@@ -23,6 +24,7 @@ class GitHub:
         self.journal.write(json.dumps({**value, 'at': utc()}, sort_keys=True) + '\n')
         self.journal.flush()
         import os
+
         os.fsync(self.journal.fileno())
 
     def api(self, endpoint, method='GET', data=None, *, asset=None):
@@ -36,19 +38,36 @@ class GitHub:
             args += ['--header', 'Content-Type: application/octet-stream', '--input', str(asset)]
         started = time.monotonic()
         try:
-            result = subprocess.run(args, input=json.dumps(data).encode() if data is not None else None,
-                                    capture_output=True, timeout=180)
+            result = subprocess.run(
+                args,
+                input=json.dumps(data).encode() if data is not None else None,
+                capture_output=True,
+                timeout=180,
+            )
             if result.returncode:
                 if not mutation and b'(HTTP 404)' in result.stderr:
                     return None
-                raise RuntimeError('GitHub request refused/unavailable; inspect exact read-only status, never retry blindly')
+                raise RuntimeError(
+                    'GitHub request refused/unavailable; inspect exact read-only status, never retry blindly'
+                )
             value = json.loads(result.stdout)
         except BaseException:
-            self.note({'effect': method + ' ' + endpoint, 'outcome': 'failed or unknown; original request not retried',
-                       'elapsedSeconds': round(time.monotonic() - started, 3)})
+            self.note(
+                {
+                    'effect': method + ' ' + endpoint,
+                    'outcome': 'failed or unknown; original request not retried',
+                    'elapsedSeconds': round(time.monotonic() - started, 3),
+                }
+            )
             raise
-        self.note({'effect': method + ' ' + endpoint, 'outcome': 'observed', 'id': value.get('id') if isinstance(value, dict) else None,
-                   'elapsedSeconds': round(time.monotonic() - started, 3)})
+        self.note(
+            {
+                'effect': method + ' ' + endpoint,
+                'outcome': 'observed',
+                'id': value.get('id') if isinstance(value, dict) else None,
+                'elapsedSeconds': round(time.monotonic() - started, 3),
+            }
+        )
         return value
 
     def download_hash(self, endpoint, expected_size):
@@ -62,8 +81,12 @@ class GitHub:
         import os
         import queue
         import threading
-        child = subprocess.Popen(['gh', 'api', endpoint, '--header', 'Accept: application/octet-stream'],
-                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+        child = subprocess.Popen(
+            ['gh', 'api', endpoint, '--header', 'Accept: application/octet-stream'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
         value, count = hashlib.sha256(), 0
         deadline = time.monotonic() + 180
         # Bounded blocks from a reader thread: pipes are not select()-able on Windows.
@@ -78,6 +101,7 @@ class GitHub:
                         return
             except OSError:
                 blocks.put(b'')
+
         threading.Thread(target=pump, daemon=True).start()
         try:
             while True:
@@ -94,7 +118,7 @@ class GitHub:
                 if count > expected_size:
                     raise ValueError('Remote asset exceeds selected size')
                 value.update(block)
-            if child.wait(timeout=max(.01, deadline - time.monotonic())) or count != expected_size:
+            if child.wait(timeout=max(0.01, deadline - time.monotonic())) or count != expected_size:
                 raise ValueError('Remote asset download failed or size differs')
             return value.hexdigest()
         finally:
@@ -114,7 +138,11 @@ def release_for_tag(github, prefix, tag):
     # A complete bounded list establishes absence or one exact draft; read its ID
     # again rather than mistaking a 404 for permission to create another release.
     listing = github.api(prefix + '/releases?per_page=100')
-    if not isinstance(listing, list) or len(listing) >= 100 or any(not isinstance(item, dict) for item in listing):
+    if (
+        not isinstance(listing, list)
+        or len(listing) >= 100
+        or any(not isinstance(item, dict) for item in listing)
+    ):
         raise ValueError('Remote release set unavailable or unbounded')
     matches = [item for item in listing if item.get('tag_name') == tag]
     if not matches:
@@ -126,7 +154,13 @@ def release_for_tag(github, prefix, tag):
     if candidate.get('draft') is not True or type(identifier) is not int or identifier <= 0:
         raise ValueError('Remote by-tag/list conflict; reconcile without creation')
     draft = github.api(prefix + '/releases/' + str(identifier))
-    if not isinstance(draft, dict) or type(draft.get('id')) is not int or draft.get('id') != identifier or draft.get('tag_name') != tag or draft.get('draft') is not True:
+    if (
+        not isinstance(draft, dict)
+        or type(draft.get('id')) is not int
+        or draft.get('id') != identifier
+        or draft.get('tag_name') != tag
+        or draft.get('draft') is not True
+    ):
         raise ValueError('Draft observation changed/unavailable; reconcile without creation')
     return draft
 
@@ -134,28 +168,48 @@ def release_for_tag(github, prefix, tag):
 def build_preflight(github, commit, version):
     prefix = 'repos/' + REPOSITORY
     tag = github.api(prefix + '/git/ref/tags/' + quote('v' + version, safe=''))
-    if tag is not None and (tag.get('object', {}).get('type') != 'commit' or tag['object'].get('sha') != commit):
+    if tag is not None and (
+        tag.get('object', {}).get('type') != 'commit' or tag['object'].get('sha') != commit
+    ):
         raise ValueError('Remote tag conflicts with selected build source')
     release = release_for_tag(github, prefix, 'v' + version)
     if release is not None:
-        raise ValueError('Existing release/draft: reconcile and reuse its selected artifact, never rebuild during release recovery')
+        raise ValueError(
+            'Existing release/draft: reconcile and reuse its selected artifact, never rebuild during release recovery'
+        )
 
 
 def assets_for(record_path, record):
     dmg = record_path.parent / record['artifact']['name']
     checksum = record_path.parent / (dmg.name + '.sha256')
-    if digest(dmg) != record['artifact']['sha256'] or regular(dmg).st_size != record['artifact']['size']:
+    if (
+        digest(dmg) != record['artifact']['sha256']
+        or regular(dmg).st_size != record['artifact']['size']
+    ):
         raise ValueError('Selected DMG changed')
     if checksum.read_text() != record['artifact']['sha256'] + '  ' + dmg.name + '\n':
         raise ValueError('Selected checksum differs')
     # release.json is intentionally compact/public; paths and environment never enter it.
-    return {path.name: {'path': path, 'size': regular(path).st_size, 'sha256': digest(path)}
-            for path in (dmg, checksum, record_path)}
+    return {
+        path.name: {'path': path, 'size': regular(path).st_size, 'sha256': digest(path)}
+        for path in (dmg, checksum, record_path)
+    }
 
 
 def release_body(record, notes):
     """Legacy single-platform macOS body (unchanged for published 0.1.x records)."""
-    return notes + '\nSource: ' + record['repository'] + '@' + record['commit'] + '\nDMG SHA-256: ' + record['artifact']['sha256'] + '\nSigning: ' + record['signing'] + '\n'
+    return (
+        notes
+        + '\nSource: '
+        + record['repository']
+        + '@'
+        + record['commit']
+        + '\nDMG SHA-256: '
+        + record['artifact']['sha256']
+        + '\nSigning: '
+        + record['signing']
+        + '\n'
+    )
 
 
 LABEL = {'macos-arm64': ('macOS ARM64', 'DMG'), 'windows-x64': ('Windows x64', 'Installer')}
@@ -163,8 +217,11 @@ LABEL = {'macos-arm64': ('macOS ARM64', 'DMG'), 'windows-x64': ('Windows x64', '
 
 def set_body(release_set, notes):
     """Release-set body: every included platform's exact artifact and signing text."""
-    lines = [notes, 'Source: ' + release_set['repository'] + '@' + release_set['commit'],
-             'Platforms: ' + ', '.join(LABEL[item['platform']][0] for item in release_set['entries'])]
+    lines = [
+        notes,
+        'Source: ' + release_set['repository'] + '@' + release_set['commit'],
+        'Platforms: ' + ', '.join(LABEL[item['platform']][0] for item in release_set['entries']),
+    ]
     for item in release_set['entries']:
         label, kind = LABEL[item['platform']]
         artifact = item['assets'][0]
@@ -175,14 +232,31 @@ def set_body(release_set, notes):
 
 def set_record(release_set):
     """The publisher's view of a set: shared identity plus an explicit platform list."""
-    return {'repository': release_set['repository'], 'commit': release_set['commit'],
-            'version': release_set['version'], 'tag': release_set['tag'],
-            'notesSha256': release_set['notesSha256'], 'sourceDirty': False,
-            'platforms': list(release_set['platforms']), 'entries': release_set['entries']}
+    return {
+        'repository': release_set['repository'],
+        'commit': release_set['commit'],
+        'version': release_set['version'],
+        'tag': release_set['tag'],
+        'notesSha256': release_set['notesSha256'],
+        'sourceDirty': False,
+        'platforms': list(release_set['platforms']),
+        'entries': release_set['entries'],
+    }
 
 
 class Release:
-    def __init__(self, github, record, notes, assets, prerelease, latest, *, before_effect=None, release_set=None):
+    def __init__(
+        self,
+        github,
+        record,
+        notes,
+        assets,
+        prerelease,
+        latest,
+        *,
+        before_effect=None,
+        release_set=None,
+    ):
         if release_set is not None:
             # A validated release set selects every platform's exact assets.
             record = set_record(release_set)
@@ -197,9 +271,12 @@ class Release:
         self.prerelease, self.latest = prerelease, latest
         if release_set is not None:
             import hashlib as _hashlib
+
             if _hashlib.sha256(notes.encode()).hexdigest() != record['notesSha256']:
                 raise ValueError('Reviewed notes differ from release set')
-            expected = {asset['name'] for item in record['entries'] for asset in item['assets']} | {'release-set.json'}
+            expected = {asset['name'] for item in record['entries'] for asset in item['assets']} | {
+                'release-set.json'
+            }
             if set(assets) != expected:
                 raise ValueError('Selected assets differ from the release set')
             self.body = set_body(release_set, notes)
@@ -216,20 +293,47 @@ class Release:
         """
         record = self.record
         if 'entries' in record:
-            identity = {'platforms': [{key: item[key] for key in ('platform', 'originalSource', 'buildSource',
-                                                                  'buildContext', 'inventory', 'payloadIdentity', 'signing')}
-                                      for item in record['entries']]}
+            identity = {
+                'platforms': [
+                    {
+                        key: item[key]
+                        for key in (
+                            'platform',
+                            'originalSource',
+                            'buildSource',
+                            'buildContext',
+                            'inventory',
+                            'payloadIdentity',
+                            'signing',
+                        )
+                    }
+                    for item in record['entries']
+                ]
+            }
         else:
-            identity = {'originalSource': record['originalSource'], 'buildSource': record['buildSource'],
-                        'buildContext': record['buildContext'], 'inventory': record['inventory'],
-                        'payloadIdentity': record['payloadIdentity']}
-        return {'repository': record['repository'], 'version': record['version'], 'tag': self.tag,
-                'commit': record['commit'], 'notesSha256': record['notesSha256'],
-                'bodySha256': hashlib.sha256(self.body.encode()).hexdigest(),
-                'prerelease': self.prerelease, 'latest': self.latest, **identity,
-                'assets': [{'name': name, 'size': asset['size'], 'sha256': asset['sha256']}
-                           for name, asset in sorted(self.assets.items())],
-                'approval': 'none recorded here; requires genuine release-specific operator consent'}
+            identity = {
+                'originalSource': record['originalSource'],
+                'buildSource': record['buildSource'],
+                'buildContext': record['buildContext'],
+                'inventory': record['inventory'],
+                'payloadIdentity': record['payloadIdentity'],
+            }
+        return {
+            'repository': record['repository'],
+            'version': record['version'],
+            'tag': self.tag,
+            'commit': record['commit'],
+            'notesSha256': record['notesSha256'],
+            'bodySha256': hashlib.sha256(self.body.encode()).hexdigest(),
+            'prerelease': self.prerelease,
+            'latest': self.latest,
+            **identity,
+            'assets': [
+                {'name': name, 'size': asset['size'], 'sha256': asset['sha256']}
+                for name, asset in sorted(self.assets.items())
+            ],
+            'approval': 'none recorded here; requires genuine release-specific operator consent',
+        }
 
     def mutate(self, endpoint, method, data=None, *, asset=None):
         if self.before_effect:
@@ -242,14 +346,25 @@ class Release:
     def observe(self):
         tag = self.gh.api(self.prefix + '/git/ref/tags/' + quote(self.tag, safe=''))
         # Helpers create lightweight immutable refs. Unknown/annotated tags refuse rather than guessing.
-        if tag is not None and (tag.get('object', {}).get('type') != 'commit' or tag['object'].get('sha') != self.record['commit']):
+        if tag is not None and (
+            tag.get('object', {}).get('type') != 'commit'
+            or tag['object'].get('sha') != self.record['commit']
+        ):
             raise ValueError('Remote tag conflicts; never move/delete it')
         release = release_for_tag(self.gh, self.prefix, self.tag)
         if release is not None:
-            if tag is None or release.get('tag_name') != self.tag or release.get('name') != 'Garmin Trainer ' + self.record['version'] or release.get('body') != self.body or release.get('prerelease') != self.prerelease:
+            if (
+                tag is None
+                or release.get('tag_name') != self.tag
+                or release.get('name') != 'Garmin Trainer ' + self.record['version']
+                or release.get('body') != self.body
+                or release.get('prerelease') != self.prerelease
+            ):
                 raise ValueError('Remote release identity/body/channel conflict')
             # Explicitly enumerate all assets, bounded pages; never accept a truncated set.
-            listing = self.gh.api(self.prefix + '/releases/' + str(release['id']) + '/assets?per_page=100')
+            listing = self.gh.api(
+                self.prefix + '/releases/' + str(release['id']) + '/assets?per_page=100'
+            )
             if not isinstance(listing, list) or len(listing) >= 100:
                 raise ValueError('Remote asset set unavailable or unbounded')
             names = [asset['name'] for asset in listing]
@@ -258,10 +373,14 @@ class Release:
             for asset in listing:
                 expected = self.assets[asset['name']]
                 if asset.get('size') != expected['size'] or asset.get('state') != 'uploaded':
-                    raise ValueError('Remote asset incomplete/conflicting; reconcile without replacement')
+                    raise ValueError(
+                        'Remote asset incomplete/conflicting; reconcile without replacement'
+                    )
                 observed = asset.get('digest')
                 if observed is None:
-                    observed = 'sha256:' + self.gh.download_hash(self.prefix + '/releases/assets/' + str(asset['id']), expected['size'])
+                    observed = 'sha256:' + self.gh.download_hash(
+                        self.prefix + '/releases/assets/' + str(asset['id']), expected['size']
+                    )
                 if observed != 'sha256:' + expected['sha256']:
                     raise ValueError('Remote asset digest differs')
             release = {**release, 'assets': listing}
@@ -272,24 +391,42 @@ class Release:
             raise ValueError('Unknown remote operation')
         tag, release = self.observe()
         if action == 'status' or not execute:
-            return {'executed': False, 'tagPresent': tag is not None, 'release': release,
-                    'next': 'Explicit separately authorized ' + action + ' --execute only; observation grants no consent'}
+            return {
+                'executed': False,
+                'tagPresent': tag is not None,
+                'release': release,
+                'next': 'Explicit separately authorized '
+                + action
+                + ' --execute only; observation grants no consent',
+            }
         if release and not release['draft']:
             if set(asset['name'] for asset in release['assets']) != set(self.assets):
                 raise ValueError('Published release asset set incomplete')
             return {'executed': False, 'alreadyPublished': True, 'releaseId': release['id']}
         if action == 'draft':
             if tag is None:
-                self.mutate(self.prefix + '/git/refs', 'POST', {'ref': 'refs/tags/' + self.tag,
-                                                              'sha': self.record['commit']})
+                self.mutate(
+                    self.prefix + '/git/refs',
+                    'POST',
+                    {'ref': 'refs/tags/' + self.tag, 'sha': self.record['commit']},
+                )
                 tag, release = self.observe()
                 if tag is None:
                     raise ValueError('Tag creation not observed; reconcile before another action')
             if release is None:
-                self.mutate(self.prefix + '/releases', 'POST', {
-                    'tag_name': self.tag, 'target_commitish': self.record['commit'],
-                    'name': 'Garmin Trainer ' + self.record['version'], 'body': self.body,
-                    'draft': True, 'prerelease': self.prerelease, 'make_latest': 'false'})
+                self.mutate(
+                    self.prefix + '/releases',
+                    'POST',
+                    {
+                        'tag_name': self.tag,
+                        'target_commitish': self.record['commit'],
+                        'name': 'Garmin Trainer ' + self.record['version'],
+                        'body': self.body,
+                        'draft': True,
+                        'prerelease': self.prerelease,
+                        'make_latest': 'false',
+                    },
+                )
                 _, release = self.observe()
                 if release is None or not release['draft']:
                     raise ValueError('Draft creation not observed; no retry')
@@ -300,20 +437,39 @@ class Release:
                 # Revalidate every selected byte immediately before the effect.
                 if digest(asset['path']) != asset['sha256']:
                     raise ValueError('Local upload asset changed')
-                self.mutate('https://uploads.github.com/' + self.prefix + '/releases/' + str(release['id']) + '/assets?name=' + quote(name, safe=''),
-                            'POST', asset=asset['path'])
+                self.mutate(
+                    'https://uploads.github.com/'
+                    + self.prefix
+                    + '/releases/'
+                    + str(release['id'])
+                    + '/assets?name='
+                    + quote(name, safe=''),
+                    'POST',
+                    asset=asset['path'],
+                )
                 self.observe()  # Exact ID/set/digest check after each effect, no clobber/rebuild.
             _, release = self.observe()
             if len(release['assets']) != len(self.assets):
                 raise ValueError('Draft upload incomplete')
             return {'executed': True, 'draft': True, 'releaseId': release['id']}
-        if tag is None or release is None or set(asset['name'] for asset in release['assets']) != set(self.assets):
+        if (
+            tag is None
+            or release is None
+            or set(asset['name'] for asset in release['assets']) != set(self.assets)
+        ):
             raise ValueError('Separate publication requires a complete verified existing draft')
         for asset in self.assets.values():
             if digest(asset['path']) != asset['sha256']:
                 raise ValueError('Local artifact changed before publication')
-        self.mutate(self.prefix + '/releases/' + str(release['id']), 'PATCH',
-                    {'draft': False, 'prerelease': self.prerelease, 'make_latest': 'true' if self.latest else 'false'})
+        self.mutate(
+            self.prefix + '/releases/' + str(release['id']),
+            'PATCH',
+            {
+                'draft': False,
+                'prerelease': self.prerelease,
+                'make_latest': 'true' if self.latest else 'false',
+            },
+        )
         _, observed = self.observe()
         if observed is None or observed['draft']:
             raise ValueError('Publication outcome not observed; reconcile only, no retry')

@@ -1,7 +1,7 @@
 //! Fresh-only setup. SQLite migrations run in memory, never on a selected file.
 //! All native mutation/publication uses a pinned parent dirfd and exclusive names.
-use serde::{Deserialize, Serialize};
 use crate::private_fs::{self, FileId, Walk};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
@@ -344,10 +344,7 @@ pub fn initialize(
         // Readonly compatibility verification of exact new output, never migration.
         let fields = BTreeMap::from([(
             "DATABASE_PATH".to_owned(),
-            parent_path
-                .join(&stage_name)
-                .to_string_lossy()
-                .into_owned(),
+            parent_path.join(&stage_name).to_string_lossy().into_owned(),
         )]);
         validate(resources, &fields, cancel, quitting)?;
         parent.verify()?;
@@ -503,7 +500,10 @@ mod tests {
         }
         symlink(root.join("missing"), &target).unwrap();
         assert!(initialize(&resources, &target, &root, &mut None, &cancel, &quitting).is_err());
-        assert_eq!(private_fs::path_meta(&target).unwrap().kind, private_fs::Kind::Other);
+        assert_eq!(
+            private_fs::path_meta(&target).unwrap().kind,
+            private_fs::Kind::Other
+        );
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

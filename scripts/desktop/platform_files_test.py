@@ -1,4 +1,5 @@
 """Portable no-follow/owner/lock primitives on the actual host OS."""
+
 import os
 from pathlib import Path
 import subprocess
@@ -42,8 +43,11 @@ class PlatformFilesTests(unittest.TestCase):
             junction = self.root / 'junction'
             directory = self.root / 'directory'
             directory.mkdir()
-            subprocess.run(['cmd', '/c', 'mklink', '/J', str(junction), str(directory)], check=True,
-                           capture_output=True)
+            subprocess.run(
+                ['cmd', '/c', 'mklink', '/J', str(junction), str(directory)],
+                check=True,
+                capture_output=True,
+            )
             self.assertTrue(platform_files.is_link(junction.lstat()))
 
     def test_exclusive_lock_serializes_owners(self):
@@ -53,9 +57,11 @@ class PlatformFilesTests(unittest.TestCase):
         second = platform_files.open_nofollow(path, os.O_RDWR | os.O_CREAT)
         try:
             with platform_files.exclusive(first):
+
                 def contender():
                     with platform_files.exclusive(second):
                         order.append('second')
+
                 thread = threading.Thread(target=contender)
                 thread.start()
                 time.sleep(0.5)

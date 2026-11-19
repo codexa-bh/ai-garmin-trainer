@@ -6,7 +6,6 @@ import {
   type ConversationRequest,
 } from "../chat/conversation-replay";
 import {
-  TRAINER_PROVIDER_CALL_TIMEOUT_MS,
   type TrainerGenerationResult,
   type TrainerOrchestrationPorts,
   type TrainerNativeExchange,
@@ -52,9 +51,6 @@ const INVALID_PROVIDER_RESPONSE =
   "I could not get a valid response from the configured model. The response was empty or malformed.";
 
 const MAX_TOTAL_TURN_EXECUTIONS = TRAINER_EXECUTION_POLICY.hardLimit;
-const MAX_PLANNER_CALLS = MAX_TOTAL_TURN_EXECUTIONS;
-const MAX_TOOL_CALLS = MAX_TOTAL_TURN_EXECUTIONS;
-const MAX_GENERAL_TOOL_CALLS = MAX_TOTAL_TURN_EXECUTIONS;
 
 import {
   answerPreparationMessage,
@@ -916,13 +912,3 @@ async function orchestrateTurn(
 
   return finishAtBudget();
 }
-
-export const trainerOrchestrationLimits = {
-  maxTotalTurnExecutions: MAX_TOTAL_TURN_EXECUTIONS,
-  softTargetExecutions: TRAINER_EXECUTION_POLICY.softTarget,
-  finalAnswerReserve: TRAINER_EXECUTION_POLICY.finalAnswerReserve,
-  maxPlannerCalls: MAX_PLANNER_CALLS,
-  maxToolCalls: MAX_TOOL_CALLS,
-  maxGeneralToolCalls: MAX_GENERAL_TOOL_CALLS,
-  providerCallTimeoutMs: TRAINER_PROVIDER_CALL_TIMEOUT_MS,
-};

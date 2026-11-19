@@ -11,7 +11,7 @@ import { createWeekly } from "../src/lib/weekly/application";
 import { executeWeeklyTool } from "../src/lib/ai/tool-weekly";
 import { orchestrateTrainerChat } from "../src/lib/ai/orchestrator";
 import { TRAINER_SYSTEM_PROMPT } from "../src/lib/ai/trainer-instructions";
-import { authoredWeeklyKpis } from "../scripts/ci/kpi-fixture";
+import { authoredWeeklyKpis } from "./kpi-fixture";
 import { weeklyCalendar } from "../src/lib/weekly/calendar";
 import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
 import type { TrainerToolCall } from "../src/lib/ai/tool-types";

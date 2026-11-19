@@ -87,7 +87,7 @@ type Receipt = {
  * when both agree exactly. Values are compared internally only; the result
  * carries no text, arguments, IDs or hashes.
  */
-export function receiptMismatch(
+function receiptMismatch(
   receipt: Pick<Receipt, "text" | "calls"> | undefined,
   text: string,
   calls: ReceiptCall[],
@@ -429,7 +429,7 @@ function validatedStream(
     }),
   );
 }
-export function chatgptFetch(
+function chatgptFetch(
   admission: ChatgptAdmission,
   assertCurrent: () => void = () => {},
   transport: typeof fetch = fetch,

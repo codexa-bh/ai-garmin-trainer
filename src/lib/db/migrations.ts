@@ -107,7 +107,7 @@ type SchemaMigration = {
   statements: string[];
 };
 
-export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
+const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
     version: 1,
     name: "source_beta_foundation",

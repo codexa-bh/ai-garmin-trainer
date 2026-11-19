@@ -5,6 +5,7 @@ uses reparse-point refusal, binary-mode descriptors, the object's owner SID
 from its security descriptor, and an exclusive byte-range lock. Nothing here
 changes permissions or follows links.
 """
+
 import contextlib
 import os
 import stat
@@ -36,7 +37,10 @@ def open_nofollow(path, flags, mode=0o600):
         try:
             current = os.lstat(path)
             opened = os.fstat(fd)
-            if is_link(current) or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+            if is_link(current) or (current.st_dev, current.st_ino) != (
+                opened.st_dev,
+                opened.st_ino,
+            ):
                 raise OSError('Object replaced while opening')
         except BaseException:
             os.close(fd)
@@ -48,17 +52,34 @@ def _windows_owner_is_current_user(fd):
     import ctypes
     from ctypes import wintypes
     import msvcrt
+
     advapi32 = ctypes.WinDLL('advapi32', use_last_error=True)
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
     PVOID = ctypes.c_void_p
-    advapi32.GetSecurityInfo.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD, ctypes.POINTER(PVOID),
-                                         ctypes.POINTER(PVOID), ctypes.POINTER(PVOID), ctypes.POINTER(PVOID),
-                                         ctypes.POINTER(PVOID)]
+    advapi32.GetSecurityInfo.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.DWORD,
+        ctypes.POINTER(PVOID),
+        ctypes.POINTER(PVOID),
+        ctypes.POINTER(PVOID),
+        ctypes.POINTER(PVOID),
+        ctypes.POINTER(PVOID),
+    ]
     advapi32.GetSecurityInfo.restype = wintypes.DWORD
-    advapi32.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    advapi32.OpenProcessToken.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.HANDLE),
+    ]
     advapi32.OpenProcessToken.restype = wintypes.BOOL
-    advapi32.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, PVOID, wintypes.DWORD,
-                                             ctypes.POINTER(wintypes.DWORD)]
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        PVOID,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
     advapi32.GetTokenInformation.restype = wintypes.BOOL
     advapi32.EqualSid.argtypes = [PVOID, PVOID]
     advapi32.EqualSid.restype = wintypes.BOOL
@@ -69,8 +90,19 @@ def _windows_owner_is_current_user(fd):
     owner, descriptor = PVOID(), PVOID()
     OWNER_SECURITY_INFORMATION, SE_FILE_OBJECT = 1, 1
     handle = wintypes.HANDLE(msvcrt.get_osfhandle(fd))
-    if advapi32.GetSecurityInfo(handle, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, ctypes.byref(owner),
-                                None, None, None, ctypes.byref(descriptor)) != 0:
+    if (
+        advapi32.GetSecurityInfo(
+            handle,
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            ctypes.byref(owner),
+            None,
+            None,
+            None,
+            ctypes.byref(descriptor),
+        )
+        != 0
+    ):
         return False
     try:
         token = wintypes.HANDLE()
@@ -81,7 +113,9 @@ def _windows_owner_is_current_user(fd):
                 size = wintypes.DWORD()
                 advapi32.GetTokenInformation(token, token_class, None, 0, ctypes.byref(size))
                 buffer = ctypes.create_string_buffer(size.value)
-                if not advapi32.GetTokenInformation(token, token_class, buffer, size, ctypes.byref(size)):
+                if not advapi32.GetTokenInformation(
+                    token, token_class, buffer, size, ctypes.byref(size)
+                ):
                     return False
                 sid = ctypes.cast(buffer, ctypes.POINTER(PVOID))[0]
                 if advapi32.EqualSid(owner, sid):
@@ -105,6 +139,7 @@ def exclusive(fd):
     """Blocking exclusive lock held for the context (no stealing, no timeout)."""
     if WINDOWS:
         import msvcrt
+
         os.lseek(fd, 0, os.SEEK_SET)
         while True:
             try:
@@ -119,6 +154,7 @@ def exclusive(fd):
             msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
     else:
         import fcntl
+
         fcntl.flock(fd, fcntl.LOCK_EX)
         try:
             yield

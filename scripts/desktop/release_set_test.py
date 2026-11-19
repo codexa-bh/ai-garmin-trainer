@@ -1,4 +1,5 @@
 """Release-set contract with fake providers only; no build, upload or network."""
+
 import copy
 import hashlib
 import json
@@ -14,24 +15,46 @@ from release_test import FakeGitHub
 NOTES = 'reviewed public notes'
 
 
-def write_platform(directory, platform_id, version='1.2.3', commit='a' * 40, notes=NOTES, **changes):
+def write_platform(
+    directory, platform_id, version='1.2.3', commit='a' * 40, notes=NOTES, **changes
+):
     directory.mkdir(parents=True, exist_ok=True)
     if platform_id == 'macos-arm64':
-        name, target, record_name = f'Garmin-Trainer-{version}-macos-arm64.dmg', 'aarch64-apple-darwin', 'release.json'
+        name, target, record_name = (
+            f'Garmin-Trainer-{version}-macos-arm64.dmg',
+            'aarch64-apple-darwin',
+            'release.json',
+        )
         signing = 'unsigned-or-linker-adhoc; not notarized; no verified publisher'
     else:
-        name, target, record_name = f'Garmin-Trainer-{version}-windows-x64-setup.exe', 'x86_64-pc-windows-msvc', 'release-windows-x64.json'
+        name, target, record_name = (
+            f'Garmin-Trainer-{version}-windows-x64-setup.exe',
+            'x86_64-pc-windows-msvc',
+            'release-windows-x64.json',
+        )
         signing = 'unsigned; no Authenticode signature or verified publisher (SmartScreen may warn)'
     data = (platform_id + ' verified final bytes').encode()
     (directory / name).write_bytes(data)
     sha = hashlib.sha256(data).hexdigest()
     (directory / (name + '.sha256')).write_bytes((sha + '  ' + name + '\n').encode())
-    record = {'schemaVersion': 2, 'platform': platform_id, 'repository': metadata.REPOSITORY, 'commit': commit,
-              'sourceDirty': False, 'version': version, 'tag': 'v' + version, 'target': target,
-              'originalSource': 'b' * 64, 'buildSource': 'c' * 64, 'buildContext': 'd' * 64, 'inventory': 'e' * 64,
-              'payloadIdentity': 'f' * 64, 'signing': signing,
-              'notesSha256': hashlib.sha256(notes.encode()).hexdigest(),
-              'artifact': {'name': name, 'size': len(data), 'sha256': sha}}
+    record = {
+        'schemaVersion': 2,
+        'platform': platform_id,
+        'repository': metadata.REPOSITORY,
+        'commit': commit,
+        'sourceDirty': False,
+        'version': version,
+        'tag': 'v' + version,
+        'target': target,
+        'originalSource': 'b' * 64,
+        'buildSource': 'c' * 64,
+        'buildContext': 'd' * 64,
+        'inventory': 'e' * 64,
+        'payloadIdentity': 'f' * 64,
+        'signing': signing,
+        'notesSha256': hashlib.sha256(notes.encode()).hexdigest(),
+        'artifact': {'name': name, 'size': len(data), 'sha256': sha},
+    }
     if platform_id == 'macos-arm64' and changes.pop('legacy', False):
         record['schemaVersion'] = 1
         del record['platform']
@@ -73,7 +96,10 @@ class ReleaseSetTests(unittest.TestCase):
             'notes': write_platform(self.root / 'n', 'windows-x64', notes='other notes'),
         }
         for field, other in cases.items():
-            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'Mixed release ' + field):
+            with (
+                self.subTest(field=field),
+                self.assertRaisesRegex(ValueError, 'Mixed release ' + field),
+            ):
                 release_set.build([self.mac, other], NOTES)
         with self.assertRaisesRegex(ValueError, 'Duplicate platform|Colliding'):
             release_set.build([self.win, write_platform(self.root / 'w2', 'windows-x64')], NOTES)
@@ -81,10 +107,18 @@ class ReleaseSetTests(unittest.TestCase):
             release_set.build([], NOTES)
         with self.assertRaisesRegex(ValueError, 'notes'):
             release_set.build([self.mac], 'changed notes')
-        for changes in [{'platform': 'linux-x64'}, {'platform': None}, {'schemaVersion': 3},
-                        {'target': 'aarch64-apple-darwin'}, {'sourceDirty': True},
-                        {'signing': 'notarized by Microsoft'}, {'payloadIdentity': 'short'}]:
-            bad = write_platform(self.root / ('bad-' + str(len(json.dumps(changes)))), 'windows-x64', **changes)
+        for changes in [
+            {'platform': 'linux-x64'},
+            {'platform': None},
+            {'schemaVersion': 3},
+            {'target': 'aarch64-apple-darwin'},
+            {'sourceDirty': True},
+            {'signing': 'notarized by Microsoft'},
+            {'payloadIdentity': 'short'},
+        ]:
+            bad = write_platform(
+                self.root / ('bad-' + str(len(json.dumps(changes)))), 'windows-x64', **changes
+            )
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 release_set.build([bad], NOTES)
 
@@ -118,7 +152,9 @@ class ReleaseSetTests(unittest.TestCase):
             release_set.assemble([self.mac, self.win], NOTES, scratch)  # Never overwritten.
         with self.assertRaisesRegex(ValueError, 'version'):
             release_set.assemble([self.mac], NOTES, self.root / 'mac', version='9.9.9')
-        (self.win.parent / 'Garmin-Trainer-1.2.3-windows-x64-setup.exe').write_bytes(b'swapped after set')
+        (self.win.parent / 'Garmin-Trainer-1.2.3-windows-x64-setup.exe').write_bytes(
+            b'swapped after set'
+        )
         with self.assertRaises(ValueError):
             release_set.assets(path, dirs)
         tampered = copy.deepcopy(value)
@@ -138,7 +174,9 @@ class ReleaseSetRemoteTests(unittest.TestCase):
         self.dirs = {'macos-arm64': self.mac.parent, 'windows-x64': self.win.parent}
         self.value, self.assets = release_set.assets(self.set_path, self.dirs)
         self.gh = FakeGitHub()
-        self.operation = Release(self.gh, None, NOTES, self.assets, False, True, release_set=self.value)
+        self.operation = Release(
+            self.gh, None, NOTES, self.assets, False, True, release_set=self.value
+        )
 
     def test_dry_runs_have_zero_effects_and_body_names_each_platform(self):
         for action in ['status', 'draft', 'publish']:
@@ -160,7 +198,9 @@ class ReleaseSetRemoteTests(unittest.TestCase):
         for step in range(1, 2 + len(self.assets) + 2):
             with self.subTest(step=step):
                 self.gh = FakeGitHub()
-                operation = Release(self.gh, None, NOTES, self.assets, False, True, release_set=self.value)
+                operation = Release(
+                    self.gh, None, NOTES, self.assets, False, True, release_set=self.value
+                )
                 self.gh.fail_after = step
                 with self.assertRaises(TimeoutError):
                     operation.act('draft', execute=True)

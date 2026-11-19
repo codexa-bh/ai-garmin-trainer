@@ -1,4 +1,5 @@
 """Minimal managed Pivan path/evidence adapter; disposal stays with smoke_resources."""
+
 import hashlib
 import json
 import os
@@ -19,16 +20,30 @@ class CategoryPaths:
             task = Path(task)
             # Standalone explicit scratch never acquires task identity merely
             # because a Pivan session happens to be in its environment.
-            if (task.is_absolute() and len(task.parents) >= 3
-                    and scratch == task.parents[2] / 'tmp' / task.parent.name[:5] / task.name[:5]):
+            if (
+                task.is_absolute()
+                and len(task.parents) >= 3
+                and scratch == task.parents[2] / 'tmp' / task.parent.name[:5] / task.name[:5]
+            ):
                 self.task = task
                 self.evidence = self.category('path', 'evidence')
                 self.disposable = self.category('path', 'disposable')
 
     def category(self, command, category):
-        result = subprocess.run(['pivan-harness', 'task-scratch', command, str(self.task), '--category', category,
-                                 *(['--create'] if command == 'path' else [])],
-                                text=True, capture_output=True, timeout=30)
+        result = subprocess.run(
+            [
+                'pivan-harness',
+                'task-scratch',
+                command,
+                str(self.task),
+                '--category',
+                category,
+                *(['--create'] if command == 'path' else []),
+            ],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
         if result.returncode:
             raise RuntimeError('Compatible category tooling required: ' + result.stderr[:500])
         path = Path(result.stdout.strip())
@@ -45,6 +60,7 @@ class CategoryPaths:
         if not self.task:
             return
         from smoke_resources import safe, identity
+
         for run in self.runs:
             ledger.check_root(run)
             destination = self.evidence / run.name
@@ -72,14 +88,23 @@ class CategoryPaths:
                 if not stat.S_ISREG(info.st_mode) or info.st_size > 16 * 1024 * 1024:
                     raise ValueError('Unsafe/oversized run evidence; preserve allocation')
                 ledger.pin(path.parent)
-                source = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=ledger.roots[path.parent][0])
+                source = os.open(
+                    path.name,
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                    dir_fd=ledger.roots[path.parent][0],
+                )
                 try:
                     before = os.fstat(source)
                     if identity(before) != identity(info):
                         raise ValueError('Run evidence changed while opening')
                     output = destination / path.relative_to(run)
                     ledger.check_root(output.parent)
-                    handle = os.open(output.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=ledger.roots[output.parent][0])
+                    handle = os.open(
+                        output.name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                        dir_fd=ledger.roots[output.parent][0],
+                    )
                     digest = hashlib.sha256()
                     with os.fdopen(handle, 'wb') as stream:
                         with os.fdopen(os.dup(source), 'rb') as input_file:
@@ -88,14 +113,29 @@ class CategoryPaths:
                                 digest.update(block)
                         stream.flush()
                         os.fsync(stream.fileno())
-                    index.append({'original': str(path), 'evidence': str(output), 'bytes': before.st_size,
-                                  'sha256': digest.hexdigest()})
+                    index.append(
+                        {
+                            'original': str(path),
+                            'evidence': str(output),
+                            'bytes': before.st_size,
+                            'sha256': digest.hexdigest(),
+                        }
+                    )
                     after = os.fstat(source)
-                    if (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (before.st_size, before.st_mtime_ns, before.st_ctime_ns):
+                    if (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (
+                        before.st_size,
+                        before.st_mtime_ns,
+                        before.st_ctime_ns,
+                    ):
                         raise ValueError('Run evidence changed during persistence')
                 finally:
                     os.close(source)
-            handle = os.open('evidence-index.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=ledger.roots[destination][0])
+            handle = os.open(
+                'evidence-index.json',
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=ledger.roots[destination][0],
+            )
             with os.fdopen(handle, 'w') as output:
                 json.dump(index, output, indent=2)
                 output.flush()

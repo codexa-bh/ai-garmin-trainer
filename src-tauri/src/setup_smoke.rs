@@ -91,11 +91,17 @@ struct Observation {
     chatgpt_exercised: bool,
 }
 #[derive(Deserialize)]
-#[serde(rename_all="camelCase",deny_unknown_fields)]
-struct ChatgptMarker { version: u8, run_id: String }
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ChatgptMarker {
+    version: u8,
+    run_id: String,
+}
 fn chatgpt_marker(bytes: &[u8], run_id: &str) -> Result<(), String> {
-    let marker: ChatgptMarker = serde_json::from_slice(bytes).map_err(|_| "ChatGPT presentation marker refused")?;
-    if marker.version != 1 || marker.run_id != run_id { return Err("Foreign ChatGPT presentation marker".into()); }
+    let marker: ChatgptMarker =
+        serde_json::from_slice(bytes).map_err(|_| "ChatGPT presentation marker refused")?;
+    if marker.version != 1 || marker.run_id != run_id {
+        return Err("Foreign ChatGPT presentation marker".into());
+    }
     Ok(())
 }
 pub fn chatgpt_metadata(config: &Config) -> Result<Option<Value>, String> {
@@ -107,7 +113,7 @@ pub fn chatgpt_metadata(config: &Config) -> Result<Option<Value>, String> {
         Ok(_) => {}
     }
     let bytes = crate::private_store::read(&path).map_err(str::to_owned)?;
-    chatgpt_marker(&bytes,&config.run_id)?;
+    chatgpt_marker(&bytes, &config.run_id)?;
     Ok(Some(json!([
         {"id":"registration_11111111-1111-4111-8111-111111111111","epoch":1,"label":"synthetic@example.invalid · 1","state":"connected","planEnabled":true,"disclosed":true,"models":[{"slug":"synthetic/chatgpt:one","displayName":"Authored model one"},{"slug":"synthetic/chatgpt:three","displayName":"Authored model three"}]}
     ])))
@@ -188,7 +194,14 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
     if admitted.run_id != config.run_id || admitted.root != config.root {
         return Err("Wrong debug run".into());
     }
-    if matches!(action, Action::ChatgptExercise | Action::ChatgptReset | Action::CaptureChatgptWide | Action::CaptureChatgptNarrow) && chatgpt_metadata(config)?.is_none() {
+    if matches!(
+        action,
+        Action::ChatgptExercise
+            | Action::ChatgptReset
+            | Action::CaptureChatgptWide
+            | Action::CaptureChatgptNarrow
+    ) && chatgpt_metadata(config)?.is_none()
+    {
         return Err("ChatGPT presentation requires its exact owned debug fixture".into());
     }
     if matches!(action, Action::Open) {
@@ -288,7 +301,12 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             | Action::CaptureRestartWide
             | Action::CaptureRestartNarrow
     ) {
-        let boundary = if matches!(action, Action::CaptureChatgptWide | Action::CaptureChatgptNarrow | Action::CaptureChatgptRowsNarrow) {
+        let boundary = if matches!(
+            action,
+            Action::CaptureChatgptWide
+                | Action::CaptureChatgptNarrow
+                | Action::CaptureChatgptRowsNarrow
+        ) {
             "geometry-preserving debug ChatGPT presentation with exact fictional secret-free accounts/models; synthetic DOM draft only, no credentials/auth/broker/provider/ordinary/trusted-input proof"
         } else if matches!(
             action,
@@ -336,7 +354,11 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         ) {
             let width = if matches!(
                 action,
-                Action::CaptureNarrow | Action::CaptureFooterNarrow | Action::CaptureRestartNarrow | Action::CaptureChatgptNarrow | Action::CaptureChatgptRowsNarrow
+                Action::CaptureNarrow
+                    | Action::CaptureFooterNarrow
+                    | Action::CaptureRestartNarrow
+                    | Action::CaptureChatgptNarrow
+                    | Action::CaptureChatgptRowsNarrow
             ) {
                 420.0
             } else {
@@ -395,9 +417,14 @@ mod tests {
     use super::*;
     #[test]
     fn chatgpt_presentation_marker_is_run_bound_and_never_accepts_credentials() {
-        assert!(chatgpt_marker(br#"{"version":1,"runId":"owned"}"#,"owned").is_ok());
-        for bytes in [br#"{"version":1,"runId":"foreign"}"#.as_slice(),br#"{"version":2,"runId":"owned"}"#.as_slice(),br#"{"version":1,"runId":"owned","accessToken":"private"}"#.as_slice(),br#"{"version":1,"runId":"owned","runId":"owned"}"#.as_slice()] {
-            assert!(chatgpt_marker(bytes,"owned").is_err());
+        assert!(chatgpt_marker(br#"{"version":1,"runId":"owned"}"#, "owned").is_ok());
+        for bytes in [
+            br#"{"version":1,"runId":"foreign"}"#.as_slice(),
+            br#"{"version":2,"runId":"owned"}"#.as_slice(),
+            br#"{"version":1,"runId":"owned","accessToken":"private"}"#.as_slice(),
+            br#"{"version":1,"runId":"owned","runId":"owned"}"#.as_slice(),
+        ] {
+            assert!(chatgpt_marker(bytes, "owned").is_err());
         }
     }
     #[test]

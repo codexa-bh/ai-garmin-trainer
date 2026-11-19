@@ -35,7 +35,7 @@ export function unsafeMemoryReason(value: string): string | null {
   return null;
 }
 
-export function safeCompletedTurnText(input: CompletedTurn): string | null {
+function safeCompletedTurnText(input: CompletedTurn): string | null {
   const userText = compactText(input.userText, MEMORY_TEXT_MAX_LENGTH);
   if (!userText) return null;
   if (unsafeMemoryReason(userText)) return null;

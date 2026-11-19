@@ -193,7 +193,7 @@ function finiteNumber(value: number | null): value is number {
   return value !== null && Number.isFinite(value);
 }
 
-export const ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC = 180;
+const ACTIVITY_DASHBOARD_GRADE_READOUT_WINDOW_SEC = 180;
 
 function smoothedActivityDashboardGradeReadoutPct(
   points: ActivityDashboardChartSourcePoint[],
@@ -302,7 +302,7 @@ function smoothedActivityDashboardGradeReadoutPct(
   );
 }
 
-export const ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC = 60;
+const ACTIVITY_DASHBOARD_SPEED_AVERAGE_WINDOW_SEC = 60;
 
 function distanceWindowAverageActivityDashboardSpeedKmh(
   points: ActivityDashboardChartSourcePoint[],

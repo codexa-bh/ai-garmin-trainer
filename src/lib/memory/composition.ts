@@ -19,7 +19,7 @@ let credentialSnapshot: AppEnv | null = null;
 let activeConfig: ReturnType<typeof memoryRuntimeConfig> | null = null;
 let observation: { ready: boolean; at: number } | null = null;
 
-export function trainerMemoryStore(): TrainerMemoryStore {
+function trainerMemoryStore(): TrainerMemoryStore {
   const env = getOptionalEnv();
   // Only credentials rotate here. Native live state retains the entire startup
   // nonlive base; no Save-time store construction, migration or readiness probe.
@@ -71,7 +71,7 @@ export function trainerMemoryStore(): TrainerMemoryStore {
   return singleton;
 }
 
-export function resetTrainerMemoryStore(): void {
+function resetTrainerMemoryStore(): void {
   singleton = null;
   activeConfig = null;
   credentialSnapshot = null;

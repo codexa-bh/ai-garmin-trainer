@@ -1,12 +1,41 @@
 # Local validation and smoke checklist
 
-Comprehensive local gate: `npm ci && CI=true npm run validate`. Routine Ubuntu
-PR/main CI uses `npm run validate:ci`: formatting, lint, architecture, Knip,
-fresh `next typegen && tsc --noEmit`, all Vitest tests and cheap Python contracts.
-It deliberately does **not** compile a production backend or native host. The
-existing full `validate` still adds the production Next build. See
-[project guardrails](project-guardrails.md) for blocking lint/graph/Knip ownership;
-none of those gates or deterministic tests is removed by the fast profile.
+After [local tool setup](#local-tool-setup), the comprehensive gate is
+`npm ci && CI=true npm run validate`. Routine Ubuntu PR/main `validate:ci` runs
+Prettier, pinned rustfmt, tracked Ruff format/lint, production Vulture, ESLint,
+architecture, full-project and production Knip, fresh `next typegen && tsc --noEmit`,
+Vitest and Python contracts, cheap format/lint/dead-code checks first. It compiles
+**no production backend or native host**; full `validate` adds the Next production
+build. See [project guardrails](project-guardrails.md) for coverage, dynamic-entry
+modelling and the no-debt-list/dead-code rules. Test-only product code has no
+production consumer; live behavior coverage stays through existing entrypoints.
+
+## Local tool setup
+
+Use Node 22.23.4, Python 3.12 and Rust 1.98.0, with the same Ruff/Vulture pins as
+CI/nightly. Keep the Python tool environment **outside the checkout** (for Pivan,
+allocated task disposable scratch); it is development tooling, not app/fixture state.
+Activate it before npm commands so `python3` and its tool modules match:
+
+```bash
+python3.12 -m venv '/absolute/outside-checkout/python-quality'
+. '/absolute/outside-checkout/python-quality/bin/activate'
+python3 -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --no-deps -r scripts/python-quality-requirements.txt
+rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+export RUSTUP_TOOLCHAIN=1.98.0
+export PATH="$(dirname "$(rustup which cargo --toolchain 1.98.0)"):$PATH"
+```
+
+Checks never install tools or rewrite source. Missing modules/toolchains fail.
+Ruff requires 0.17.5; Vulture is pinned to 2.16. CI/nightly select Rust 1.98.0 with
+`RUSTUP_TOOLCHAIN`; local setup puts the exact rustup-selected Cargo/rustc binaries
+on PATH (rather than an unrelated Homebrew Cargo). Keep that environment unchanged
+through validation, build and smoke. The Python runner selects tracked files from Git:
+format/lint include tests, Vulture excludes `tests/` and `*_test.py` from both usage
+and definitions at confidence 60. Its narrow analysis-only protocol/public-entry
+model has reasons; name matching is not reachability proof. There is no Python
+or plain JS/MJS type-checking claim. Clippy is hosted **post-merge macOS only**;
+Windows-only Rust is formatted, not linted, and needs separate Windows qualification.
 
 ## Windows x64 job
 
@@ -32,23 +61,25 @@ and verified against HEAD, so moving main cannot change the selected revision.
 
 The `macos-15` ARM64 image (verified against the runner-images catalog, with actual
 Darwin/arm64 checks), Node 22.23.4 and Rust 1.98.0 run full validation, reliability,
-one production Next build/resource assembly, locked Cargo check/tests and one real
+one production Next build/resource assembly, locked all-targets Clippy (warnings denied),
+native tests and one real
 native synthetic Profile Goals save/restart. No optimized desktop packaging, full
 parallel/navigation/capture/release suite, provider/Garmin/Keychain calls or native
 dialog certification. Summary status/source/platform are observations, not promises
 that stages after a failed step ran. Hosted allocation/cron/skip results must be
 observed separately from fixture/local tests.
 
-Reproduce on macOS ARM64 in a dedicated worktree with unchanged inputs between steps:
+Reproduce on macOS ARM64 in a dedicated worktree after the pinned tool setup,
+with unchanged inputs between steps. Clippy replaces the standalone Cargo check:
 
 ```bash
 npm ci
 CI=true npm run validate
 npm run eval:reliability
 npm run desktop:assemble
-cargo check --locked --manifest-path src-tauri/Cargo.toml
-npm run desktop:test:native
-npm run smoke:quick -- --scratch '/absolute/canonical/private-task-scratch' --resources-ready
+npm run lint:rust
+rustup run 1.98.0 npm run desktop:test:native
+rustup run 1.98.0 npm run smoke:quick -- --scratch '/absolute/canonical/private-task-scratch' --resources-ready
 ```
 
 `desktop:assemble` is assembler-only: call it immediately after the same-input
@@ -60,8 +91,8 @@ Without that flag `smoke:quick` builds resources itself. Existing `desktop:resou
 
 Routine superseded PR/ref runs cancel; nightly runs serialize without cancelling
 an allocated native attempt. Actions are SHA-pinned, installs locked, and the only
-shared cache is npm download tarballs keyed by lockfile. No node_modules/build/app
-state cache or binary/SQLite uploads. macOS images remain local-only; the separate
+caches are existing nightly/Windows npm download tarballs keyed by lockfile.
+Push Validate has no cache. No node_modules/build/app state cache or binary/SQLite uploads. macOS images remain local-only; the separate
 Windows scenario has only the narrow three-day synthetic masked-image exception
 linked above. Fresh synthetic state is job-private,
 disposed only through [verified invocation ownership](smoke/ownership.md#preparation-reuse-and-owned-disposal) after final settlement/evidence; retained diagnostics expire with the runner or local task scratch.
@@ -86,6 +117,10 @@ Automated validation:
 npm run doctor -- --json
 npm run db:status -- --json
 npm run format
+npm run format:rust
+npm run format:python
+npm run lint:python
+npm run deadcode:python
 npm run lint
 npm run architecture
 npm run knip
@@ -126,7 +161,12 @@ encoding remain separate work, not cleanup authority.
 
 Routine native/ordinary smoke defaults to [finite authored synthetic inputs](smoke-inputs.md), independent of personal data and repeated per-ticket consent; exact current standing/one-off authority is optional for private input. Quick/nightly's minimal recipe and costs stay unchanged. Routine native smoke is [programmatic-first](dev-bridge.md), using `smoke:ordinary` for actual unmodified outside-checkout ordinary-bundle parallel/save/restart and wide/narrow geometry-preserving redacted Trainer/Sync/Profile capture; `smoke:native` retains debug populated-copy navigation/Profile/save/restart/parallel subtree capture. `smoke:release` positively audits supported ordinary admission/control and excludes legacy debug/probe admission, then runs separately labeled launch-only release-mode denial. Debug/probe observations do not replace required ordinary outside-checkout production launch or relevant real integration smoke. Ordinary isolated success is not default singleton/settings/auth or real-service certification. Inspect actual images and record the appropriate debug-subtree or ordinary-redacted-geometry limits. Safe task-needed bridge/runner expansion is expected within the authorized task: follow the [before-use contract, regression and evidence recipe](smoke/protocol.md#task-needed-bridge-and-runner-extensions) rather than treating missing commands/inputs as a permanent ban or automatic new-ticket/operator stop. Existing refusals remain until safely extended; real safety/ownership/credential gates and ordinary-artifact evidence still bind. Native dialogs/trusted input remain explicitly arranged manual fallback only. The recurring nightly enrolls only the minimal synthetic quick scenario described above, not the full private populated-copy/release suite; `npm test` includes only cheap Python gate/runner/audit unit tests in addition to Vitest.
 
-Knip's additional entrypoints are assembler-bundled `scripts/desktop/runtime.ts`, local setup HTML's `src-tauri/ui/setup.js`, shared natively admitted `src-tauri/debug/smoke.js` (never installed by default), debug-only `src-tauri/debug/setup-smoke.js`, and the Python-invoked `scripts/desktop/smoke_recipe.ts`; both bootstraps stay outside production UI resources. Closed debug `smoke:settings` covers keyless nonactivating Connect/later/cancel/Save/restart and inspected sanitized Garmin subtrees, with native auth/MFA/adoption/picker/Finish refusal. It does not certify ordinary artifacts, first-run or live login; see [debug Settings scope](smoke/settings.md#closed-keyless-native-settings-smoke). Shared settings validation/catalog is reached from these entries; the packaged Python auth worker/uv lock is tested through the focused desktop suite. Actual native smoke must include blank Create/Finish/same-session ready/relaunch, populated Use-existing, exclusive collision/sidecar/lease rejection and committed-state retry/cancel, advanced settings, metadata-only private-file save/reload, explicit legacy adoption/denial/re-entry and preserved originals, saved direct launch and ordinary catalog/shared-key live acknowledgment plus separate restart-only pending state, as well as saved/not-applied and unknown recovery. The packaged assembler probes the in-memory initializer without a filesystem target; native tests exercise real bundled fresh publication and readonly compatibility, not ordinary-artifact wizard certification. Real fresh password/MFA entry belongs to the operator in the private local UI; name unavailable live challenge evidence and never equate deterministic simulation with live MFA. Generated `src-tauri/{target,gen,resources}` and `dist` are build output only; no source files are exempted from lint/ownership/Knip.
+Both Knip modes model individual non-test tool entries: package/workflow commands,
+assembler-bundled `scripts/desktop/runtime.ts`, native OAuth's `chatgpt-oauth.mjs`,
+Python-invoked seed/recipe scripts, local setup HTML's `src-tauri/ui/setup.js`, shared
+natively admitted `src-tauri/debug/smoke.js` (never installed by default), debug-only
+Settings and history-setup bootstraps, and ESLint's custom rule entries. Debug
+bootstraps stay outside ordinary production UI resources. Closed debug `smoke:settings` covers keyless nonactivating Connect/later/cancel/Save/restart and inspected sanitized Garmin subtrees, with native auth/MFA/adoption/picker/Finish refusal. It does not certify ordinary artifacts, first-run or live login; see [debug Settings scope](smoke/settings.md#closed-keyless-native-settings-smoke). Shared settings validation/catalog is reached from these entries; the packaged Python auth worker/uv lock is tested through the focused desktop suite. Actual native smoke must include blank Create/Finish/same-session ready/relaunch, populated Use-existing, exclusive collision/sidecar/lease rejection and committed-state retry/cancel, advanced settings, metadata-only private-file save/reload, explicit legacy adoption/denial/re-entry and preserved originals, saved direct launch and ordinary catalog/shared-key live acknowledgment plus separate restart-only pending state, as well as saved/not-applied and unknown recovery. The packaged assembler probes the in-memory initializer without a filesystem target; native tests exercise real bundled fresh publication and readonly compatibility, not ordinary-artifact wizard certification. Real fresh password/MFA entry belongs to the operator in the private local UI; name unavailable live challenge evidence and never equate deterministic simulation with live MFA. Generated `src-tauri/{target,gen,resources}` and `dist` are build output only; no source files are exempted from lint/ownership/Knip.
 
 Presentation-only Markdown-table changes can use `npm run smoke:tables -- --scratch
 <canonical-private-task-scratch> --bundle <same-source-ordinary-app>` instead of

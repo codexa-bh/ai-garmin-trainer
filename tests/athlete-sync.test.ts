@@ -108,7 +108,7 @@ afterEach(() => {
 
 describe("Garmin sync athlete baseline stage", () => {
   it("imports populated athlete facts without obscuring health sync", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const progress: string[] = [];
 
     const result = await runGarminSync((event) => progress.push(event.stage));
@@ -138,7 +138,7 @@ describe("Garmin sync athlete baseline stage", () => {
         duration: 1800,
       },
     ];
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const messages: string[] = [];
 
     const result = await runGarminSync((event) => messages.push(event.message));
@@ -156,7 +156,7 @@ describe("Garmin sync athlete baseline stage", () => {
 
   it("records unavailable athlete attempts for all-null profile facts", async () => {
     mcpState.nullAthlete = true;
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
 
     const result = await runGarminSync();
 
@@ -169,7 +169,7 @@ describe("Garmin sync athlete baseline stage", () => {
   });
 
   it("preserves previous body metrics after failed refresh", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     await runGarminSync();
 
     mcpState.failAthlete = true;
@@ -186,7 +186,7 @@ describe("Garmin sync athlete baseline stage", () => {
   });
 
   it("preserves previous athlete facts after failed refresh", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     await runGarminSync();
 
     mcpState.failAthlete = true;
@@ -205,7 +205,7 @@ describe("Garmin sync athlete baseline stage", () => {
       { date: "2026-07-20", weight_kg: 70.6, source_type: "SCALE" },
       { date: "2026-07-22", weight_kg: 70.1, source_type: "MANUAL" },
     ];
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     const messages: string[] = [];
 
     const result = await runGarminSync((event) => messages.push(event.message));
@@ -226,7 +226,7 @@ describe("Garmin sync athlete baseline stage", () => {
   });
 
   it("stores only weigh-in rows and reports unavailable weigh-in status when the surface is empty", async () => {
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
 
     const result = await runGarminSync();
 
@@ -248,7 +248,7 @@ describe("Garmin sync athlete baseline stage", () => {
     mcpState.weighIns = [
       { date: "2026-07-22", weight_kg: 70.1, source_type: "MANUAL" },
     ];
-    const { runGarminSync } = await import("../src/lib/garmin/importer");
+    const { runGarminSync } = await import("../src/lib/garmin/composition");
     await runGarminSync();
 
     mcpState.failAthlete = true;

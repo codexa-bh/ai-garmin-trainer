@@ -1,6 +1,6 @@
+import { SCHEMA_MIGRATIONS } from "./historical-schema-fixture";
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
-import { SCHEMA_MIGRATIONS } from "@/lib/db/migrations";
 
 /** Reconstruct exactly schema27 on an exclusive authored fixture. */
 function removeMeasurementFixtureSchema(db: Database.Database): void {

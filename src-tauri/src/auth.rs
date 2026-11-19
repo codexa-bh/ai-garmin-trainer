@@ -430,7 +430,9 @@ fn publish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::private_fs::testing::{make_private, make_shared, private_dir, private_root, symlink, write_private};
+    use crate::private_fs::testing::{
+        make_private, make_shared, private_dir, private_root, symlink, write_private,
+    };
     fn held_dir(path: &Path) -> File {
         private_fs::open_dir_at(
             &private_fs::walk(path.parent().unwrap(), false).unwrap(),
@@ -446,7 +448,9 @@ mod tests {
         #[cfg(windows)]
         let mut command = Command::new("ping.exe");
         #[cfg(windows)]
-        command.args(["-n", "30", "127.0.0.1"]).stdout(Stdio::null());
+        command
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(Stdio::null());
         command.stdin(Stdio::piped());
         command
     }
@@ -560,7 +564,10 @@ mod tests {
                 "synthetic".into()
             )
             .is_err());
-        assert!(!private_fs::path_meta(&managed).unwrap().restricted, "never repaired");
+        assert!(
+            !private_fs::path_meta(&managed).unwrap().restricted,
+            "never repaired"
+        );
         make_private(&managed);
         fs::remove_dir_all(root).unwrap();
     }

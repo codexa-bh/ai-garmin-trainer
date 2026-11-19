@@ -77,7 +77,7 @@ export function shiftIsoDate(date: string, days: number): string {
   return cursor.toISOString().slice(0, 10);
 }
 
-export const DAILY_HEALTH_MUTABLE_TRAILING_DAYS = 14;
+const DAILY_HEALTH_MUTABLE_TRAILING_DAYS = 14;
 const DAILY_HEALTH_COMPLETE_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export function dailyHealthTrailingCriteria(input: {

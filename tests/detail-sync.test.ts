@@ -15,7 +15,7 @@ beforeEach(() => {
 });
 
 async function repository() {
-  return import("../src/lib/db/repository");
+  return import("./storage-fixture");
 }
 
 describe("detail sync state", () => {

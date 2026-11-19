@@ -22,12 +22,6 @@ export type {
   ConversationSummary,
   ChatMessagePage,
 } from "@/lib/chat/contracts";
-export {
-  DEFAULT_CONVERSATION_ID,
-  safeConversationId,
-  normalizeConversationTitle,
-  initialConversationTitle,
-} from "@/lib/chat/conversation-policy";
 import { getDatabase } from "./connection";
 import { adoptSummaryPin } from "./conversation-summary-pin";
 import { safeFailureDiagnostic } from "../diagnostics/provider-failure";

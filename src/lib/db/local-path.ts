@@ -8,7 +8,7 @@ const WINDOWS_DEVICE =
 
 /** Windows drive-letter absolute form: no UNC, device, verbatim, relative-drive,
  * forward-slash, alternate-stream, reserved-device or trailing dot/space names. */
-export function windowsLocalForm(value: string): boolean {
+function windowsLocalForm(value: string): boolean {
   if (!/^[A-Za-z]:\\/.test(value) || value.length > 32767) return false;
   const rest = value.slice(3);
   if (rest === "") return true;
