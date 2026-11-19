@@ -86,8 +86,8 @@ pub fn png(window: &WebviewWindow) -> Result<Vec<u8>, String> {
 }
 #[cfg(test)]
 mod tests {
-    use crate::private_fs::testing::symlink;
     use super::*;
+    use crate::private_fs::testing::symlink;
     #[test]
     fn refuses_invalid_bytes_and_paths() {
         assert!(publish(Path::new("/missing"), "bad", b"not png").is_err());

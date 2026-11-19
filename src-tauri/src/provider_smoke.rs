@@ -145,9 +145,9 @@ pub fn activation(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     #[allow(unused_imports)]
     use crate::private_fs::testing::{make_private, make_shared, symlink};
-    use super::*;
     use std::fs;
     fn directory() -> PathBuf {
         let path = crate::private_fs::testing::temp_root()
@@ -308,7 +308,11 @@ mod tests {
             assert_eq!(fs::read(&source).unwrap(), before);
         }
         fs::write(&path, serde_json::to_vec(&base).unwrap()).unwrap();
-        fs::write(run.join("tokens").join("unexpected"), b"synthetic-not-a-token").unwrap();
+        fs::write(
+            run.join("tokens").join("unexpected"),
+            b"synthetic-not-a-token",
+        )
+        .unwrap();
         assert!(activation(&path, &production, Mode::SummaryLuna100).is_err());
         assert_eq!(fs::read(&source).unwrap(), before);
         assert!(

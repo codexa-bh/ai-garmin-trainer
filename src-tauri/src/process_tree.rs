@@ -24,7 +24,8 @@ pub fn runtime_directory(resources: &Path) -> PathBuf {
     let runtime = resources.join("runtime");
     #[cfg(windows)]
     if matches!(runtime.components().next(), Some(std::path::Component::Prefix(prefix))
-        if matches!(prefix.kind(), std::path::Prefix::VerbatimDisk(_))) {
+        if matches!(prefix.kind(), std::path::Prefix::VerbatimDisk(_)))
+    {
         use std::os::windows::ffi::{OsStrExt, OsStringExt};
         let wide: Vec<u16> = runtime.as_os_str().encode_wide().skip(4).collect();
         return PathBuf::from(OsString::from_wide(&wide));
@@ -313,10 +314,19 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn node_runtime_uses_dos_spelling_without_rewriting_unc_or_device_paths() {
-        assert_eq!(runtime_directory(Path::new(r"\\?\D:\app with spaces\resources")), PathBuf::from(r"D:\app with spaces\resources\runtime"));
-        assert_eq!(runtime_directory(Path::new(r"D:\app with spaces\resources")), PathBuf::from(r"D:\app with spaces\resources\runtime"));
+        assert_eq!(
+            runtime_directory(Path::new(r"\\?\D:\app with spaces\resources")),
+            PathBuf::from(r"D:\app with spaces\resources\runtime")
+        );
+        assert_eq!(
+            runtime_directory(Path::new(r"D:\app with spaces\resources")),
+            PathBuf::from(r"D:\app with spaces\resources\runtime")
+        );
         for path in [r"\\?\UNC\server\share\resources", r"\\.\device\resources"] {
-            assert_eq!(runtime_directory(Path::new(path)), Path::new(path).join("runtime"));
+            assert_eq!(
+                runtime_directory(Path::new(path)),
+                Path::new(path).join("runtime")
+            );
         }
     }
 

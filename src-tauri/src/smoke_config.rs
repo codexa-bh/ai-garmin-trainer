@@ -333,9 +333,9 @@ pub fn private_dir(path: &Path) -> Result<(), String> {
 }
 #[cfg(test)]
 mod tests {
+    use super::*;
     #[allow(unused_imports)]
     use crate::private_fs::testing::{make_private, make_shared, symlink};
-    use super::*;
     #[test]
     fn synthetic_keys_are_finite_and_never_accept_private_or_partial_states() {
         assert!(accepted_keys(&initial_keys()));
@@ -358,8 +358,7 @@ mod tests {
     #[test]
     fn admission_requires_exact_copy_settings_no_keys_and_private_paths() {
         let id = uuid::Uuid::new_v4().to_string();
-        let root = crate::private_fs::testing::temp_root()
-            .join(format!("native-{id}"));
+        let root = crate::private_fs::testing::temp_root().join(format!("native-{id}"));
         fs::create_dir(&root).unwrap();
         make_private(&root);
         let names = ["home", "tmp", "profile", "config", "screenshots"];
@@ -389,27 +388,59 @@ mod tests {
         assert!(config.validate().is_ok());
         #[cfg(debug_assertions)]
         {
-            assert!(crate::setup_smoke::chatgpt_metadata(&config).unwrap().is_none());
+            assert!(crate::setup_smoke::chatgpt_metadata(&config)
+                .unwrap()
+                .is_none());
             let marker = root.join("chatgpt-presentation.json");
-            write(&marker,serde_json::json!({"version":1,"runId":id}).to_string().as_bytes());
-            let metadata = crate::setup_smoke::chatgpt_metadata(&config).unwrap().unwrap();
-            assert_eq!(metadata.as_array().unwrap().len(),1);
-            assert_eq!(metadata[0]["id"],"registration_11111111-1111-4111-8111-111111111111");
-            assert_eq!(metadata[0]["state"],"connected");
-            assert_eq!(metadata[0]["planEnabled"],true);
-            assert_eq!(metadata[0]["models"].as_array().unwrap().len(),2);
-            for forbidden in ["accessToken","refreshToken","idToken","clientId","subject"] { assert!(!metadata.to_string().contains(forbidden)); }
+            write(
+                &marker,
+                serde_json::json!({"version":1,"runId":id})
+                    .to_string()
+                    .as_bytes(),
+            );
+            let metadata = crate::setup_smoke::chatgpt_metadata(&config)
+                .unwrap()
+                .unwrap();
+            assert_eq!(metadata.as_array().unwrap().len(), 1);
+            assert_eq!(
+                metadata[0]["id"],
+                "registration_11111111-1111-4111-8111-111111111111"
+            );
+            assert_eq!(metadata[0]["state"], "connected");
+            assert_eq!(metadata[0]["planEnabled"], true);
+            assert_eq!(metadata[0]["models"].as_array().unwrap().len(), 2);
+            for forbidden in [
+                "accessToken",
+                "refreshToken",
+                "idToken",
+                "clientId",
+                "subject",
+            ] {
+                assert!(!metadata.to_string().contains(forbidden));
+            }
             let subscription: crate::chat_catalog::Catalog = serde_json::from_value(serde_json::json!({"version":1,"defaultEntryId":null,"entries":[{"id":"entry_fixture","provider":"chatgpt","registrationId":"registration_11111111-1111-4111-8111-111111111111","modelId":"synthetic/chatgpt:one"}]})).unwrap();
-            assert!(!config.accepts_catalog(&subscription,&std::collections::BTreeMap::new()));
-            write(&marker,serde_json::json!({"version":1,"runId":"foreign"}).to_string().as_bytes());
+            assert!(!config.accepts_catalog(&subscription, &std::collections::BTreeMap::new()));
+            write(
+                &marker,
+                serde_json::json!({"version":1,"runId":"foreign"})
+                    .to_string()
+                    .as_bytes(),
+            );
             assert!(crate::setup_smoke::chatgpt_metadata(&config).is_err());
-            write(&marker,serde_json::json!({"version":1,"runId":id,"token":"private"}).to_string().as_bytes());
+            write(
+                &marker,
+                serde_json::json!({"version":1,"runId":id,"token":"private"})
+                    .to_string()
+                    .as_bytes(),
+            );
             assert!(crate::setup_smoke::chatgpt_metadata(&config).is_err());
             fs::remove_file(&marker).unwrap();
-            symlink(config.settings(),&marker).unwrap();
+            symlink(config.settings(), &marker).unwrap();
             assert!(crate::setup_smoke::chatgpt_metadata(&config).is_err());
             fs::remove_file(&marker).unwrap();
-            assert!(crate::setup_smoke::chatgpt_metadata(&config).unwrap().is_none());
+            assert!(crate::setup_smoke::chatgpt_metadata(&config)
+                .unwrap()
+                .is_none());
         }
         settings["fields"]["AI_MODEL"] = serde_json::json!("gpt-6-luna");
         write(&config.settings(), settings.to_string().as_bytes());
@@ -644,8 +675,7 @@ mod tests {
     #[test]
     fn refuses_invalid_identity_and_aliased_directory() {
         let id = uuid::Uuid::new_v4().to_string();
-        let path = crate::private_fs::testing::temp_root()
-            .join(format!("config-test-{id}"));
+        let path = crate::private_fs::testing::temp_root().join(format!("config-test-{id}"));
         fs::create_dir(&path).unwrap();
         make_private(&path);
         assert!(private_dir(&path).is_ok());

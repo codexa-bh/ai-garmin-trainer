@@ -196,8 +196,14 @@ fn inventory(
             if relative.contains(['\n', '\r', '\0']) {
                 return Err(DENIED);
             }
-            let relative = if cfg!(windows) { relative.replace('\\', "/") } else { relative.to_owned() };
-            if files.insert(relative, sha_file(&path)?).is_some() { return Err(DENIED); }
+            let relative = if cfg!(windows) {
+                relative.replace('\\', "/")
+            } else {
+                relative.to_owned()
+            };
+            if files.insert(relative, sha_file(&path)?).is_some() {
+                return Err(DENIED);
+            }
         } else {
             return Err(DENIED);
         }
@@ -270,7 +276,8 @@ fn artifact_layout(executable: &Path) -> Result<(PathBuf, String), &'static str>
 }
 fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
     let executable = std::env::current_exe().map_err(|_| refusal("artifact-executable"))?;
-    let (bundle, resource_prefix) = artifact_layout(&executable).map_err(|_| refusal("artifact-layout"))?;
+    let (bundle, resource_prefix) =
+        artifact_layout(&executable).map_err(|_| refusal("artifact-layout"))?;
     let mut files = BTreeMap::new();
     inventory(&bundle, &bundle, &mut files, &mut 0).map_err(|_| refusal("artifact-files"))?;
     let mut digest = Sha256::new();
@@ -298,7 +305,8 @@ fn verify_artifact(descriptor: &Descriptor) -> Result<(), &'static str> {
             option_env!("TRAINER_ORDINARY_BUILD_SOURCE"),
             option_env!("TRAINER_ORDINARY_BUILD_CONTEXT"),
         ],
-    ).map_err(|_| refusal("compiled-resource-identity"))?;
+    )
+    .map_err(|_| refusal("compiled-resource-identity"))?;
     for entry in provenance["files"]
         .as_array()
         .filter(|a| !a.is_empty() && a.len() <= 50_000)
@@ -332,7 +340,8 @@ impl Admission {
             return Err(refusal("mode"));
         }
         let admission = Self::admit(path, verify_artifact)?;
-        if cfg!(windows) || admission.descriptor.history_setup.is_some()
+        if cfg!(windows)
+            || admission.descriptor.history_setup.is_some()
             || admission.descriptor.provider_smoke.is_some()
         {
             if !stdin_is_pipe() {
@@ -345,17 +354,23 @@ impl Admission {
         path: &Path,
         artifact: impl FnOnce(&Descriptor) -> Result<(), &'static str>,
     ) -> Result<Self, &'static str> {
-        let descriptor_capture = private_store::capture(path).map_err(|_| refusal("descriptor-file"))?;
+        let descriptor_capture =
+            private_store::capture(path).map_err(|_| refusal("descriptor-file"))?;
         let bytes = &descriptor_capture.1;
         if bytes.len() > 16 * 1024 {
             return Err(DENIED);
         }
-        let descriptor: Descriptor = serde_json::from_slice(&bytes).map_err(|_| refusal("descriptor-json"))?;
-        descriptor.validate(path).map_err(|_| refusal("descriptor-fields"))?;
-        let mut root = private_store::PinnedDirectory::open(&descriptor.root).map_err(|_| refusal("root-directory"))?;
+        let descriptor: Descriptor =
+            serde_json::from_slice(&bytes).map_err(|_| refusal("descriptor-json"))?;
+        descriptor
+            .validate(path)
+            .map_err(|_| refusal("descriptor-fields"))?;
+        let mut root = private_store::PinnedDirectory::open(&descriptor.root)
+            .map_err(|_| refusal("root-directory"))?;
         root.lock_exclusive().map_err(|_| refusal("root-lease"))?;
         // Read again after taking the lifetime lease, refusing a descriptor swap.
-        let owner_capture = private_store::capture(&descriptor.root.join("owner")).map_err(|_| refusal("owner-file"))?;
+        let owner_capture = private_store::capture(&descriptor.root.join("owner"))
+            .map_err(|_| refusal("owner-file"))?;
         if private_store::capture(path)? != descriptor_capture
             || owner_capture.1 != descriptor.run_id.as_bytes()
         {
@@ -367,9 +382,10 @@ impl Admission {
             if name == "tokens" && !descriptor.root.join(name).exists() {
                 continue;
             }
-            directories.push(private_store::PinnedDirectory::open(
-                &descriptor.root.join(name),
-            ).map_err(|_| refusal(name))?);
+            directories.push(
+                private_store::PinnedDirectory::open(&descriptor.root.join(name))
+                    .map_err(|_| refusal(name))?,
+            );
         }
         let missing_settings = Self::missing_settings_at(&descriptor.root);
         let database_path = descriptor.root.join("trainer.sqlite");
@@ -394,7 +410,9 @@ impl Admission {
             owner_capture,
             provider_source: std::sync::Mutex::new(None),
         };
-        admission.verify_settings().map_err(|_| refusal("settings"))?;
+        admission
+            .verify_settings()
+            .map_err(|_| refusal("settings"))?;
         Ok(admission)
     }
     fn missing_settings_at(root: &Path) -> bool {
@@ -460,10 +478,18 @@ impl Admission {
         )) else {
             return false;
         };
-        let cloud_summary = input.fields.get("SUMMARY_MODEL")
+        let cloud_summary = input
+            .fields
+            .get("SUMMARY_MODEL")
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-            == Some(serde_json::json!({"version":1,"entryId":"entry_summary_cloud","provider":"openai","modelId":"gpt-6-luna"}))
-            && expected_catalog.entries.iter().any(|entry| entry.id == "entry_summary_cloud" && entry.provider == "openai" && entry.model_id == "gpt-6-luna");
+            == Some(
+                serde_json::json!({"version":1,"entryId":"entry_summary_cloud","provider":"openai","modelId":"gpt-6-luna"}),
+            )
+            && expected_catalog.entries.iter().any(|entry| {
+                entry.id == "entry_summary_cloud"
+                    && entry.provider == "openai"
+                    && entry.model_id == "gpt-6-luna"
+            });
         let catalog_summary = input
             .fields
             .get("SUMMARY_MODEL")
@@ -484,7 +510,8 @@ impl Admission {
                 input.fields.get("SUMMARY_ENABLED").map(String::as_str),
                 Some("true" | "false")
             )
-            && (catalog_summary || cloud_summary
+            && (catalog_summary
+                || cloud_summary
                 || input.fields.get("SUMMARY_MODEL").map(String::as_str) == Some("gpt-6-luna"))
             && input.fields.get("SUMMARY_CHAR_LIMIT").map(String::as_str) == Some("6000");
         input.fields.iter().all(|(key, value)| {
@@ -563,7 +590,11 @@ impl Admission {
     pub fn verify(&self) -> Result<(), &'static str> {
         for (index, directory) in self.directories.iter().enumerate() {
             // The root precedes DIRECTORIES; never zip away the final optional token pin.
-            let name = if index == 0 { "root-directory" } else { DIRECTORIES[index - 1] };
+            let name = if index == 0 {
+                "root-directory"
+            } else {
+                DIRECTORIES[index - 1]
+            };
             directory.verify().map_err(|_| refusal(name))?;
         }
         let identity = *self.database.lock().map_err(|_| DENIED)?;
@@ -678,15 +709,18 @@ mod tests {
         std::fs::write(&exe, b"binary").unwrap();
         assert!(super::artifact_layout(&exe).is_err());
         std::fs::write(root.join("uninstall.exe"), b"generated").unwrap();
-        assert_eq!(super::artifact_layout(&exe).unwrap(), (root.clone(), "resources".to_owned()));
+        assert_eq!(
+            super::artifact_layout(&exe).unwrap(),
+            (root.clone(), "resources".to_owned())
+        );
         assert!(super::artifact_layout(&root.join("foreign.exe")).is_err());
         std::fs::remove_file(root.join("uninstall.exe")).unwrap();
         std::fs::remove_file(exe).unwrap();
         std::fs::remove_dir(root).unwrap();
     }
+    use super::*;
     #[allow(unused_imports)]
     use crate::private_fs::testing::{make_private, make_shared, symlink};
-    use super::*;
     #[cfg(windows)]
     #[test]
     fn window_failure_diagnostic_extracts_only_typed_numeric_hresult() {
@@ -704,13 +738,19 @@ mod tests {
         {
             use std::io::Read;
             let mut header = [0u8; 4096];
-            fs::File::open(std::env::current_exe().unwrap()).unwrap().read_exact(&mut header).unwrap();
+            fs::File::open(std::env::current_exe().unwrap())
+                .unwrap()
+                .read_exact(&mut header)
+                .unwrap();
             assert_eq!(&header[..2], b"MZ");
             let pe = u32::from_le_bytes(header[0x3c..0x40].try_into().unwrap()) as usize;
             assert_eq!(&header[pe..pe + 4], b"PE\0\0");
             let subsystem = pe + 24 + 68;
-            assert_eq!(u16::from_le_bytes(header[subsystem..subsystem + 2].try_into().unwrap()), 2,
-                "Windows contract must exercise an actual GUI-subsystem test executable");
+            assert_eq!(
+                u16::from_le_bytes(header[subsystem..subsystem + 2].try_into().unwrap()),
+                2,
+                "Windows contract must exercise an actual GUI-subsystem test executable"
+            );
         }
         if std::env::var_os("TRAINER_NO_CONSOLE_CONTRACT_CHILD").is_none() {
             // The real ordinary executable is a GUI host without a console.
@@ -721,7 +761,9 @@ mod tests {
             let mut child = crate::process_tree::Tree::spawn(&mut command).unwrap();
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
             let status = loop {
-                if let Some(status) = child.try_wait().unwrap() { break status; }
+                if let Some(status) = child.try_wait().unwrap() {
+                    break status;
+                }
                 if std::time::Instant::now() >= deadline {
                     child.kill();
                     child.wait().unwrap();
@@ -732,7 +774,10 @@ mod tests {
             assert!(status.success(), "Owned no-console backend contract failed");
             return;
         }
-        let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/desktop");
+        let scripts = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("scripts/desktop");
         let producer_resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
         let code = r#"import contextlib,json,os,shutil,subprocess,sys,uuid
 from pathlib import Path
@@ -757,10 +802,18 @@ print(root,flush=True)
 sys.stdin.buffer.read(1)
 pin.close()
 "#;
-        let mut child = Command::new("python").args(["-c", code]).arg(scripts).arg(producer_resources)
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+        let mut child = Command::new("python")
+            .args(["-c", code])
+            .arg(scripts)
+            .arg(producer_resources)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
         let mut line = String::new();
-        std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        std::io::BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut line)
+            .unwrap();
         let root = PathBuf::from(line.trim());
         // Outside the checkout: ancestor node_modules must not mask missing packaged dependencies.
         // Canonical Windows spelling is verbatim (\\?\ drive prefix), as can
@@ -773,18 +826,28 @@ pin.close()
         let admitted = Admission::admit(&root.join("launch.json"), |_| Ok(()));
         let accepted = admitted.is_ok();
         let backend = if accepted {
-            crate::settings::activation(&root.join("config/settings-v2.json")).and_then(|mut frame| {
-                let result = crate::supervisor::Service::start(&resources, &mut frame,
-                    &std::sync::atomic::AtomicBool::new(false), &std::sync::atomic::AtomicBool::new(false));
-                frame.fill(0);
-                result.map(|mut service| service.stop())
-            })
-        } else { Err("Private admission failed") };
+            crate::settings::activation(&root.join("config/settings-v2.json")).and_then(
+                |mut frame| {
+                    let result = crate::supervisor::Service::start(
+                        &resources,
+                        &mut frame,
+                        &std::sync::atomic::AtomicBool::new(false),
+                        &std::sync::atomic::AtomicBool::new(false),
+                    );
+                    frame.fill(0);
+                    result.map(|mut service| service.stop())
+                },
+            )
+        } else {
+            Err("Private admission failed")
+        };
         drop(admitted);
         drop(child.stdin.take());
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let status = loop {
-            if let Some(status) = child.try_wait().unwrap() { break status; }
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
             if std::time::Instant::now() >= deadline {
                 child.kill().unwrap(); // This test's retained live helper only.
                 child.wait().unwrap();
@@ -793,10 +856,21 @@ pin.close()
             std::thread::sleep(std::time::Duration::from_millis(10));
         };
         assert!(status.success());
-        assert!(root.file_name().unwrap().to_string_lossy().starts_with("ordinary-"));
+        assert!(root
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("ordinary-"));
         fs::remove_dir_all(root).unwrap();
-        assert!(accepted, "Python-created private run refused; consult static admission stage code");
-        assert!(backend.is_ok(), "Python-state native keyless backend refused: {:?}", backend.err());
+        assert!(
+            accepted,
+            "Python-created private run refused; consult static admission stage code"
+        );
+        assert!(
+            backend.is_ok(),
+            "Python-state native keyless backend refused: {:?}",
+            backend.err()
+        );
     }
     #[test]
     fn finite_provider_scope_never_combines_with_history_setup() {
@@ -818,8 +892,7 @@ pin.close()
     }
     fn fixture() -> (PathBuf, PathBuf) {
         let id = uuid::Uuid::new_v4().to_string();
-        let root = crate::private_fs::testing::temp_root()
-            .join(format!("ordinary-{id}"));
+        let root = crate::private_fs::testing::temp_root().join(format!("ordinary-{id}"));
         fs::create_dir(&root).unwrap();
         make_private(&root);
         for name in DIRECTORIES {
@@ -850,7 +923,10 @@ pin.close()
         let refused = admitted.verify().is_err();
         drop(admitted);
         fs::remove_dir_all(root).unwrap();
-        assert!(refused, "Every pinned directory, including optional tokens, must be checked");
+        assert!(
+            refused,
+            "Every pinned directory, including optional tokens, must be checked"
+        );
     }
     #[test]
     fn separated_build_identity_requires_exact_versioned_compiled_resource_descriptor_agreement() {
@@ -1003,7 +1079,10 @@ pin.close()
         let valid_choice = input.fields["SUMMARY_MODEL"].clone();
         for model in ["gpt-6-luna", "GPT-6-luna", "different"] {
             input.fields.insert("SUMMARY_MODEL".into(), serde_json::json!({"version":1,"entryId":"entry_summary_cloud","provider":"openai","modelId":model}).to_string());
-            assert_eq!(admission.accepts_history_settings(&input), model == "gpt-6-luna");
+            assert_eq!(
+                admission.accepts_history_settings(&input),
+                model == "gpt-6-luna"
+            );
         }
         input.fields.insert("SUMMARY_MODEL".into(), serde_json::json!({"version":1,"entryId":"entry_summary_local","provider":"ollama","modelId":"synthetic-memory:small","extra":true}).to_string());
         assert!(!admission.accepts_history_settings(&input));

@@ -1,4 +1,7 @@
-#![cfg_attr(any(not(debug_assertions), all(test, windows)), windows_subsystem = "windows")]
+#![cfg_attr(
+    any(not(debug_assertions), all(test, windows)),
+    windows_subsystem = "windows"
+)]
 mod auth;
 mod chat_catalog;
 mod chatgpt;
@@ -67,21 +70,34 @@ fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
 
 fn chatgpt_owner(app: &tauri::AppHandle) -> Result<std::sync::Arc<chatgpt::Owner>, &'static str> {
     let runtime = app.state::<Runtime>();
-    let mut owner = runtime.chatgpt.lock().map_err(|_| "ChatGPT ownership unavailable.")?;
+    let mut owner = runtime
+        .chatgpt
+        .lock()
+        .map_err(|_| "ChatGPT ownership unavailable.")?;
     if owner.is_none() {
-        if runtime.quitting.load(Ordering::SeqCst) { return Err("App is quitting."); }
+        if runtime.quitting.load(Ordering::SeqCst) {
+            return Err("App is quitting.");
+        }
         let path = settings_path(app)?;
-        *owner = Some(chatgpt::Owner::start(path.parent().ok_or("Private settings parent unavailable.")?, &resources(app)?)?);
+        *owner = Some(chatgpt::Owner::start(
+            path.parent()
+                .ok_or("Private settings parent unavailable.")?,
+            &resources(app)?,
+        )?);
     }
     owner.clone().ok_or("ChatGPT ownership unavailable.")
 }
-fn notify_model_settings(app:&tauri::AppHandle) {
+fn notify_model_settings(app: &tauri::AppHandle) {
     // Metadata-only read notification; never exposes native IPC or credentials.
-    if let Some(trainer)=app.get_webview_window("trainer") { let _=trainer.eval("window.dispatchEvent(new Event('trainer-live-settings-applied'));"); }
+    if let Some(trainer) = app.get_webview_window("trainer") {
+        let _ = trainer.eval("window.dispatchEvent(new Event('trainer-live-settings-applied'));");
+    }
 }
 fn apply_chatgpt_connections(app: &tauri::AppHandle, owner: &chatgpt::Owner) -> String {
     let runtime = app.state::<Runtime>();
-    let Ok(mut service) = runtime.service.try_lock() else { return "Connection saved; live activation unknown. Reload or reopen Trainer.".into(); };
+    let Ok(mut service) = runtime.service.try_lock() else {
+        return "Connection saved; live activation unknown. Reload or reopen Trainer.".into();
+    };
     match service.as_mut() {
         Some(service) => if service.update_chatgpt(&owner.metadata()).is_ok() {
             notify_model_settings(app);
@@ -93,37 +109,74 @@ fn apply_chatgpt_connections(app: &tauri::AppHandle, owner: &chatgpt::Owner) -> 
     }
 }
 #[tauri::command]
-async fn chatgpt_connections(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<serde_json::Value, String> {
+async fn chatgpt_connections(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<serde_json::Value, String> {
     setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
-        if app.try_state::<std::sync::Arc<isolated_run::Admission>>().is_some() { return Ok(serde_json::json!([])); }
+        if app
+            .try_state::<std::sync::Arc<isolated_run::Admission>>()
+            .is_some()
+        {
+            return Ok(serde_json::json!([]));
+        }
         #[cfg(any(debug_assertions, feature = "release-probe"))]
         if let Some(config) = app.try_state::<smoke_config::Config>() {
             #[cfg(debug_assertions)]
-            { return setup_smoke::chatgpt_metadata(&config).map(|value| value.unwrap_or_else(|| serde_json::json!([]))); }
+            {
+                return setup_smoke::chatgpt_metadata(&config)
+                    .map(|value| value.unwrap_or_else(|| serde_json::json!([])));
+            }
             #[cfg(not(debug_assertions))]
-            { let _ = config; return Ok(serde_json::json!([])); }
+            {
+                let _ = config;
+                return Ok(serde_json::json!([]));
+            }
         }
-        chatgpt_owner(&app).map(|owner| owner.metadata()).map_err(str::to_owned)
-    }).await.map_err(|_| "ChatGPT status unavailable.".to_string())?
+        chatgpt_owner(&app)
+            .map(|owner| owner.metadata())
+            .map_err(str::to_owned)
+    })
+    .await
+    .map_err(|_| "ChatGPT status unavailable.".to_string())?
 }
 #[tauri::command]
-fn chatgpt_context(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<u64,String> {
+fn chatgpt_context(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<u64, String> {
     setup_only(&window)?;
-    Ok(app.state::<Runtime>().chatgpt_context.load(Ordering::SeqCst))
+    Ok(app
+        .state::<Runtime>()
+        .chatgpt_context
+        .load(Ordering::SeqCst))
 }
 #[tauri::command]
-async fn chatgpt_connect(app: tauri::AppHandle, window: tauri::WebviewWindow, registration_id: Option<String>, consent: bool, context:u64) -> Result<serde_json::Value, String> {
+async fn chatgpt_connect(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    registration_id: Option<String>,
+    consent: bool,
+    context: u64,
+) -> Result<serde_json::Value, String> {
     private_setup_only(&window)?;
-    if !window.is_visible().unwrap_or(false) { return Err("Open Settings before signing in.".into()); }
-    let (owner,epoch,reserved) = {
+    if !window.is_visible().unwrap_or(false) {
+        return Err("Open Settings before signing in.".into());
+    }
+    let (owner, epoch, reserved) = {
         let runtime = app.state::<Runtime>();
-        let _control = runtime.chatgpt_control.lock().map_err(|_| "Connection context unavailable.")?;
-        if runtime.quitting.load(Ordering::SeqCst) || runtime.chatgpt_context.load(Ordering::SeqCst) != context || context > 9_007_199_254_740_989 { return Err("Connection context changed; reload before signing in.".into()); }
+        let _control = runtime
+            .chatgpt_control
+            .lock()
+            .map_err(|_| "Connection context unavailable.")?;
+        if runtime.quitting.load(Ordering::SeqCst)
+            || runtime.chatgpt_context.load(Ordering::SeqCst) != context
+            || context > 9_007_199_254_740_989
+        {
+            return Err("Connection context changed; reload before signing in.".into());
+        }
         let owner = chatgpt_owner(&app).map_err(str::to_owned)?;
         let epoch = owner.reserve_sign_in().map_err(str::to_owned)?;
-        runtime.chatgpt_context.store(context+1,Ordering::SeqCst);
-        (owner,epoch,context+1)
+        runtime.chatgpt_context.store(context + 1, Ordering::SeqCst);
+        (owner, epoch, context + 1)
     };
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
@@ -140,13 +193,30 @@ async fn chatgpt_connect(app: tauri::AppHandle, window: tauri::WebviewWindow, re
     }).await.map_err(|_| "ChatGPT sign-in interrupted; reload committed state.".to_string())?
 }
 #[tauri::command]
-async fn chatgpt_action(app: tauri::AppHandle, window: tauri::WebviewWindow, action: String, registration_id: Option<String>, context:u64) -> Result<String, String> {
+async fn chatgpt_action(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    action: String,
+    registration_id: Option<String>,
+    context: u64,
+) -> Result<String, String> {
     private_setup_only(&window)?;
     if action == "cancel" {
         let runtime = app.state::<Runtime>();
-        let _control = runtime.chatgpt_control.lock().map_err(|_| "Connection context unavailable.")?;
-        if !chatgpt::cancel_ui_generation(&runtime.chatgpt_context,context) { return Ok("That sign-in context already ended; no newer attempt was cancelled.".into()); }
-        if let Ok(owner) = runtime.chatgpt.lock() { if let Some(owner)=owner.as_ref(){owner.cancel();} }
+        let _control = runtime
+            .chatgpt_control
+            .lock()
+            .map_err(|_| "Connection context unavailable.")?;
+        if !chatgpt::cancel_ui_generation(&runtime.chatgpt_context, context) {
+            return Ok(
+                "That sign-in context already ended; no newer attempt was cancelled.".into(),
+            );
+        }
+        if let Ok(owner) = runtime.chatgpt.lock() {
+            if let Some(owner) = owner.as_ref() {
+                owner.cancel();
+            }
+        }
         return Ok("Sign-in cancelled; committed connections preserved.".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -221,9 +291,14 @@ fn stop_runtime(app: &tauri::AppHandle) {
     let runtime = app.state::<Runtime>();
     runtime.quitting.store(true, Ordering::SeqCst);
     if let Ok(owner) = runtime.chatgpt.lock() {
-        if let Some(owner) = owner.as_ref() { owner.stop(); }
+        if let Some(owner) = owner.as_ref() {
+            owner.stop();
+        }
     }
-    { let _control = runtime.chatgpt_control.lock().ok(); runtime.chatgpt_context.fetch_add(2,Ordering::SeqCst); }
+    {
+        let _control = runtime.chatgpt_control.lock().ok();
+        runtime.chatgpt_context.fetch_add(2, Ordering::SeqCst);
+    }
     if let Ok(mut auth) = runtime.auth.lock() {
         auth.stop();
     }
@@ -293,15 +368,25 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     };
     drop(_write); // Saves remain available during backend startup; activation is immutable.
     #[allow(unused_mut)]
-    let mut subscription_allowed = app.try_state::<std::sync::Arc<isolated_run::Admission>>().is_none();
+    let mut subscription_allowed = app
+        .try_state::<std::sync::Arc<isolated_run::Admission>>()
+        .is_none();
     #[cfg(any(debug_assertions, feature = "release-probe"))]
-    if app.try_state::<smoke_config::Config>().is_some() { subscription_allowed = false; }
+    if app.try_state::<smoke_config::Config>().is_some() {
+        subscription_allowed = false;
+    }
     // Optional subscription storage must not disable existing API-key/local routes.
     // Unsafe/unsupported records remain untouched and unavailable in Settings.
-    let subscription = if subscription_allowed { chatgpt_owner(app).ok() } else { None };
+    let subscription = if subscription_allowed {
+        chatgpt_owner(app).ok()
+    } else {
+        None
+    };
     if let Some(chatgpt) = subscription {
-        let activation: serde_json::Value = serde_json::from_slice(&snapshot).map_err(|_| "Private activation invalid.")?;
-        let frame = serde_json::json!({"version":4,"activation":activation,"chatgpt":chatgpt.descriptor()});
+        let activation: serde_json::Value =
+            serde_json::from_slice(&snapshot).map_err(|_| "Private activation invalid.")?;
+        let frame =
+            serde_json::json!({"version":4,"activation":activation,"chatgpt":chatgpt.descriptor()});
         snapshot.fill(0);
         snapshot = serde_json::to_vec(&frame).map_err(|_| "Private activation invalid.")?;
         snapshot.push(b'\n');

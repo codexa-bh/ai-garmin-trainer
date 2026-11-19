@@ -60,7 +60,9 @@ impl Parent {
     }
     fn identity(&self, part: &OsStr, file: &File) -> bool {
         match (self.open_file(part), private_fs::id(file)) {
-            (Ok(Some(current)), Ok(id)) => private_fs::id(&current).map(|c| c == id).unwrap_or(false),
+            (Ok(Some(current)), Ok(id)) => {
+                private_fs::id(&current).map(|c| c == id).unwrap_or(false)
+            }
             _ => false,
         }
     }
@@ -209,7 +211,9 @@ fn publish_with(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::private_fs::testing::{make_private, make_shared, private_dir, private_root, symlink};
+    use crate::private_fs::testing::{
+        make_private, make_shared, private_dir, private_root, symlink,
+    };
     use std::fs;
     fn root() -> PathBuf {
         private_root("trainer-private")
