@@ -34,10 +34,10 @@ describe("economical CI profiles", () => {
   it("pins both Knip modes and all new language gates to the reviewed tools", () => {
     expect(manifest.scripts.knip).toBe("knip && knip --production");
     expect(manifest.scripts["format:rust"]).toBe(
-      "rustup run 1.98.0 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
+      "cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
     );
     expect(manifest.scripts["lint:rust"]).toBe(
-      "rustup run 1.98.0 cargo clippy --locked --all-targets --manifest-path src-tauri/Cargo.toml -- -D warnings -D clippy::dbg_macro -D clippy::todo -D clippy::unimplemented",
+      "cargo clippy --locked --all-targets --manifest-path src-tauri/Cargo.toml -- -D warnings -D clippy::dbg_macro -D clippy::todo -D clippy::unimplemented",
     );
     for (const [name, mode] of [
       ["format:python", "format"],
@@ -58,6 +58,7 @@ describe("economical CI profiles", () => {
     for (const workflow of ["ci.yml", "nightly-macos.yml"]) {
       const yaml = read(`.github/workflows/${workflow}`);
       expect(yaml).toContain('python-version: "3.12"');
+      expect(yaml).toContain("RUSTUP_TOOLCHAIN: 1.98.0");
       expect(yaml).toContain(
         "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
       );

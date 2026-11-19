@@ -22,11 +22,15 @@ python3.12 -m venv '/absolute/outside-checkout/python-quality'
 . '/absolute/outside-checkout/python-quality/bin/activate'
 python3 -m pip install --disable-pip-version-check --no-cache-dir --only-binary=:all: --no-deps -r scripts/python-quality-requirements.txt
 rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+export RUSTUP_TOOLCHAIN=1.98.0
+export PATH="$(dirname "$(rustup which cargo --toolchain 1.98.0)"):$PATH"
 ```
 
 Checks never install tools or rewrite source. Missing modules/toolchains fail.
-Ruff requires 0.17.5; Vulture is pinned to 2.16. Rust npm quality commands explicitly
-select 1.98.0 through rustup. The Python runner selects tracked files from Git:
+Ruff requires 0.17.5; Vulture is pinned to 2.16. CI/nightly select Rust 1.98.0 with
+`RUSTUP_TOOLCHAIN`; local setup puts the exact rustup-selected Cargo/rustc binaries
+on PATH (rather than an unrelated Homebrew Cargo). Keep that environment unchanged
+through validation, build and smoke. The Python runner selects tracked files from Git:
 format/lint include tests, Vulture excludes `tests/` and `*_test.py` from both usage
 and definitions at confidence 60. Its narrow analysis-only protocol/public-entry
 model has reasons; name matching is not reachability proof. There is no Python
