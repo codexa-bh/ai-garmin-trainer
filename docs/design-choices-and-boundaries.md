@@ -460,7 +460,7 @@ Non-responsibilities:
 
 ### `src/lib/memory`
 
-Owns incremental text-only summary policy, bounded minimized generation, manual
+Owns complete-text summary policy with foreground incremental learning, bounded minimized generation, manual
 controls and reviewed import through feature-owned ports. SQLite adapters own
 seals, CAS, generations, source/disposition and purpose-specific spend; provider
 adapters own exact serialized accounting/transport. Conversation pin/compaction
@@ -468,17 +468,20 @@ ownership remains in chat/DB conversation adapters, not a new global coordinator
 Summary and future titles share an explicit restart-only model, independent of chat
 and summary On/Off; keys stay captured and never fall back to another provider.
 
-Legacy semantic retrieval/extraction/vector adapters and lazy-migration behavior
-remain compatibility maintenance code, not ordinary chat dependencies. Trainer's
-preserved-record review uses direct bounded read-only SQL, never that lazy path.
-Original facts/vectors/markers/configuration remain unchanged; no automatic
-re-embedding or historical export occurs. Optional Ollama chat remains independent.
+Legacy semantic/vector adapters and existing lazy migration remain behind memory
+management for preserved-row operations, not ordinary chat dependencies or public
+ingestion/retrieval facades. Trainer's preserved-record review uses direct bounded
+read-only SQL, never that lazy path. Original facts/vectors/markers/configuration
+remain unchanged; no automatic re-embedding or historical export occurs.
+Optional Ollama chat remains independent.
 
 Profile normalization/read/save lives in `src/lib/profile`, independent of AI
-presentation; SQLite serialization remains in `db/profile-repository.ts`. Legacy
-memory lifecycle policy is in `memory/legacy-application.ts`, with the atomic
-supersede/confirm transaction retained in `db/legacy-memory-repository.ts`.
-Memory management and Profile HTTP routes translate transport only. Chat binds
+presentation; SQLite serialization remains in `db/profile-repository.ts`. Old legacy
+proposal/confirm/reject/forget application and SQL-writer facades are not supported
+entrypoints. `memory/legacy-contracts.ts` retains the live plain context shape;
+`memory/sqlite-storage.ts` reads preserved legacy rows for management migration.
+No schema or stored data is removed. Memory management and Profile HTTP routes
+translate transport only. Chat binds
 Profile and history/summary contracts through existing ports, not a new coordinator
 or the inactive semantic store.
 

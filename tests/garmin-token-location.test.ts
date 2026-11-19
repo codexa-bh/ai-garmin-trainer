@@ -161,16 +161,14 @@ describe("one explicit Garmin token location", () => {
       GARMIN_MCP_TOKEN_DIR: dir,
       GARMINTOKENS: "other",
     };
-    const runner = vi
-      .fn<typeof spawnSync>()
-      .mockReturnValue({
-        pid: 0,
-        status: 0,
-        signal: null,
-        output: [],
-        stdout: Buffer.alloc(0),
-        stderr: Buffer.alloc(0),
-      });
+    const runner = vi.fn<typeof spawnSync>().mockReturnValue({
+      pid: 0,
+      status: 0,
+      signal: null,
+      output: [],
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+    });
     expect(runAuth(env, [], true, runner as unknown as typeof spawnSync)).toBe(
       0,
     );

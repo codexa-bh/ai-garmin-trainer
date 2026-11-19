@@ -47,9 +47,9 @@ include erased contracts without treating them as runtime execution or cycles.
 | Chat / conversations        | `chat/{contracts,ports,context-ports}`, `createChatTurns`, `createChatContext`, `ConversationPorts` | `chat/{composition,conversation-composition}` binds storage, memory and selected AI generation; chat/conversation HTTP families invoke these seams                                                              |
 | AI orchestration / tools    | `TrainerOrchestrationPorts`, tool ports, neutral tool schemas/types, selection/evidence/math        | `ai/{composition,tool-composition}`; provider generation/schema wrapping and model selection are adapters, not inner contracts                                                                                  |
 | Guarded analytics           | `analytics/contracts`, synchronous execution/inspection ports and application                       | `ai/sql-analysis` composes `analytics/sqlite-execution`; tool facade never exposes a database handle                                                                                                            |
-| Garmin                      | Import reader/storage/config/clock ports, sync/baseline/detail applications and pure normalizers    | `garmin/composition`; reader/MCP/FIT/archive/token/auth modules are mechanical adapters; `importer` is an outer compatibility facade                                                                            |
+| Garmin                      | Import reader/storage/config/clock ports, sync/baseline/detail applications and pure normalizers    | `garmin/composition`; reader/MCP/FIT/archive/token/auth modules are mechanical adapters; sync/detail callers use composition directly                                                                           |
 | Local data                  | Plain read models, selected-row policy, `LocalDataReads` / `LocalDataLifecycle`                     | `local-data/composition` binds SQLite for activity/Health/summary/delete, chat and tools                                                                                                                        |
-| Profile / memory            | `ProfileStorage`, semantic `MemoryPorts`, management and legacy application contracts               | Profile/memory compositions bind SQL, config, embeddings/extraction; legacy and sqlite compatibility facades stay outer                                                                                         |
+| Profile / memory            | `ProfileStorage`, semantic `MemoryPorts`, management and legacy application contracts               | Profile/memory compositions bind SQL, config, embeddings/extraction; management owns preserved-record operations, not a public legacy proposal facade                                                           |
 | Training Plan               | Contracts/policy/edits/snapshot and synchronous `TrainingPlanStore`                                 | `training-plan/composition` binds plan SQL for HTTP and tool use                                                                                                                                                |
 | Infrastructure / operations | No business-policy exemption                                                                        | DB connection/schema/migrations/repositories, env, diagnostics doctor, connector configuration/auth/FIT and provider/config transports are explicitly classified adapters; diagnostics redaction is pure domain |
 
@@ -61,10 +61,11 @@ First-prompt titles use chat-owned application ports, `chat/title-adapter` and t
 
 All HTTP route families consume feature composition. `chat/delivery` owns
 JSON/NDJSON transport; debug configuration is obtained request-time through the
-existing conversation application port, not directly from env. The DB repository
-no longer re-exports legacy-memory composition inward: callers of legacy use cases
-use `memory/legacy-composition` directly. This removes an unused production facade
-edge without changing its SQL, transaction, expiry or confirmation behavior.
+existing conversation application port, not directly from env. Personalization routes use Profile and memory-management composition directly.
+There is no legacy proposal/confirm/reject/forget facade or public semantic-store
+adapter entrypoint. Preserved legacy rows, vectors, migration markers and schema
+remain unchanged; management's existing bounded listing/migration and explicit
+read-only inspection remain separate from ordinary chat.
 
 Conversation selection uses the existing `app_metadata` key `chat.active_conversation.v1`
 (identity only; empty string represents resolved-empty). Lazy conversation composition
@@ -419,12 +420,13 @@ import behavior changes: migration/back-sync is a no-op, source revert is rollba
 
 Sync follows `api/sync → garmin/composition → sync-import`; targeted detail follows
 `api/activity-detail → composition → detail-requests → detail-import`. The CLI and
-local-data tool call the same composed imports. `importer.ts` is a thin legacy
-facade, never an inward dependency. `createGarminImports` binds explicit named
+local-data tool call the same composed imports directly; there is no separate
+`importer.ts` compatibility facade or old forward-sync implementation.
+`createGarminImports` binds explicit named
 reader operations, synchronous import storage, request-time config and a clock.
 `baseline-import.ts` owns athlete/body refresh failure and preservation policy;
 `detail-import.ts` owns effort/detail attempts, partial success and lifecycle;
-`import-policy.ts` owns legacy date planning and detail error classification; pure `history-policy.ts` owns additive versioned family progress, unknown-boundary semantics, UTC date arithmetic and the finite Sync admission contract. Pure `scope-policy.ts` classifies saved versus configured exploration scope (same, reconcilable finite-limit → automatic, or a closed blocked recovery) and plans that one explicit transition; `sync-policy.ts::historicalIntentAdmitted` is the single latest/history/discover admission used by HTTP, the application and the hook. The import store's `saveCheckpoints` commits each operation/history/discovery (or latest) snapshot in one transaction. Contracts live in
+`import-policy.ts` owns date formatting and detail error classification; pure `history-policy.ts` owns additive versioned family progress, unknown-boundary semantics, UTC date arithmetic and the finite Sync admission contract. Pure `scope-policy.ts` classifies saved versus configured exploration scope (same, reconcilable finite-limit → automatic, or a closed blocked recovery) and plans that one explicit transition; `sync-policy.ts::historicalIntentAdmitted` is the single latest/history/discover admission used by HTTP, the application and the hook. The import store's `saveCheckpoints` commits each operation/history/discovery (or latest) snapshot in one transaction. Contracts live in
 `import-contracts.ts`, `import-ports.ts` and existing feature types, not DB types.
 
 `dependency-error.ts` is a closed pure Garmin action-error contract (launcher unavailable versus unknown startup), not a capability registry or process owner. MCP converts OS spawn facts to it; Sync carries its optional reason in the existing result envelope and renders setup guidance without a login recommendation. Native `runtime_dependency.rs` owns only the bounded non-installing auth-time installed-Python diagnostic; no startup/Settings/offline readiness gate is added. Optional FIT versions are unchanged. `garmin_history_v1` may temporarily hold version 2 only while an expanded activity window keeps its frozen lower bound (`activities.windowStart`); prior builds refuse that state rather than re-page a widened window, and it returns to version 1 when the window completes. Additive `expandedFrom` records the earlier limit. Under automatic scope, additive discovery `noDataBefore`/`oldestPositive` record where a full empty 52-week steps read stopped exploration; health/activity/body cursors treat `noDataBefore` like a limit.
@@ -505,8 +507,8 @@ storage, embeddings, extraction, identity, clock and a secret-free configuration
 snapshot. `retrieval-policy.ts` owns ranking, stable ties and render filtering;
 `extraction-policy.ts` owns prompts, parsing and source/privacy validation using
 plain generation results. No inner module imports SQL, environment, HTTP, SDKs
-or composition, including erased types. Existing `TrainerMemoryStore` shapes
-remain compatibility contracts for retained legacy maintenance, not ordinary chat.
+or composition, including erased types. `TrainerMemoryStore` shapes remain internal capability contracts behind management,
+not ordinary-chat dependencies or a public ingestion/retrieval facade.
 
 `sqlite-storage.ts` retains SQL projections, serialized vectors/source IDs,
 upsert conflict behavior, expiry selection and the 200-row candidate cap.
@@ -522,16 +524,19 @@ only after all rows and retains earlier writes on failure. No new retry occurs.
 `profile/application.ts` owns normalization/read/save through `ProfileStorage`;
 `profile/contracts.ts` owns the existing flexible Profile type independently of
 AI presentation. `db/profile-repository.ts` retains synchronous serialization and
-read-after-write. `memory/legacy-application.ts` owns proposal bounds, status
-validation, expiry-before-list and lifecycle use cases; `legacy-contracts.ts`
-owns their plain stored shapes. `db/legacy-memory-repository.ts` retains SQL and
-atomic supersede/confirm. Compatibility repository/semantic/parser facades are
-outer entry points, never dependencies of policy. HTTP retains error/status and
-malformed-body behavior; no Profile error catch is added.
+read-after-write. `memory/legacy-contracts.ts` retains only the plain `TrainerMemory`
+context shape; old proposal/lifecycle/SQL-writer facades are not entrypoints.
+`memory/sqlite-storage.ts` still reads preserved confirmed legacy rows for existing
+management migration. No stored rows, schema or markers are removed. Parser policy
+is consumed through the existing extractor application, not a compatibility barrel.
+HTTP retains error/status and malformed-body behavior; no Profile error catch is added.
 
 Direct fake-capability tests are in `tests/personalization-application.test.ts`;
 `personalization-wiring.test.ts` covers real SQLite, chat completion, routes,
-singleton reset, unchanged hash/vector/DTO values and confirmation rollback.
+management reset, unchanged hash/vector/DTO values and unrelated-data preservation.
+`sqlite-memory-adapter.test.ts` exercises management read/change, persisted-row
+reopening/migration, normalized vectors, failed updates and Off/On/delete/clear.
+Legacy proposal/confirmation-only tests do not define a supported product API.
 `personalization-dependencies.test.ts` checks type-inclusive closures with negative
 SDK/storage/composition/ambient fixtures. Existing memory/config/Profile/chat
 suites remain compatibility evidence. No UI, schema, data semantics, provider,
@@ -659,8 +664,8 @@ and `tests/tool-runtime-ownership.test.ts` / `tests/tool-boundaries.test.ts`.
   segment/revision/boundary/integrity compare-publication, privacy invalidation and
   conservative durable local-compaction spend. It reuses the lazy connection and
   existing message/title writes; generation never holds its transaction.
-  It imports pure chat-owned ID/title policy and contracts; compatibility exports
-  remain for existing callers.
+  It imports pure chat-owned ID/title policy and contracts directly; callers use
+  the authoritative policy/storage owner rather than an unused repository barrel.
 - `training-plan-repository.ts` owns singleton plan SQL and row/ISO conversion.
   Feature-owned application/rules own normalization, staleness and synchronous
   guarded read/compare/edit/write; AI retains presentation and planner timing.
@@ -668,12 +673,15 @@ and `tests/tool-runtime-ownership.test.ts` / `tests/tool-boundaries.test.ts`.
   transaction: messages, conversation-derived semantic memory soft deletion, then
   conversation. History clear delegates to it; chat application use cases own
   fallback selection.
-- `profile-repository.ts` and `legacy-memory-repository.ts` own Profile and legacy
-  memory SQL; `memory/sqlite-storage.ts` owns semantic SQL. Feature applications
-  own normalization and lifecycle policy through explicit ports.
+- `profile-repository.ts` owns Profile SQL; `memory/sqlite-storage.ts` owns semantic
+  SQL and reads preserved legacy rows for management migration. There is no old
+  proposal/confirm SQL-writer facade. Feature applications own normalization and
+  management policy through explicit ports.
 - `local-data-lifecycle.ts` owns exact atomic bulk deletion capabilities.
 - `repository.ts` retains Garmin SQL, summaries and metadata, with feature-owned
-  local-data interpretation helpers and compatibility exports for earlier callers. Extracted storage owners never
+  local-data interpretation helpers and runtime-consumed exports only. Constants,
+  policy, types and conversation operations use their authoritative owners.
+  Extracted storage owners never
   import the facade; semantic configuration/metadata adapters still use its
   existing metadata operations, including narrow insert-if-absent choice initialization. `model-settings` consumes prior saved/legacy/default intent once into `ai.chat_model.choice`; original preference bytes remain unchanged.
 

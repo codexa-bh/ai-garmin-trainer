@@ -390,11 +390,9 @@ export function allowedExternalDependency(source, layer, specifier, runtime) {
   if (!["domain", "application"].includes(layer)) return true;
   return (
     specifier === "zod" &&
-    [
-      "lib/ai/profile.ts",
-      "lib/ai/tool-contracts.ts",
-      "lib/training-plan/snapshot.ts",
-    ].includes(source)
+    ["lib/ai/tool-contracts.ts", "lib/training-plan/snapshot.ts"].includes(
+      source,
+    )
   );
 }
 

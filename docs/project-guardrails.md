@@ -1,11 +1,15 @@
 # Blocking project guardrails
 
-`npm ci && npm run validate` is the reproducible Node 22 local/CI path.
-Validation runs Prettier, ESLint (zero warnings), the runtime architecture graph,
-Knip, Next type generation and
-strict TypeScript, Vitest, then the production build. Checks do not rewrite
-source; type generation/build produce ignored framework output. Formatting fixes
-are an explicit separate `npx prettier --write <files>` action.
+After the [pinned tool setup](validation.md#local-tool-setup), `npm ci && CI=true npm run validate`
+is the comprehensive local path. Push `validate:ci` runs Prettier, Rust format,
+Ruff format/lint, production Python dead-code analysis, ESLint (zero warnings),
+the runtime architecture graph, both Knip modes, fresh Next type generation and
+strict TypeScript, Vitest and Python contracts. Full `validate` adds the production
+build; nightly macOS runs Clippy after resource assembly, then native tests/smoke.
+Checks never rewrite source; type generation/build produce ignored framework output.
+Formatting fixes are explicit separate actions: `npx prettier --write <files>`,
+`rustup run 1.98.0 cargo fmt --manifest-path src-tauri/Cargo.toml`, or
+`python3 -m ruff format <files>` from the pinned Python environment.
 
 ## Lint selection
 
@@ -142,7 +146,7 @@ Allowed local edges (also through aliases, barrels and erased contracts):
 Every inner root is checked transitively with deterministic source/line/target
 witnesses. Unknown modules, unresolved/nonliteral loaders, assets and external
 packages fail closed there. External packages are opaque, including their types;
-the only inner exceptions are the existing exact `zod` imports in `ai/profile`,
+the only inner exceptions are the existing exact `zod` imports in
 `ai/tool-contracts` and `training-plan/snapshot`. This is schema use, not blanket
 Zod/package purity. Delivery accepts only `next/server` transport and its existing
 erased `ai` UI message type; direct SQL/provider packages cannot bypass composition.
@@ -167,15 +171,20 @@ code review: labelling application policy an adapter is not an acceptable fix.
 
 ## Knip
 
-`npm run knip` uses Knip 6 full-project analysis, including tests and JS/TS tooling,
-with built-in Next, Vitest, ESLint and package-command entrypoint discovery.
-It catches unused files/exports/types/dependencies and missing direct dependencies;
-exports used only by tests are intentionally considered used. It is not a
-production-only reachability proof. Framework page/route exports and CLI scripts
-remain entrypoints, not dead code. There are no ignored binaries or unused-file/export/dependency debt lists.
-Ollama is externally managed, not launched by repository setup scripts. The five
-explicit extra entrypoints are the bundled desktop runtime, native setup JS, the fixed Rust-included trainer/debug Settings bootstraps, and the finite ordinary history-setup bootstrap installed only after explicit native run/scope admission;
-see [validation](validation.md).
+`npm run knip` runs Knip 6 in full-project **and production** modes; both block.
+Full-project analysis includes tests and tooling. Production analysis does not count
+`tests/**` or `*.test.*` as consumers. Next routes/pages, the bundled desktop
+runtime/OAuth helper, native setup/debug bootstraps and package/workflow/Python-invoked
+tooling are production entrypoints, modelled individually in `knip.json` alongside
+framework discovery. Orphaned helper scripts are not blanket entrypoints. Ollama
+remains externally managed, never launched by repository setup scripts.
+
+Knip catches unused files/exports/types/dependencies and missing direct dependencies;
+it is not arbitrary dynamic reachability or security proof. Plain `.js`/`.mjs`
+files are linted/analyzed but not type-checked (`allowJs` is off). Runtime storage
+capabilities passed through the `local-data/composition` namespace have narrow
+`@public` reasons because Knip cannot follow their later property consumption.
+A test-only consumer is never a reason for `@public`, a baseline or a debt list.
 
 Generated `.next`, dependencies, coverage, local `data`, Garmin token/connector
 folders and `next-env.d.ts` are excluded from lint; Prettier retains its existing
@@ -184,9 +193,55 @@ put credentials or copied local data in source/test fixtures.
 
 For a finding: confirm framework/dynamic/CLI usage, fix real unused code or an
 ownership violation, then run the smallest focused test and aggregate validation.
-If static analysis genuinely misclassifies a supported entrypoint, model that
-specific entrypoint with a documented reason and a regression test. Do not add
-blanket ignores, suppressions, baseline files or hotspot limits to avoid remediation.
+If static analysis genuinely misclassifies a supported dynamic entrypoint, model
+that one entry/export with its reason and regression coverage. Otherwise delete
+unconsumed code, remove unnecessary exports/re-exports while retaining live owners,
+and keep test-only data/helpers under `tests/`. Delete test-only product code and
+its exclusive tests; retain coverage of production behavior through existing entrypoints.
+Retiring a documented contract or needing a new product seam requires a scope decision.
+There are no ignored binaries, file/export/dependency debt lists, blanket ignores,
+file-level suppressions or hotspot limits to avoid remediation in any language.
+
+## Rust
+
+`npm run format:rust` checks the whole `src-tauri` crate with default rustfmt from
+Rust **1.98.0**, including Windows-only source, without compiling native code.
+`npm run lint:rust` runs locked, all-targets Clippy on the same toolchain, denying
+warnings plus `clippy::dbg_macro`, `clippy::todo` and `clippy::unimplemented`.
+It needs current assembled resources: run the production build and
+`desktop:assemble` first. Nightly macOS runs it after assembly and before locked
+native tests; its typecheck replaces a separate `cargo check`.
+
+Hosted Clippy runs **after merge**, on macOS only. Windows-only Rust is formatted
+but not linted/compiled by push or this nightly profile. A clean macOS result is
+not Windows evidence. Fix findings in code; retain the existing narrow allows.
+A new allow needs a genuinely incorrect finding, the smallest item and a reason.
+Deny flags stay in the quality command, not Cargo build-wide `warnings = "deny"`.
+
+## Python
+
+The single pin file `scripts/python-quality-requirements.txt` supplies **Ruff 0.17.5**
+and **Vulture 2.16** for CI, nightly and local setup. Ruff rejects other versions.
+`npm run format:python`, `lint:python` and `deadcode:python` call the tracked-file
+runner; missing tools fail rather than silently passing. Format/lint cover every
+tracked `.py`, including tests and bundled helpers. Ruff uses Python 3.12 syntax,
+single quotes, 100 columns and explicit `F`, `E4`, `E7`, `E9` rules. No additional
+rule-family coverage or Python type-checking is claimed.
+
+Vulture scans tracked non-test Python at confidence **60**: `tests/` and `*_test.py`
+supply neither definitions nor usage. The analysis-only model names only standard
+HTTP/threading protocol callbacks/attributes and the documented externally imported
+`densify_scenario` composition entrypoint, with reasons. It is never executed.
+Vulture matches names; it proves no reachability or absence of dead code.
+
+Trace a finding and search module-qualified access, dynamic lookup/patching and
+side effects before deleting an import or definition. Use the same dead-code rule
+as JS/TS; preserve supported dynamic contracts narrowly, never mark test-only code
+public to keep it. Fix lint in code. Only a line-level `# noqa: E402` with a reason
+may follow a deliberate `sys.path` setup; no other suppression is permitted.
+Mass formatting stays mechanical, separate from hand fixes, with syntax-tree
+comparison ignoring only docstring whitespace. Existing data/schema/runtime
+semantics and bundled auth metadata/locks remain unchanged.
 
 ## Runtime remediation and verification
 

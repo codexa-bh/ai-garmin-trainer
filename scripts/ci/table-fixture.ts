@@ -1,5 +1,5 @@
 // Fixed synthetic presentation inputs only; never read operator state.
-export const tableProse =
+const tableProse =
   "Synthetic evidence describes duration and partial credit with explicit limitations; descriptive prose should wrap at word boundaries.";
 const tableToken = `https://example.test/${"unbroken".repeat(50)}`;
 export function tableFixture(reordered = false): string {
