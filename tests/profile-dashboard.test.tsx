@@ -5719,10 +5719,10 @@ describe("TrainerDashboard memory and new chat", () => {
       /\.conversation-menu-trigger \{\s*display: grid;\s*width: 34px;\s*height: 34px;\s*place-items: center;\s*padding: 0;\s*line-height: 1;/,
     );
     expect(css).toMatch(
-      /:not\(\.conversation-menu-trigger\) \{\s*padding: 10px 14px;/,
+      /:not\(\.conversation-menu-trigger\) \{\s*padding: var\(--navigation-button-padding, 10px 14px\);/,
     );
     expect(css).toMatch(
-      /:not\(\.conversation-menu-trigger\) \{\s*padding: 9px 11px;/,
+      /:not\(\.conversation-menu-trigger\) \{\s*padding: var\(--navigation-button-padding, 9px 11px\);/,
     );
 
     fireEvent.click(trigger);

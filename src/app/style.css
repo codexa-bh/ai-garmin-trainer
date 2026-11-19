@@ -38,6 +38,16 @@
   flex: 1;
   height: auto;
 }
+.weekly-plan-panel .activity-dashboard-header > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+.weekly-plan-panel .activity-dashboard-header .section-kicker {
+  margin: 0;
+}
 .weekly-plan-panel .activity-dashboard-header h1 {
   font-size: clamp(22px, 2.5vw, 30px);
   line-height: 1.15;
@@ -62,10 +72,10 @@
   outline: 2px solid var(--accent);
   outline-offset: 4px;
 }
-.weekly-tabs {
+.training-plan-actions.weekly-tabs {
+  gap: 8px;
   padding: 6px 16px;
   flex: none;
-  flex-wrap: wrap;
 }
 .weekly-tabs [aria-pressed="true"] {
   border-color: var(--accent);
@@ -246,7 +256,6 @@ body::before {
   gap: 16px;
   align-items: center;
   justify-content: space-between;
-  min-height: 52px;
   padding: 6px clamp(14px, 2vw, 28px);
   border-bottom: 1px solid var(--line);
   background: rgba(5, 7, 11, 0.82);
@@ -260,7 +269,7 @@ body::before {
 .app-nav {
   display: flex;
   flex: 0 1 auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   justify-content: flex-end;
   min-width: 0;
@@ -375,11 +384,11 @@ body::before {
   display: grid;
   grid-template-columns: minmax(280px, 400px) minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 18px;
+  gap: 10px 18px;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
-  padding: 18px clamp(14px, 2vw, 28px);
+  padding: 10px clamp(14px, 2vw, 28px) 18px;
   overflow: hidden;
   background: rgba(7, 11, 18, 0.98);
 }
@@ -390,11 +399,11 @@ body::before {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+  gap: 8px;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
-  padding: 18px clamp(14px, 2vw, 28px);
+  padding: 10px clamp(14px, 2vw, 28px) 18px;
   overflow: hidden;
   background: rgba(7, 11, 18, 0.98);
 }
@@ -1980,7 +1989,16 @@ a:focus-visible {
 button:not(.conversation-select):not(.drawer-backdrop):not(
     .settings-backdrop
   ):not(.health-rollup-value):not(.conversation-menu-trigger) {
-  padding: 10px 14px;
+  padding: var(--navigation-button-padding, 10px 14px);
+}
+
+.app-nav > .chrome-button,
+.app-menu-toggle,
+.weekly-tabs > .chrome-button,
+.activity-dashboard-header > .chrome-button,
+.sync-view-header > .chrome-button,
+.health-dashboard-header > .chrome-button {
+  --navigation-button-padding: 6px 12px;
 }
 
 .chrome-button:hover,
@@ -2896,10 +2914,6 @@ label {
     gap: 12px;
   }
 
-  .app-nav {
-    gap: 8px;
-  }
-
   .chat-workspace,
   .sidebar-collapsed .chat-workspace {
     grid-template-columns: 1fr;
@@ -2987,13 +3001,11 @@ label {
 
   .activity-dashboard-panel {
     grid-template-rows: auto minmax(240px, 42vh) minmax(0, 1fr);
-    gap: 12px;
-    padding: 12px;
+    padding: 10px 12px 12px;
   }
 
   .sync-view-panel {
-    gap: 12px;
-    padding: 12px;
+    padding: 10px 12px 12px;
   }
 
   .sync-view-header {
@@ -3025,7 +3037,7 @@ label {
   button:not(.conversation-select):not(.drawer-backdrop):not(
       .settings-backdrop
     ):not(.conversation-menu-trigger) {
-    padding: 9px 11px;
+    padding: var(--navigation-button-padding, 9px 11px);
   }
 
   .trainer-card {
