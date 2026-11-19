@@ -1,4 +1,5 @@
 """Finite synthetic Markdown tables in one unmodified ordinary native artifact; no private inputs."""
+
 import argparse
 import contextlib
 import json
@@ -9,7 +10,15 @@ import subprocess
 import uuid
 import smoke_resources as resources
 
-from native_smoke import REPO, Observer, canonical, fingerprint, private_json, readonly, source_identity
+from native_smoke import (
+    REPO,
+    Observer,
+    canonical,
+    fingerprint,
+    private_json,
+    readonly,
+    source_identity,
+)
 from ordinary_smoke import OrdinaryRun, inventory_hash, private_directory
 from release_smoke import audit
 
@@ -21,23 +30,55 @@ def scenario(run, scratch):
         if surface == 'plan':
             run.command({'type': 'click', 'target': 'Training Plan'})
         expected = 'Trainer' if surface.startswith('chat') else 'Training Plan'
-        run.wait(lambda value: value['view'] == expected and value.get('tablesReady'), 'synthetic tables ' + surface)
+        run.wait(
+            lambda value: value['view'] == expected and value.get('tablesReady'),
+            'synthetic tables ' + surface,
+        )
         for preset, edge in [('wide', 'start'), ('narrow', 'start'), ('narrow', 'end')]:
             run.command({'type': 'setViewport', 'preset': preset})
             observation = run.command({'type': 'tables', 'surface': surface, 'edge': edge})
             image = run.command({'type': 'captureView', 'view': 'tables', 'preset': preset})
             # Keep actual native capture and an exclusive canonical task screenshots copy.
             source = Path(image['capture'])
-            if source.parent != run.root / 'screenshots' or source.is_symlink() or source.stat().st_size > 4 * 1024 * 1024:
+            if (
+                source.parent != run.root / 'screenshots'
+                or source.is_symlink()
+                or source.stat().st_size > 4 * 1024 * 1024
+            ):
                 raise ValueError('Capture ownership/bound refused')
-            destination = scratch / 'screenshots' / (surface + '-' + preset + '-' + edge + '-' + str(uuid.uuid4()) + '.png')
+            destination = (
+                scratch
+                / 'screenshots'
+                / (surface + '-' + preset + '-' + edge + '-' + str(uuid.uuid4()) + '.png')
+            )
             with destination.open('xb') as output:
                 output.write(source.read_bytes())
-            entry = {'surface': surface, 'preset': preset, 'edge': edge, 'capture': str(destination), 'nativeCapture': image['capture'], 'observation': observation}
+            entry = {
+                'surface': surface,
+                'preset': preset,
+                'edge': edge,
+                'capture': str(destination),
+                'nativeCapture': image['capture'],
+                'observation': observation,
+            }
             captures.append(entry)
-            private_json(run.root / ('table-capture-' + surface + '-' + preset + '-' + edge + '.json'), entry)
-            if not all(observation[key] for key in ['compact', 'proseWrapped', 'contained', 'edgeReached', 'allCells', 'headerVisible']):
-                raise ValueError('Table geometry gate failed; inspect original capture and bounded receipt')
+            private_json(
+                run.root / ('table-capture-' + surface + '-' + preset + '-' + edge + '.json'), entry
+            )
+            if not all(
+                observation[key]
+                for key in [
+                    'compact',
+                    'proseWrapped',
+                    'contained',
+                    'edgeReached',
+                    'allCells',
+                    'headerVisible',
+                ]
+            ):
+                raise ValueError(
+                    'Table geometry gate failed; inspect original capture and bounded receipt'
+                )
             if preset == 'narrow' and not observation['scrollable']:
                 raise ValueError('Expected table-contained narrow scroll')
     return captures
@@ -65,17 +106,30 @@ def main():
         raise ValueError('Ordinary artifact/source mismatch')
     allocation = resources.directory(scratch / ('seed-allocation-' + str(uuid.uuid4())))
     name = 'ci-seed-' + str(uuid.uuid4())
-    subprocess.run(['npm', 'run', 'ci:seed', '--', str(allocation), name, '--markdown-tables'], cwd=REPO, check=True, timeout=60)
+    subprocess.run(
+        ['npm', 'run', 'ci:seed', '--', str(allocation), name, '--markdown-tables'],
+        cwd=REPO,
+        check=True,
+        timeout=60,
+    )
     database = allocation / name / 'synthetic.sqlite'
     resources.file_created(database)
     run = OrdinaryRun(scratch, database, source, bundle, inventory)
     observer = None
     errors = []
-    receipt = {'source': source, 'scenario': 'synthetic-Markdown-tables', 'artifactKind': 'ordinary', 'artifactInventoryHash': inventory_hash(inventory),
-               'passed': False, 'run': str(run.root), 'privateInputs': 'none; fresh synthetic seed', 'providerAndGarmin': 'not invoked',
-               'limits': 'Actual unmodified ordinary isolated WebView; canonical synthetic table-only geometry-preserving masks; synthetic DOM navigation, not trusted input or normal singleton certification.',
-               'resourceDisposition': resources.disposition(),
-               'cleanup': 'Final owned-disposal receipt records seed/copy/bundle removal or retention; captures/logs remain; no primary access or copy-back.'}
+    receipt = {
+        'source': source,
+        'scenario': 'synthetic-Markdown-tables',
+        'artifactKind': 'ordinary',
+        'artifactInventoryHash': inventory_hash(inventory),
+        'passed': False,
+        'run': str(run.root),
+        'privateInputs': 'none; fresh synthetic seed',
+        'providerAndGarmin': 'not invoked',
+        'limits': 'Actual unmodified ordinary isolated WebView; canonical synthetic table-only geometry-preserving masks; synthetic DOM navigation, not trusted input or normal singleton certification.',
+        'resourceDisposition': resources.disposition(),
+        'cleanup': 'Final owned-disposal receipt records seed/copy/bundle removal or retention; captures/logs remain; no primary access or copy-back.',
+    }
     try:
         observer = Observer(scratch)
         run.observer = observer
@@ -85,7 +139,11 @@ def main():
         run.command({'type': 'click', 'target': 'Close Profile & data'})
         run.wait(lambda value: value['view'] == 'Trainer', 'Trainer after restart')
         receipt['captures'] = scenario(run, scratch)
-        if source_identity() != source or audit(bundle) != inventory or audit(run.bundle) != inventory:
+        if (
+            source_identity() != source
+            or audit(bundle) != inventory
+            or audit(run.bundle) != inventory
+        ):
             raise ValueError('Source/artifact changed during smoke')
         receipt['passed'] = True
     finally:
@@ -102,16 +160,31 @@ def main():
             with contextlib.closing(readonly(database)) as original:
                 receipt['syntheticInputUnchanged'] = fingerprint(original) == run.original
             receipt['shutdownErrors'] = errors
-            receipt['passed'] = receipt['passed'] and not errors and receipt['syntheticInputUnchanged']
+            receipt['passed'] = (
+                receipt['passed'] and not errors and receipt['syntheticInputUnchanged']
+            )
             path = scratch / ('table-receipt-' + str(uuid.uuid4()) + '.json')
             private_json(path, receipt)
-            print(json.dumps({'passed': receipt['passed'], 'receipt': str(path), 'source': source, 'runId': run.id}))
+            print(
+                json.dumps(
+                    {
+                        'passed': receipt['passed'],
+                        'receipt': str(path),
+                        'source': source,
+                        'runId': run.id,
+                    }
+                )
+            )
             if not receipt['passed']:
-                raise RuntimeError('Table smoke incomplete/failed; original evidence retained, no fallback or blind retry')
+                raise RuntimeError(
+                    'Table smoke incomplete/failed; original evidence retained, no fallback or blind retry'
+                )
 
 
 if __name__ == '__main__':
+
     def interrupted(_signal, _frame):
         raise KeyboardInterrupt('Owned table smoke interrupted')
+
     signal.signal(signal.SIGTERM, interrupted)
     main()

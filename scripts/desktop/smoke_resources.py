@@ -4,6 +4,7 @@ Only explicit allocations are enrolled. Run roots, dynamic WebView state, diagno
 screenshots are never recursively removed. Failures/unknown effects prevent immediate
 runner disposal, but never extend managed disposable retention.
 """
+
 import contextlib
 import contextvars
 import functools
@@ -49,7 +50,11 @@ def snapshot(fd, tree, mutable=False):
     for name in sorted(os.listdir(fd)):
         info = os.stat(name, dir_fd=fd, follow_symlinks=False)
         safe(info)
-        child = os.open(name, _DIRECTORY if stat.S_ISDIR(info.st_mode) else os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+        child = os.open(
+            name,
+            _DIRECTORY if stat.S_ISDIR(info.st_mode) else os.O_RDONLY | os.O_NOFOLLOW,
+            dir_fd=fd,
+        )
         try:
             if identity(os.fstat(child)) != identity(info):
                 raise ValueError('Disposable changed while inspecting')
@@ -62,7 +67,11 @@ def snapshot(fd, tree, mutable=False):
                     for block in iter(lambda: stream.read(1024 * 1024), b''):
                         digest.update(block)
                 after = os.fstat(child)
-                if (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (info.st_size, info.st_mtime_ns, info.st_ctime_ns):
+                if (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (
+                    info.st_size,
+                    info.st_mtime_ns,
+                    info.st_ctime_ns,
+                ):
                     raise ValueError('Disposable changed while hashing')
                 result[name] = (*identity(info), info.st_size, digest.hexdigest())
         finally:
@@ -83,21 +92,37 @@ class Disposables:
     def configure(self, scratch):
         scratch = Path(scratch)
         info = scratch.stat()
-        if not scratch.is_absolute() or scratch.resolve(strict=True) != scratch or scratch.is_symlink() or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+        if (
+            not scratch.is_absolute()
+            or scratch.resolve(strict=True) != scratch
+            or scratch.is_symlink()
+            or not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or info.st_mode & 0o022
+        ):
             raise ValueError('Canonical owner-controlled invocation scratch required')
         if self.scratch is not None and self.scratch != scratch:
             raise ValueError('One invocation scratch required')
         self.scratch = scratch
         if self.categories is None:
             from smoke_categories import CategoryPaths
+
             self.categories = CategoryPaths(scratch)
         for target in (self.categories.evidence, self.categories.disposable):
             target_info = target.lstat()
-            if (not stat.S_ISDIR(target_info.st_mode) or target_info.st_uid != os.getuid()
-                    or target_info.st_mode & 0o077 or target.resolve(strict=True) != target):
-                raise ValueError('Canonical owner-private invocation storage required; never chmod/adopt')
+            if (
+                not stat.S_ISDIR(target_info.st_mode)
+                or target_info.st_uid != os.getuid()
+                or target_info.st_mode & 0o077
+                or target.resolve(strict=True) != target
+            ):
+                raise ValueError(
+                    'Canonical owner-private invocation storage required; never chmod/adopt'
+                )
         if self.receipt is None:
-            self.receipt = self.categories.evidence / ('resource-disposition-' + str(uuid.uuid4()) + '.json')
+            self.receipt = self.categories.evidence / (
+                'resource-disposition-' + str(uuid.uuid4()) + '.json'
+            )
         self.pin(scratch)
         self.pin(self.categories.evidence)
         self.pin(self.categories.disposable)
@@ -118,7 +143,9 @@ class Disposables:
         try:
             info = os.fstat(fd)
             safe(info)
-            if directory.resolve(strict=True) != directory or identity(directory.lstat()) != identity(info):
+            if directory.resolve(strict=True) != directory or identity(
+                directory.lstat()
+            ) != identity(info):
                 raise ValueError('Disposable parent changed or aliased')
             self.roots[directory] = (fd, identity(info))
         except BaseException:
@@ -127,7 +154,9 @@ class Disposables:
 
     def check_root(self, directory):
         for root, (_, expected) in self.roots.items():
-            if directory.is_relative_to(root) and (root.resolve(strict=True) != root or identity(root.lstat()) != expected):
+            if directory.is_relative_to(root) and (
+                root.resolve(strict=True) != root or identity(root.lstat()) != expected
+            ):
                 raise ValueError('Pinned disposable parent changed')
 
     def register(self, path, tree=False):
@@ -140,8 +169,15 @@ class Disposables:
             safe(info)
             if tree != stat.S_ISDIR(info.st_mode):
                 raise ValueError('Wrong disposable class')
-            entry = {'path': path, 'fd': fd, 'tree': tree, 'inventory': None,
-                     'identity': identity(info), 'status': 'retained', 'bytes': info.st_size if not tree else 0}
+            entry = {
+                'path': path,
+                'fd': fd,
+                'tree': tree,
+                'inventory': None,
+                'identity': identity(info),
+                'status': 'retained',
+                'bytes': info.st_size if not tree else 0,
+            }
             self.items.append(entry)
             return entry
         except BaseException:
@@ -151,7 +187,11 @@ class Disposables:
     def seal(self, entry):
         self.check_root(entry['path'].parent)
         entry['inventory'] = snapshot(entry['fd'], entry['tree'], entry['path'].suffix == '.sqlite')
-        entry['bytes'] = sum(value[4] for value in entry['inventory'].values() if len(value) > 4) if entry['tree'] else os.fstat(entry['fd']).st_size
+        entry['bytes'] = (
+            sum(value[4] for value in entry['inventory'].values() if len(value) > 4)
+            if entry['tree']
+            else os.fstat(entry['fd']).st_size
+        )
 
     def verify(self, entry, parent, name):
         self.check_root(entry['path'].parent)
@@ -164,7 +204,10 @@ class Disposables:
             entry['fd'] = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
             if identity(os.fstat(entry['fd'])) != entry['identity']:
                 raise ValueError('Disposable changed while reopening after settlement')
-        if snapshot(entry['fd'], entry['tree'], entry['path'].suffix == '.sqlite') != entry['inventory']:
+        if (
+            snapshot(entry['fd'], entry['tree'], entry['path'].suffix == '.sqlite')
+            != entry['inventory']
+        ):
             raise ValueError('Mixed, replaced or changed immutable disposable inventory')
         # Unknown sidecars/leases are not adopted and must remain available for diagnosis.
         if not entry['tree'] and entry['path'].suffix == '.sqlite':
@@ -225,7 +268,11 @@ class Disposables:
     def finish(self, failed):
         if self.scratch is None:
             return
-        reason = 'failed/interrupted/unknown invocation; no immediate disposal' if failed else self.retention
+        reason = (
+            'failed/interrupted/unknown invocation; no immediate disposal'
+            if failed
+            else self.retention
+        )
         if not reason:
             try:
                 for guard in self.guards:
@@ -245,25 +292,49 @@ class Disposables:
                     entry['bytes'] = os.fstat(entry['fd']).st_size
                 else:
                     try:
-                        info = os.stat(entry['path'].name, dir_fd=self.roots[entry['path'].parent][0], follow_symlinks=False)
+                        info = os.stat(
+                            entry['path'].name,
+                            dir_fd=self.roots[entry['path'].parent][0],
+                            follow_symlinks=False,
+                        )
                         if identity(info) == entry['identity']:
                             entry['bytes'] = info.st_size
                     except OSError:
                         pass  # Missing/replaced failed allocations remain a truthful retained deferral.
         receipt = self.receipt
+
         def report():
-            return {'invocationFailed': failed, 'retentionReason': reason,
-                    'allocationRoots': [str(root) for root in self.roots],
-                    'evidenceRoot': str(self.categories.evidence) if self.categories else None,
-                    'disposableRoot': str(self.categories.disposable) if self.categories else None,
-                    'recoveryHold': False,
-                    'disposableRetention': 'unchanged; select necessary reproduction evidence before closure',
-                    'preserved': 'Run roots, compact evidence/PNG/logs, dynamic WebView/home state and unknown sidecars; never historical, borrowed or worktree cleanup.',
-                    'artifacts': [{key: str(value) if isinstance(value, Path) else value for key, value in entry.items() if key in ('path', 'status', 'bytes', 'quarantine')} for entry in self.items]}
+            return {
+                'invocationFailed': failed,
+                'retentionReason': reason,
+                'allocationRoots': [str(root) for root in self.roots],
+                'evidenceRoot': str(self.categories.evidence) if self.categories else None,
+                'disposableRoot': str(self.categories.disposable) if self.categories else None,
+                'recoveryHold': False,
+                'disposableRetention': 'unchanged; select necessary reproduction evidence before closure',
+                'preserved': 'Run roots, compact evidence/PNG/logs, dynamic WebView/home state and unknown sidecars; never historical, borrowed or worktree cleanup.',
+                'artifacts': [
+                    {
+                        key: str(value) if isinstance(value, Path) else value
+                        for key, value in entry.items()
+                        if key in ('path', 'status', 'bytes', 'quarantine')
+                    }
+                    for entry in self.items
+                ],
+            }
+
         # Evidence must be writable before deletion; exclusive manifest survives partial disposal.
         self.check_root(receipt.parent)
         parent = self.roots[receipt.parent][0]
-        with os.fdopen(os.open(receipt.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent), 'w') as output:
+        with os.fdopen(
+            os.open(
+                receipt.name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent,
+            ),
+            'w',
+        ) as output:
             json.dump(report(), output, indent=2)
             output.flush()
             os.fsync(output.fileno())
@@ -278,14 +349,34 @@ class Disposables:
                     break
         temporary = receipt.with_suffix('.partial')
         self.check_root(receipt.parent)
-        with os.fdopen(os.open(temporary.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent), 'w') as output:
+        with os.fdopen(
+            os.open(
+                temporary.name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=parent,
+            ),
+            'w',
+        ) as output:
             json.dump(report(), output, indent=2)
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary.name, receipt.name, src_dir_fd=parent, dst_dir_fd=parent)
-        print(json.dumps({'resourceDisposition': str(receipt), 'removedBytes': sum(entry['bytes'] for entry in self.items if entry['status'] == 'removed'), 'retentionReason': reason}))
+        print(
+            json.dumps(
+                {
+                    'resourceDisposition': str(receipt),
+                    'removedBytes': sum(
+                        entry['bytes'] for entry in self.items if entry['status'] == 'removed'
+                    ),
+                    'retentionReason': reason,
+                }
+            )
+        )
         if not failed and (cleanup_error or (reason and not self.retention)):
-            raise RuntimeError('Owned disposal deferred/failed; inspect disposition receipt') from cleanup_error
+            raise RuntimeError(
+                'Owned disposal deferred/failed; inspect disposition receipt'
+            ) from cleanup_error
 
     def close(self):
         for entry in self.items:
@@ -308,11 +399,21 @@ def preserve_failure():
         ledger = _CURRENT.get()
         if ledger and ledger.scratch:
             try:
-                with (ledger.scratch / ('settlement-failure-' + str(uuid.uuid4()) + '.json')).open('x') as output:
-                    json.dump({'original': type(original).__name__, 'secondary': type(error).__name__,
-                               'resourcesRetained': True}, output)
+                with (ledger.scratch / ('settlement-failure-' + str(uuid.uuid4()) + '.json')).open(
+                    'x'
+                ) as output:
+                    json.dump(
+                        {
+                            'original': type(original).__name__,
+                            'secondary': type(error).__name__,
+                            'resourcesRetained': True,
+                        },
+                        output,
+                    )
             except OSError:
-                print('Secondary settlement receipt unavailable; retain allocations.', file=sys.stderr)
+                print(
+                    'Secondary settlement receipt unavailable; retain allocations.', file=sys.stderr
+                )
 
 
 def invocation(main):
@@ -332,10 +433,14 @@ def invocation(main):
                 if not failed:
                     raise
                 # Never replace an original scenario/cancellation/preservation/receipt failure.
-                print('Resource-disposition write/verification failed; unremoved allocations remain subject to unchanged retention. Select necessary reproduction evidence before closure.', file=sys.stderr)
+                print(
+                    'Resource-disposition write/verification failed; unremoved allocations remain subject to unchanged retention. Select necessary reproduction evidence before closure.',
+                    file=sys.stderr,
+                )
             finally:
                 ledger.close()
                 _CURRENT.reset(token)
+
     return wrapped
 
 
@@ -345,7 +450,11 @@ def configure(scratch):
         # The descriptor-relative disposal ledger is Unix-only. Windows release
         # actions never dispose: they retain every owned output for inspection.
         scratch = Path(scratch)
-        if not scratch.is_absolute() or not scratch.is_dir() or scratch.resolve(strict=True) != scratch:
+        if (
+            not scratch.is_absolute()
+            or not scratch.is_dir()
+            or scratch.resolve(strict=True) != scratch
+        ):
             raise ValueError('Canonical existing invocation scratch required')
         _CURRENT.set(None)
         return scratch
@@ -407,8 +516,12 @@ def copy_file(source, destination):
     if source.is_symlink() or not source.is_file():
         raise ValueError('Canonical regular copy source required')
     ledger = _CURRENT.get()
-    with open(destination, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as output:
-        entry = ledger.register(destination) if ledger else None  # Pin before a partial copy can fail.
+    with open(
+        destination, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)
+    ) as output:
+        entry = (
+            ledger.register(destination) if ledger else None
+        )  # Pin before a partial copy can fail.
         with source.open('rb') as input_file:
             shutil.copyfileobj(input_file, output)
     shutil.copymode(source, destination, follow_symlinks=False)
@@ -423,8 +536,13 @@ def copy_tree(source, destination, prepare=None, *, macos_metadata=False):
     if macos_metadata:
         # Finite final-DMG copy: CPython/macOS copy2 does not preserve xattrs.
         # Enrollment precedes this potentially partial effect; sealing follows it.
-        subprocess.run(['/usr/bin/ditto', '--rsrc', '--extattr', str(source), str(destination)],
-                       check=True, timeout=120, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(
+            ['/usr/bin/ditto', '--rsrc', '--extattr', str(source), str(destination)],
+            check=True,
+            timeout=120,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         # ditto preserves an already-existing destination directory's root mode.
         # Restore the source root metadata as part of this initial copy, before sealing.
         shutil.copystat(source, destination, follow_symlinks=False)

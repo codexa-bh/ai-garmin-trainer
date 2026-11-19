@@ -1,4 +1,5 @@
 """Finite keyless producer lifecycle evidence; never resolves a real credential."""
+
 import contextlib
 import http.client
 import json
@@ -13,19 +14,45 @@ from smoke_resources import preserve_failure
 
 PRICE_BASIS = 'luna-standard-2026-11-04/usd-per-million:0.10-input,0.50-output;reserve:0.25-input'
 AUTHORED_FAILURE = {
-    'category': 'incomplete_sdk_decoding', 'stage': 'sdk_decode', 'status': 200, 'elapsedMs': 12,
+    'category': 'incomplete_sdk_decoding',
+    'stage': 'sdk_decode',
+    'status': 200,
+    'elapsedMs': 12,
     'requestId': 'req_authored',
-    'responseCorrelation': {'source': 'response.created', 'id': 'resp_67bd65392a088191a3b802a61f4fba14'},
-    'receipt': {'receipt': 'present', 'text': 'different', 'calls': 'mismatch', 'observedCalls': 0, 'receiptCalls': 1, 'callDifferences': ['count']},
-    'dropped': [{'kind': 'response.output_item.added', 'count': 1}, {'kind': 'response.output_item.done', 'count': 1}],
+    'responseCorrelation': {
+        'source': 'response.created',
+        'id': 'resp_67bd65392a088191a3b802a61f4fba14',
+    },
+    'receipt': {
+        'receipt': 'present',
+        'text': 'different',
+        'calls': 'mismatch',
+        'observedCalls': 0,
+        'receiptCalls': 1,
+        'callDifferences': ['count'],
+    },
+    'dropped': [
+        {'kind': 'response.output_item.added', 'count': 1},
+        {'kind': 'response.output_item.done', 'count': 1},
+    ],
 }
 
 
 def validate_processing(value):
-    if not isinstance(value, dict) or value.get('state') not in ('inactive', 'running', 'parked', 'delayed', 'eligible'):
+    if not isinstance(value, dict) or value.get('state') not in (
+        'inactive',
+        'running',
+        'parked',
+        'delayed',
+        'eligible',
+    ):
         raise ValueError('Unknown summary scheduling observation')
     if value['state'] == 'delayed':
-        if set(value) != {'state', 'retryAt'} or type(value['retryAt']) is not int or not 0 <= value['retryAt'] < 9007199254740991:
+        if (
+            set(value) != {'state', 'retryAt'}
+            or type(value['retryAt']) is not int
+            or not 0 <= value['retryAt'] < 9007199254740991
+        ):
             raise ValueError('Invalid finite summary delay')
     elif set(value) != {'state'}:
         raise ValueError('Unknown summary scheduling fields')
@@ -37,20 +64,46 @@ def prepare_summary(run):
     base = json.loads((run.root / 'config/settings-v2.json').read_text())
     if base['keys'] or base['fields']['DATABASE_PATH'] != str(run.database):
         raise ValueError('Exact keyless run configuration required')
-    fields = {**base['fields'], 'SUMMARY_ENABLED': 'true', 'SUMMARY_MODEL': 'gpt-6-luna', 'SUMMARY_CHAR_LIMIT': '6000',
-              'SUMMARY_CONTRACT_VERSION': '2', 'MEMORY_ENABLED': 'true', 'MEMORY_EMBEDDING_PROVIDER': 'ollama',
-              'MEMORY_EMBEDDING_MODEL': 'nomic-embed-text', 'MEMORY_EMBEDDING_BASE_URL': 'http://127.0.0.1:1', 'MEMORY_EMBEDDING_DIMS': '768'}
-    private_json(run.root / 'config/settings-v3.json', {
-        'version': 3, 'fields': fields, 'keys': {},
-        'chatCatalog': {'version': 1, 'entries': [], 'defaultEntryId': None},
-        'selectionCompatibility': {'database': None, 'catalog': {'version': 1, 'entries': [], 'defaultEntryId': None}},
-    })
-    result = subprocess.run(['npm', 'run', '--silent', 'smoke:summary:seed', '--', str(run.root), 'diagnostics'],
-                            cwd=Path(__file__).resolve().parents[2], capture_output=True, timeout=30, check=True)
+    fields = {
+        **base['fields'],
+        'SUMMARY_ENABLED': 'true',
+        'SUMMARY_MODEL': 'gpt-6-luna',
+        'SUMMARY_CHAR_LIMIT': '6000',
+        'SUMMARY_CONTRACT_VERSION': '2',
+        'MEMORY_ENABLED': 'true',
+        'MEMORY_EMBEDDING_PROVIDER': 'ollama',
+        'MEMORY_EMBEDDING_MODEL': 'nomic-embed-text',
+        'MEMORY_EMBEDDING_BASE_URL': 'http://127.0.0.1:1',
+        'MEMORY_EMBEDDING_DIMS': '768',
+    }
+    private_json(
+        run.root / 'config/settings-v3.json',
+        {
+            'version': 3,
+            'fields': fields,
+            'keys': {},
+            'chatCatalog': {'version': 1, 'entries': [], 'defaultEntryId': None},
+            'selectionCompatibility': {
+                'database': None,
+                'catalog': {'version': 1, 'entries': [], 'defaultEntryId': None},
+            },
+        },
+    )
+    result = subprocess.run(
+        ['npm', 'run', '--silent', 'smoke:summary:seed', '--', str(run.root), 'diagnostics'],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        timeout=30,
+        check=True,
+    )
     if len(result.stdout) > 2048:
         raise ValueError('Summary seed output bound exceeded')
     value = json.loads(result.stdout)
-    if value.get('runId') != run.id or value.get('completed') != 4 or value.get('providerCalls') != 0:
+    if (
+        value.get('runId') != run.id
+        or value.get('completed') != 4
+        or value.get('providerCalls') != 0
+    ):
         raise ValueError('Summary authored source preparation failed')
     private_json(run.root / 'summary-seed.json', value)
 
@@ -63,14 +116,47 @@ def status(run, action=None):
     expected = status(run)['expected'] if action is not None else None
     client = http.client.HTTPConnection('127.0.0.1', int(run.origin.rsplit(':', 1)[1]), timeout=5)
     try:
-        client.request('GET' if action is None else 'POST', '/api/cross-chat-summary',
-                       None if action is None else json.dumps({'version': 2, 'expected': expected, 'action': action}), {'Content-Type': 'application/json'})
+        client.request(
+            'GET' if action is None else 'POST',
+            '/api/cross-chat-summary',
+            None
+            if action is None
+            else json.dumps({'version': 2, 'expected': expected, 'action': action}),
+            {'Content-Type': 'application/json'},
+        )
         response = client.getresponse()
         raw = response.read(4097)
         if response.status != 200 or len(raw) > 4096:
             raise ValueError('Summary status/control refused or output exceeded bound')
         value = json.loads(raw)
-        if set(value) - {'providerFailure'} != {'processing', 'version', 'state', 'reason', 'revision', 'frontier', 'pending', 'items', 'characters', 'enabled', 'coverageLost', 'model', 'usedByChat', 'attemptsToday', 'reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd', 'unpricedAttempts', 'priceBasis', 'cap', 'publishedAt', 'expected'} or value['usedByChat'] is not False:
+        if (
+            set(value) - {'providerFailure'}
+            != {
+                'processing',
+                'version',
+                'state',
+                'reason',
+                'revision',
+                'frontier',
+                'pending',
+                'items',
+                'characters',
+                'enabled',
+                'coverageLost',
+                'model',
+                'usedByChat',
+                'attemptsToday',
+                'reservedUsdToday',
+                'estimatedUsdToday',
+                'unknownReservedUsd',
+                'unpricedAttempts',
+                'priceBasis',
+                'cap',
+                'publishedAt',
+                'expected',
+            }
+            or value['usedByChat'] is not False
+        ):
             raise ValueError('Unknown summary telemetry; no raw content accepted')
         validate_processing(value['processing'])
         if 'providerFailure' in value and value['providerFailure'] != AUTHORED_FAILURE:
@@ -79,9 +165,16 @@ def status(run, action=None):
             raise ValueError('Unknown summary coverage status')
         if type(value['unpricedAttempts']) is not int or value['unpricedAttempts'] < 0:
             raise ValueError('Invalid unpriced attempt count')
-        if value['priceBasis'] != PRICE_BASIS or any(type(value[key]) not in (int, float) or not math.isfinite(value[key]) or value[key] < 0 for key in ('reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd')):
+        if value['priceBasis'] != PRICE_BASIS or any(
+            type(value[key]) not in (int, float) or not math.isfinite(value[key]) or value[key] < 0
+            for key in ('reservedUsdToday', 'estimatedUsdToday', 'unknownReservedUsd')
+        ):
             raise ValueError('Unknown summary cost accounting; no invoice claim')
-        if value['version'] != 1 or set(value['expected']) != {'revision', 'privacy', 'control', 'manual'} or any(type(n) is not int or n < 0 for n in value['expected'].values()):
+        if (
+            value['version'] != 1
+            or set(value['expected']) != {'revision', 'privacy', 'control', 'manual'}
+            or any(type(n) is not int or n < 0 for n in value['expected'].values())
+        ):
             raise ValueError('Unknown summary authority; no mutation authorized')
         return value
     finally:
@@ -95,13 +188,17 @@ def memory_wait(run, predicate, label, timeout=8):
         observed = run.command({'type': 'memory', 'action': 'observe'})
         if predicate(observed):
             return observed
-        time.sleep(.1)  # Bounded observation only, never repeat a mutation.
-    private_json(run.root / ('memory-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': observed})
+        time.sleep(0.1)  # Bounded observation only, never repeat a mutation.
+    private_json(
+        run.root / ('memory-failure-' + str(uuid.uuid4()) + '.json'),
+        {'assertion': label, 'observation': observed},
+    )
     raise TimeoutError('Memory assertion deadline: ' + label)
 
 
 def memory_controls(run, presentation_families=None, *, native_copy=False):
     before = run.chat_hash()
+
     def action(name):
         try:
             return run.command({'type': 'memory', 'action': name})
@@ -110,19 +207,32 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
             diagnostics = {'action': name, 'mutationReplayed': False}
             try:
                 diagnostics['observation'] = run.command({'type': 'memory', 'action': 'observe'})
-                diagnostics['capture'] = run.command({'type': 'captureView', 'view': 'memory', 'preset': 'wide'})
+                diagnostics['capture'] = run.command(
+                    {'type': 'captureView', 'view': 'memory', 'preset': 'wide'}
+                )
             except Exception:
                 diagnostics['diagnosticUnavailable'] = True
             private_json(run.root / 'memory-action-failure.json', diagnostics)
             raise
+
     action('open')
-    memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'empty canonical summary')
+    memory_wait(
+        run, lambda value: value['loaded'] and not value['hasManual'], 'empty canonical summary'
+    )
     run.command({'type': 'setViewport', 'preset': 'narrow'})
     run.capture_state = 'empty'
     empty_image = run.command({'type': 'captureView', 'view': 'memory', 'preset': 'narrow'})
     private_json(run.root / 'memory-empty-narrow.json', empty_image)
     action('rebuild-preflight')
-    memory_wait(run, lambda value: value['rebuildVisible'] and value['rebuildStartDisabled'] and value['rebuildCancelDisabled'], 'keyless rebuild is visible and refuses generation')
+    memory_wait(
+        run,
+        lambda value: (
+            value['rebuildVisible']
+            and value['rebuildStartDisabled']
+            and value['rebuildCancelDisabled']
+        ),
+        'keyless rebuild is visible and refuses generation',
+    )
     rebuild_images = []
     run.capture_state = 'rebuild-keyless-preflight'
     for preset in ['wide', 'narrow']:
@@ -136,7 +246,11 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
     memory_wait(run, lambda value: value['editing'], 'manual editor')
     action('draft')
     action('save')
-    memory_wait(run, lambda value: value['loaded'] and value['hasManual'] and not value['editing'], 'manual saved')
+    memory_wait(
+        run,
+        lambda value: value['loaded'] and value['hasManual'] and not value['editing'],
+        'manual saved',
+    )
     images = []
     run.capture_state = 'manual-saved'
     for preset in ['wide', 'narrow']:
@@ -152,7 +266,12 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
     # reads/returns prior clipboard values and never posts global keyboard input.
     if native_copy:
         copied = run.command({'type': 'memory', 'action': 'native-copy'})
-        if copied != {'ok': True, 'nativeResponder': True, 'exactAuthoredCopy': True, 'hardwareInput': False}:
+        if copied != {
+            'ok': True,
+            'nativeResponder': True,
+            'exactAuthoredCopy': True,
+            'hardwareInput': False,
+        }:
             raise ValueError('Native authored summary copy equality missing; no retry')
         private_json(run.root / 'summary-native-copy.json', copied)
     run.capture_state = 'long-summary-editor'
@@ -164,7 +283,11 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
         private_json(run.root / ('long-summary-editor-' + preset + '.json'), images[-1])
     before_summary = status(run)['expected']
     action('save')
-    memory_wait(run, lambda value: value['loaded'] and value['hasManual'] and not value['editing'], 'summary saved separately from preference')
+    memory_wait(
+        run,
+        lambda value: value['loaded'] and value['hasManual'] and not value['editing'],
+        'summary saved separately from preference',
+    )
     summary_chars = 6578  # Fixed authored above-target draft, not provider output.
     after_summary = status(run)
     if after_summary['expected'] == before_summary or after_summary['characters'] != summary_chars:
@@ -193,12 +316,20 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
     memory_wait(run, lambda value: value['editing'], 'manual edit')
     action('draft-update')
     action('save')
-    memory_wait(run, lambda value: value['loaded'] and value['updatedManual'] and not value['editing'], 'manual correction saved')
+    memory_wait(
+        run,
+        lambda value: value['loaded'] and value['updatedManual'] and not value['editing'],
+        'manual correction saved',
+    )
     action('close')
     run.stop()
     run.start(run.binary)
     action('open')
-    memory_wait(run, lambda value: value['loaded'] and value['updatedManual'], 'manual survives owned restart')
+    memory_wait(
+        run,
+        lambda value: value['loaded'] and value['updatedManual'],
+        'manual survives owned restart',
+    )
     action('summary-collapsed')
     if status(run)['characters'] != summary_chars:
         raise ValueError('Whole summary edit did not survive owned restart')
@@ -221,28 +352,48 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
     while status(run)['expected'] == before_clear:
         if time.monotonic() >= deadline:
             raise TimeoutError('Clear authority did not commit; no retry')
-        time.sleep(.1)
+        time.sleep(0.1)
     memory_wait(run, lambda value: value['loaded'] and not value['hasManual'], 'Clear committed')
     action('back')
-    presentation_images = memory_presentations(run) if presentation_families is None else memory_presentations(run, presentation_families) if presentation_families else []
+    presentation_images = (
+        memory_presentations(run)
+        if presentation_families is None
+        else memory_presentations(run, presentation_families)
+        if presentation_families
+        else []
+    )
     action('close')
     if run.chat_hash() != before:
         raise ValueError('Memory controls changed original conversation/message bytes')
-    private_json(run.root / 'integrated-memory-controls.json', {
-        'task': 'T0272', 'runId': run.id, 'source': run.config['source'],
-        'manualEditForgetClearOffEnableRestart': True, 'wholeSummaryEditSaveRestart': True, 'preferencesSeparateFromGeneratedAllowance': True, 'originalChatsPreserved': True,
-        'providerCalls': 0, 'captures': images, 'emptyCapture': empty_image, 'rebuildCaptures': rebuild_images, 'presentationCaptures': presentation_images,
-        'rebuildPreflightKeylessRefusal': True,
-        'rebuildSuccess': 'unavailable without separate native provider/model/export/cumulative-cost approval',
-        'input': 'finite synthetic DOM; not trusted OS input',
-        'limitations': 'Canonical authored content and static copy only. Presentation snapshots are explicitly instrumented fixtures, not provider/engine progression, qualified consumption or installed/primary proof.',
-    })
+    private_json(
+        run.root / 'integrated-memory-controls.json',
+        {
+            'task': 'T0272',
+            'runId': run.id,
+            'source': run.config['source'],
+            'manualEditForgetClearOffEnableRestart': True,
+            'wholeSummaryEditSaveRestart': True,
+            'preferencesSeparateFromGeneratedAllowance': True,
+            'originalChatsPreserved': True,
+            'providerCalls': 0,
+            'captures': images,
+            'emptyCapture': empty_image,
+            'rebuildCaptures': rebuild_images,
+            'presentationCaptures': presentation_images,
+            'rebuildPreflightKeylessRefusal': True,
+            'rebuildSuccess': 'unavailable without separate native provider/model/export/cumulative-cost approval',
+            'input': 'finite synthetic DOM; not trusted OS input',
+            'limitations': 'Canonical authored content and static copy only. Presentation snapshots are explicitly instrumented fixtures, not provider/engine progression, qualified consumption or installed/primary proof.',
+        },
+    )
 
 
 def memory_presentations(run, families=None):
     """Fixed renderer-only snapshots; each family restores actual inspection."""
     families = ('densify', 'overview', 'history') if families is None else tuple(families)
-    if len(set(families)) != len(families) or any(family not in ('densify', 'overview', 'history') for family in families):
+    if len(set(families)) != len(families) or any(
+        family not in ('densify', 'overview', 'history') for family in families
+    ):
         raise ValueError('Unknown/duplicate fixed presentation family')
     images = []
     for family in families:
@@ -253,42 +404,68 @@ def memory_presentations(run, families=None):
             # Preserve the primary failure if restoration also refuses.
             with preserve_failure():
                 run.command({'type': 'memory', 'action': 'fixture-reset'})
-                memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'real inspection restored')
+                memory_wait(
+                    run,
+                    lambda value: value['loaded'] and not value['presentationFixture'],
+                    'real inspection restored',
+                )
     return images
 
 
 def presentation_scenario(run, families):
     """Standalone fixed proof: no lifecycle/control success claim."""
-    memory_wait(run, lambda value: not value['visible'], 'closed sheet before selected presentation')
+    memory_wait(
+        run, lambda value: not value['visible'], 'closed sheet before selected presentation'
+    )
     # A previous family's narrow capture leaves desktop navigation hidden.
     # Re-enter through its real visible wide control, never click hidden mobile UI.
     run.command({'type': 'setViewport', 'preset': 'wide'})
     try:
         run.command({'type': 'memory', 'action': 'open'})
-        memory_wait(run, lambda value: value['loaded'] and not value['presentationFixture'], 'actual inspection before presentation')
+        memory_wait(
+            run,
+            lambda value: value['loaded'] and not value['presentationFixture'],
+            'actual inspection before presentation',
+        )
         images = memory_presentations(run, families)
-        private_json(run.root / ('summary-presentation-' + str(uuid.uuid4()) + '.json'), {
-            'families': list(families), 'captures': images, 'providerCalls': 0,
-            'evidenceClass': 'fixed presentation only; not engine progression or actual mutation persistence',
-        })
+        private_json(
+            run.root / ('summary-presentation-' + str(uuid.uuid4()) + '.json'),
+            {
+                'families': list(families),
+                'captures': images,
+                'providerCalls': 0,
+                'evidenceClass': 'fixed presentation only; not engine progression or actual mutation persistence',
+            },
+        )
         return images
     finally:
         with preserve_failure():
             run.command({'type': 'memory', 'action': 'close'})
-            memory_wait(run, lambda value: not value['visible'], 'closed sheet after selected presentation')
+            memory_wait(
+                run, lambda value: not value['visible'], 'closed sheet after selected presentation'
+            )
 
 
 def presentation_family(run, family):
     """Cohesive existing fixture sequences; prerequisite state stays within a family."""
     images = []
     action = lambda name: run.command({'type': 'memory', 'action': name})
+
     def capture(label, presets=('wide', 'narrow')):
         run.capture_state = label
         for preset in presets:
             run.command({'type': 'setViewport', 'preset': preset})
             image = run.command({'type': 'captureView', 'view': 'memory', 'preset': preset})
-            images.append({'state': label, 'preset': preset, 'evidenceClass': 'instrumented fixed presentation fixture, not engine progression', **image})
+            images.append(
+                {
+                    'state': label,
+                    'preset': preset,
+                    'evidenceClass': 'instrumented fixed presentation fixture, not engine progression',
+                    **image,
+                }
+            )
             private_json(run.root / ('presentation-' + label + '-' + preset + '.json'), images[-1])
+
     if family == 'densify':
         return densify_presentations(run, action, capture, images)
     if family == 'overview':
@@ -298,15 +475,25 @@ def presentation_family(run, family):
 
 def densify_presentations(run, action, capture, images):
     action('fixture-densify-ready')
-    memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'authored 13250 densify button')
+    memory_wait(
+        run,
+        lambda value: value['loaded'] and value['presentationFixture'],
+        'authored 13250 densify button',
+    )
     capture('densify-ready')
     action('densify-model-alternative')
     capture('densify-selected')
     action('densify')
-    memory_wait(run, lambda value: value['confirmationVisible'], 'actual hook supplied-candidate review')
+    memory_wait(
+        run, lambda value: value['confirmationVisible'], 'actual hook supplied-candidate review'
+    )
     capture('densify-review')
     action('densify-accept')
-    memory_wait(run, lambda value: not value['confirmationVisible'], 'renderer-only shorter acceptance result')
+    memory_wait(
+        run,
+        lambda value: not value['confirmationVisible'],
+        'renderer-only shorter acceptance result',
+    )
     capture('densify-accepted')
     action('fixture-densify-no-reduction')
     memory_wait(run, lambda value: value['confirmationVisible'], 'non-reducing supplied preview')
@@ -319,42 +506,91 @@ def densify_presentations(run, action, capture, images):
     action('densify-cancel')
     memory_wait(run, lambda value: not value['confirmationVisible'], 'fixed cancellation settled')
     action('fixture-densify-unavailable')
-    memory_wait(run, lambda value: value['loaded'] and not value['confirmationVisible'], 'unavailable default without substitution')
+    memory_wait(
+        run,
+        lambda value: value['loaded'] and not value['confirmationVisible'],
+        'unavailable default without substitution',
+    )
     capture('densify-unavailable')
     return images
 
 
 def overview_presentations(run, action, capture, images):
     action('fixture-populated')
-    memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'populated fixed presentation')
-    action('summary-collapsed'); capture('populated')
-    action('summary-show'); action('summary-expanded'); capture('populated-expanded')
-    action('summary-hide'); action('summary-collapsed')
-    action('summary-edit'); action('draft'); capture('whole-summary-editor', ('wide', 'narrow')); action('cancel-edit')
-    action('manage'); capture('manage', ('narrow',)); action('back')
-    action('manage'); action('clear'); capture('clear-confirmation', ('narrow',)); action('cancel-confirm'); action('back')
-    action('forget'); capture('forget-confirmation', ('narrow',)); action('cancel-confirm')
-    action('add'); action('draft'); capture('editor', ('narrow',)); action('cancel-edit')
+    memory_wait(
+        run,
+        lambda value: value['loaded'] and value['presentationFixture'],
+        'populated fixed presentation',
+    )
+    action('summary-collapsed')
+    capture('populated')
+    action('summary-show')
+    action('summary-expanded')
+    capture('populated-expanded')
+    action('summary-hide')
+    action('summary-collapsed')
+    action('summary-edit')
+    action('draft')
+    capture('whole-summary-editor', ('wide', 'narrow'))
+    action('cancel-edit')
+    action('manage')
+    capture('manage', ('narrow',))
+    action('back')
+    action('manage')
+    action('clear')
+    capture('clear-confirmation', ('narrow',))
+    action('cancel-confirm')
+    action('back')
+    action('forget')
+    capture('forget-confirmation', ('narrow',))
+    action('cancel-confirm')
+    action('add')
+    action('draft')
+    capture('editor', ('narrow',))
+    action('cancel-edit')
     for fixture in ['empty', 'error']:
         action('fixture-' + fixture)
-        memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], fixture + ' fixed presentation')
+        memory_wait(
+            run,
+            lambda value: value['loaded'] and value['presentationFixture'],
+            fixture + ' fixed presentation',
+        )
         capture(fixture, ('narrow',))
     for fixture in ('ordinary', 'ordinary-failed', 'ordinary-interrupted'):
         run.command({'type': 'setViewport', 'preset': 'wide'})
         action('fixture-' + fixture)
-        memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'ordinary pending authored inspection')
+        memory_wait(
+            run,
+            lambda value: value['loaded'] and value['presentationFixture'],
+            'ordinary pending authored inspection',
+        )
         # No refresh, caller stepping, resize or capture during temporal proof.
-        memory_wait(run, lambda value: value['progressiveComplete'], 'ordinary automatic partial drain, lost-read recovery and truthful terminal DOM with stable focus/scroll', timeout=25)
-        private_json(run.root / ('memory-' + fixture + '.json'), {
-            'task': 'T0312', 'runId': run.id, 'source': run.config['source'],
-            'pending': [41, 41, 21, 21, 'unavailable', 1, 0 if fixture == 'ordinary' else 1],
-            'terminal': fixture, 'automaticObservation': True, 'stableDOMFocusScroll': True,
-            'providerCalls': 0, 'mutations': 0,
-            'evidenceClass': 'actual native WebView temporal DOM with supplied ordinary snapshots; not real inference, Retry mutation or compositor-frame proof',
-        })
+        memory_wait(
+            run,
+            lambda value: value['progressiveComplete'],
+            'ordinary automatic partial drain, lost-read recovery and truthful terminal DOM with stable focus/scroll',
+            timeout=25,
+        )
+        private_json(
+            run.root / ('memory-' + fixture + '.json'),
+            {
+                'task': 'T0312',
+                'runId': run.id,
+                'source': run.config['source'],
+                'pending': [41, 41, 21, 21, 'unavailable', 1, 0 if fixture == 'ordinary' else 1],
+                'terminal': fixture,
+                'automaticObservation': True,
+                'stableDOMFocusScroll': True,
+                'providerCalls': 0,
+                'mutations': 0,
+                'evidenceClass': 'actual native WebView temporal DOM with supplied ordinary snapshots; not real inference, Retry mutation or compositor-frame proof',
+            },
+        )
         capture(fixture)
     action('fixture-off')
-    memory_wait(run, lambda value: value['loaded'] and value['off'], 'Off fixed retained presentation')
+    memory_wait(
+        run, lambda value: value['loaded'] and value['off'], 'Off fixed retained presentation'
+    )
     capture('off', ('narrow',))
     return images
 
@@ -362,7 +598,11 @@ def overview_presentations(run, action, capture, images):
 def history_presentations(run, action, capture, images):
     for fixture in ['history', 'running', 'complete', 'interrupted', 'failed', 'cancelled']:
         action('fixture-' + fixture)
-        memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], fixture + ' fixed presentation')
+        memory_wait(
+            run,
+            lambda value: value['loaded'] and value['presentationFixture'],
+            fixture + ' fixed presentation',
+        )
         action('rebuild-preflight')
         memory_wait(run, lambda value: value['rebuildVisible'], 'history view')
         capture(fixture, ('wide', 'narrow'))
@@ -372,23 +612,44 @@ def history_presentations(run, action, capture, images):
             action('history-effects')
             memory_wait(run, lambda value: value['loaded'], 'selected legacy local review')
             capture('selected-history')
-            action('history-effects'); capture('history-cost-effects')
+            action('history-effects')
+            capture('history-cost-effects')
             action('cancel-confirm')
         action('back')
     action('fixture-progressive')
-    memory_wait(run, lambda value: value['loaded'] and value['presentationFixture'], 'progressive authored presentation loaded')
+    memory_wait(
+        run,
+        lambda value: value['loaded'] and value['presentationFixture'],
+        'progressive authored presentation loaded',
+    )
     action('rebuild-preflight')
-    memory_wait(run, lambda value: value['progressiveComplete'], 'multiple actual hook polls preserve DOM/focus/scroll through unchanged, growing, unavailable and terminal observations', timeout=25)
-    private_json(run.root / 'memory-progressive.json', {
-        'task': 'T0282', 'runId': run.id, 'source': run.config['source'],
-        'counts': [20, 20, 40, 60, 'unavailable', 80, 184],
-        'stableDOMFocusScroll': True, 'automaticObservation': True, 'providerCalls': 0,
-        'evidenceClass': 'actual native WebView DOM temporal observations with renderer-only authored responses; not engine/provider or compositor-frame proof',
-    })
+    memory_wait(
+        run,
+        lambda value: value['progressiveComplete'],
+        'multiple actual hook polls preserve DOM/focus/scroll through unchanged, growing, unavailable and terminal observations',
+        timeout=25,
+    )
+    private_json(
+        run.root / 'memory-progressive.json',
+        {
+            'task': 'T0282',
+            'runId': run.id,
+            'source': run.config['source'],
+            'counts': [20, 20, 40, 60, 'unavailable', 80, 184],
+            'stableDOMFocusScroll': True,
+            'automaticObservation': True,
+            'providerCalls': 0,
+            'evidenceClass': 'actual native WebView DOM temporal observations with renderer-only authored responses; not engine/provider or compositor-frame proof',
+        },
+    )
     capture('progressive-complete')
     action('back')
     action('fixture-unknown')
-    memory_wait(run, lambda value: not value['loaded'] and value['presentationFixture'], 'unknown fixed inspection')
+    memory_wait(
+        run,
+        lambda value: not value['loaded'] and value['presentationFixture'],
+        'unknown fixed inspection',
+    )
     capture('unknown', ('narrow',))
     return images
 
@@ -418,26 +679,55 @@ def diagnostic_recovery(run, attempts_before):
     deadline = time.monotonic() + 45
     after = status(run)
     while after['reason'] != 'summary_missing_key' and time.monotonic() < deadline:
-        time.sleep(.25)
+        time.sleep(0.25)
         after = status(run)
-    if after['reason'] != 'summary_missing_key' or 'providerFailure' in after or after['processing'] != {'state': 'parked'} or after['pending'] != 4 or after['frontier'] != 0 or after['attemptsToday'] != 0:
+    if (
+        after['reason'] != 'summary_missing_key'
+        or 'providerFailure' in after
+        or after['processing'] != {'state': 'parked'}
+        or after['pending'] != 4
+        or after['frontier'] != 0
+        or after['attemptsToday'] != 0
+    ):
         raise ValueError('Explicit Retry did not reach truthful keyless failure')
     with contextlib.closing(readonly(run.database)) as db:
-        if db.execute('select count(*) from summary_attempt').fetchone()[0] != attempts_before + 1 or db.execute("select count(*) from summary_attempt where json_valid(usage_json) and json_extract(usage_json,'$.providerFailure.category')='incomplete_sdk_decoding'").fetchone()[0] != 1:
+        if (
+            db.execute('select count(*) from summary_attempt').fetchone()[0] != attempts_before + 1
+            or db.execute(
+                "select count(*) from summary_attempt where json_valid(usage_json) and json_extract(usage_json,'$.providerFailure.category')='incomplete_sdk_decoding'"
+            ).fetchone()[0]
+            != 1
+        ):
             raise ValueError('Retry duplicated work or lost historical diagnostic')
-    private_json(run.root / 'summary-diagnostic-recovery.json', {
-        'task': 'T0343', 'runId': run.id, 'source': run.config['source'], 'captures': captures,
-        'passiveReadsDisclosureRefreshRestartNoReplay': True, 'explicitRetryOneKeylessAttempt': True,
-        'historicalDiagnosticRetained': True, 'providerCalls': 0,
-        'evidenceClass': 'actual authored attempt persistence, native Memory/Retry and keyless scheduler; not SDK or service inference',
-    })
+    private_json(
+        run.root / 'summary-diagnostic-recovery.json',
+        {
+            'task': 'T0343',
+            'runId': run.id,
+            'source': run.config['source'],
+            'captures': captures,
+            'passiveReadsDisclosureRefreshRestartNoReplay': True,
+            'explicitRetryOneKeylessAttempt': True,
+            'historicalDiagnosticRetained': True,
+            'providerCalls': 0,
+            'evidenceClass': 'actual authored attempt persistence, native Memory/Retry and keyless scheduler; not SDK or service inference',
+        },
+    )
     run.command({'type': 'memory', 'action': 'close'})
     run.command({'type': 'setViewport', 'preset': 'wide'})
 
 
 def scenario(run, presentation_families=None, *, native_copy=False):
     observed = status(run)
-    if observed['reason'] != 'summary_provider_failure' or observed['providerFailure'] != AUTHORED_FAILURE or observed['processing'] != {'state': 'parked'} or observed['frontier'] != 0 or observed['pending'] != 4 or observed['model'] != 'gpt-6-luna' or observed['attemptsToday'] != 0:
+    if (
+        observed['reason'] != 'summary_provider_failure'
+        or observed['providerFailure'] != AUTHORED_FAILURE
+        or observed['processing'] != {'state': 'parked'}
+        or observed['frontier'] != 0
+        or observed['pending'] != 4
+        or observed['model'] != 'gpt-6-luna'
+        or observed['attemptsToday'] != 0
+    ):
         raise ValueError('Authored parked diagnostic/coverage contract failed')
     with contextlib.closing(readonly(run.database)) as db:
         attempts_before = db.execute('select count(*) from summary_attempt').fetchone()[0]
@@ -448,11 +738,17 @@ def scenario(run, presentation_families=None, *, native_copy=False):
     with contextlib.closing(readonly(run.database)) as db:
         if db.execute('select count(*) from summary_attempt').fetchone()[0] != attempts_before:
             raise ValueError('Restart silently replayed deterministic failure')
-    if recovered['reason'] != 'summary_provider_failure' or recovered.get('providerFailure') != AUTHORED_FAILURE or recovered['pending'] != 4:
+    if (
+        recovered['reason'] != 'summary_provider_failure'
+        or recovered.get('providerFailure') != AUTHORED_FAILURE
+        or recovered['pending'] != 4
+    ):
         raise ValueError('Durable summary backlog/failure lost across native restart')
     diagnostic_recovery(run, attempts_before)
     if presentation_families is None:
-        memory_controls(run, native_copy=native_copy)  # Direct callers retain full UI coverage, no clipboard effect by default.
+        memory_controls(
+            run, native_copy=native_copy
+        )  # Direct callers retain full UI coverage, no clipboard effect by default.
     else:
         memory_controls(run, presentation_families=presentation_families, native_copy=native_copy)
     cleared = status(run, 'clear')
@@ -464,20 +760,38 @@ def scenario(run, presentation_families=None, *, native_copy=False):
     final = status(run)
     with contextlib.closing(readonly(run.database)) as db:
         cutoff = db.execute('select cutoff from summary_control where id=1').fetchone()[0]
-        if cutoff != 5 or db.execute('select count(*) from message').fetchone()[0] != messages_before:
-            raise ValueError('Clear lost originals or failed to include pre-clear incomplete source')
+        if (
+            cutoff != 5
+            or db.execute('select count(*) from message').fetchone()[0] != messages_before
+        ):
+            raise ValueError(
+                'Clear lost originals or failed to include pre-clear incomplete source'
+            )
     if final['state'] != 'disabled' or final['items'] != 0:
         raise ValueError('Native startup re-enabled immediate Off or resurrected derived text')
-    if status(run, 'enable')['enabled'] is not True or status(run, 'disable')['enabled'] is not False:
+    if (
+        status(run, 'enable')['enabled'] is not True
+        or status(run, 'disable')['enabled'] is not False
+    ):
         raise ValueError('Explicit configured Enable/Disable recovery failed')
-    private_json(run.root / ('summary-keyless-' + str(uuid.uuid4()) + '.json'), {
-        'task': 'T0272', 'runId': run.id, 'source': run.config['source'],
-        'sharedSummaryTitleSelection': True, 'scheduledMissingKeyObserved': True,
-        'inactiveLegacyEnabledWithoutEmbeddingKeyOrDaemonControl': True,
-        'backlogAndFailureSurviveRestart': True, 'noBlindReplay': True,
-        'authoredDiagnosticReopenAndExplicitRetry': True,
-        'clearIncludesIncompleteSource': True, 'offSurvivesRestart': True, 'explicitEnableRecovery': True,
-        'originalMessagesPreserved': True, 'providerCalls': 0,
-        'generationSuccess': 'unavailable: no separately authorized opaque native provider credential',
-        'screenshot': 'ordinary captures cover adjacent rendered geometry, not hidden engine semantics or native settings controls',
-    })
+    private_json(
+        run.root / ('summary-keyless-' + str(uuid.uuid4()) + '.json'),
+        {
+            'task': 'T0272',
+            'runId': run.id,
+            'source': run.config['source'],
+            'sharedSummaryTitleSelection': True,
+            'scheduledMissingKeyObserved': True,
+            'inactiveLegacyEnabledWithoutEmbeddingKeyOrDaemonControl': True,
+            'backlogAndFailureSurviveRestart': True,
+            'noBlindReplay': True,
+            'authoredDiagnosticReopenAndExplicitRetry': True,
+            'clearIncludesIncompleteSource': True,
+            'offSurvivesRestart': True,
+            'explicitEnableRecovery': True,
+            'originalMessagesPreserved': True,
+            'providerCalls': 0,
+            'generationSuccess': 'unavailable: no separately authorized opaque native provider credential',
+            'screenshot': 'ordinary captures cover adjacent rendered geometry, not hidden engine semantics or native settings controls',
+        },
+    )

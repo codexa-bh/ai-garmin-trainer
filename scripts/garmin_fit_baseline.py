@@ -23,12 +23,12 @@ from garmin_token_location import tokenstore
 
 
 def extract_fit_bytes(raw: bytes) -> bytes:
-    if raw[:2] == b"\x1f\x8b":
+    if raw[:2] == b'\x1f\x8b':
         raw = gzip.decompress(raw)
-    if raw[:2] == b"PK":
+    if raw[:2] == b'PK':
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             for name in archive.namelist():
-                if name.lower().endswith(".fit"):
+                if name.lower().endswith('.fit'):
                     return archive.read(name)
     return raw
 
@@ -51,17 +51,15 @@ def bounded_int(value: Any, minimum: int, maximum: int) -> int | None:
 
 def parse_zones_target(raw: bytes) -> dict[str, Any] | None:
     fit = FitFile(io.BytesIO(extract_fit_bytes(raw)))
-    for message in fit.get_messages("zones_target"):
-        max_heart_rate = bounded_int(field(message, "max_heart_rate"), 80, 240)
-        threshold_heart_rate = bounded_int(
-            field(message, "threshold_heart_rate"), 80, 230
-        )
+    for message in fit.get_messages('zones_target'):
+        max_heart_rate = bounded_int(field(message, 'max_heart_rate'), 80, 240)
+        threshold_heart_rate = bounded_int(field(message, 'threshold_heart_rate'), 80, 230)
         if max_heart_rate is not None or threshold_heart_rate is not None:
             return {
-                "zones_target": {
-                    "max_heart_rate": max_heart_rate,
-                    "threshold_heart_rate": threshold_heart_rate,
-                    "source": "garmin_fit_zones_target",
+                'zones_target': {
+                    'max_heart_rate': max_heart_rate,
+                    'threshold_heart_rate': threshold_heart_rate,
+                    'source': 'garmin_fit_zones_target',
                 }
             }
     return None
@@ -70,10 +68,10 @@ def parse_zones_target(raw: bytes) -> dict[str, Any] | None:
 def main() -> int:
     activity_ids = [item for item in sys.argv[1:] if item.strip()]
     if not activity_ids:
-        print(json.dumps({"zones_target": None}))
+        print(json.dumps({'zones_target': None}))
         return 0
 
-    garmin = Garmin(is_cn=os.getenv("GARMIN_IS_CN", "").lower() in {"1", "true", "yes"})
+    garmin = Garmin(is_cn=os.getenv('GARMIN_IS_CN', '').lower() in {'1', 'true', 'yes'})
     garmin.login(tokenstore())
 
     for activity_id in activity_ids[:6]:
@@ -83,14 +81,14 @@ def main() -> int:
             )
             parsed = parse_zones_target(bytes(raw))
             if parsed:
-                print(json.dumps(parsed, separators=(",", ":")))
+                print(json.dumps(parsed, separators=(',', ':')))
                 return 0
         except Exception:
             continue
 
-    print(json.dumps({"zones_target": None}))
+    print(json.dumps({'zones_target': None}))
     return 0
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     raise SystemExit(main())

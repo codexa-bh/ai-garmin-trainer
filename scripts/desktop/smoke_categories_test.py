@@ -42,11 +42,17 @@ class CategoryTests(unittest.TestCase):
         def main():
             scratch = resources.configure(self.scratch)
             return body(scratch)
-        with patch.dict(os.environ, PIVAN_TASK_PATH=str(self.task)), patch('smoke_categories.subprocess.run', side_effect=self.cli), contextlib.redirect_stdout(io.StringIO()):
+
+        with (
+            patch.dict(os.environ, PIVAN_TASK_PATH=str(self.task)),
+            patch('smoke_categories.subprocess.run', side_effect=self.cli),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             return main()
 
     def test_managed_runtime_evidence_and_owned_disposal_are_separate(self):
         state = {}
+
         def body(scratch):
             self.assertEqual(scratch, self.scratch / 'evidence')
             run = Run(scratch, self.original, 'a' * 64)
@@ -55,6 +61,7 @@ class CategoryTests(unittest.TestCase):
             (run.root / 'scenario.json').write_text('{"passed":true}')
             (run.root / 'screenshots/scenario.png').write_bytes(b'PNG fixture')
             (run.root / 'native.log').write_text('bounded synthetic diagnostic')
+
         self.invoke(body)
         run = state['run']
         evidence = self.scratch / 'evidence' / run.root.name
@@ -63,7 +70,9 @@ class CategoryTests(unittest.TestCase):
         self.assertFalse((evidence / 'trainer.sqlite').exists())
         self.assertFalse(run.database.exists())
         self.assertEqual(self.original.read_bytes(), self.original_bytes)
-        receipt = json.loads(next((self.scratch / 'evidence').glob('resource-disposition-*.json')).read_text())
+        receipt = json.loads(
+            next((self.scratch / 'evidence').glob('resource-disposition-*.json')).read_text()
+        )
         self.assertFalse(receipt['recoveryHold'])
         self.assertTrue(all(item['status'] == 'removed' for item in receipt['artifacts']))
         self.assertFalse(any(command[2] == 'preserve' for command in self.commands))
@@ -86,33 +95,44 @@ class CategoryTests(unittest.TestCase):
 
     def test_failure_records_truth_without_retired_hold_writer_or_duplicate_bulk(self):
         state = {}
+
         def body(scratch):
             run = Run(scratch, self.original, 'a' * 64)
             state['run'] = run
             raise TimeoutError('original unknown effect')
+
         with self.assertRaisesRegex(TimeoutError, 'original unknown effect'):
             self.invoke(body)
         self.assertTrue(state['run'].database.exists())
         self.assertFalse(any(command[2] == 'preserve' for command in self.commands))
-        receipt = json.loads(next((self.scratch / 'evidence').glob('resource-disposition-*.json')).read_text())
+        receipt = json.loads(
+            next((self.scratch / 'evidence').glob('resource-disposition-*.json')).read_text()
+        )
         self.assertTrue(receipt['invocationFailed'])
         self.assertFalse(receipt['recoveryHold'])
-        self.assertEqual(receipt['disposableRetention'], 'unchanged; select necessary reproduction evidence before closure')
+        self.assertEqual(
+            receipt['disposableRetention'],
+            'unchanged; select necessary reproduction evidence before closure',
+        )
         self.assertTrue(all(item['status'] == 'retained' for item in receipt['artifacts']))
         self.assertFalse(list((self.scratch / 'evidence').rglob('*.sqlite')))
         self.assertEqual(self.original.read_bytes(), self.original_bytes)
 
     def test_evidence_alias_refuses_disposal_without_extending_category_retention(self):
         state = {}
+
         def body(scratch):
             run = Run(scratch, self.original, 'a' * 64)
             state['run'] = run
             (run.root / 'screenshots/alias.png').symlink_to(self.original)
+
         with self.assertRaisesRegex(RuntimeError, 'disposal deferred'):
             self.invoke(body)
         self.assertTrue(state['run'].database.exists())
         self.assertFalse(any(command[2] == 'preserve' for command in self.commands))
-        receipt = json.loads(next((self.scratch / 'evidence').glob('resource-disposition-*.json')).read_text())
+        receipt = json.loads(
+            next((self.scratch / 'evidence').glob('resource-disposition-*.json')).read_text()
+        )
         self.assertFalse(receipt['recoveryHold'])
         self.assertTrue(receipt['retentionReason'])
 
@@ -123,10 +143,16 @@ class CategoryTests(unittest.TestCase):
             paths = CategoryPaths(other)
             self.assertEqual(paths.evidence, other)
             self.assertIsNone(paths.task)
-            with patch('smoke_categories.subprocess.run', return_value=SimpleNamespace(returncode=2, stdout='', stderr='unknown category')):
+            with patch(
+                'smoke_categories.subprocess.run',
+                return_value=SimpleNamespace(returncode=2, stdout='', stderr='unknown category'),
+            ):
                 with self.assertRaisesRegex(RuntimeError, 'Compatible category tooling'):
                     CategoryPaths(self.scratch)
-            with patch('smoke_categories.subprocess.run', return_value=SimpleNamespace(returncode=0, stdout='/foreign', stderr='')):
+            with patch(
+                'smoke_categories.subprocess.run',
+                return_value=SimpleNamespace(returncode=0, stdout='/foreign', stderr=''),
+            ):
                 with self.assertRaisesRegex(ValueError, 'foreign'):
                     CategoryPaths(self.scratch)
 

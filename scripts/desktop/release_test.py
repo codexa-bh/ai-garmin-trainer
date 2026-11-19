@@ -1,4 +1,5 @@
 """Cheap deterministic boundaries; actual macOS DMG/native evidence is separate."""
+
 import contextlib
 import copy
 import hashlib
@@ -27,20 +28,30 @@ class MetadataTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         (self.root / 'src-tauri').mkdir()
         (self.root / 'release-notes').mkdir()
-        for name, value in [('package.json', {'name': 'test', 'version': '0.1.0'}),
-                            ('package-lock.json', {'version': '0.1.0', 'packages': {'': {'version': '0.1.0'}}}),
-                            ('src-tauri/tauri.conf.json', {'version': '0.1.0'})]:
+        for name, value in [
+            ('package.json', {'name': 'test', 'version': '0.1.0'}),
+            ('package-lock.json', {'version': '0.1.0', 'packages': {'': {'version': '0.1.0'}}}),
+            ('src-tauri/tauri.conf.json', {'version': '0.1.0'}),
+        ]:
             (self.root / name).write_text(json.dumps(value))
-        (self.root / 'src-tauri/Cargo.toml').write_text('[package]\nname = "garmin-trainer-desktop"\nversion = "0.1.0"\n')
-        (self.root / 'src-tauri/Cargo.lock').write_text('[[package]]\nname = "garmin-trainer-desktop"\nversion = "0.1.0"\n\n[[package]]\nname = "dependency"\nversion = "0.1.0"\n')
-        (self.root / 'release-notes/0.1.0.md').write_text('# Garmin Trainer 0.1.0\n\nStatus: unreleased\n\n' + metadata.WARNINGS)
+        (self.root / 'src-tauri/Cargo.toml').write_text(
+            '[package]\nname = "garmin-trainer-desktop"\nversion = "0.1.0"\n'
+        )
+        (self.root / 'src-tauri/Cargo.lock').write_text(
+            '[[package]]\nname = "garmin-trainer-desktop"\nversion = "0.1.0"\n\n[[package]]\nname = "dependency"\nversion = "0.1.0"\n'
+        )
+        (self.root / 'release-notes/0.1.0.md').write_text(
+            '# Garmin Trainer 0.1.0\n\nStatus: unreleased\n\n' + metadata.WARNINGS
+        )
 
     def tearDown(self):
         self.temp.cleanup()
 
     def test_current_repository_metadata_consistent(self):
         root = Path(__file__).resolve().parents[2]
-        self.assertEqual(metadata.check(root)[0], json.loads((root / 'package.json').read_text())['version'])
+        self.assertEqual(
+            metadata.check(root)[0], json.loads((root / 'package.json').read_text())['version']
+        )
 
     def test_checks_and_prepares_only_owned_versions_in_fixture(self):
         self.assertEqual(metadata.check(self.root)[0], '0.1.0')
@@ -48,7 +59,10 @@ class MetadataTests(unittest.TestCase):
             metadata.check(self.root, prepared=True)
         metadata.prepare(self.root, '0.2.0-rc.1', 'Reviewed synthetic future changes')
         self.assertEqual(metadata.check(self.root, prepared=True)[0], '0.2.0-rc.1')
-        self.assertIn('name = "dependency"\nversion = "0.1.0"', (self.root / 'src-tauri/Cargo.lock').read_text())
+        self.assertIn(
+            'name = "dependency"\nversion = "0.1.0"',
+            (self.root / 'src-tauri/Cargo.lock').read_text(),
+        )
         with self.assertRaises(ValueError):
             metadata.prepare(self.root, '0.2.0-rc.1', 'no overwrite')
 
@@ -57,7 +71,9 @@ class MetadataTests(unittest.TestCase):
         authored = '{\n  "version": "0.1.0",\n  "title": "Trainer \u2014 Settings",\n  "bundle": { "macOS": { "minimumSystemVersion": "12.0" } }\n}\n'
         tauri.write_text(authored)
         metadata.prepare(self.root, '0.1.1', 'Reviewed synthetic future changes')
-        self.assertEqual(tauri.read_text(), authored.replace('"version": "0.1.0"', '"version": "0.1.1"'))
+        self.assertEqual(
+            tauri.read_text(), authored.replace('"version": "0.1.0"', '"version": "0.1.1"')
+        )
         tauri.write_text('{"version": "0.1.1", "plugin": {"version": "0.1.1"}}')
         with self.assertRaisesRegex(ValueError, 'Ambiguous Tauri'):
             metadata.prepare(self.root, '0.1.2', 'Reviewed synthetic future changes')
@@ -79,8 +95,17 @@ class MetadataTests(unittest.TestCase):
 
     def test_exact_source_requires_clean_pinned_canonical_remote_and_merged_commit(self):
         sha = 'a' * 40
-        responses = {'rev-parse': sha, 'status': '', 'remote': 'git@github.com:' + metadata.REPOSITORY + '.git'}
-        with patch('release_metadata.git', side_effect=lambda root, command, *args: responses[command]), patch('release_metadata.subprocess.run') as ancestry:
+        responses = {
+            'rev-parse': sha,
+            'status': '',
+            'remote': 'git@github.com:' + metadata.REPOSITORY + '.git',
+        }
+        with (
+            patch(
+                'release_metadata.git', side_effect=lambda root, command, *args: responses[command]
+            ),
+            patch('release_metadata.subprocess.run') as ancestry,
+        ):
             with self.assertRaises(ValueError):
                 metadata.exact_source(self.root, 'main', metadata.REPOSITORY)
             with self.assertRaises(ValueError):
@@ -100,7 +125,10 @@ class MetadataTests(unittest.TestCase):
 
 # macOS DMG/.app payload (modes, xattrs, hdiutil/ditto/lipo): macOS-only by
 # nature. Windows installer payload counterparts live in windows_release_test.
-@unittest.skipIf(sys.platform == 'win32', 'macOS DMG/.app payload contract; Windows counterpart is windows_release_test')
+@unittest.skipIf(
+    sys.platform == 'win32',
+    'macOS DMG/.app payload contract; Windows counterpart is windows_release_test',
+)
 class PayloadTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -118,11 +146,27 @@ class PayloadTests(unittest.TestCase):
         path = self.root / 'fresh.dmg'
         path.write_bytes(b'synthetic final image')
         os.utime(path, ns=(1, path.stat().st_mtime_ns))
-        self.assertEqual(artifact.digest(path), __import__('hashlib').sha256(path.read_bytes()).hexdigest())
+        self.assertEqual(
+            artifact.digest(path), __import__('hashlib').sha256(path.read_bytes()).hexdigest()
+        )
         initial = path.stat()
         from types import SimpleNamespace
-        changed = SimpleNamespace(**{name: getattr(initial, name) for name in
-                                    ('st_dev', 'st_ino', 'st_size', 'st_mode', 'st_nlink', 'st_uid', 'st_mtime_ns', 'st_ctime_ns')})
+
+        changed = SimpleNamespace(
+            **{
+                name: getattr(initial, name)
+                for name in (
+                    'st_dev',
+                    'st_ino',
+                    'st_size',
+                    'st_mode',
+                    'st_nlink',
+                    'st_uid',
+                    'st_mtime_ns',
+                    'st_ctime_ns',
+                )
+            }
+        )
         changed.st_ino += 1
         with patch.object(artifact.os, 'fstat', return_value=changed):
             with self.assertRaisesRegex(ValueError, 'replaced'):
@@ -138,60 +182,108 @@ class PayloadTests(unittest.TestCase):
         if hasattr(os, 'setxattr'):
             os.setxattr(binary, 'user.release-test', b'synthetic')
         else:
-            subprocess.run(['/usr/bin/xattr', '-w', 'user.release-test', 'synthetic', str(binary)], check=True)
+            subprocess.run(
+                ['/usr/bin/xattr', '-w', 'user.release-test', 'synthetic', str(binary)], check=True
+            )
         self.assertNotEqual(artifact.tree_identity(self.app), initial)
 
     def test_payload_requires_runtime_notices_architecture_and_declared_signing(self):
         root = self.app / 'Contents/Resources/resources'
-        for name in ['NODE-LICENSE.txt', 'THIRD-PARTY-NOTICES.txt', 'REDISTRIBUTION-REVIEW.txt',
-                     'redistribution/index.json', 'redistribution/NOTICES.txt', 'redistribution/sources/native-crates.tar.gz',
-                     'runtime/runtime.cjs', 'runtime/scripts/garmin_auth.py', 'runtime/scripts/garmin_auth.py.lock',
-                     'runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node',
-                     'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm', 'node']:
+        for name in [
+            'NODE-LICENSE.txt',
+            'THIRD-PARTY-NOTICES.txt',
+            'REDISTRIBUTION-REVIEW.txt',
+            'redistribution/index.json',
+            'redistribution/NOTICES.txt',
+            'redistribution/sources/native-crates.tar.gz',
+            'runtime/runtime.cjs',
+            'runtime/scripts/garmin_auth.py',
+            'runtime/scripts/garmin_auth.py.lock',
+            'runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+            'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm',
+            'node',
+        ]:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b'synthetic bundled input')
         (root / 'node').chmod(0o755)
-        (self.app / 'Contents/Info.plist').write_bytes(plistlib.dumps({
-            'CFBundleIdentifier': 'com.codexa.garmin-trainer.desktop', 'CFBundleShortVersionString': '0.1.0',
-            'CFBundleVersion': '0.1.0', 'CFBundleExecutable': 'garmin-trainer-desktop'}))
+        (self.app / 'Contents/Info.plist').write_bytes(
+            plistlib.dumps(
+                {
+                    'CFBundleIdentifier': 'com.codexa.garmin-trainer.desktop',
+                    'CFBundleShortVersionString': '0.1.0',
+                    'CFBundleVersion': '0.1.0',
+                    'CFBundleExecutable': 'garmin-trainer-desktop',
+                }
+            )
+        )
+
         def inspect(args, **kwargs):
-            return subprocess.CompletedProcess(args, 0, b'arm64' if 'lipo' in args[0] else b'Signature=adhoc', b'')
-        with patch.object(artifact, 'provenance', return_value={'files': []}), patch.object(artifact, 'run', side_effect=inspect):
+            return subprocess.CompletedProcess(
+                args, 0, b'arm64' if 'lipo' in args[0] else b'Signature=adhoc', b''
+            )
+
+        with (
+            patch.object(artifact, 'provenance', return_value={'files': []}),
+            patch.object(artifact, 'run', side_effect=inspect),
+        ):
             self.assertTrue(artifact.payload_checks(self.app, '0.1.0'))
             with self.assertRaisesRegex(ValueError, 'version'):
                 artifact.payload_checks(self.app, '1.0.0')
             for excluded, group in [
-                    ('@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib', '@img'),
-                    ('sharp/package.json', 'sharp'),
-                    ('next/dist/compiled/@vercel/og/resvg.wasm', 'next/dist/compiled/@vercel/og')]:
+                ('@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.8.18.7.dylib', '@img'),
+                ('sharp/package.json', 'sharp'),
+                ('next/dist/compiled/@vercel/og/resvg.wasm', 'next/dist/compiled/@vercel/og'),
+            ]:
                 path = root / 'runtime/node_modules' / excluded
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b'unwanted')
-                with self.subTest(excluded=excluded), self.assertRaisesRegex(ValueError, 'Excluded runtime'):
+                with (
+                    self.subTest(excluded=excluded),
+                    self.assertRaisesRegex(ValueError, 'Excluded runtime'),
+                ):
                     artifact.payload_checks(self.app, '0.1.0')
                 shutil.rmtree(root / 'runtime/node_modules' / group)
             self.assertTrue(artifact.payload_checks(self.app, '0.1.0'))
-            for required in ['NODE-LICENSE.txt', 'redistribution/index.json', 'redistribution/NOTICES.txt',
-                             'redistribution/sources/native-crates.tar.gz',
-                             'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm']:
+            for required in [
+                'NODE-LICENSE.txt',
+                'redistribution/index.json',
+                'redistribution/NOTICES.txt',
+                'redistribution/sources/native-crates.tar.gz',
+                'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm',
+            ]:
                 path = root / required
                 original = path.read_bytes()
                 path.unlink()
                 with self.subTest(required=required), self.assertRaises(FileNotFoundError):
                     artifact.payload_checks(self.app, '0.1.0')
                 path.write_bytes(original)
-            with patch.object(artifact, 'run', return_value=subprocess.CompletedProcess([], 0, b'x86_64', b'')):
+            with patch.object(
+                artifact, 'run', return_value=subprocess.CompletedProcess([], 0, b'x86_64', b'')
+            ):
                 with self.assertRaisesRegex(ValueError, 'ARM64'):
                     artifact.payload_checks(self.app, '0.1.0')
+
             def certificate(args, **kwargs):
-                return subprocess.CompletedProcess(args, 0, b'arm64' if 'lipo' in args[0] else b'Authority=Unexpected Developer ID', b'')
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    b'arm64' if 'lipo' in args[0] else b'Authority=Unexpected Developer ID',
+                    b'',
+                )
+
             with patch.object(artifact, 'run', side_effect=certificate):
                 with self.assertRaisesRegex(ValueError, 'signing'):
                     artifact.payload_checks(self.app, '0.1.0')
 
     def test_private_sentinels_and_aliases_hardlinks_refuse(self):
-        for name in ['.env.local', 'settings-v3.json', 'tokens.json', 'test.sqlite-wal', '__pycache__']:
+        for name in [
+            '.env.local',
+            'settings-v3.json',
+            'tokens.json',
+            'test.sqlite-wal',
+            '__pycache__',
+        ]:
             path = self.app / name
             path.write_text('synthetic private sentinel')
             with self.subTest(name=name), self.assertRaises(ValueError):
@@ -207,11 +299,17 @@ class PayloadTests(unittest.TestCase):
             artifact.tree_identity(self.app)
 
     def test_feature_candidate_handoff_keeps_original_admission_per_boot_and_final_recheck(self):
-        verified, inventory, record = {'native': 'original'}, {'complete': 'inventory'}, {'artifact': 'selected-DMG'}
+        verified, inventory, record = (
+            {'native': 'original'},
+            {'complete': 'inventory'},
+            {'artifact': 'selected-DMG'},
+        )
         recheck = Mock()
+
         @contextlib.contextmanager
         def preparation(*_args):
             yield verified, inventory
+
         @contextlib.contextmanager
         def transport(*args):
             self.assertEqual(args[:5], (self.root, self.app, 'source', verified, inventory))
@@ -220,19 +318,35 @@ class PayloadTests(unittest.TestCase):
                 yield self.root / 'mounted/Garmin Trainer.app', recheck, record
             finally:
                 recheck()
-        with patch.object(artifact, 'ordinary_preparation', side_effect=preparation), patch.object(artifact, 'transported', side_effect=transport):
-            with artifact.candidate_preparation(self.root, self.app, 'source', self.root, self.root / 'release.json') as selected:
+
+        with (
+            patch.object(artifact, 'ordinary_preparation', side_effect=preparation),
+            patch.object(artifact, 'transported', side_effect=transport),
+        ):
+            with artifact.candidate_preparation(
+                self.root, self.app, 'source', self.root, self.root / 'release.json'
+            ) as selected:
                 self.assertEqual(selected[0], self.root / 'mounted/Garmin Trainer.app')
                 self.assertEqual(selected[2:], (verified, inventory, record))
                 selected[1]()  # First boot.
                 selected[1]()  # Restart.
             self.assertEqual(recheck.call_count, 3)
-        with patch.object(artifact, 'ordinary_preparation', side_effect=preparation), patch.object(artifact, 'transported', side_effect=ValueError('transport refused')):
+        with (
+            patch.object(artifact, 'ordinary_preparation', side_effect=preparation),
+            patch.object(artifact, 'transported', side_effect=ValueError('transport refused')),
+        ):
             with self.assertRaisesRegex(ValueError, 'transport refused'):
-                with artifact.candidate_preparation(self.root, self.app, 'source', self.root, self.root / 'release.json'):
+                with artifact.candidate_preparation(
+                    self.root, self.app, 'source', self.root, self.root / 'release.json'
+                ):
                     self.fail('No fallback to producer after selected transport refusal')
-        with patch.object(artifact, 'ordinary_preparation', side_effect=preparation), patch.object(artifact, 'verify_ordinary') as original:
-            with artifact.candidate_preparation(self.root, self.app, 'source', self.root) as selected:
+        with (
+            patch.object(artifact, 'ordinary_preparation', side_effect=preparation),
+            patch.object(artifact, 'verify_ordinary') as original,
+        ):
+            with artifact.candidate_preparation(
+                self.root, self.app, 'source', self.root
+            ) as selected:
                 self.assertEqual(selected[0], self.app)
                 self.assertIsNone(selected[4])
                 selected[1]()
@@ -242,22 +356,32 @@ class PayloadTests(unittest.TestCase):
         if args[1] == 'attach':
             mount = Path(args[args.index('-mountpoint') + 1])
             shutil.copytree(self.app, mount / artifact.APP_NAME)
-            return subprocess.CompletedProcess(args, 0, plistlib.dumps({'system-entities': [{'mount-point': str(mount)}]}), b'')
+            return subprocess.CompletedProcess(
+                args, 0, plistlib.dumps({'system-entities': [{'mount-point': str(mount)}]}), b''
+            )
         return subprocess.CompletedProcess(args, 0, b'', b'')
 
     def test_readonly_mount_settles_even_on_failed_consumer(self):
         with patch.object(artifact, 'run', side_effect=self.fake_hdi) as run:
             with self.assertRaisesRegex(ValueError, 'oracle'):
                 with artifact.mounted(self.root / 'fixture.dmg', self.root) as payload:
-                    self.assertEqual(artifact.tree_identity(payload), artifact.tree_identity(self.app))
+                    self.assertEqual(
+                        artifact.tree_identity(payload), artifact.tree_identity(self.app)
+                    )
                     raise ValueError('oracle failure')
             self.assertEqual(run.call_args.args[0][1], 'detach')
             attach = run.call_args_list[0].args[0]
-            self.assertTrue(all(flag in attach for flag in ['-readonly', '-nobrowse', '-noautoopen']))
-            self.assertEqual(json.loads(next(self.root.glob('mount-*.json')).read_text())['detach'], 'observed')
+            self.assertTrue(
+                all(flag in attach for flag in ['-readonly', '-nobrowse', '-noautoopen'])
+            )
+            self.assertEqual(
+                json.loads(next(self.root.glob('mount-*.json')).read_text())['detach'], 'observed'
+            )
 
     def test_attach_timeout_is_unknown_not_retried_or_blind_detached(self):
-        with patch.object(artifact, 'run', side_effect=subprocess.TimeoutExpired('hdiutil', 120)) as run:
+        with patch.object(
+            artifact, 'run', side_effect=subprocess.TimeoutExpired('hdiutil', 120)
+        ) as run:
             with self.assertRaises(subprocess.TimeoutExpired):
                 with artifact.mounted(self.root / 'fixture.dmg', self.root):
                     self.fail('must not yield')
@@ -270,22 +394,33 @@ class PayloadTests(unittest.TestCase):
         record_path = self.root / 'release.json'
         record_path.write_text('{"artifact":{"name":"../escape.dmg"}}')
         with self.assertRaisesRegex(ValueError, 'Unsafe'):
-            with artifact.transported(self.root, self.app, 'source', {}, {}, record_path, self.root):
+            with artifact.transported(
+                self.root, self.app, 'source', {}, {}, record_path, self.root
+            ):
                 self.fail('must not yield')
         dmg = self.root / 'fixture.dmg'
         dmg.write_bytes(b'final image')
         record = {'artifact': {'name': dmg.name, 'sha256': artifact.digest(dmg)}}
         record_path.write_text(json.dumps(record))
+
         @contextlib.contextmanager
         def image(*args):
             yield self.app, record
-        with patch.object(artifact, 'verified_image', image), patch.object(artifact, 'verify_ordinary') as verify:
-            with artifact.transported(self.root, self.app, 'source', {}, {}, record_path, self.root) as (_, verify_current, _):
+
+        with (
+            patch.object(artifact, 'verified_image', image),
+            patch.object(artifact, 'verify_ordinary') as verify,
+        ):
+            with artifact.transported(
+                self.root, self.app, 'source', {}, {}, record_path, self.root
+            ) as (_, verify_current, _):
                 verify_current()
                 self.assertEqual(verify.call_count, 2)
             self.assertEqual(verify.call_count, 3)
             with self.assertRaisesRegex(ValueError, 'changed'):
-                with artifact.transported(self.root, self.app, 'source', {}, {}, record_path, self.root):
+                with artifact.transported(
+                    self.root, self.app, 'source', {}, {}, record_path, self.root
+                ):
                     dmg.write_bytes(b'corrupted image')
 
     def test_final_image_matches_metadata_and_refuses_corruption(self):
@@ -293,19 +428,40 @@ class PayloadTests(unittest.TestCase):
         dmg.write_bytes(b'final image')
         expected = artifact.tree_identity(self.app)
         record = {'synthetic': 'public record'}
+
         @contextlib.contextmanager
         def mounted(*args):
             yield self.app
-        with patch.object(artifact, 'verify_ordinary'), patch.object(artifact, 'check', return_value=('0.1.0', 'notes')), patch.object(artifact, 'run'), patch.object(artifact, 'payload_checks', return_value=expected), patch.object(artifact, 'mounted', mounted), patch.object(artifact, 'record_for', return_value=record):
-            with artifact.verified_image(self.root, self.app, 'source', {}, {}, dmg, self.root, record) as (_, observed):
+
+        with (
+            patch.object(artifact, 'verify_ordinary'),
+            patch.object(artifact, 'check', return_value=('0.1.0', 'notes')),
+            patch.object(artifact, 'run'),
+            patch.object(artifact, 'payload_checks', return_value=expected),
+            patch.object(artifact, 'mounted', mounted),
+            patch.object(artifact, 'record_for', return_value=record),
+        ):
+            with artifact.verified_image(
+                self.root, self.app, 'source', {}, {}, dmg, self.root, record
+            ) as (_, observed):
                 self.assertEqual(observed, record)
             with self.assertRaisesRegex(ValueError, 'record'):
-                with artifact.verified_image(self.root, self.app, 'source', {}, {}, dmg, self.root, {'stale': True}):
+                with artifact.verified_image(
+                    self.root, self.app, 'source', {}, {}, dmg, self.root, {'stale': True}
+                ):
                     self.fail('stale record must refuse')
             with self.assertRaisesRegex(ValueError, 'DMG changed'):
-                with artifact.verified_image(self.root, self.app, 'source', {}, {}, dmg, self.root, record):
+                with artifact.verified_image(
+                    self.root, self.app, 'source', {}, {}, dmg, self.root, record
+                ):
                     dmg.write_bytes(b'changed image')
-        with patch.object(artifact, 'verify_ordinary'), patch.object(artifact, 'check', return_value=('0.1.0', 'notes')), patch.object(artifact, 'run'), patch.object(artifact, 'payload_checks', side_effect=[expected, {}]), patch.object(artifact, 'mounted', mounted):
+        with (
+            patch.object(artifact, 'verify_ordinary'),
+            patch.object(artifact, 'check', return_value=('0.1.0', 'notes')),
+            patch.object(artifact, 'run'),
+            patch.object(artifact, 'payload_checks', side_effect=[expected, {}]),
+            patch.object(artifact, 'mounted', mounted),
+        ):
             with self.assertRaisesRegex(ValueError, 'payload differs'):
                 with artifact.verified_image(self.root, self.app, 'source', {}, {}, dmg, self.root):
                     self.fail('payload mutation must refuse')
@@ -314,30 +470,53 @@ class PayloadTests(unittest.TestCase):
         node = self.app / 'Contents/Resources/resources/node'
         node.parent.mkdir(parents=True, exist_ok=True)
         node.write_bytes(b'bundled node')
+
         def commands(args, **kwargs):
             if args[0] == '/usr/bin/ditto':
                 shutil.copytree(args[-2], args[-1])
             elif args[1] == 'create':
                 with Path(args[-1]).open('xb') as stream:
                     stream.write(b'final image')
+
         @contextlib.contextmanager
         def image(*args):
             yield self.app, {'artifact': {'sha256': 'a' * 64}}
-        with patch.object(artifact.platform, 'system', return_value='Darwin'), patch.object(artifact.platform, 'machine', return_value='arm64'), patch.object(artifact, 'check', return_value=('0.1.0', 'notes')), patch.object(artifact, 'verify_ordinary'), patch.object(artifact, 'payload_checks', return_value=artifact.tree_identity(self.app)), patch.object(artifact, 'run', side_effect=commands) as run, patch.object(artifact, 'verified_image', image):
+
+        with (
+            patch.object(artifact.platform, 'system', return_value='Darwin'),
+            patch.object(artifact.platform, 'machine', return_value='arm64'),
+            patch.object(artifact, 'check', return_value=('0.1.0', 'notes')),
+            patch.object(artifact, 'verify_ordinary'),
+            patch.object(artifact, 'payload_checks', return_value=artifact.tree_identity(self.app)),
+            patch.object(artifact, 'run', side_effect=commands) as run,
+            patch.object(artifact, 'verified_image', image),
+        ):
             record = artifact.package(self.root, self.app, 'source', {}, {}, self.root)
             self.assertTrue(record.is_file())
             self.assertTrue(next(record.parent.glob('*.sha256')).is_file())
             report = json.loads((record.parent / 'size-report.json').read_text())
             self.assertEqual(report['dmgBytes'], len(b'final image'))
             self.assertEqual(report['dmgBudgetBytes'], artifact.DMG_BUDGET_BYTES)
-            self.assertEqual(report['appBytes'], sum(p.stat().st_size for p in self.app.rglob('*') if p.is_file()))
+            self.assertEqual(
+                report['appBytes'],
+                sum(p.stat().st_size for p in self.app.rglob('*') if p.is_file()),
+            )
             self.assertEqual(set(report['groups']), {'node', 'runtime', 'next', 'redistribution'})
-            self.assertEqual(report['groups']['node'], (self.app / 'Contents/Resources/resources/node').stat().st_size)
+            self.assertEqual(
+                report['groups']['node'],
+                (self.app / 'Contents/Resources/resources/node').stat().st_size,
+            )
             self.assertEqual(run.call_count, 2)
             creation = run.call_args.args[0]
             self.assertEqual(creation[1], 'create')
             self.assertNotIn('-ov', creation)
-            self.assertFalse(any('build' in str(arg) or 'install' in str(arg) for call in run.call_args_list for arg in call.args[0]))
+            self.assertFalse(
+                any(
+                    'build' in str(arg) or 'install' in str(arg)
+                    for call in run.call_args_list
+                    for arg in call.args[0]
+                )
+            )
 
     def test_package_refuses_over_budget_image_before_any_record(self):
         def commands(args, **kwargs):
@@ -346,10 +525,21 @@ class PayloadTests(unittest.TestCase):
             elif args[1] == 'create':
                 with Path(args[-1]).open('xb') as stream:
                     stream.write(b'x' * 11)
+
         @contextlib.contextmanager
         def image(*args):
             yield self.app, {'artifact': {'sha256': 'a' * 64}}
-        with patch.object(artifact.platform, 'system', return_value='Darwin'), patch.object(artifact.platform, 'machine', return_value='arm64'), patch.object(artifact, 'check', return_value=('0.1.0', 'notes')), patch.object(artifact, 'verify_ordinary'), patch.object(artifact, 'payload_checks', return_value=artifact.tree_identity(self.app)), patch.object(artifact, 'run', side_effect=commands), patch.object(artifact, 'verified_image', image), patch.object(artifact, 'DMG_BUDGET_BYTES', 10):
+
+        with (
+            patch.object(artifact.platform, 'system', return_value='Darwin'),
+            patch.object(artifact.platform, 'machine', return_value='arm64'),
+            patch.object(artifact, 'check', return_value=('0.1.0', 'notes')),
+            patch.object(artifact, 'verify_ordinary'),
+            patch.object(artifact, 'payload_checks', return_value=artifact.tree_identity(self.app)),
+            patch.object(artifact, 'run', side_effect=commands),
+            patch.object(artifact, 'verified_image', image),
+            patch.object(artifact, 'DMG_BUDGET_BYTES', 10),
+        ):
             with self.assertRaisesRegex(ValueError, 'size budget'):
                 artifact.package(self.root, self.app, 'source', {}, {}, self.root)
         workspace = next(self.root.glob('release-*'))
@@ -358,10 +548,13 @@ class PayloadTests(unittest.TestCase):
 
     def test_macos_copy_preserves_xattrs_before_enrollment_sealing(self):
         import smoke_resources
+
         destination = self.root / 'copy.app'
+
         def copy(args, **kwargs):
             shutil.copytree(args[-2], args[-1], dirs_exist_ok=True)
             Path(args[-1]).chmod(0o700)  # Actual ditto retains an existing destination's root mode.
+
         with patch('smoke_resources.subprocess.run', side_effect=copy) as run:
             smoke_resources.copy_tree(self.app, destination, macos_metadata=True)
         self.assertEqual(artifact.tree_identity(destination), artifact.tree_identity(self.app))
@@ -374,7 +567,12 @@ class PayloadTests(unittest.TestCase):
         workspace.mkdir()
         sentinel = workspace / 'keep'
         sentinel.write_text('do not replace')
-        with patch.object(artifact.platform, 'system', return_value='Darwin'), patch.object(artifact.platform, 'machine', return_value='arm64'), patch.object(artifact, 'check', return_value=('0.1.0', 'notes')), patch.object(artifact.uuid, 'uuid4', return_value='fixed'):
+        with (
+            patch.object(artifact.platform, 'system', return_value='Darwin'),
+            patch.object(artifact.platform, 'machine', return_value='arm64'),
+            patch.object(artifact, 'check', return_value=('0.1.0', 'notes')),
+            patch.object(artifact.uuid, 'uuid4', return_value='fixed'),
+        ):
             with self.assertRaises(FileExistsError):
                 artifact.package(self.root, self.app, 'source', {}, {}, self.root)
         self.assertEqual(sentinel.read_text(), 'do not replace')
@@ -406,7 +604,11 @@ class FakeGitHub:
             if endpoint.endswith('/releases?per_page=100'):
                 return [copy.deepcopy(self.release)] if self.release else []
             if '/releases/tags/' in endpoint:
-                return None if self.release and self.release.get('draft') else copy.deepcopy(self.release)
+                return (
+                    None
+                    if self.release and self.release.get('draft')
+                    else copy.deepcopy(self.release)
+                )
             if self.release and endpoint.endswith('/releases/' + str(self.release['id'])):
                 return copy.deepcopy(self.release)
             raise AssertionError('Unexpected read endpoint: ' + endpoint)
@@ -414,9 +616,16 @@ class FakeGitHub:
         if '/git/refs' in endpoint:
             self.tag = {'object': {'type': 'commit', 'sha': data['sha']}}
         elif asset:
-            self.assets.append({'id': len(self.assets) + 1, 'name': asset.name, 'size': asset.stat().st_size,
-                                'state': 'uploaded', 'digest': 'sha256:' + ('0' * 64 if self.bad_digest else artifact.digest(asset)),
-                                'expectedHash': artifact.digest(asset)})
+            self.assets.append(
+                {
+                    'id': len(self.assets) + 1,
+                    'name': asset.name,
+                    'size': asset.stat().st_size,
+                    'state': 'uploaded',
+                    'digest': 'sha256:' + ('0' * 64 if self.bad_digest else artifact.digest(asset)),
+                    'expectedHash': artifact.digest(asset),
+                }
+            )
         elif method == 'POST':
             self.release = {**data, 'id': 42}
         else:
@@ -432,15 +641,29 @@ class RemoteTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.dmg = self.root / 'fixture.dmg'
         self.dmg.write_bytes(b'verified final DMG bytes')
-        self.record = {'repository': metadata.REPOSITORY, 'sourceDirty': False, 'commit': 'a' * 40,
-                       'version': '1.2.3', 'tag': 'v1.2.3', 'signing': artifact.SIGNING,
-                       'artifact': {'name': self.dmg.name, 'size': self.dmg.stat().st_size, 'sha256': artifact.digest(self.dmg)}}
+        self.record = {
+            'repository': metadata.REPOSITORY,
+            'sourceDirty': False,
+            'commit': 'a' * 40,
+            'version': '1.2.3',
+            'tag': 'v1.2.3',
+            'signing': artifact.SIGNING,
+            'artifact': {
+                'name': self.dmg.name,
+                'size': self.dmg.stat().st_size,
+                'sha256': artifact.digest(self.dmg),
+            },
+        }
         self.record_path = self.root / 'release.json'
         self.record_path.write_text(json.dumps(self.record))
-        (self.root / (self.dmg.name + '.sha256')).write_text(self.record['artifact']['sha256'] + '  ' + self.dmg.name + '\n')
+        (self.root / (self.dmg.name + '.sha256')).write_text(
+            self.record['artifact']['sha256'] + '  ' + self.dmg.name + '\n'
+        )
         self.assets = assets_for(self.record_path, self.record)
         self.gh = FakeGitHub()
-        self.operation = Release(self.gh, self.record, 'reviewed public notes', self.assets, False, True)
+        self.operation = Release(
+            self.gh, self.record, 'reviewed public notes', self.assets, False, True
+        )
 
     def tearDown(self):
         self.temp.cleanup()
@@ -460,7 +683,9 @@ class RemoteTests(unittest.TestCase):
 
     def test_hidden_draft_by_id_resumes_without_another_creation(self):
         self.operation.act('draft', execute=True)
-        self.assertIsNone(self.gh.api(self.operation.prefix + '/releases/tags/' + self.record['tag']))
+        self.assertIsNone(
+            self.gh.api(self.operation.prefix + '/releases/tags/' + self.record['tag'])
+        )
         self.operation.act('draft', execute=True)
         self.assertEqual(len(self.gh.effects), 5)
         self.assertEqual(self.operation.act('status')['release']['id'], 42)
@@ -469,9 +694,17 @@ class RemoteTests(unittest.TestCase):
 
     def test_release_lookup_refuses_ambiguous_unbounded_or_conflicting_lists(self):
         draft = {'id': 42, 'tag_name': self.record['tag'], 'draft': True}
-        for listing in [None, {}, [None], [draft] * 100, [draft, draft],
-                        [{**draft, 'draft': False}], [{**draft, 'id': True}], [{**draft, 'id': 0}],
-                        [{**draft, 'id': '../other'}]]:
+        for listing in [
+            None,
+            {},
+            [None],
+            [draft] * 100,
+            [draft, draft],
+            [{**draft, 'draft': False}],
+            [{**draft, 'id': True}],
+            [{**draft, 'id': 0}],
+            [{**draft, 'id': '../other'}],
+        ]:
             with self.subTest(listing=listing):
                 github = Mock()
                 github.api.side_effect = [None, listing]
@@ -481,10 +714,18 @@ class RemoteTests(unittest.TestCase):
 
     def test_release_lookup_refuses_changed_or_unavailable_exact_draft(self):
         draft = {'id': 42, 'tag_name': self.record['tag'], 'draft': True}
-        for observed in [None, {**draft, 'id': 43}, {**draft, 'tag_name': 'other'}, {**draft, 'draft': False}]:
+        for observed in [
+            None,
+            {**draft, 'id': 43},
+            {**draft, 'tag_name': 'other'},
+            {**draft, 'draft': False},
+        ]:
             github = Mock()
             github.api.side_effect = [None, [draft], observed]
-            with self.subTest(observed=observed), self.assertRaisesRegex(ValueError, 'changed/unavailable'):
+            with (
+                self.subTest(observed=observed),
+                self.assertRaisesRegex(ValueError, 'changed/unavailable'),
+            ):
                 release_for_tag(github, self.operation.prefix, self.record['tag'])
             self.assertEqual(github.api.call_args.args[0], self.operation.prefix + '/releases/42')
         github = Mock()
@@ -500,7 +741,9 @@ class RemoteTests(unittest.TestCase):
         self.assertEqual(github.api.call_count, 1)
         github = Mock()
         github.api.return_value = {'id': 42, 'draft': False}
-        self.assertEqual(release_for_tag(github, self.operation.prefix, self.record['tag'])['id'], 42)
+        self.assertEqual(
+            release_for_tag(github, self.operation.prefix, self.record['tag'])['id'], 42
+        )
         self.assertEqual(github.api.call_count, 1)
         github = Mock()
         github.api.return_value = []
@@ -528,7 +771,9 @@ class RemoteTests(unittest.TestCase):
         for step in range(1, 7):
             with self.subTest(step=step):
                 self.gh = FakeGitHub()
-                operation = Release(self.gh, self.record, 'reviewed public notes', self.assets, False, True)
+                operation = Release(
+                    self.gh, self.record, 'reviewed public notes', self.assets, False, True
+                )
                 self.gh.fail_after = step
                 with self.assertRaises(TimeoutError):
                     operation.act('draft', execute=True)
@@ -569,10 +814,12 @@ class RemoteTests(unittest.TestCase):
     def test_unexpected_duplicate_partial_assets_and_corrupt_fallback_refuse(self):
         self.operation.act('draft', execute=True)
         saved = copy.deepcopy(self.gh.assets)
-        for mutate in [lambda: self.gh.assets.append(copy.deepcopy(self.gh.assets[0])),
-                       lambda: self.gh.assets[0].update(name='private-unexpected.log'),
-                       lambda: self.gh.assets[0].update(state='starter'),
-                       lambda: self.gh.assets[0].update(digest=None, expectedHash='0' * 64)]:
+        for mutate in [
+            lambda: self.gh.assets.append(copy.deepcopy(self.gh.assets[0])),
+            lambda: self.gh.assets[0].update(name='private-unexpected.log'),
+            lambda: self.gh.assets[0].update(state='starter'),
+            lambda: self.gh.assets[0].update(digest=None, expectedHash='0' * 64),
+        ]:
             self.gh.assets = copy.deepcopy(saved)
             mutate()
             with self.assertRaises(ValueError):
@@ -582,12 +829,30 @@ class RemoteTests(unittest.TestCase):
     def test_download_hash_is_streamed_bounded_and_nonmutating(self):
         spawn = subprocess.Popen
         import sys
+
         with tempfile.TemporaryFile(mode='w+') as journal:
             github = GitHub(journal)
-            for content, size, valid in [('abc', 3, True), ('too-long', 2, False), ('short', 8, False)]:
-                with patch('release_remote.subprocess.Popen', side_effect=lambda *args, **kwargs: spawn([sys.executable, '-c', 'import sys; sys.stdout.write(' + repr(content) + ')'], **kwargs)):
+            for content, size, valid in [
+                ('abc', 3, True),
+                ('too-long', 2, False),
+                ('short', 8, False),
+            ]:
+                with patch(
+                    'release_remote.subprocess.Popen',
+                    side_effect=lambda *args, **kwargs: spawn(
+                        [
+                            sys.executable,
+                            '-c',
+                            'import sys; sys.stdout.write(' + repr(content) + ')',
+                        ],
+                        **kwargs,
+                    ),
+                ):
                     if valid:
-                        self.assertEqual(github.download_hash('read-only-endpoint', size), __import__('hashlib').sha256(content.encode()).hexdigest())
+                        self.assertEqual(
+                            github.download_hash('read-only-endpoint', size),
+                            __import__('hashlib').sha256(content.encode()).hexdigest(),
+                        )
                     else:
                         with self.assertRaises(ValueError):
                             github.download_hash('read-only-endpoint', size)
@@ -595,7 +860,9 @@ class RemoteTests(unittest.TestCase):
     def test_transport_journals_unknown_effect_and_never_retries(self):
         with tempfile.TemporaryFile(mode='w+') as journal:
             github = GitHub(journal)
-            with patch('release_remote.subprocess.run', side_effect=subprocess.TimeoutExpired('gh', 180)) as run:
+            with patch(
+                'release_remote.subprocess.run', side_effect=subprocess.TimeoutExpired('gh', 180)
+            ) as run:
                 with self.assertRaises(subprocess.TimeoutExpired):
                     github.api('repos/test/test/releases', 'POST', {'draft': True})
                 self.assertEqual(run.call_count, 1)
@@ -627,18 +894,27 @@ class TimingTests(unittest.TestCase):
                         pass
                 timing.correlate(dmgSha256='a' * 64)
         value = self.saved()
-        self.assertEqual([(entry['name'], entry['parent'], entry['outcome']) for entry in value['stages']],
-                         [('outer', None, 'completed'), ('inner', 'outer', 'completed')])
+        self.assertEqual(
+            [(entry['name'], entry['parent'], entry['outcome']) for entry in value['stages']],
+            [('outer', None, 'completed'), ('inner', 'outer', 'completed')],
+        )
         for entry in [value, *value['stages']]:
             self.assertGreaterEqual(entry['elapsedSeconds'], 0)
-            self.assertTrue(entry['startedAt'].endswith('+00:00') and entry['endedAt'].endswith('+00:00'))
+            self.assertTrue(
+                entry['startedAt'].endswith('+00:00') and entry['endedAt'].endswith('+00:00')
+            )
         self.assertEqual(value['outcome'], 'completed')
         self.assertEqual(value['correlation'], {'version': '0.1.2', 'dmgSha256': 'a' * 64})
-        self.assertEqual(value['references'], [{'kind': 'remote-journal', 'name': 'release-remote-fixture.jsonl'}])
+        self.assertEqual(
+            value['references'],
+            [{'kind': 'remote-journal', 'name': 'release-remote-fixture.jsonl'}],
+        )
         self.assertNotIn('approved', json.dumps(value).replace('not approval', ''))
         self.assertEqual(json.loads(output.getvalue())['outcome'], 'completed')
         if sys.platform != 'win32':  # POSIX mode bits; Windows privacy is ACL-based.
-            self.assertEqual(next(self.root.glob('release-timing-*.json')).stat().st_mode & 0o777, 0o600)
+            self.assertEqual(
+                next(self.root.glob('release-timing-*.json')).stat().st_mode & 0o777, 0o600
+            )
         self.assertEqual(list(self.root.glob('*.partial')), [])
 
     def test_failure_keeps_original_error_and_records_class_only(self):
@@ -650,8 +926,13 @@ class TimingTests(unittest.TestCase):
                     with timing.stage('package-staging'):
                         raise ValueError('owner refusal mentioning ' + secret)
         value = self.saved()
-        self.assertEqual((value['outcome'], value['error']), ('failed or interrupted', 'ValueError'))
-        self.assertEqual((value['stages'][0]['outcome'], value['stages'][0]['error']), ('failed or interrupted', 'ValueError'))
+        self.assertEqual(
+            (value['outcome'], value['error']), ('failed or interrupted', 'ValueError')
+        )
+        self.assertEqual(
+            (value['stages'][0]['outcome'], value['stages'][0]['error']),
+            ('failed or interrupted', 'ValueError'),
+        )
         self.assertIsNotNone(value['stages'][0]['elapsedSeconds'])
         self.assertNotIn('private-token-path', json.dumps(value))
         self.assertNotIn(str(self.root), json.dumps(value))
@@ -665,13 +946,22 @@ class TimingTests(unittest.TestCase):
                         # What a hard kill here would leave behind on disk.
                         during = self.saved()
                         raise KeyboardInterrupt()
-        self.assertEqual((during['outcome'], during['elapsedSeconds'], during['endedAt']), ('incomplete', None, None))
-        self.assertEqual((during['stages'][0]['outcome'], during['stages'][0]['elapsedSeconds']), ('incomplete', None))
+        self.assertEqual(
+            (during['outcome'], during['elapsedSeconds'], during['endedAt']),
+            ('incomplete', None, None),
+        )
+        self.assertEqual(
+            (during['stages'][0]['outcome'], during['stages'][0]['elapsedSeconds']),
+            ('incomplete', None),
+        )
         self.assertEqual(self.saved()['stages'][0]['error'], 'KeyboardInterrupt')
 
     def test_unavailable_evidence_never_masks_or_changes_owner_outcome(self):
         missing = self.root / 'absent'
-        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
+        with (
+            contextlib.redirect_stdout(io.StringIO()) as output,
+            contextlib.redirect_stderr(io.StringIO()) as errors,
+        ):
             with self.assertRaisesRegex(RuntimeError, 'original owner failure'):
                 with timing.recording('verify'):
                     timing.attach(missing)
@@ -696,9 +986,13 @@ class TimingTests(unittest.TestCase):
 
     def test_no_scratch_actions_keep_output_and_write_no_timing(self):
         import release
+
         # main() deliberately tightens the process umask; keep that out of later tests.
         self.addCleanup(os.umask, os.umask(0o022))
-        for arguments, expected in [(['release.py'], 'no release effects'), (['release.py', 'package'], 'local DMG only')]:
+        for arguments, expected in [
+            (['release.py'], 'no release effects'),
+            (['release.py', 'package'], 'local DMG only'),
+        ]:
             with patch('sys.argv', arguments), contextlib.redirect_stdout(io.StringIO()) as output:
                 release.main()
             lines = output.getvalue().splitlines()
@@ -713,20 +1007,42 @@ class HandoffTests(unittest.TestCase):
     def setUp(self):
         RemoteTests.setUp(self)
         # The identity fields a real packaged record carries beside the remote fixture's subset.
-        self.record.update({'notesSha256': hashlib.sha256(b'reviewed public notes').hexdigest(),
-                            **{name: character * 64 for name, character in [
-                                ('originalSource', 'b'), ('buildSource', 'c'), ('buildContext', 'd'),
-                                ('inventory', 'e'), ('payloadIdentity', 'f')]}})
+        self.record.update(
+            {
+                'notesSha256': hashlib.sha256(b'reviewed public notes').hexdigest(),
+                **{
+                    name: character * 64
+                    for name, character in [
+                        ('originalSource', 'b'),
+                        ('buildSource', 'c'),
+                        ('buildContext', 'd'),
+                        ('inventory', 'e'),
+                        ('payloadIdentity', 'f'),
+                    ]
+                },
+            }
+        )
 
     def test_selected_tuple_binds_exact_source_body_channel_and_three_assets_without_approval(self):
         value = self.operation.selected_tuple()
-        self.assertEqual((value['repository'], value['version'], value['tag'], value['commit']),
-                         (self.record['repository'], self.record['version'], self.record['tag'], self.record['commit']))
-        self.assertEqual(value['bodySha256'], hashlib.sha256(self.operation.body.encode()).hexdigest())
+        self.assertEqual(
+            (value['repository'], value['version'], value['tag'], value['commit']),
+            (
+                self.record['repository'],
+                self.record['version'],
+                self.record['tag'],
+                self.record['commit'],
+            ),
+        )
+        self.assertEqual(
+            value['bodySha256'], hashlib.sha256(self.operation.body.encode()).hexdigest()
+        )
         self.assertEqual(value['notesSha256'], self.record['notesSha256'])
         self.assertEqual((value['prerelease'], value['latest']), (False, True))
-        self.assertEqual([(asset['name'], asset['size'], asset['sha256']) for asset in value['assets']],
-                         sorted((name, asset['size'], asset['sha256']) for name, asset in self.assets.items()))
+        self.assertEqual(
+            [(asset['name'], asset['size'], asset['sha256']) for asset in value['assets']],
+            sorted((name, asset['size'], asset['sha256']) for name, asset in self.assets.items()),
+        )
         self.assertEqual(len(value['assets']), 3)
         self.assertIn('none recorded', value['approval'])
         self.assertNotIn(str(self.root), json.dumps(value))
@@ -734,7 +1050,9 @@ class HandoffTests(unittest.TestCase):
 
     def test_selected_tuple_changes_with_notes_or_channel_and_is_never_an_input(self):
         other = Release(self.gh, self.record, 'different public notes', self.assets, False, False)
-        self.assertNotEqual(other.selected_tuple()['bodySha256'], self.operation.selected_tuple()['bodySha256'])
+        self.assertNotEqual(
+            other.selected_tuple()['bodySha256'], self.operation.selected_tuple()['bodySha256']
+        )
         self.assertFalse(other.selected_tuple()['latest'])
         # A stale summary cannot stand in for qualification: observation still decides.
         self.operation.act('draft', execute=True)
@@ -746,11 +1064,16 @@ class HandoffTests(unittest.TestCase):
     def test_journal_entries_carry_correlation_time_and_request_duration_only(self):
         with tempfile.TemporaryFile(mode='w+') as journal:
             github = GitHub(journal)
-            with patch('release_remote.subprocess.run', return_value=Mock(returncode=0, stdout=b'{"id": 7}', stderr=b'')):
+            with patch(
+                'release_remote.subprocess.run',
+                return_value=Mock(returncode=0, stdout=b'{"id": 7}', stderr=b''),
+            ):
                 github.api('repos/test/test/releases', 'POST', {'draft': True})
             journal.seek(0)
             entries = [json.loads(line) for line in journal]
-        self.assertEqual([entry['outcome'] for entry in entries], ['unknown until reconciled', 'observed'])
+        self.assertEqual(
+            [entry['outcome'] for entry in entries], ['unknown until reconciled', 'observed']
+        )
         self.assertTrue(all(entry['at'].endswith('+00:00') for entry in entries))
         self.assertNotIn('elapsedSeconds', entries[0])
         self.assertGreaterEqual(entries[1]['elapsedSeconds'], 0)

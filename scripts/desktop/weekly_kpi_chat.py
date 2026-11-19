@@ -1,4 +1,5 @@
 """Actual native-owned JSON/NDJSON structured KPI saves with a finite authored provider."""
+
 import argparse
 import contextlib
 import datetime
@@ -30,16 +31,45 @@ def seed_auto_measurements(run, week):
     """Only the stopped exclusive synthetic run copy; no live/private input."""
     if run.child is not None or run.database.parent != run.root or run.database.is_symlink():
         raise ValueError('Stopped exclusive run copy required')
-    start = int(datetime.datetime.fromisoformat(week).replace(tzinfo=datetime.timezone.utc).timestamp() * 1000)
-    recipe = {'conceptId': 'authored-sessions', 'version': 1,
-              'sql': "select count(*) as count, sum(duration_sec) / 60.0 as duration from activity where sport in ('hiking','walking') and started_at >= :week_start_ms and started_at < :week_end_ms",
-              'tracks': [{'key': key, 'signature': json.dumps(['numeric', unit, meaning], separators=(',', ':'))} for key, unit, meaning in [('count', 'sessions', 'Selected session count'), ('duration', 'minutes', 'Selected session duration')]], 'savedAt': week + 'T00:00:00Z'}
+    start = int(
+        datetime.datetime.fromisoformat(week).replace(tzinfo=datetime.timezone.utc).timestamp()
+        * 1000
+    )
+    recipe = {
+        'conceptId': 'authored-sessions',
+        'version': 1,
+        'sql': "select count(*) as count, sum(duration_sec) / 60.0 as duration from activity where sport in ('hiking','walking') and started_at >= :week_start_ms and started_at < :week_end_ms",
+        'tracks': [
+            {'key': key, 'signature': json.dumps(['numeric', unit, meaning], separators=(',', ':'))}
+            for key, unit, meaning in [
+                ('count', 'sessions', 'Selected session count'),
+                ('duration', 'minutes', 'Selected session duration'),
+            ]
+        ],
+        'savedAt': week + 'T00:00:00Z',
+    }
     with contextlib.closing(sqlite3.connect(run.database)) as db:
-        db.execute('insert into weekly_kpi_recipe(concept_id,version,recipe_json) values (?,?,?)', ('authored-sessions', 1, json.dumps(recipe)))
+        db.execute(
+            'insert into weekly_kpi_recipe(concept_id,version,recipe_json) values (?,?,?)',
+            ('authored-sessions', 1, json.dumps(recipe)),
+        )
         for index in [1, 2]:
-            db.execute('insert into activity(id,garmin_id,name,sport,started_at,duration_sec) values (?,?,?,?,?,?)', ('T0336-' + str(index), 'T0336-' + str(index), 'Authored point measurement', 'hiking', start + index * 60000, 4500))
+            db.execute(
+                'insert into activity(id,garmin_id,name,sport,started_at,duration_sec) values (?,?,?,?,?,?)',
+                (
+                    'T0336-' + str(index),
+                    'T0336-' + str(index),
+                    'Authored point measurement',
+                    'hiking',
+                    start + index * 60000,
+                    4500,
+                ),
+            )
         db.commit()
-        if db.execute('pragma integrity_check').fetchone()[0] != 'ok' or db.execute('pragma foreign_key_check').fetchone():
+        if (
+            db.execute('pragma integrity_check').fetchone()[0] != 'ok'
+            or db.execute('pragma foreign_key_check').fetchone()
+        ):
             raise ValueError('Authored automatic-point copy integrity failed')
 
 
@@ -49,35 +79,96 @@ def exercise(run, provider, receipt):
     receipt['outcomes'] = evidence
     receipt['conversation'] = conversation
     original = None
-    for action, stream in [('establish', False), ('adapt', True), ('assess', False), ('no-save', True), ('correct', False)]:
+    for action, stream in [
+        ('establish', False),
+        ('adapt', True),
+        ('assess', False),
+        ('no-save', True),
+        ('correct', False),
+    ]:
         receipt['lastAction'] = action
         before = state(run, provider.week)
-        prompt = 'Authored draft only; do not save.' if action == 'no-save' else 'Authored structured weekly ' + action + '.'
-        raw = api(run, 'POST', '/api/chat', {'conversationId': conversation, 'message': prompt, 'timeZone': 'UTC', 'stream': stream})
+        prompt = (
+            'Authored draft only; do not save.'
+            if action == 'no-save'
+            else 'Authored structured weekly ' + action + '.'
+        )
+        raw = api(
+            run,
+            'POST',
+            '/api/chat',
+            {
+                'conversationId': conversation,
+                'message': prompt,
+                'timeZone': 'UTC',
+                'stream': stream,
+            },
+        )
         expected = NO_SAVE if action == 'no-save' else ANSWER
         if stream:
             events = [json.loads(line) for line in raw.splitlines() if line]
-            if ''.join(e.get('textDelta', '') for e in events if e.get('type') == 'delta') != expected or any(e.get('type') == 'error' for e in events) or not any(e.get('type') == 'done' for e in events):
+            if (
+                ''.join(e.get('textDelta', '') for e in events if e.get('type') == 'delta')
+                != expected
+                or any(e.get('type') == 'error' for e in events)
+                or not any(e.get('type') == 'done' for e in events)
+            ):
                 raise ValueError('Actual NDJSON KPI answer failed')
         else:
             value = json.loads(raw)
-            receipt['lastToolSteps'] = [{key: step.get(key) for key in ['tool', 'status', 'reason']} for step in value.get('toolSteps', [])]
-            if value['assistant']['content'] != expected or [(s['tool'], s['status']) for s in value['toolSteps']] != [('getWeeklyKpis', 'succeeded'), ('saveWeeklyDocuments' if action == 'correct' else 'saveWeeklyKpis', 'succeeded')]:
+            receipt['lastToolSteps'] = [
+                {key: step.get(key) for key in ['tool', 'status', 'reason']}
+                for step in value.get('toolSteps', [])
+            ]
+            if value['assistant']['content'] != expected or [
+                (s['tool'], s['status']) for s in value['toolSteps']
+            ] != [
+                ('getWeeklyKpis', 'succeeded'),
+                ('saveWeeklyDocuments' if action == 'correct' else 'saveWeeklyKpis', 'succeeded'),
+            ]:
                 raise ValueError('Actual JSON KPI tool sequence failed')
         if action == 'adapt':
             with contextlib.closing(readonly(run.database)) as db:
-                grounding = json.loads(db.execute("select grounding_json from message where conversation_id=? and role='assistant' order by created_at desc limit 1", (conversation,)).fetchone()[0])
+                grounding = json.loads(
+                    db.execute(
+                        "select grounding_json from message where conversation_id=? and role='assistant' order by created_at desc limit 1",
+                        (conversation,),
+                    ).fetchone()[0]
+                )
             steps = grounding.get('toolSteps', [])
-            if [(step['tool'], step['status']) for step in steps] != [('getWeeklyKpis', 'rejected'), ('getWeeklyKpis', 'succeeded'), ('saveWeeklyDocuments', 'succeeded')] or steps[0].get('reason') != 'kpi_set_unavailable':
-                raise ValueError('Actual unavailable-set read correction did not precede the single normal save')
-            receipt['readCorrection'] = {'rejectedRead': 'kpi_set_unavailable', 'freshDiscovery': True, 'singleConfirmedSave': True, 'transport': 'NDJSON'}
+            if [(step['tool'], step['status']) for step in steps] != [
+                ('getWeeklyKpis', 'rejected'),
+                ('getWeeklyKpis', 'succeeded'),
+                ('saveWeeklyDocuments', 'succeeded'),
+            ] or steps[0].get('reason') != 'kpi_set_unavailable':
+                raise ValueError(
+                    'Actual unavailable-set read correction did not precede the single normal save'
+                )
+            receipt['readCorrection'] = {
+                'rejectedRead': 'kpi_set_unavailable',
+                'freshDiscovery': True,
+                'singleConfirmedSave': True,
+                'transport': 'NDJSON',
+            }
         saved = state(run, provider.week)
-        points = json.loads(api(run, 'GET', '/api/weekly?weekStart=' + provider.week + '&timeZone=UTC'))['kpis']['points']
+        points = json.loads(
+            api(run, 'GET', '/api/weekly?weekStart=' + provider.week + '&timeZone=UTC')
+        )['kpis']['points']
         if action in ['establish', 'adapt']:
             expected_points = 80 if action == 'establish' else 50
-            if saved['assessments'] or points['total'] != expected_points or not points['automatic'] or not points['provisional']:
-                raise ValueError('Post-save refresh did not publish common automatic points without manual Refresh')
-            if any(track.get('pointsRule') != {'kind': 'proportional'} for track in saved['sets'][-1]['items'][0]['tracks']):
+            if (
+                saved['assessments']
+                or points['total'] != expected_points
+                or not points['automatic']
+                or not points['provisional']
+            ):
+                raise ValueError(
+                    'Post-save refresh did not publish common automatic points without manual Refresh'
+                )
+            if any(
+                track.get('pointsRule') != {'kind': 'proportional'}
+                for track in saved['sets'][-1]['items'][0]['tracks']
+            ):
                 raise ValueError('Adaptation dropped actual canonical rule metadata')
         elif action in ['assess', 'correct']:
             if points['automatic'] or points['total'] != (112.5 if action == 'assess' else 12.5):
@@ -90,26 +181,96 @@ def exercise(run, provider, receipt):
             raise ValueError('Original baseline changed')
         if action == 'adapt' and (saved['latestId'] == original or len(saved['sets']) != 2):
             raise ValueError('Adaptation identity failed')
-        if action == 'assess' and (saved['assessments'][0]['setId'] != saved['latestId'] or saved['assessments'][0]['totalPoints'] != 112.5 or saved['assessments'][0]['items'][0]['actuals'][1]['value'] is not None or [actual.get('awardedPoints') for actual in saved['assessments'][0]['items'][0]['actuals']] != [50, 50] or 'awardedPoints' in saved['assessments'][0]['items'][0] or [track.get('availablePoints') for track in saved['sets'][-1]['items'][0]['tracks']] != [50, 30] or 'availablePoints' in saved['sets'][-1]['items'][0]):
+        if action == 'assess' and (
+            saved['assessments'][0]['setId'] != saved['latestId']
+            or saved['assessments'][0]['totalPoints'] != 112.5
+            or saved['assessments'][0]['items'][0]['actuals'][1]['value'] is not None
+            or [
+                actual.get('awardedPoints')
+                for actual in saved['assessments'][0]['items'][0]['actuals']
+            ]
+            != [50, 50]
+            or 'awardedPoints' in saved['assessments'][0]['items'][0]
+            or [track.get('availablePoints') for track in saved['sets'][-1]['items'][0]['tracks']]
+            != [50, 30]
+            or 'availablePoints' in saved['sets'][-1]['items'][0]
+        ):
             raise ValueError('Latest-plan above100/unknown per-measurement assessment failed')
         if action == 'no-save' and saved != before:
             raise ValueError('No-save changed structured state')
-        if action == 'correct' and (saved['assessments'][0]['totalPoints'] != 12.5 or saved['assessments'][0]['items'][0]['actuals'][0]['value'] != 0 or len(saved['assessments']) != 1 or saved['sets'] != before['sets']):
+        if action == 'correct' and (
+            saved['assessments'][0]['totalPoints'] != 12.5
+            or saved['assessments'][0]['items'][0]['actuals'][0]['value'] != 0
+            or len(saved['assessments']) != 1
+            or saved['sets'] != before['sets']
+        ):
             raise ValueError('Focused correction/reference preservation failed')
         with contextlib.closing(readonly(run.database)) as db:
             if db.execute('select count(*) from weekly_kpi_track').fetchone()[0] != 2:
                 raise ValueError('Canonical identity reuse fragmented track inventory')
-        if action == 'adapt' and [(item['conceptId'], item['label'], [(track['key'], track['kind'], track['unit'], track['meaning']) for track in item['tracks']]) for item in saved['sets'][-1]['items']] != [(item['conceptId'], item['label'], [(track['key'], track['kind'], track['unit'], track['meaning']) for track in item['tracks']]) for item in before['sets'][-1]['items']]:
+        if action == 'adapt' and [
+            (
+                item['conceptId'],
+                item['label'],
+                [
+                    (track['key'], track['kind'], track['unit'], track['meaning'])
+                    for track in item['tracks']
+                ],
+            )
+            for item in saved['sets'][-1]['items']
+        ] != [
+            (
+                item['conceptId'],
+                item['label'],
+                [
+                    (track['key'], track['kind'], track['unit'], track['meaning'])
+                    for track in item['tracks']
+                ],
+            )
+            for item in before['sets'][-1]['items']
+        ]:
             raise ValueError('Adaptation did not reuse discovered canonical identity/name/meaning')
         for saved_set in saved['sets']:
-            if 'provenance' in saved_set or any(any(key in item for key in ['definition', 'selection', 'evidenceRequired', 'scoring']) for item in saved_set['items']):
+            if 'provenance' in saved_set or any(
+                any(
+                    key in item
+                    for key in ['definition', 'selection', 'evidenceRequired', 'scoring']
+                )
+                for item in saved_set['items']
+            ):
                 raise ValueError('Redundant generation fields were not actually omitted')
-        if any('explanation' in result or any('explanation' in item or 'qualification' in item['evidence'] or 'limitations' in item['evidence'] for item in result['items']) for result in saved['assessments']):
+        if any(
+            'explanation' in result
+            or any(
+                'explanation' in item
+                or 'qualification' in item['evidence']
+                or 'limitations' in item['evidence']
+                for item in result['items']
+            )
+            for result in saved['assessments']
+        ):
             raise ValueError('Assessment omission contract failed')
-        evidence.append({'action': action, 'tool': 'saveWeeklyDocuments' if action in ['adapt', 'correct'] else 'saveWeeklyKpis' if action != 'no-save' else None, 'transport': 'NDJSON' if stream else 'JSON', 'http': 200, 'storedOutcomeVerified': True, 'redundantFieldsOmitted': True})
+        evidence.append(
+            {
+                'action': action,
+                'tool': 'saveWeeklyDocuments'
+                if action in ['adapt', 'correct']
+                else 'saveWeeklyKpis'
+                if action != 'no-save'
+                else None,
+                'transport': 'NDJSON' if stream else 'JSON',
+                'http': 200,
+                'storedOutcomeVerified': True,
+                'redundantFieldsOmitted': True,
+            }
+        )
     if len(provider.calls) != 14:
         raise ValueError('Unexpected authored provider call count')
-    return conversation, evidence, hashlib.sha256(json.dumps(state(run, provider.week), sort_keys=True).encode()).hexdigest()
+    return (
+        conversation,
+        evidence,
+        hashlib.sha256(json.dumps(state(run, provider.week), sort_keys=True).encode()).hexdigest(),
+    )
 
 
 @resources.invocation
@@ -117,8 +278,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
-    parser.add_argument('--release-record', type=Path, help='Selected final DMG record; original bundle admission remains required')
-    parser.set_defaults(task_id='T0319', input_file=None, grant_file=None, provenance_file=None, anchor=None)
+    parser.add_argument(
+        '--release-record',
+        type=Path,
+        help='Selected final DMG record; original bundle admission remains required',
+    )
+    parser.set_defaults(
+        task_id='T0319', input_file=None, grant_file=None, provenance_file=None, anchor=None
+    )
     args = parser.parse_args()
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
@@ -126,16 +293,45 @@ def main():
     bundle = canonical(args.bundle)
     source = source_identity()
     run = provider = observer = None
-    receipt = {'scenario': 'T0336-canonical-read-correction-declared-rules-carry-forward-post-save-refresh-reviewed-zero-native-chat', 'passed': False, 'privateInputs': 'none', 'realServices': 'not exercised; finite authored provider', 'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis', 'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.'}
-    with candidate_preparation(REPO, bundle, source, scratch, args.release_record) as (bundle, verify_current, verified, inventory, release_record):
+    receipt = {
+        'scenario': 'T0336-canonical-read-correction-declared-rules-carry-forward-post-save-refresh-reviewed-zero-native-chat',
+        'passed': False,
+        'privateInputs': 'none',
+        'realServices': 'not exercised; finite authored provider',
+        'screenshot': 'N/A for HTTP/tool proof; actual weekly/Progress presentation is separately captured by smoke:weekly-kpis',
+        'cleanup': 'Only task-attributed run-copy chats/KPIs; original input unchanged, no primary access/copy-back.',
+    }
+    with candidate_preparation(REPO, bundle, source, scratch, args.release_record) as (
+        bundle,
+        verify_current,
+        verified,
+        inventory,
+        release_record,
+    ):
         try:
-            run = OrdinaryRun(scratch, prepared.database, source, bundle, inventory, verified=verified, macos_metadata=bool(release_record))
+            run = OrdinaryRun(
+                scratch,
+                prepared.database,
+                source,
+                bundle,
+                inventory,
+                verified=verified,
+                macos_metadata=bool(release_record),
+            )
+
             def before_start():
                 prepared.verify_current()
                 verify_current()
+
             run.before_start = before_start
             receipt['releaseTransport'] = release_record
-            receipt.update({'source': source, 'artifactInventoryHash': inventory_hash(inventory), 'runId': run.id})
+            receipt.update(
+                {
+                    'source': source,
+                    'artifactInventoryHash': inventory_hash(inventory),
+                    'runId': run.id,
+                }
+            )
             provider = AuthoredProvider(weekly_kpis=True, scratch=scratch)
             today = datetime.datetime.now(datetime.timezone.utc).date()
             provider.week = (today - datetime.timedelta(days=today.weekday())).isoformat()
@@ -146,12 +342,34 @@ def main():
             run.start(run.binary)
             conversation, outcomes, expected = exercise(run, provider, receipt)
             old_boot = run.boot
-            run.stop(); run.start(run.binary)
-            if run.boot == old_boot or hashlib.sha256(json.dumps(state(run, provider.week), sort_keys=True).encode()).hexdigest() != expected:
+            run.stop()
+            run.start(run.binary)
+            if (
+                run.boot == old_boot
+                or hashlib.sha256(
+                    json.dumps(state(run, provider.week), sort_keys=True).encode()
+                ).hexdigest()
+                != expected
+            ):
                 raise ValueError('Actual native restart persistence failed')
-            if source_identity() != source or audit(bundle) != inventory or audit(run.bundle) != inventory:
+            if (
+                source_identity() != source
+                or audit(bundle) != inventory
+                or audit(run.bundle) != inventory
+            ):
                 raise ValueError('Source/artifact changed')
-            receipt.update({'source': source, 'artifactInventoryHash': inventory_hash(inventory), 'runId': run.id, 'conversation': conversation, 'outcomes': outcomes, 'calls': provider.calls, 'restartPersistence': True, 'passed': True})
+            receipt.update(
+                {
+                    'source': source,
+                    'artifactInventoryHash': inventory_hash(inventory),
+                    'runId': run.id,
+                    'conversation': conversation,
+                    'outcomes': outcomes,
+                    'calls': provider.calls,
+                    'restartPersistence': True,
+                    'passed': True,
+                }
+            )
         finally:
             with resources.preserve_failure():
                 errors = []
@@ -172,11 +390,15 @@ def main():
                 private_json(path, receipt)
                 print(json.dumps({'passed': receipt['passed'], 'receipt': str(path)}))
                 if not receipt['passed']:
-                    raise RuntimeError('Authored native KPI chat failed; original evidence retained')
+                    raise RuntimeError(
+                        'Authored native KPI chat failed; original evidence retained'
+                    )
 
 
 if __name__ == '__main__':
+
     def interrupted(_signal, _frame):
         raise KeyboardInterrupt('Owned native KPI chat interrupted')
+
     signal.signal(signal.SIGTERM, interrupted)
     main()

@@ -1,4 +1,5 @@
 """Local DMG transport of a legitimate ordinary producer, never an installer/builder."""
+
 import contextlib
 import hashlib
 import json
@@ -11,12 +12,19 @@ import stat
 import subprocess
 import uuid
 
-from ordinary_identity import document, inventory_hash, provenance, verify_ordinary, ordinary_preparation
+from ordinary_identity import (
+    document,
+    inventory_hash,
+    provenance,
+    verify_ordinary,
+    ordinary_preparation,
+)
 import platform_files
 from release_metadata import REPOSITORY, check, git
 from release_smoke import audit
 from release_timing import stage
 import smoke_resources as resources
+
 
 @contextlib.contextmanager
 def candidate_preparation(repo, bundle, source, scratch, record_path=None):
@@ -27,8 +35,10 @@ def candidate_preparation(repo, bundle, source, scratch, record_path=None):
     even after a failed scenario; transported retains original failure semantics.
     """
     with ordinary_preparation(repo, bundle, source, scratch) as (verified, inventory):
+
         def verify_current():
             verify_ordinary(repo, bundle, source, inventory, scratch)
+
         if record_path is None:
             try:
                 yield bundle, verify_current, verified, inventory, None
@@ -36,7 +46,11 @@ def candidate_preparation(repo, bundle, source, scratch, record_path=None):
                 with resources.preserve_failure():
                     verify_current()
         else:
-            with transported(repo, bundle, source, verified, inventory, record_path, scratch) as (payload, recheck, record):
+            with transported(repo, bundle, source, verified, inventory, record_path, scratch) as (
+                payload,
+                recheck,
+                record,
+            ):
                 yield payload, recheck, verified, inventory, record
 
 
@@ -48,22 +62,39 @@ def run(args, *, timeout=120, check=True):
     result = subprocess.run([str(arg) for arg in args], capture_output=True, timeout=timeout)
     if check and result.returncode:
         # Vendor output may contain paths; bounded generic diagnostic, retain owned stage.
-        raise RuntimeError(str(args[0]) + ' failed with exit ' + str(result.returncode) + '; owned outputs retained')
+        raise RuntimeError(
+            str(args[0])
+            + ' failed with exit '
+            + str(result.returncode)
+            + '; owned outputs retained'
+        )
     return result
 
 
 def regular(path):
     info = path.lstat()
-    if (path.resolve(strict=True) != path or platform_files.is_link(info) or not stat.S_ISREG(info.st_mode)
-            or info.st_nlink != 1):
+    if (
+        path.resolve(strict=True) != path
+        or platform_files.is_link(info)
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+    ):
         raise ValueError('Canonical single-link regular artifact required')
     return info
 
 
 def stable_file(info):
     # Reading may update atime (not content identity), notably on freshly created DMGs.
-    return (info.st_dev, info.st_ino, info.st_size, info.st_mode, info.st_nlink,
-            info.st_uid, info.st_mtime_ns, info.st_ctime_ns)
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mode,
+        info.st_nlink,
+        info.st_uid,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
 
 
 def digest(path):
@@ -100,11 +131,14 @@ def _digest_windows(path):
 
 def xattrs(path):
     if hasattr(os, 'listxattr'):
-        return {name: hashlib.sha256(os.getxattr(path, name, follow_symlinks=False)).hexdigest()
-                for name in sorted(os.listxattr(path, follow_symlinks=False))}
+        return {
+            name: hashlib.sha256(os.getxattr(path, name, follow_symlinks=False)).hexdigest()
+            for name in sorted(os.listxattr(path, follow_symlinks=False))
+        }
     # CPython exposes xattr helpers only on Linux. Use Darwin's no-follow API,
     # not one subprocess per packaged file and not a new dependency.
     import ctypes
+
     libc = ctypes.CDLL(None, use_errno=True)
     libc.listxattr.restype = libc.getxattr.restype = ctypes.c_ssize_t
     encoded = os.fsencode(path)
@@ -139,13 +173,22 @@ def tree_identity(app):
         relative = str(path.relative_to(app))
         if any(c in relative for c in '\x00\r\n'):
             raise ValueError('Unrepresentable payload name')
-        if any(re.search(r'^(?:\.env(?:\..*)?|\.garmin.*|\.cache|\.DS_Store|__pycache__|data|logs|backups|settings-v[0-9]+\.json|tokens?\.json)$|\.(?:sqlite|db)(?:-.*)?$', part, re.I)
-               for part in path.relative_to(app).parts):
+        if any(
+            re.search(
+                r'^(?:\.env(?:\..*)?|\.garmin.*|\.cache|\.DS_Store|__pycache__|data|logs|backups|settings-v[0-9]+\.json|tokens?\.json)$|\.(?:sqlite|db)(?:-.*)?$',
+                part,
+                re.I,
+            )
+            for part in path.relative_to(app).parts
+        ):
             raise ValueError('Private/cache payload name refused: ' + relative)
         attrs = xattrs(path)
-        result[relative] = {'kind': 'directory' if path.is_dir() else 'file',
-                            'mode': stat.S_IMODE(info.st_mode), 'xattrs': attrs,
-                            'sha256': inventory.get(relative)}
+        result[relative] = {
+            'kind': 'directory' if path.is_dir() else 'file',
+            'mode': stat.S_IMODE(info.st_mode),
+            'xattrs': attrs,
+            'sha256': inventory.get(relative),
+        }
     return result
 
 
@@ -153,31 +196,54 @@ def identity_hash(identity):
     return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
 
-EXCLUDED_RUNTIME = ('node_modules/sharp', 'node_modules/@img', 'node_modules/next/dist/compiled/@vercel/og')
+EXCLUDED_RUNTIME = (
+    'node_modules/sharp',
+    'node_modules/@img',
+    'node_modules/next/dist/compiled/@vercel/og',
+)
 
 
 def payload_checks(app, version):
     identity = tree_identity(app)
     with (app / 'Contents/Info.plist').open('rb') as stream:
         info = plistlib.load(stream)
-    if any(info.get(key) != value for key, value in {
+    if any(
+        info.get(key) != value
+        for key, value in {
             'CFBundleIdentifier': 'com.codexa.garmin-trainer.desktop',
-            'CFBundleShortVersionString': version, 'CFBundleVersion': version,
-            'CFBundleExecutable': 'garmin-trainer-desktop'}.items()):
+            'CFBundleShortVersionString': version,
+            'CFBundleVersion': version,
+            'CFBundleExecutable': 'garmin-trainer-desktop',
+        }.items()
+    ):
         raise ValueError('Payload app identity/version mismatch')
     root = app / 'Contents/Resources/resources'
     value = provenance(app)
     for entry in value['files']:
         name = entry['path']
         path = root / name
-        if not path.is_relative_to(root) or '..' in Path(name).parts or digest(path) != entry['sha256']:
+        if (
+            not path.is_relative_to(root)
+            or '..' in Path(name).parts
+            or digest(path) != entry['sha256']
+        ):
             raise ValueError('Resource provenance mismatch')
-    for name in ['NODE-LICENSE.txt', 'THIRD-PARTY-NOTICES.txt', 'REDISTRIBUTION-REVIEW.txt',
-                 'redistribution/index.json', 'redistribution/NOTICES.txt', 'redistribution/sources/native-crates.tar.gz',
-                 'runtime/runtime.cjs', 'runtime/scripts/garmin_auth.py', 'runtime/scripts/garmin_auth.py.lock']:
+    for name in [
+        'NODE-LICENSE.txt',
+        'THIRD-PARTY-NOTICES.txt',
+        'REDISTRIBUTION-REVIEW.txt',
+        'redistribution/index.json',
+        'redistribution/NOTICES.txt',
+        'redistribution/sources/native-crates.tar.gz',
+        'runtime/runtime.cjs',
+        'runtime/scripts/garmin_auth.py',
+        'runtime/scripts/garmin_auth.py.lock',
+    ]:
         if regular(root / name).st_size == 0:
             raise ValueError('Required payload resource/notice missing')
-    sqlite = list(root.glob('runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node'))
+    sqlite = list(
+        root.glob('runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node')
+    )
     if len(sqlite) != 1:
         raise ValueError('Required native SQLite missing')
     if regular(root / 'runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm').st_size == 0:
@@ -193,8 +259,10 @@ def payload_checks(app, version):
         raise ValueError('Payload executable mode missing')
     details = run(['/usr/bin/codesign', '-d', '--verbose=4', app], check=False)
     text = (details.stdout + details.stderr).decode(errors='replace')
-    if not ((details.returncode == 0 and 'Signature=adhoc' in text and 'Authority=' not in text)
-            or (details.returncode == 1 and 'code object is not signed at all' in text)):
+    if not (
+        (details.returncode == 0 and 'Signature=adhoc' in text and 'Authority=' not in text)
+        or (details.returncode == 1 and 'code object is not signed at all' in text)
+    ):
         raise ValueError('Unexpected signing profile; no certificate/trust operations permitted')
     return identity
 
@@ -207,15 +275,32 @@ def mounted(dmg, workspace):
     attached = False
     failed = True
     receipt = workspace / (mount.name + '.json')
-    observation = {'mount': str(mount), 'attach': 'requested; effect unknown', 'detach': 'not attempted'}
+    observation = {
+        'mount': str(mount),
+        'attach': 'requested; effect unknown',
+        'detach': 'not attempted',
+    }
+
     def save():
         receipt.write_text(json.dumps(observation, indent=2) + '\n')
+
     save()
     try:
         # -plist retains an exact mount observation; an unknown attach outcome is not retried.
         with stage('image-attach'):
-            result = run(['/usr/bin/hdiutil', 'attach', '-readonly', '-nobrowse', '-noautoopen',
-                          '-mountpoint', mount, '-plist', dmg])
+            result = run(
+                [
+                    '/usr/bin/hdiutil',
+                    'attach',
+                    '-readonly',
+                    '-nobrowse',
+                    '-noautoopen',
+                    '-mountpoint',
+                    mount,
+                    '-plist',
+                    dmg,
+                ]
+            )
         attached = True
         observation['attach'] = 'observed'
         save()
@@ -238,7 +323,10 @@ def mounted(dmg, workspace):
             except BaseException:
                 if not failed:
                     raise
-                print('Owned DMG detach also failed; original failure preserved; inspect mount receipt before recovery', flush=True)
+                print(
+                    'Owned DMG detach also failed; original failure preserved; inspect mount receipt before recovery',
+                    flush=True,
+                )
         # On attach timeout the OS may still own the mount: preserve it, never blind retry/delete.
 
 
@@ -246,32 +334,56 @@ def mounted(dmg, workspace):
 # headroom. Exceeding it stops packaging before a record exists; raise it only
 # by a reviewed change with the new measured breakdown.
 DMG_BUDGET_BYTES = 140_000_000
-SIZE_GROUPS = {'node': 'node', 'runtime': 'runtime', 'next': 'runtime/node_modules/next',
-               'redistribution': 'redistribution'}
+SIZE_GROUPS = {
+    'node': 'node',
+    'runtime': 'runtime',
+    'next': 'runtime/node_modules/next',
+    'redistribution': 'redistribution',
+}
 
 
 def size_report(app, dmg):
     """Local review aid: logical payload bytes per group; not a release asset."""
+
     def logical(path):
         if path.is_file():
             return path.lstat().st_size
-        return sum(item.lstat().st_size for item in path.rglob('*') if item.is_file() and not item.is_symlink())
+        return sum(
+            item.lstat().st_size
+            for item in path.rglob('*')
+            if item.is_file() and not item.is_symlink()
+        )
+
     resources = app / 'Contents/Resources/resources'
-    return {'schemaVersion': 1, 'dmgBytes': dmg.stat().st_size, 'dmgBudgetBytes': DMG_BUDGET_BYTES,
-            'appBytes': logical(app),
-            'groups': {name: logical(resources / path) for name, path in SIZE_GROUPS.items()}}
+    return {
+        'schemaVersion': 1,
+        'dmgBytes': dmg.stat().st_size,
+        'dmgBudgetBytes': DMG_BUDGET_BYTES,
+        'appBytes': logical(app),
+        'groups': {name: logical(resources / path) for name, path in SIZE_GROUPS.items()},
+    }
 
 
 def record_for(repo, bundle, dmg, version, notes, verified, identity):
-    return {'schemaVersion': 1, 'repository': REPOSITORY, 'commit': git(repo, 'rev-parse', 'HEAD'),
-            'sourceDirty': bool(git(repo, 'status', '--porcelain', '--untracked-files=all')) or verified['provenance']['sourceDirty'] or verified['provenance']['source'] != git(repo, 'rev-parse', 'HEAD'),
-            'version': version, 'tag': 'v' + version, 'target': 'aarch64-apple-darwin',
-            'originalSource': verified['provenance']['sourceFingerprint'],
-            'buildSource': verified['provenance']['buildSourceFingerprint'],
-            'buildContext': verified['context'], 'inventory': verified['inventory'],
-            'payloadIdentity': identity_hash(identity), 'signing': SIGNING,
-            'notesSha256': hashlib.sha256(notes.encode()).hexdigest(),
-            'artifact': {'name': dmg.name, 'size': dmg.stat().st_size, 'sha256': digest(dmg)}}
+    return {
+        'schemaVersion': 1,
+        'repository': REPOSITORY,
+        'commit': git(repo, 'rev-parse', 'HEAD'),
+        'sourceDirty': bool(git(repo, 'status', '--porcelain', '--untracked-files=all'))
+        or verified['provenance']['sourceDirty']
+        or verified['provenance']['source'] != git(repo, 'rev-parse', 'HEAD'),
+        'version': version,
+        'tag': 'v' + version,
+        'target': 'aarch64-apple-darwin',
+        'originalSource': verified['provenance']['sourceFingerprint'],
+        'buildSource': verified['provenance']['buildSourceFingerprint'],
+        'buildContext': verified['context'],
+        'inventory': verified['inventory'],
+        'payloadIdentity': identity_hash(identity),
+        'signing': SIGNING,
+        'notesSha256': hashlib.sha256(notes.encode()).hexdigest(),
+        'artifact': {'name': dmg.name, 'size': dmg.stat().st_size, 'sha256': digest(dmg)},
+    }
 
 
 def verify_image(repo, bundle, source, verified, inventory, dmg, workspace, record=None):
@@ -306,7 +418,9 @@ def package(repo, bundle, source, verified, inventory, scratch):
         raise ValueError('DMG packaging requires macOS ARM64')
     version, _ = check(repo)
     workspace = resources.run_directory(scratch / ('release-' + str(uuid.uuid4())))
-    resources.retain('Local release artifact and staging retained for inspection; no installation or immediate disposal')
+    resources.retain(
+        'Local release artifact and staging retained for inspection; no installation or immediate disposal'
+    )
     staging = workspace / 'staging'
     staging.mkdir(mode=0o700)
     with stage('package-staging'):
@@ -321,8 +435,22 @@ def package(repo, bundle, source, verified, inventory, scratch):
         raise ValueError('Artifact output exists; never overwrite')
     # No -ov; exclusive workspace pins output namespace, no privileged destination.
     with stage('package-image-create'):
-        run(['/usr/bin/hdiutil', 'create', '-format', 'UDZO', '-fs', 'HFS+', '-volname',
-             'Garmin Trainer ' + version, '-srcfolder', staging, dmg], timeout=300)
+        run(
+            [
+                '/usr/bin/hdiutil',
+                'create',
+                '-format',
+                'UDZO',
+                '-fs',
+                'HFS+',
+                '-volname',
+                'Garmin Trainer ' + version,
+                '-srcfolder',
+                staging,
+                dmg,
+            ],
+            timeout=300,
+        )
     with verified_image(repo, bundle, source, verified, inventory, dmg, workspace) as (_, record):
         pass
     report = size_report(bundle, dmg)
@@ -348,7 +476,11 @@ def transported(repo, bundle, source, verified, inventory, record_path, scratch)
         raise ValueError('Unsafe artifact record name')
     dmg = record_path.parent / name
     workspace = resources.run_directory(scratch / ('release-verify-' + str(uuid.uuid4())))
-    with verified_image(repo, bundle, source, verified, inventory, dmg, workspace, record) as (payload, observed):
+    with verified_image(repo, bundle, source, verified, inventory, dmg, workspace, record) as (
+        payload,
+        observed,
+    ):
+
         def verify_current():
             with stage('transport-recheck'):
                 verify_ordinary(repo, bundle, source, inventory)
@@ -356,6 +488,7 @@ def transported(repo, bundle, source, verified, inventory, record_path, scratch)
                     raise ValueError('Transport record/image changed')
                 if tree_identity(payload) != tree_identity(bundle):
                     raise ValueError('Transported payload changed; never fall back to producer')
+
         verify_current()
         try:
             yield payload, verify_current, observed

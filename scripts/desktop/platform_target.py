@@ -3,6 +3,7 @@
 Exactly two targets exist. Builds are native-host only; nothing here guesses a
 target from an imported record or falls back after a failed selection.
 """
+
 import json
 from pathlib import Path
 import platform
@@ -13,7 +14,11 @@ MACOS = 'macos-arm64'
 WINDOWS = 'windows-x64'
 PLATFORMS = (MACOS, WINDOWS)
 # Host platform identity as Node reports it, per target (runtime-inputs.json `host`).
-_PYTHON_HOST = {('darwin', 'arm64'): MACOS, ('win32', 'amd64'): WINDOWS, ('win32', 'x86_64'): WINDOWS}
+_PYTHON_HOST = {
+    ('darwin', 'arm64'): MACOS,
+    ('win32', 'amd64'): WINDOWS,
+    ('win32', 'x86_64'): WINDOWS,
+}
 
 
 def targets():
@@ -40,5 +45,7 @@ def host():
 def require_host(platform_id):
     target(platform_id)
     if host() != platform_id:
-        raise ValueError(platform_id + ' artifacts are built and verified only on their native host')
+        raise ValueError(
+            platform_id + ' artifacts are built and verified only on their native host'
+        )
     return platform_id

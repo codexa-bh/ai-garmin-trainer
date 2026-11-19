@@ -3,6 +3,7 @@
 Only the full locked build producer publishes a stamp. Consumers never rewrite a bundle.
 Debug/probe callers retain unrestricted source identity and their own stamps.
 """
+
 import contextlib
 import hashlib
 import json
@@ -21,8 +22,13 @@ from smoke_build import build_inputs, digest_file, preparation_lock
 VERSION = 2
 MODE = 'ordinary-release/v2'
 # Proven external to Next/assembly/native includes. Unknown and untracked paths stay in.
-EXTERNAL = frozenset(['scripts/desktop/ordinary_smoke.py', 'scripts/desktop/ordinary_smoke_test.py',
-                      'docs/dev-bridge.md'])
+EXTERNAL = frozenset(
+    [
+        'scripts/desktop/ordinary_smoke.py',
+        'scripts/desktop/ordinary_smoke_test.py',
+        'docs/dev-bridge.md',
+    ]
+)
 CLASSIFIER = {'version': 1, 'externalTrackedPaths': sorted(EXTERNAL)}
 STAMP = 'ordinary-build-v2.json'
 
@@ -52,8 +58,14 @@ def source_snapshot(repo):
     repo = Path(repo)
     if repo.resolve(strict=True) != repo:
         raise ValueError('Canonical source worktree required')
-    tracked = set(subprocess.check_output(['git', 'ls-files', '-z', '--cached'], cwd=repo).split(b'\0')) - {b''}
-    names = set(subprocess.check_output(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=repo).split(b'\0')) - {b''}
+    tracked = set(
+        subprocess.check_output(['git', 'ls-files', '-z', '--cached'], cwd=repo).split(b'\0')
+    ) - {b''}
+    names = set(
+        subprocess.check_output(
+            ['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], cwd=repo
+        ).split(b'\0')
+    ) - {b''}
     full = hashlib.sha256()
     build = hashlib.sha256(json.dumps(CLASSIFIER, sort_keys=True).encode() + b'\0')
     driver = hashlib.sha256()
@@ -74,17 +86,34 @@ def source_snapshot(repo):
                 mode = stat.S_IMODE(before.st_mode)
                 after = os.fstat(stream.fileno())
                 current = current_stat(path)
-                if stable(before) != stable(after) or stable(current) != stable(after) or current.st_mode != after.st_mode:
-                    changed = [field for field in STABLE if getattr(current, field) != getattr(after, field)
-                               or getattr(before, field) != getattr(after, field)]
-                    raise ValueError('Source changed while hashing: ' + os.fsdecode(name) + ' ' + ','.join(changed))
+                if (
+                    stable(before) != stable(after)
+                    or stable(current) != stable(after)
+                    or current.st_mode != after.st_mode
+                ):
+                    changed = [
+                        field
+                        for field in STABLE
+                        if getattr(current, field) != getattr(after, field)
+                        or getattr(before, field) != getattr(after, field)
+                    ]
+                    raise ValueError(
+                        'Source changed while hashing: '
+                        + os.fsdecode(name)
+                        + ' '
+                        + ','.join(changed)
+                    )
         full.update(name + b'\0' + data)
         external = name in tracked and os.fsdecode(name) in EXTERNAL
         # Preserve the unrestricted legacy byte hash above, but domain-separate
         # real files from deletion markers and bind executable/config mode changes.
         record = b'deleted\0' if mode is None else b'file\0' + str(mode).encode() + b'\0' + data
         (driver if external else build).update(name + b'\0' + record)
-    return {'source': full.hexdigest(), 'buildSource': build.hexdigest(), 'driver': driver.hexdigest()}
+    return {
+        'source': full.hexdigest(),
+        'buildSource': build.hexdigest(),
+        'driver': driver.hexdigest(),
+    }
 
 
 def inventory_hash(inventory):
@@ -106,7 +135,12 @@ def unique_object(pairs):
 
 
 def document(path):
-    if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1 or path.stat().st_size > 16 * 1024 * 1024:
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_nlink != 1
+        or path.stat().st_size > 16 * 1024 * 1024
+    ):
         raise ValueError('Missing/aliased ordinary provenance; full rebuild required')
     return json.loads(path.read_text(), object_pairs_hook=unique_object)
 
@@ -120,10 +154,20 @@ def resources_of(bundle):
 
 def provenance(bundle):
     value = document(resources_of(bundle) / 'provenance.json')
-    if not isinstance(value, dict) or type(value.get('version')) is not int or value['version'] != VERSION:
-        raise ValueError('Unsupported ordinary provenance; full rebuild required, never relabel a bundle')
+    if (
+        not isinstance(value, dict)
+        or type(value.get('version')) is not int
+        or value['version'] != VERSION
+    ):
+        raise ValueError(
+            'Unsupported ordinary provenance; full rebuild required, never relabel a bundle'
+        )
     for field in ['sourceFingerprint', 'buildSourceFingerprint', 'buildContext']:
-        if not isinstance(value.get(field), str) or len(value[field]) != 64 or any(c not in '0123456789abcdef' for c in value[field]):
+        if (
+            not isinstance(value.get(field), str)
+            or len(value[field]) != 64
+            or any(c not in '0123456789abcdef' for c in value[field])
+        ):
             raise ValueError('Malformed ordinary identity; full rebuild required')
     return value
 
@@ -136,17 +180,28 @@ def context_identity(repo, snapshot):
     try:
         info = os.fstat(fd)
         current = lock.stat()
-        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not platform_files.owned(fd)
-                or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino)):
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or not platform_files.owned(fd)
+            or (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino)
+        ):
             raise ValueError('Foreign/replaced preparation lock refused')
         inputs = build_inputs(repo, snapshot['buildSource'], MODE)
         key = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-        components = {name: hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
-                      for name, value in inputs.items() if name != 'environment'}
-        components['environment'] = {name: hashlib.sha256(value.encode()).hexdigest()
-                                     for name, value in inputs['environment'].items()}
-        return {'key': hashlib.sha256(json.dumps([key, info.st_dev, info.st_ino]).encode()).hexdigest(),
-                'components': components}
+        components = {
+            name: hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+            for name, value in inputs.items()
+            if name != 'environment'
+        }
+        components['environment'] = {
+            name: hashlib.sha256(value.encode()).hexdigest()
+            for name, value in inputs['environment'].items()
+        }
+        return {
+            'key': hashlib.sha256(json.dumps([key, info.st_dev, info.st_ino]).encode()).hexdigest(),
+            'components': components,
+        }
     finally:
         os.close(fd)
 
@@ -169,6 +224,7 @@ def producer_platform(bundle):
 
 def producer_inventory(repo, bundle, workspace):
     from release_smoke import audit
+
     if producer_platform(bundle) == platform_target.WINDOWS:
         platform_target.require_host(platform_target.WINDOWS)
         return windows_producer_inventory(repo, bundle, workspace)
@@ -179,26 +235,46 @@ def verify_ordinary(repo, bundle, source, inventory, workspace=None):
     """Caller owns the preparation lock. A stamp is not a substitute for rehashing."""
     if workspace is None:
         workspace = preparation_directory(repo)
-    if bundle.resolve(strict=True) != bundle or producer_inventory(repo, bundle, workspace) != inventory:
+    if (
+        bundle.resolve(strict=True) != bundle
+        or producer_inventory(repo, bundle, workspace) != inventory
+    ):
         raise ValueError('Ordinary inventory/alias changed')
     current = source_snapshot(repo)
     if current['source'] != source:
         raise ValueError('Current driver/source changed before ordinary verification')
     value = provenance(bundle)
     context = context_key(repo, current)
-    if value['buildSourceFingerprint'] != current['buildSource'] or value['buildContext'] != context:
+    if (
+        value['buildSourceFingerprint'] != current['buildSource']
+        or value['buildContext'] != context
+    ):
         raise ValueError('Ordinary build inputs/context mismatch; full desktop:build required')
     info = bundle.stat()
-    expected = {'version': VERSION, 'mode': MODE, 'bundle': str(bundle), 'bundleIdentity': [info.st_dev, info.st_ino],
-                'source': value['sourceFingerprint'], 'buildSource': current['buildSource'], 'context': context,
-                'inventory': inventory_hash(inventory)}
+    expected = {
+        'version': VERSION,
+        'mode': MODE,
+        'bundle': str(bundle),
+        'bundleIdentity': [info.st_dev, info.st_ino],
+        'source': value['sourceFingerprint'],
+        'buildSource': current['buildSource'],
+        'context': context,
+        'inventory': inventory_hash(inventory),
+    }
     if producer_platform(bundle) != platform_target.MACOS:
         expected['platform'] = producer_platform(bundle)
     if document(repo / 'dist' / STAMP) != expected:
-        raise ValueError('Missing/stale ordinary build stamp or changed inventory; full rebuild required')
+        raise ValueError(
+            'Missing/stale ordinary build stamp or changed inventory; full rebuild required'
+        )
     if source_snapshot(repo) != current or context_key(repo, current) != context:
         raise ValueError('Inputs changed during ordinary verification')
-    return {'provenance': value, 'current': current, 'context': context, 'inventory': expected['inventory']}
+    return {
+        'provenance': value,
+        'current': current,
+        'context': context,
+        'inventory': expected['inventory'],
+    }
 
 
 @contextlib.contextmanager
@@ -206,18 +282,30 @@ def ordinary_preparation(repo, bundle, source, scratch):
     """Serialize the original artifact through final preservation, never share writable runs."""
     from native_smoke import private_json
     from release_smoke import audit
-    decision = {'mode': MODE, 'decision': 'refused', 'reason': 'verification incomplete',
-                'stageRequests': {'nextBuild': 0, 'resourceAssembly': 0, 'nativeBuild': 0}}
+
+    decision = {
+        'mode': MODE,
+        'decision': 'refused',
+        'reason': 'verification incomplete',
+        'stageRequests': {'nextBuild': 0, 'resourceAssembly': 0, 'nativeBuild': 0},
+    }
     started = time.monotonic()
     with preparation_lock(preparation_directory(repo)):
         try:
             with stage('producer-verification'):
                 inventory = producer_inventory(repo, bundle, scratch)
                 verified = verify_ordinary(repo, bundle, source, inventory)
-            decision.update({'decision': 'hit', 'reason': 'verified build inputs, context and complete inventories',
-                             'artifactBuildSource': verified['current']['buildSource'], 'currentSource': source,
-                             'artifactOriginalSource': verified['provenance']['sourceFingerprint'],
-                             'buildContext': verified['context'], 'artifactInventoryHash': verified['inventory']})
+            decision.update(
+                {
+                    'decision': 'hit',
+                    'reason': 'verified build inputs, context and complete inventories',
+                    'artifactBuildSource': verified['current']['buildSource'],
+                    'currentSource': source,
+                    'artifactOriginalSource': verified['provenance']['sourceFingerprint'],
+                    'buildContext': verified['context'],
+                    'artifactInventoryHash': verified['inventory'],
+                }
+            )
             decision['freshScenarioOutcome'] = 'incomplete'
             yield verified, inventory
             # A scenario pass never bypasses current-context/original-artifact preservation.
@@ -227,7 +315,9 @@ def ordinary_preparation(repo, bundle, source, scratch):
         except BaseException as error:
             # A fresh failed oracle on a verified hit is not a cache miss or an old pass.
             decision['freshScenarioOutcome'] = 'failed or incomplete'
-            decision['failure'] = type(error).__name__ + ': inspect retained verification/scenario evidence'
+            decision['failure'] = (
+                type(error).__name__ + ': inspect retained verification/scenario evidence'
+            )
             if decision['decision'] == 'refused' and isinstance(error, ValueError):
                 decision['reason'] = str(error)[:240]
             raise
@@ -252,6 +342,7 @@ def windows_producer_inventory(repo, bundle, workspace):
     import release_metadata
     import windows_package
     from release_smoke import audit
+
     version = release_metadata.check(repo)[0]
     installer = windows_package.installer_path(repo, version)
     seven_zip = windows_package.extractor()
@@ -267,6 +358,7 @@ def windows_producer_inventory(repo, bundle, workspace):
 def build_ordinary(repo, platform_id=None):
     """Full desktop:build semantics, under the same worktree lock as ordinary reuse."""
     from release_smoke import audit
+
     platform_id = platform_target.require_host(platform_id or platform_target.host())
     target = platform_target.target(platform_id)
     with preparation_lock(preparation_directory(repo)):
@@ -282,11 +374,35 @@ def build_ordinary(repo, platform_id=None):
                 run_build(['npm', 'run', 'desktop:resources'], cwd=repo)
         with stage('build-native'):
             if platform_id == platform_target.WINDOWS:
-                run_build([str(repo / 'node_modules/.bin/tauri.cmd'), 'build', '--target', target['triple'],
-                           '--bundles', 'nsis', '--no-sign', '--no-binary-patching', '--ci'], cwd=repo)
+                run_build(
+                    [
+                        str(repo / 'node_modules/.bin/tauri.cmd'),
+                        'build',
+                        '--target',
+                        target['triple'],
+                        '--bundles',
+                        'nsis',
+                        '--no-sign',
+                        '--no-binary-patching',
+                        '--ci',
+                    ],
+                    cwd=repo,
+                )
             else:
-                run_build([str(repo / 'node_modules/.bin/tauri'), 'build', '--target', target['triple'],
-                           '--bundles', 'app', '--no-sign', '--no-binary-patching', '--ci'], cwd=repo)
+                run_build(
+                    [
+                        str(repo / 'node_modules/.bin/tauri'),
+                        'build',
+                        '--target',
+                        target['triple'],
+                        '--bundles',
+                        'app',
+                        '--no-sign',
+                        '--no-binary-patching',
+                        '--ci',
+                    ],
+                    cwd=repo,
+                )
         bundle = producer(repo, platform_id)
         with stage('build-output-identity'):
             value = provenance(bundle)
@@ -297,16 +413,38 @@ def build_ordinary(repo, platform_id=None):
             else:
                 inventory = audit(bundle)
             unchanged = source_snapshot(repo) == before and context_key(repo, before) == context
-        if not unchanged or value['sourceFingerprint'] != before['source'] or value['buildSourceFingerprint'] != before['buildSource'] or value['buildContext'] != context:
+        if (
+            not unchanged
+            or value['sourceFingerprint'] != before['source']
+            or value['buildSourceFingerprint'] != before['buildSource']
+            or value['buildContext'] != context
+        ):
             # Component hashes aid bounded diagnosis without recording env values/keys.
-            print(json.dumps({'ordinaryBuildRefused': True, 'before': captured_context,
-                              'after': context_identity(repo, source_snapshot(repo)),
-                              'assembled': value.get('buildContextComponents')}, sort_keys=True))
-            raise ValueError('Inputs changed during full ordinary build; no reusable stamp published')
+            print(
+                json.dumps(
+                    {
+                        'ordinaryBuildRefused': True,
+                        'before': captured_context,
+                        'after': context_identity(repo, source_snapshot(repo)),
+                        'assembled': value.get('buildContextComponents'),
+                    },
+                    sort_keys=True,
+                )
+            )
+            raise ValueError(
+                'Inputs changed during full ordinary build; no reusable stamp published'
+            )
         info = bundle.stat()
-        saved = {'version': VERSION, 'mode': MODE, 'bundle': str(bundle), 'bundleIdentity': [info.st_dev, info.st_ino],
-                 'source': before['source'], 'buildSource': before['buildSource'], 'context': context,
-                 'inventory': inventory_hash(inventory)}
+        saved = {
+            'version': VERSION,
+            'mode': MODE,
+            'bundle': str(bundle),
+            'bundleIdentity': [info.st_dev, info.st_ino],
+            'source': before['source'],
+            'buildSource': before['buildSource'],
+            'context': context,
+            'inventory': inventory_hash(inventory),
+        }
         if platform_id != platform_target.MACOS:
             saved['platform'] = platform_id
         temporary = repo / 'dist' / ('ordinary-stamp-' + str(uuid.uuid4()))
@@ -318,6 +456,7 @@ def build_ordinary(repo, platform_id=None):
 
 if __name__ == '__main__':
     from release_metadata import check
+
     root = Path(__file__).resolve().parents[2]
     check(root)
     build_ordinary(root, platform_target.host())

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Finite ordinary-artifact keyless setup and authored Sync; legacy live route unavailable."""
+
 import argparse
 import contextlib
 from datetime import datetime, timedelta, timezone
@@ -16,7 +17,16 @@ import sys
 import time
 import urllib.request
 import uuid
-from native_smoke import REPO, Observer, canonical, fingerprint, private_json, readonly, source_identity, listening
+from native_smoke import (
+    REPO,
+    Observer,
+    canonical,
+    fingerprint,
+    private_json,
+    readonly,
+    source_identity,
+    listening,
+)
 from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 from release_artifact import candidate_preparation
@@ -24,20 +34,34 @@ from release_artifact import candidate_preparation
 
 def setup_modes(args):
     # Sync changes need the populated existing path, not unrelated blank onboarding.
-    return ['use-existing'] if args.continuation_only or args.dependency_guidance or args.synthetic_sync else ['create-new', 'use-existing']
+    return (
+        ['use-existing']
+        if args.continuation_only or args.dependency_guidance or args.synthetic_sync
+        else ['create-new', 'use-existing']
+    )
 
 
 def selected_tokens(selection, purpose='T0238 private copied-token smoke only'):
     selection = canonical(selection)
     info = selection.stat()
-    if info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_size > 8192:
+    if (
+        info.st_uid != os.getuid()
+        or info.st_mode & 0o777 != 0o600
+        or info.st_nlink != 1
+        or info.st_size > 8192
+    ):
         raise ValueError('Private explicit bounded token selection required')
     value = json.loads(selection.read_text())
     if set(value) != {'tokenDirectory', 'tokenFiles', 'purpose'} or value['purpose'] != purpose:
         raise ValueError('Explicit copied-token purpose required')
     directory = private_directory(value['tokenDirectory'])
     names = value['tokenFiles']
-    if not isinstance(names, list) or len(names) != len(set(names)) or 'garmin_tokens.json' not in names or not set(names) <= {'garmin_tokens.json', 'garmin_tokens.base64'}:
+    if (
+        not isinstance(names, list)
+        or len(names) != len(set(names))
+        or 'garmin_tokens.json' not in names
+        or not set(names) <= {'garmin_tokens.json', 'garmin_tokens.base64'}
+    ):
         raise ValueError('Only known explicitly selected token files are admitted')
     return directory, names
 
@@ -52,13 +76,35 @@ def token_bytes(directory, name):
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         with os.fdopen(fd, 'rb') as source:
             info = os.fstat(source.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or not 0 < info.st_size <= 1048576:
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or info.st_uid != os.getuid()
+                or info.st_mode & 0o777 != 0o600
+                or not 0 < info.st_size <= 1048576
+            ):
                 raise ValueError('Token source metadata refused; originals unchanged')
             data = source.read(1048577)
+
             def stable(item):
-                return (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns, item.st_nlink, item.st_mode, item.st_uid)
+                return (
+                    item.st_dev,
+                    item.st_ino,
+                    item.st_size,
+                    item.st_mtime_ns,
+                    item.st_ctime_ns,
+                    item.st_nlink,
+                    item.st_mode,
+                    item.st_uid,
+                )
+
             current_parent = os.stat(directory, follow_symlinks=False)
-            if len(data) != info.st_size or stable(os.fstat(source.fileno())) != stable(info) or stable(os.stat(name, dir_fd=parent, follow_symlinks=False)) != stable(info) or (current_parent.st_dev, current_parent.st_ino) != (pinned.st_dev, pinned.st_ino):
+            if (
+                len(data) != info.st_size
+                or stable(os.fstat(source.fileno())) != stable(info)
+                or stable(os.stat(name, dir_fd=parent, follow_symlinks=False)) != stable(info)
+                or (current_parent.st_dev, current_parent.st_ino) != (pinned.st_dev, pinned.st_ino)
+            ):
                 raise ValueError('Token source changed; no ambiguous copy')
             return data
     finally:
@@ -73,18 +119,26 @@ def copy_tokens(selection, root, purpose='T0238 private copied-token smoke only'
     for name in names:
         data = token_bytes(directory, name)
         hashes[name] = hashlib.sha256(data).hexdigest()
-        with open(destination / name, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as output:
+        with open(
+            destination / name,
+            'xb',
+            opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600),
+        ) as output:
             output.write(data)
     return directory, hashes
 
 
 def tokens_unchanged(directory, hashes):
-    return all(hashlib.sha256(token_bytes(directory, name)).hexdigest() == expected for name, expected in hashes.items())
+    return all(
+        hashlib.sha256(token_bytes(directory, name)).hexdigest() == expected
+        for name, expected in hashes.items()
+    )
 
 
 def prepare_synthetic_history(run):
     """Only stopped, owned, keyless run settings; never select private input."""
     from history_connector import SENTINEL
+
     root = private_directory(run.root)
     if run.child is not None or listening(run.config['port']):
         raise ValueError('Stopped owned synthetic run required')
@@ -99,14 +153,31 @@ def prepare_synthetic_history(run):
     (root / 'tokens').mkdir(mode=0o700)
     if any(char.isspace() for char in python):
         raise ValueError('Unambiguous Python shebang required')
-    connector = b'#!' + python.encode() + b'\n' + Path(__file__).with_name('history_connector.py').read_bytes().split(b'\n', 1)[1]
-    for target, data, mode in [(script, connector, 0o700), (root / 'tokens/garmin_tokens.json', SENTINEL, 0o600)]:
-        with open(target, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, mode)) as output:
+    connector = (
+        b'#!'
+        + python.encode()
+        + b'\n'
+        + Path(__file__).with_name('history_connector.py').read_bytes().split(b'\n', 1)[1]
+    )
+    for target, data, mode in [
+        (script, connector, 0o700),
+        (root / 'tokens/garmin_tokens.json', SENTINEL, 0o600),
+    ]:
+        with open(
+            target, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, mode)
+        ) as output:
             output.write(data)
     # Only an existing allowlisted executable field; reviewed package arguments
     # remain immutable. The authored executable validates that exact argv.
-    saved['fields'].update({'GARMIN_MCP_COMMAND': str(script), 'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens'),
-                            'GARMIN_HISTORY_START_DATE': (datetime.now(timezone.utc).date() - timedelta(days=35)).isoformat()})
+    saved['fields'].update(
+        {
+            'GARMIN_MCP_COMMAND': str(script),
+            'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens'),
+            'GARMIN_HISTORY_START_DATE': (
+                datetime.now(timezone.utc).date() - timedelta(days=35)
+            ).isoformat(),
+        }
+    )
     staged = root / 'config/synthetic-history-settings.json'
     private_json(staged, saved)
     os.replace(staged, path)
@@ -116,12 +187,19 @@ def prepare_synthetic_history(run):
 def synthetic_calls(root):
     from history_connector import TOOLS
     from smoke_input import private_file
+
     path = Path(root) / 'synthetic-calls.jsonl'
     if not os.path.lexists(path):
         return []
     _, data, _ = private_file(path, 262144, allow_empty=True)
     rows = [json.loads(line) for line in data.splitlines()]
-    if any(not isinstance(row, dict) or set(row) != {'name', 'records'} or row['name'] not in TOOLS or (row['records'] is not None and type(row['records']) is not bool) for row in rows):
+    if any(
+        not isinstance(row, dict)
+        or set(row) != {'name', 'records'}
+        or row['name'] not in TOOLS
+        or (row['records'] is not None and type(row['records']) is not bool)
+        for row in rows
+    ):
         raise ValueError('Closed synthetic call aggregates required')
     return rows
 
@@ -129,11 +207,17 @@ def synthetic_calls(root):
 def prepare_latest_preset(run, scenario):
     """Finite stopped synthetic evidence only; no private or checkpoint mutation."""
     from history_connector import SENTINEL, PRESETS
+
     root = private_directory(run.root)
     if run.child is not None or listening(run.config['port']):
         raise ValueError('Stopped owned synthetic run required')
     saved = json.loads((root / 'config/settings-v3.json').read_text())
-    if scenario not in PRESETS or saved['keys'] or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens') or token_bytes(root / 'tokens', 'garmin_tokens.json') != SENTINEL:
+    if (
+        scenario not in PRESETS
+        or saved['keys']
+        or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens')
+        or token_bytes(root / 'tokens', 'garmin_tokens.json') != SENTINEL
+    ):
         raise ValueError('Finite synthetic-only latest preset required')
     staged = root / ('latest-preset-' + str(uuid.uuid4()) + '.json')
     private_json(staged, {'preset': scenario})
@@ -148,12 +232,17 @@ def prepare_automatic_history(run):
     untouched; only the explicit visible action may reconcile them.
     """
     from history_connector import SENTINEL
+
     root = private_directory(run.root)
     if run.child is not None or listening(run.config['port']):
         raise ValueError('Stopped owned synthetic run required')
     path = root / 'config/settings-v3.json'
     saved = json.loads(path.read_text())
-    if saved['keys'] or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens') or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL:
+    if (
+        saved['keys']
+        or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens')
+        or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL
+    ):
         raise ValueError('Synthetic-only automatic transition required')
     if not saved['fields'].get('GARMIN_HISTORY_START_DATE'):
         raise ValueError('Authored date-limited synthetic settings required')
@@ -175,28 +264,68 @@ def prepare_mixed_sync_presentation(run, outcome):
     root = private_directory(run.root)
     database = canonical(run.database)
     info = database.stat()
-    if database != root / 'trainer.sqlite' or info.st_uid != os.getuid() or info.st_mode & 0o777 != 0o600 or info.st_nlink != 1:
+    if (
+        database != root / 'trainer.sqlite'
+        or info.st_uid != os.getuid()
+        or info.st_mode & 0o777 != 0o600
+        or info.st_nlink != 1
+    ):
         raise ValueError('Exact private owned run database required')
     saved = json.loads((root / 'config/settings-v3.json').read_text())
     from history_connector import SENTINEL
-    if saved['keys'] or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens') or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL:
+
+    if (
+        saved['keys']
+        or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens')
+        or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL
+    ):
         raise ValueError('Synthetic-only mixed presentation required')
     with contextlib.closing(sqlite3.connect(database)) as db:
-        row = db.execute("select value from sync_checkpoint where key='garmin_history_v1'").fetchone()
+        row = db.execute(
+            "select value from sync_checkpoint where key='garmin_history_v1'"
+        ).fetchone()
         if row is None:
             raise ValueError('Settled authored history required')
         history = json.loads(row[0])
-        if history['outcome'] not in ('settled', 'failed', 'cancelled') or history['remoteLowerBound'] is not None:
+        if (
+            history['outcome'] not in ('settled', 'failed', 'cancelled')
+            or history['remoteLowerBound'] is not None
+        ):
             raise ValueError('Settled unknown-boundary authored history required')
         history.update(outcome='failed', recoveryReason='no-progress')
-        latest = {'version':1, 'outcome':outcome, 'updatedAt':datetime.now(timezone.utc).isoformat(), 'activitiesProcessed':6, 'healthDaysRefreshed':14}
-        operation = {**latest, 'intent':'latest', 'stopReason': 'connector' if outcome == 'failed' else None,
-                     'detailsAttempted':0, 'detailsProcessed':0, 'detailsFailed':0, 'detailsRemaining':0}
+        latest = {
+            'version': 1,
+            'outcome': outcome,
+            'updatedAt': datetime.now(timezone.utc).isoformat(),
+            'activitiesProcessed': 6,
+            'healthDaysRefreshed': 14,
+        }
+        operation = {
+            **latest,
+            'intent': 'latest',
+            'stopReason': 'connector' if outcome == 'failed' else None,
+            'detailsAttempted': 0,
+            'detailsProcessed': 0,
+            'detailsFailed': 0,
+            'detailsRemaining': 0,
+        }
         with db:
-            db.execute("insert or replace into sync_checkpoint(key,value,updated_at) values ('garmin_sync_v1',?,?)", (json.dumps(operation), int(time.time())))
-            db.execute("update sync_checkpoint set value=? where key='garmin_history_v1'", (json.dumps(history),))
-            db.execute("insert or replace into sync_checkpoint(key,value,updated_at) values ('garmin_latest_v1',?,?)", (json.dumps(latest), int(time.time())))
-        if db.execute('pragma integrity_check').fetchone() != ('ok',) or db.execute('pragma foreign_key_check').fetchall():
+            db.execute(
+                "insert or replace into sync_checkpoint(key,value,updated_at) values ('garmin_sync_v1',?,?)",
+                (json.dumps(operation), int(time.time())),
+            )
+            db.execute(
+                "update sync_checkpoint set value=? where key='garmin_history_v1'",
+                (json.dumps(history),),
+            )
+            db.execute(
+                "insert or replace into sync_checkpoint(key,value,updated_at) values ('garmin_latest_v1',?,?)",
+                (json.dumps(latest), int(time.time())),
+            )
+        if (
+            db.execute('pragma integrity_check').fetchone() != ('ok',)
+            or db.execute('pragma foreign_key_check').fetchall()
+        ):
             raise ValueError('Authored mixed fixture integrity failed')
 
 
@@ -210,18 +339,31 @@ def prepare_dependency_scenario(run, scenario):
     path = root / 'config/settings-v3.json'
     saved = json.loads(path.read_text())
     from history_connector import SENTINEL
-    if saved['keys'] or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens'):
+
+    if (
+        saved['keys']
+        or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL
+        or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens')
+    ):
         raise ValueError('Exact synthetic-only connection required')
     if scenario == 'unknown':
         script = root / 'unknown_connector.py'
-        with open(script, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o700)) as output:
-            output.write(b'#!' + str(Path(sys.executable).resolve()).encode() + b'\nraise SystemExit(2)\n')
+        with open(
+            script, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o700)
+        ) as output:
+            output.write(
+                b'#!' + str(Path(sys.executable).resolve()).encode() + b'\nraise SystemExit(2)\n'
+            )
     else:
-        script = root / ('missing_uvx' if scenario == 'missing' else 'synthetic_history_connector.py')
+        script = root / (
+            'missing_uvx' if scenario == 'missing' else 'synthetic_history_connector.py'
+        )
         if scenario == 'missing':
             # Existing canonical paths are required by unchanged Settings validation.
             # A nonexecutable fixture resolves to the product's unavailable-tool sentinel.
-            with open(script, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)) as output:
+            with open(
+                script, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)
+            ) as output:
                 output.write(b'synthetic nonexecutable launcher\n')
     saved['fields']['GARMIN_MCP_COMMAND'] = str(script)
     staged = root / ('config/dependency-' + scenario + '.json')
@@ -243,10 +385,16 @@ class HistoryRun(OrdinaryRun):
             if failure:
                 if not isinstance(failure, str) or len(failure) > 512:
                     raise ValueError('Native settings failure schema refused')
-                private_json(self.root / ('setup-failure-' + str(uuid.uuid4()) + '.json'), {'assertion':label,'observation':value})
+                private_json(
+                    self.root / ('setup-failure-' + str(uuid.uuid4()) + '.json'),
+                    {'assertion': label, 'observation': value},
+                )
                 raise RuntimeError('Native settings operation failed: ' + failure)
-            time.sleep(.1)
-        private_json(self.root / ('setup-failure-' + str(uuid.uuid4()) + '.json'), {'assertion': label, 'observation': value})
+            time.sleep(0.1)
+        private_json(
+            self.root / ('setup-failure-' + str(uuid.uuid4()) + '.json'),
+            {'assertion': label, 'observation': value},
+        )
         raise TimeoutError('History setup readiness assertion failed')
 
     def setup_start(self):
@@ -258,17 +406,24 @@ class HistoryRun(OrdinaryRun):
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if self.child.poll() is not None:
-                raise RuntimeError('Owned native exited during first-run admission; inspect private log')
+                raise RuntimeError(
+                    'Owned native exited during first-run admission; inspect private log'
+                )
             try:
                 identity = self.http('/identity')
             except (OSError, http.client.HTTPException):
-                time.sleep(.1)
+                time.sleep(0.1)
                 continue
             if not self.accept_identity(identity) or identity['origin'] is not None:
                 raise ValueError('First-run native identity or missing-settings state refused')
-            self.wait_settings(lambda value: value.get('windowReady') is True, 'owned local Settings document')
+            self.wait_settings(
+                lambda value: value.get('windowReady') is True, 'owned local Settings document'
+            )
             self.settings_action('open')
-            self.wait_settings(lambda value: value['ready'] and value['dataStep'] and value['automaticHistory'], 'no-date first run')
+            self.wait_settings(
+                lambda value: value['ready'] and value['dataStep'] and value['automaticHistory'],
+                'no-date first run',
+            )
             return
         raise TimeoutError('First-run native identity deadline')
 
@@ -287,16 +442,22 @@ class HistoryRun(OrdinaryRun):
                 raise ValueError('Owned native identity changed')
             if identity['origin']:
                 self.origin = identity['origin']
-                if not self.origin.startswith('http://127.0.0.1:') or int(self.origin.rsplit(':', 1)[1]) == self.config['port']:
+                if (
+                    not self.origin.startswith('http://127.0.0.1:')
+                    or int(self.origin.rsplit(':', 1)[1]) == self.config['port']
+                ):
                     raise ValueError('Owned backend origin refused')
                 if identity.get('runtimeReady') is not True:
-                    time.sleep(.1)
+                    time.sleep(0.1)
                     continue
                 diagnostic = identity.get('rendererDiagnostic') or {}
                 if all(diagnostic.get(key) is True for key in ('dashboard', 'bootstrap', 'ipc')):
                     value = self.command({'type': 'observe'})
                     if value['dashboard'] and value['hydrated']:
-                        private_json(self.root / f'readiness-{self.launches}.json', {**identity, 'rendererRoundTrip': True})
+                        private_json(
+                            self.root / f'readiness-{self.launches}.json',
+                            {**identity, 'rendererRoundTrip': True},
+                        )
                         return
             else:
                 setup = self.settings_action('observe')
@@ -304,33 +465,51 @@ class HistoryRun(OrdinaryRun):
                 if failure:
                     if not isinstance(failure, str) or len(failure) > 512:
                         raise ValueError('Native setup failure schema refused')
-                    private_json(self.root / 'native-setup-failure.json', {'nativeStaticFailure':failure,'observation':setup})
+                    private_json(
+                        self.root / 'native-setup-failure.json',
+                        {'nativeStaticFailure': failure, 'observation': setup},
+                    )
                     raise RuntimeError('Native Finish failed: ' + failure)
-            time.sleep(.1)
+            time.sleep(0.1)
         raise TimeoutError('Finish/backend deadline; inspect commit state, no Finish replay')
 
     def onboarding(self):
         self.setup_start()
-        self.settings_action('createNew' if self.descriptor['historySetup'] == 'create-new' else 'useExisting')
+        self.settings_action(
+            'createNew' if self.descriptor['historySetup'] == 'create-new' else 'useExisting'
+        )
         images = [{'scenario': 'first-run-no-date-data', **self.settings_action('capture')}]
         for _ in range(3):
             self.settings_action('next')
-        self.wait_settings(lambda value: value['reviewStep'] and value['automaticHistory'], 'no-date review')
+        self.wait_settings(
+            lambda value: value['reviewStep'] and value['automaticHistory'], 'no-date review'
+        )
         images.append({'scenario': 'first-run-no-date-review', **self.settings_action('capture')})
-        private_json(self.root / 'onboarding-captures.json', {'captures':images, 'source':self.config['source'], 'boot':self.boot})
-        self.settings_action('finish')  # Exactly once. Unknown effect must be reconciled, never retried.
+        private_json(
+            self.root / 'onboarding-captures.json',
+            {'captures': images, 'source': self.config['source'], 'boot': self.boot},
+        )
+        self.settings_action(
+            'finish'
+        )  # Exactly once. Unknown effect must be reconciled, never retried.
         self.wait_backend()
         self.stop()
         self.start(self.binary)
         self.settings_action('open')
-        self.wait_settings(lambda value: value['ready'] and not value['firstRun'] and value['automaticHistory'], 'saved automatic direct launch')
+        self.wait_settings(
+            lambda value: value['ready'] and not value['firstRun'] and value['automaticHistory'],
+            'saved automatic direct launch',
+        )
         return images
 
     def optional_limit(self):
         original_origin = self.origin
         self.settings_action('legacyLimit')
         self.settings_action('save')
-        self.wait_settings(lambda value: value['ready'] and value['savedForNextLaunch'] and value['legacyLimit'], 'legacy optional-limit Save')
+        self.wait_settings(
+            lambda value: value['ready'] and value['savedForNextLaunch'] and value['legacyLimit'],
+            'legacy optional-limit Save',
+        )
         self.settings_action('dismissRestart')
         if self.http('/identity')['origin'] != original_origin:
             raise ValueError('Save unexpectedly changed running backend')
@@ -338,10 +517,18 @@ class HistoryRun(OrdinaryRun):
         self.stop()
         self.start(self.binary)
         self.settings_action('open')
-        self.wait_settings(lambda value: value['ready'] and value['legacyLimit'], 'limit persisted after explicit restart')
+        self.wait_settings(
+            lambda value: value['ready'] and value['legacyLimit'],
+            'limit persisted after explicit restart',
+        )
         self.settings_action('automatic')
         self.settings_action('save')
-        self.wait_settings(lambda value: value['ready'] and value['savedForNextLaunch'] and value['automaticHistory'], 'clear limit Save')
+        self.wait_settings(
+            lambda value: (
+                value['ready'] and value['savedForNextLaunch'] and value['automaticHistory']
+            ),
+            'clear limit Save',
+        )
         self.settings_action('dismissRestart')
         self.stop()
         self.start(self.binary)
@@ -357,28 +544,42 @@ class HistoryRun(OrdinaryRun):
         history = value.get('history') or {}
         health = history.get('health') or {}
         outcome = history.get('outcome')
-        if outcome is not None and outcome not in ('settled', 'failed', 'budget-limited', 'cancelled', 'running'):
+        if outcome is not None and outcome not in (
+            'settled',
+            'failed',
+            'budget-limited',
+            'cancelled',
+            'running',
+        ):
             raise ValueError('Unexpected safe history outcome')
         operation = (value.get('discovery') or {}).get('operation') or {}
         sync_work = (value.get('sync') or {}).get('operation') or {}
-        return {'outcome': outcome, 'active': value.get('syncActive') is True,
-                'batches': operation.get('batches', 0), 'operationAttempts': operation.get('attempts', 0),
-                'healthChecks': health.get('checks'), 'healthChecksWithMetrics': health.get('checksWithMetrics'),
-                'nextHealthDate': health.get('nextDate'), 'remoteLowerBound': history.get('remoteLowerBound'),
-                'operations': history.get('operations'), 'failureClass': history.get('failureClass'),
-                'historicalState': ((value.get('sync') or {}).get('historical') or {}).get('state'),
-                'historicalAction': ((value.get('sync') or {}).get('historical') or {}).get('action'),
-                'savedLimit': ((value.get('sync') or {}).get('historical') or {}).get('savedLimit'),
-                'limit': ((value.get('sync') or {}).get('historical') or {}).get('limit'),
-                'expandedFrom': history.get('expandedFrom'),
-                'noDataBefore': ((value.get('sync') or {}).get('historical') or {}).get('noDataBefore'),
-                'latestOutcome': ((value.get('sync') or {}).get('latest') or {}).get('outcome'),
-                'detailsAttempted': sync_work.get('detailsAttempted'),
-                'detailsProcessed': sync_work.get('detailsProcessed'),
-                'detailsFailed': sync_work.get('detailsFailed'),
-                'detailsRemaining': (value.get('sync') or {}).get('detailsRemaining'),
-                'stopReason': sync_work.get('stopReason'),
-                'activities': value.get('activities'), 'healthDays': value.get('healthDays')}
+        return {
+            'outcome': outcome,
+            'active': value.get('syncActive') is True,
+            'batches': operation.get('batches', 0),
+            'operationAttempts': operation.get('attempts', 0),
+            'healthChecks': health.get('checks'),
+            'healthChecksWithMetrics': health.get('checksWithMetrics'),
+            'nextHealthDate': health.get('nextDate'),
+            'remoteLowerBound': history.get('remoteLowerBound'),
+            'operations': history.get('operations'),
+            'failureClass': history.get('failureClass'),
+            'historicalState': ((value.get('sync') or {}).get('historical') or {}).get('state'),
+            'historicalAction': ((value.get('sync') or {}).get('historical') or {}).get('action'),
+            'savedLimit': ((value.get('sync') or {}).get('historical') or {}).get('savedLimit'),
+            'limit': ((value.get('sync') or {}).get('historical') or {}).get('limit'),
+            'expandedFrom': history.get('expandedFrom'),
+            'noDataBefore': ((value.get('sync') or {}).get('historical') or {}).get('noDataBefore'),
+            'latestOutcome': ((value.get('sync') or {}).get('latest') or {}).get('outcome'),
+            'detailsAttempted': sync_work.get('detailsAttempted'),
+            'detailsProcessed': sync_work.get('detailsProcessed'),
+            'detailsFailed': sync_work.get('detailsFailed'),
+            'detailsRemaining': (value.get('sync') or {}).get('detailsRemaining'),
+            'stopReason': sync_work.get('stopReason'),
+            'activities': value.get('activities'),
+            'healthDays': value.get('healthDays'),
+        }
 
     def wait_sync(self, predicate, seconds=195):
         deadline = time.monotonic() + seconds
@@ -386,8 +587,11 @@ class HistoryRun(OrdinaryRun):
             value = self.command({'type': 'sync', 'action': 'observe'})
             if predicate(value):
                 return value
-            time.sleep(.25)
-        private_json(self.root / ('sync-observation-timeout-' + str(uuid.uuid4()) + '.json'), {'rendered':value, 'summary':self.summary()})
+            time.sleep(0.25)
+        private_json(
+            self.root / ('sync-observation-timeout-' + str(uuid.uuid4()) + '.json'),
+            {'rendered': value, 'summary': self.summary()},
+        )
         raise TimeoutError('Finite Sync observation deadline; no mutation replay')
 
     def settle_claim(self):
@@ -396,30 +600,43 @@ class HistoryRun(OrdinaryRun):
             if not self.summary()['active']:
                 self.command({'type': 'sync', 'action': 'refresh'})
                 return
-            time.sleep(.25)
+            time.sleep(0.25)
         raise TimeoutError('Owned Sync claim did not settle; no duplicate continuation')
 
     def history_digest(self):
         with contextlib.closing(readonly(self.database)) as db:
-            rows = db.execute("select key,value from sync_checkpoint where key in ('garmin_history_v1','garmin_discovery_v1') order by key").fetchall()
+            rows = db.execute(
+                "select key,value from sync_checkpoint where key in ('garmin_history_v1','garmin_discovery_v1') order by key"
+            ).fetchall()
         return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
 
     def latest_snapshot(self):
         with contextlib.closing(readonly(self.database)) as db:
-            row = db.execute("select value from sync_checkpoint where key='garmin_latest_freshness_v1'").fetchone()
+            row = db.execute(
+                "select value from sync_checkpoint where key='garmin_latest_freshness_v1'"
+            ).fetchone()
             freshness = json.loads(row[0]) if row else None
             days = (freshness or {}).get('days', {})
             weight = db.execute('select * from garmin_body_weight_history order by date').fetchall()
             legacy_dates = [date for date, day in days.items() if day['source'] == 'legacy']
-            legacy = [db.execute('select * from daily_health where date=?', (date,)).fetchone() for date in sorted(legacy_dates)]
-            return {'integrity': db.execute('pragma integrity_check').fetchone()[0], 'foreignKeys': len(db.execute('pragma foreign_key_check').fetchall()),
-                    'finalDays': sum(day['final'] for day in days.values()), 'mutableDays': sum(not day['final'] for day in days.values()),
-                    'legacyDays': len(legacy_dates), 'legacyHash': hashlib.sha256(json.dumps(legacy).encode()).hexdigest(),
-                    'weightRows': len(weight), 'weightHash': hashlib.sha256(json.dumps(weight).encode()).hexdigest(),
-                    'activities': db.execute('select count(*) from activity').fetchone()[0],
-                    'healthRows': db.execute('select count(*) from daily_health').fetchone()[0],
-                    'nonNullSteps': db.execute('select count(steps) from daily_health').fetchone()[0],
-                    'fitActivityPresent': bool((freshness or {}).get('fitActivity'))}
+            legacy = [
+                db.execute('select * from daily_health where date=?', (date,)).fetchone()
+                for date in sorted(legacy_dates)
+            ]
+            return {
+                'integrity': db.execute('pragma integrity_check').fetchone()[0],
+                'foreignKeys': len(db.execute('pragma foreign_key_check').fetchall()),
+                'finalDays': sum(day['final'] for day in days.values()),
+                'mutableDays': sum(not day['final'] for day in days.values()),
+                'legacyDays': len(legacy_dates),
+                'legacyHash': hashlib.sha256(json.dumps(legacy).encode()).hexdigest(),
+                'weightRows': len(weight),
+                'weightHash': hashlib.sha256(json.dumps(weight).encode()).hexdigest(),
+                'activities': db.execute('select count(*) from activity').fetchone()[0],
+                'healthRows': db.execute('select count(*) from daily_health').fetchone()[0],
+                'nonNullSteps': db.execute('select count(steps) from daily_health').fetchone()[0],
+                'fitActivityPresent': bool((freshness or {}).get('fitActivity')),
+            }
 
     def latest_probe(self, backend=False):
         before_calls = len(synthetic_calls(self.root))
@@ -436,18 +653,36 @@ class HistoryRun(OrdinaryRun):
             counts[row['name']] = counts.get(row['name'], 0) + 1
             baseline += row['name'] == 'get_activity_fit_data' and row['records'] is False
         after = self.latest_snapshot()
-        if after['integrity'] != 'ok' or after['foreignKeys'] or after['activities'] < before['activities'] or after['healthRows'] < before['healthRows'] or after['nonNullSteps'] < before['nonNullSteps']:
+        if (
+            after['integrity'] != 'ok'
+            or after['foreignKeys']
+            or after['activities'] < before['activities']
+            or after['healthRows'] < before['healthRows']
+            or after['nonNullSteps'] < before['nonNullSteps']
+        ):
             raise ValueError('Latest populated-copy preservation failed')
-        if before['legacyDays'] and (after['legacyHash'] != before['legacyHash'] or after['weightRows'] < before['weightRows']):
+        if before['legacyDays'] and (
+            after['legacyHash'] != before['legacyHash']
+            or after['weightRows'] < before['weightRows']
+        ):
             raise ValueError('Legacy health/weight preservation failed')
-        evidence = {**result, 'requestCounts':counts, 'fitBaselineCalls':baseline, 'elapsedSeconds':round(elapsed, 3), 'totalCalls':len(rows), 'dataBefore':before, 'dataAfter':after, 'timingLimit':'authored connector .4 seconds per tool plus native observation/capture, not Garmin latency'}
+        evidence = {
+            **result,
+            'requestCounts': counts,
+            'fitBaselineCalls': baseline,
+            'elapsedSeconds': round(elapsed, 3),
+            'totalCalls': len(rows),
+            'dataBefore': before,
+            'dataAfter': after,
+            'timingLimit': 'authored connector .4 seconds per tool plus native observation/capture, not Garmin latency',
+        }
         private_json(self.root / ('latest-probe-' + str(uuid.uuid4()) + '.json'), evidence)
         return evidence
 
     def latest_only(self):
         before, digest = self.summary(), self.history_digest()
         self.wait_sync(lambda value: value['startEnabled'], 10)
-        self.command({'type':'sync', 'action':'start'})
+        self.command({'type': 'sync', 'action': 'start'})
         self.wait_sync(lambda value: value['running'] and value['cancelEnabled'], 15)
         if before['detailsRemaining'] > 1:
             deadline = time.monotonic() + 60
@@ -457,18 +692,28 @@ class HistoryRun(OrdinaryRun):
                     break
                 if not progress['active']:
                     raise ValueError('Detail progress did not remain observable; no replay')
-                time.sleep(.25)
+                time.sleep(0.25)
             else:
                 raise TimeoutError('Finite multi-detail progress was not observed')
             for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
-                self.sync_captures.append({'scenario':f'multi-detail-progress-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+                self.command({'type': 'setViewport', 'preset': preset})
+                self.sync_captures.append(
+                    {
+                        'scenario': f'multi-detail-progress-{preset}',
+                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    }
+                )
         self.wait_sync(lambda value: value['completed'] and not value['running'], 90)
         self.settle_claim()
         after = self.summary()
-        if after['active'] or after['latestOutcome'] != 'settled' or self.history_digest() != digest or after['historicalState'] != before['historicalState']:
+        if (
+            after['active']
+            or after['latestOutcome'] != 'settled'
+            or self.history_digest() != digest
+            or after['historicalState'] != before['historicalState']
+        ):
             raise ValueError('Latest refresh changed saved history or failed settlement')
-        return {'before':before, 'after':after, 'historyBytesPreserved':True}
+        return {'before': before, 'after': after, 'historyBytesPreserved': True}
 
     def backend_latest(self):
         """One of the five synthetic operations, outside the local UI request owner.
@@ -480,26 +725,54 @@ class HistoryRun(OrdinaryRun):
         if before['active']:
             raise ValueError('Settled synthetic backend required; no overlap')
         digest = self.history_digest()
-        request = urllib.request.Request(self.origin + '/api/sync',
-            data=b'{"intent":"latest"}', headers={'Content-Type':'application/json'}, method='POST')
+        request = urllib.request.Request(
+            self.origin + '/api/sync',
+            data=b'{"intent":"latest"}',
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
         with urllib.request.urlopen(request, timeout=90) as response:
-            self.command({'type':'sync', 'action':'refresh'})
-            self.wait_sync(lambda value: value['running'] and not value['cancelEnabled'] and not value['startEnabled'], 15)
+            self.command({'type': 'sync', 'action': 'refresh'})
+            self.wait_sync(
+                lambda value: (
+                    value['running'] and not value['cancelEnabled'] and not value['startEnabled']
+                ),
+                15,
+            )
             for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
-                self.sync_captures.append({'scenario':f'backend-only-busy-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+                self.command({'type': 'setViewport', 'preset': preset})
+                self.sync_captures.append(
+                    {
+                        'scenario': f'backend-only-busy-{preset}',
+                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    }
+                )
             data = response.read(1024 * 1024 + 1)
             if len(data) > 1024 * 1024:
                 raise ValueError('Synthetic backend response bound; no retry')
             events = [json.loads(line) for line in data.splitlines() if line.strip()]
-            if not events or events[-1].get('type') != 'result' or events[-1].get('status') != 'completed':
+            if (
+                not events
+                or events[-1].get('type') != 'result'
+                or events[-1].get('status') != 'completed'
+            ):
                 raise ValueError('Backend-only latest did not complete; no retry')
         self.settle_claim()
         self.wait_sync(lambda value: not value['running'] and value['startEnabled'], 15)
         after = self.summary()
-        if after['active'] or after['latestOutcome'] != 'settled' or self.history_digest() != digest or after['historicalState'] != before['historicalState']:
+        if (
+            after['active']
+            or after['latestOutcome'] != 'settled'
+            or self.history_digest() != digest
+            or after['historicalState'] != before['historicalState']
+        ):
             raise ValueError('Backend-only latest changed history or failed settlement')
-        return {'before':before, 'after':after, 'historyBytesPreserved':True, 'backendOnly':True}
+        return {
+            'before': before,
+            'after': after,
+            'historyBytesPreserved': True,
+            'backendOnly': True,
+        }
 
     def synthetic_sync(self):
         """Three latest refreshes and two explicit historical operations.
@@ -508,15 +781,19 @@ class HistoryRun(OrdinaryRun):
         no injected cursor, accelerated clock, UI reply or product-budget override.
         """
         images = self.sync_captures = []
-        self.command({'type':'setViewport', 'preset':'wide'})
-        self.command({'type':'click', 'target':'Sync'})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'synthetic Sync')
         if self.summary()['active']:
             raise ValueError('Passive navigation unexpectedly started sync')
         latest = [self.latest_probe()]
         if latest[0]['after']['outcome'] is not None:
             raise ValueError('Fresh latest created historical state')
-        if latest[0]['after']['detailsProcessed'] <= 1 or latest[0]['after']['detailsRemaining'] != 0 or latest[0]['after']['detailsFailed'] != 0:
+        if (
+            latest[0]['after']['detailsProcessed'] <= 1
+            or latest[0]['after']['detailsRemaining'] != 0
+            or latest[0]['after']['detailsFailed'] != 0
+        ):
             raise ValueError('Multi-detail backlog was not actually exhausted')
         # Delayed upload retains recent days; unknown cannot finalize them.
         if latest[0]['dataAfter']['mutableDays'] < 5:
@@ -525,14 +802,17 @@ class HistoryRun(OrdinaryRun):
             self.stop()
             prepare_latest_preset(self, scenario)
             self.start(self.binary)
-            self.command({'type':'setViewport', 'preset':'wide'})
-            self.command({'type':'click', 'target':'Sync'})
+            self.command({'type': 'setViewport', 'preset': 'wide'})
+            self.command({'type': 'click', 'target': 'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'latest primary evidence restart')
             latest.append(self.latest_probe())
             fallback = latest[-1]['requestCounts'].get('get_device_last_used', 0)
             # Unknown direct time makes exactly one last-used read, which names
             # the non-primary device; valid direct time makes none (T0345).
-            if scenario == 'unknown' and (fallback != 1 or latest[-1]['dataAfter']['mutableDays'] != latest[-2]['dataAfter']['mutableDays']):
+            if scenario == 'unknown' and (
+                fallback != 1
+                or latest[-1]['dataAfter']['mutableDays'] != latest[-2]['dataAfter']['mutableDays']
+            ):
                 raise ValueError('Unknown evidence falsely finalized daily health')
             if scenario == 'known' and (fallback or latest[-1]['dataAfter']['mutableDays'] != 1):
                 raise ValueError('Qualifying upload catch-up did not settle ended days')
@@ -540,42 +820,71 @@ class HistoryRun(OrdinaryRun):
         for index in range(2):
             before = self.summary()
             for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
-                images.append({'scenario':f'historical-entry-{index}-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-            self.command({'type':'setViewport', 'preset':'wide'})
+                self.command({'type': 'setViewport', 'preset': preset})
+                images.append(
+                    {
+                        'scenario': f'historical-entry-{index}-{preset}',
+                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    }
+                )
+            self.command({'type': 'setViewport', 'preset': 'wide'})
             if before['historicalState'] != 'available':
                 raise ValueError('Actionable history required before explicit continuation')
             self.wait_sync(lambda value: value['startEnabled'], 10)
-            self.command({'type':'sync', 'action':'continue'})
-            self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
-            self.command({'type':'sync', 'action':'details'})
+            self.command({'type': 'sync', 'action': 'continue'})
+            self.wait_sync(
+                lambda value: (
+                    value['running'] and value['cancelEnabled'] and value['progressStarted']
+                ),
+                15,
+            )
+            self.command({'type': 'sync', 'action': 'details'})
             for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
-                images.append({'scenario':f'busy-expanded-{index}-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-            self.command({'type':'setViewport', 'preset':'wide'})
-            self.command({'type':'click', 'target':'Back to chat'})
+                self.command({'type': 'setViewport', 'preset': preset})
+                images.append(
+                    {
+                        'scenario': f'busy-expanded-{index}-{preset}',
+                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    }
+                )
+            self.command({'type': 'setViewport', 'preset': 'wide'})
+            self.command({'type': 'click', 'target': 'Back to chat'})
             if not self.summary()['active']:
                 raise ValueError('Navigation lost operation ownership')
-            self.command({'type':'click', 'target':'Sync'})
+            self.command({'type': 'click', 'target': 'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'return to active Sync')
-            self.command({'type':'setViewport', 'preset':'wide'})
-            images.append({'scenario':f'busy-disclosure-retained-{index}', **self.command({'type':'captureView', 'view':'sync', 'preset':'wide'})})
-            self.command({'type':'sync', 'action':'details'})
+            self.command({'type': 'setViewport', 'preset': 'wide'})
+            images.append(
+                {
+                    'scenario': f'busy-disclosure-retained-{index}',
+                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'}),
+                }
+            )
+            self.command({'type': 'sync', 'action': 'details'})
             deadline = time.monotonic() + 150
             while time.monotonic() < deadline:
                 current = self.summary()
                 if current['outcome'] == 'failed' or current['operationAttempts'] > 150:
                     raise ValueError('Synthetic operation failed/exceeded finite evidence envelope')
-                if (index == 0 and current['batches'] >= 2) or (index == 1 and not current['active']):
+                if (index == 0 and current['batches'] >= 2) or (
+                    index == 1 and not current['active']
+                ):
                     break
-                time.sleep(.25)
+                time.sleep(0.25)
             else:
-                raise TimeoutError('Historical advancement/settlement not observed within finite envelope')
+                raise TimeoutError(
+                    'Historical advancement/settlement not observed within finite envelope'
+                )
             for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
-                images.append({'scenario':f'synthetic-{index}-history-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+                self.command({'type': 'setViewport', 'preset': preset})
+                images.append(
+                    {
+                        'scenario': f'synthetic-{index}-history-{preset}',
+                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    }
+                )
             if index == 0:
-                self.command({'type':'sync', 'action':'cancel'})
+                self.command({'type': 'sync', 'action': 'cancel'})
                 # Cancellation can read the still-active server claim before it
                 # settles. Reconcile through the existing explicit summary refresh,
                 # not a local-only busy flag or new application polling.
@@ -586,19 +895,37 @@ class HistoryRun(OrdinaryRun):
                 self.settle_claim()
             after = self.summary()
             expected = 'cancelled' if index == 0 else 'settled'
-            if after['active'] or after['outcome'] != expected or after['healthChecks'] <= (before['healthChecks'] or 0):
+            if (
+                after['active']
+                or after['outcome'] != expected
+                or after['healthChecks'] <= (before['healthChecks'] or 0)
+            ):
                 raise ValueError('Synthetic historical progress/settlement was not durable')
-            if index == 1 and (after['historicalState'] != 'complete' or after['detailsRemaining'] != 0):
+            if index == 1 and (
+                after['historicalState'] != 'complete' or after['detailsRemaining'] != 0
+            ):
                 raise ValueError('Selected scope/detail backlog did not complete')
-            settled.append({'before':before, 'after':after})
-            private_json(self.root / f'synthetic-sync-{index}.json', {'source':self.config['source'], 'boot':self.boot, 'captures':images, 'settled':settled})
+            settled.append({'before': before, 'after': after})
+            private_json(
+                self.root / f'synthetic-sync-{index}.json',
+                {
+                    'source': self.config['source'],
+                    'boot': self.boot,
+                    'captures': images,
+                    'settled': settled,
+                },
+            )
             self.stop()
             self.start(self.binary)
-            self.command({'type':'setViewport', 'preset':'wide'})
-            self.command({'type':'click', 'target':'Sync'})
+            self.command({'type': 'setViewport', 'preset': 'wide'})
+            self.command({'type': 'click', 'target': 'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'restart explicit historical work')
             restored = self.summary()
-            if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalState'] != after['historicalState']:
+            if (
+                restored['active']
+                or restored['healthChecks'] != after['healthChecks']
+                or restored['historicalState'] != after['historicalState']
+            ):
                 raise ValueError('Restart replayed or lost durable history')
         # T0345: history left its older dates open in latest freshness. With the
         # primary's direct time missing, one matched last-used read must catch
@@ -606,65 +933,128 @@ class HistoryRun(OrdinaryRun):
         self.stop()
         prepare_latest_preset(self, 'last-used')
         self.start(self.binary)
-        self.command({'type':'setViewport', 'preset':'wide'})
-        self.command({'type':'click', 'target':'Sync'})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'missing direct upload catch-up')
         catchup = self.latest_probe()
         open_older = catchup['requestCounts'].get('get_stats', 0) - 1
-        if (catchup['requestCounts'].get('get_devices') != 1 or catchup['requestCounts'].get('get_device_last_used') != 1
-                or open_older < 15 or catchup['dataAfter']['mutableDays'] != 1
-                or catchup['dataAfter']['finalDays'] < catchup['dataBefore']['finalDays'] + 15):
+        if (
+            catchup['requestCounts'].get('get_devices') != 1
+            or catchup['requestCounts'].get('get_device_last_used') != 1
+            or open_older < 15
+            or catchup['dataAfter']['mutableDays'] != 1
+            or catchup['dataAfter']['finalDays'] < catchup['dataBefore']['finalDays'] + 15
+        ):
             raise ValueError('Matched last-used evidence did not catch up open older dates')
-        latest.append({**catchup, 'openOlderDates':open_older})
+        latest.append({**catchup, 'openOlderDates': open_older})
         self.stop()
         self.start(self.binary)
-        self.command({'type':'setViewport', 'preset':'wide'})
-        self.command({'type':'click', 'target':'Sync'})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'restarted repeat after catch-up')
         latest.append(self.latest_probe(backend=True))
         counts = dict(latest[-1]['requestCounts'])
         effort = counts.pop('get_activity', 0)
-        if effort not in (0, 1) or counts != {'get_devices':1, 'get_device_last_used':1, 'get_stats':1, 'get_sleep_summary':1, 'get_body_battery':1, 'get_activities_by_date':1, 'get_body_composition':1, 'get_weigh_ins':1}:
-            raise ValueError('Steady latest did not reduce to core reads plus existing bounded effort work')
-        if latest[-1]['after']['activities'] != latest[-2]['after']['activities'] or latest[-1]['after']['healthDays'] != latest[-2]['after']['healthDays']:
+        if effort not in (0, 1) or counts != {
+            'get_devices': 1,
+            'get_device_last_used': 1,
+            'get_stats': 1,
+            'get_sleep_summary': 1,
+            'get_body_battery': 1,
+            'get_activities_by_date': 1,
+            'get_body_composition': 1,
+            'get_weigh_ins': 1,
+        }:
+            raise ValueError(
+                'Steady latest did not reduce to core reads plus existing bounded effort work'
+            )
+        if (
+            latest[-1]['after']['activities'] != latest[-2]['after']['activities']
+            or latest[-1]['after']['healthDays'] != latest[-2]['after']['healthDays']
+        ):
             raise ValueError('Identical latest refresh was not idempotent')
         self.stop()
         prepare_latest_preset(self, 'new-activity')
         self.start(self.binary)
-        self.command({'type':'setViewport', 'preset':'wide'})
-        self.command({'type':'click', 'target':'Sync'})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'new newest activity')
         changed = self.latest_probe()
-        if changed['fitBaselineCalls'] != 1 or changed['requestCounts'].get('get_user_profile', 0) or changed['requestCounts'].get('get_cycling_ftp', 0) or changed['requestCounts'].get('get_device_last_used', 0):
+        if (
+            changed['fitBaselineCalls'] != 1
+            or changed['requestCounts'].get('get_user_profile', 0)
+            or changed['requestCounts'].get('get_cycling_ftp', 0)
+            or changed['requestCounts'].get('get_device_last_used', 0)
+        ):
             raise ValueError('Changed newest activity bypassed FIT/cadence contract')
         latest.append(changed)
         for preset in ('wide', 'narrow'):
-            self.command({'type':'setViewport', 'preset':preset})
-            images.append({'scenario':f'completed-range-latest-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-        self.command({'type':'sync', 'action':'details'})
+            self.command({'type': 'setViewport', 'preset': preset})
+            images.append(
+                {
+                    'scenario': f'completed-range-latest-{preset}',
+                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                }
+            )
+        self.command({'type': 'sync', 'action': 'details'})
         for preset in ('wide', 'narrow'):
-            self.command({'type':'setViewport', 'preset':preset})
-            images.append({'scenario':f'technical-details-expanded-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+            self.command({'type': 'setViewport', 'preset': preset})
+            images.append(
+                {
+                    'scenario': f'technical-details-expanded-{preset}',
+                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                }
+            )
         discovery = self.automatic_discovery()
         for outcome in ('settled', 'failed'):
             self.stop()
             prepare_mixed_sync_presentation(self, outcome)
             self.start(self.binary)
-            self.command({'type':'setViewport', 'preset':'wide'})
-            self.command({'type':'click', 'target':'Sync'})
+            self.command({'type': 'setViewport', 'preset': 'wide'})
+            self.command({'type': 'click', 'target': 'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'authored mixed Sync presentation')
             mixed = self.summary()
-            if mixed['active'] or mixed['historicalState'] != 'blocked' or mixed['latestOutcome'] != outcome or mixed['remoteLowerBound'] is not None:
+            if (
+                mixed['active']
+                or mixed['historicalState'] != 'blocked'
+                or mixed['latestOutcome'] != outcome
+                or mixed['remoteLowerBound'] is not None
+            ):
                 raise ValueError('Mixed authored presentation state not observed')
             for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
-                images.append({'scenario':f'mixed-latest-{outcome}-history-blocked-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+                self.command({'type': 'setViewport', 'preset': preset})
+                images.append(
+                    {
+                        'scenario': f'mixed-latest-{outcome}-history-blocked-{preset}',
+                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    }
+                )
             if outcome == 'settled':
-                self.command({'type':'sync', 'action':'details'})
+                self.command({'type': 'sync', 'action': 'details'})
                 for preset in ('wide', 'narrow'):
-                    self.command({'type':'setViewport', 'preset':preset})
-                    images.append({'scenario':f'mixed-technical-details-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-        private_json(self.root / 'synthetic-sync.json', {'source':self.config['source'], 'captures':images, 'settled':settled, 'latest':latest, 'automaticDiscovery':discovery, 'maxInvocations':12, 'maxObservationSecondsPerOperation':150, 'mixedPresentation':'stopped authored 6/14 latest settled/failed with no-progress blocked history; not engine progression', 'realGarminCertified':False})
+                    self.command({'type': 'setViewport', 'preset': preset})
+                    images.append(
+                        {
+                            'scenario': f'mixed-technical-details-{preset}',
+                            **self.command(
+                                {'type': 'captureView', 'view': 'sync', 'preset': preset}
+                            ),
+                        }
+                    )
+        private_json(
+            self.root / 'synthetic-sync.json',
+            {
+                'source': self.config['source'],
+                'captures': images,
+                'settled': settled,
+                'latest': latest,
+                'automaticDiscovery': discovery,
+                'maxInvocations': 12,
+                'maxObservationSecondsPerOperation': 150,
+                'mixedPresentation': 'stopped authored 6/14 latest settled/failed with no-progress blocked history; not engine progression',
+                'realGarminCertified': False,
+            },
+        )
 
     def automatic_discovery(self):
         """Settled date-limited progress continued by the explicit Discover action.
@@ -676,30 +1066,52 @@ class HistoryRun(OrdinaryRun):
         images = self.sync_captures
         before = self.summary()
         limit = before['savedLimit']
-        if before['active'] or before['historicalState'] != 'complete' or not limit or before['limit'] != limit:
+        if (
+            before['active']
+            or before['historicalState'] != 'complete'
+            or not limit
+            or before['limit'] != limit
+        ):
             raise ValueError('Settled date-limited authored history required')
         digest = self.history_digest()
         self.stop()
         prepare_automatic_history(self)
         self.start(self.binary)
-        self.command({'type':'setViewport', 'preset':'wide'})
-        self.command({'type':'click', 'target':'Sync'})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'automatic-scope Sync')
         offered = self.summary()
-        if offered['active'] or offered['historicalAction'] != 'discover' or offered['savedLimit'] != limit or offered['limit'] is not None or offered['remoteLowerBound'] is not None or self.history_digest() != digest:
+        if (
+            offered['active']
+            or offered['historicalAction'] != 'discover'
+            or offered['savedLimit'] != limit
+            or offered['limit'] is not None
+            or offered['remoteLowerBound'] is not None
+            or self.history_digest() != digest
+        ):
             raise ValueError('Relaunch/passive read changed history or did not offer Discover')
         records = {'savedLimit': limit, 'offered': offered, 'latest': [self.latest_only()]}
         if records['latest'][0]['after']['historicalAction'] != 'discover':
             raise ValueError('Latest refresh changed the offered discovery action')
         for preset in ('wide', 'narrow'):
-            self.command({'type':'setViewport', 'preset':preset})
-            images.append({'scenario':f'discover-offered-latest-success-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-        self.command({'type':'sync', 'action':'details'})
+            self.command({'type': 'setViewport', 'preset': preset})
+            images.append(
+                {
+                    'scenario': f'discover-offered-latest-success-{preset}',
+                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                }
+            )
+        self.command({'type': 'sync', 'action': 'details'})
         for preset in ('wide', 'narrow'):
-            self.command({'type':'setViewport', 'preset':preset})
-            images.append({'scenario':f'discover-offered-details-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-        self.command({'type':'sync', 'action':'details'})
-        self.command({'type':'setViewport', 'preset':'wide'})
+            self.command({'type': 'setViewport', 'preset': preset})
+            images.append(
+                {
+                    'scenario': f'discover-offered-details-{preset}',
+                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                }
+            )
+        self.command({'type': 'sync', 'action': 'details'})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
         records['operations'] = []
         # Discover (cancel after older progress), relaunch, then Continue until
         # automatic discovery finds the authored data start and stops itself.
@@ -708,55 +1120,90 @@ class HistoryRun(OrdinaryRun):
             if start['historicalAction'] != action:
                 raise ValueError('Unexpected historical action before explicit operation')
             self.wait_sync(lambda value: value['startEnabled'], 10)
-            self.command({'type':'sync', 'action':'continue'})  # Exactly one visible action.
-            self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
+            self.command({'type': 'sync', 'action': 'continue'})  # Exactly one visible action.
+            self.wait_sync(
+                lambda value: (
+                    value['running'] and value['cancelEnabled'] and value['progressStarted']
+                ),
+                15,
+            )
             deadline = time.monotonic() + 150
             while time.monotonic() < deadline:
                 current = self.summary()
                 if current['outcome'] == 'failed' or current['operationAttempts'] > 150:
                     raise ValueError('Discovery failed/exceeded finite evidence envelope')
                 if index == 0:
-                    older = current['nextHealthDate'] is not None and current['nextHealthDate'] < limit
+                    older = (
+                        current['nextHealthDate'] is not None and current['nextHealthDate'] < limit
+                    )
                     if current['active'] and older and current['batches'] >= 1:
                         break
                 elif not current['active']:
                     break
-                time.sleep(.25)
+                time.sleep(0.25)
             else:
                 raise TimeoutError('Older progress/settlement not observed within finite envelope')
             if index == 0:
                 for preset in ('wide', 'narrow'):
-                    self.command({'type':'setViewport', 'preset':preset})
-                    images.append({'scenario':f'{action}-active-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-                self.command({'type':'setViewport', 'preset':'wide'})
-                self.command({'type':'sync', 'action':'cancel'})
+                    self.command({'type': 'setViewport', 'preset': preset})
+                    images.append(
+                        {
+                            'scenario': f'{action}-active-{preset}',
+                            **self.command(
+                                {'type': 'captureView', 'view': 'sync', 'preset': preset}
+                            ),
+                        }
+                    )
+                self.command({'type': 'setViewport', 'preset': 'wide'})
+                self.command({'type': 'sync', 'action': 'cancel'})
                 self.settle_claim()
                 self.wait_sync(lambda value: not value['running'] and value['paused'], 40)
             else:
                 self.settle_claim()
                 self.wait_sync(lambda value: not value['running'] and value['completed'], 40)
             after = self.summary()
-            if after['active'] or after['savedLimit'] is not None or after['expandedFrom'] != limit or after['healthChecks'] <= (start['healthChecks'] or 0) or not after['nextHealthDate'] < limit:
+            if (
+                after['active']
+                or after['savedLimit'] is not None
+                or after['expandedFrom'] != limit
+                or after['healthChecks'] <= (start['healthChecks'] or 0)
+                or not after['nextHealthDate'] < limit
+            ):
                 raise ValueError('Transition/progress was not durable under automatic scope')
             if index == 0 and after['outcome'] != 'cancelled':
                 raise ValueError('Discover cancellation was not durable')
-            if index == 1 and (after['outcome'] != 'settled' or after['historicalState'] != 'complete' or after['historicalAction'] is not None
-                               or not after['noDataBefore'] or not after['noDataBefore'] < limit or after['remoteLowerBound'] is not None):
+            if index == 1 and (
+                after['outcome'] != 'settled'
+                or after['historicalState'] != 'complete'
+                or after['historicalAction'] is not None
+                or not after['noDataBefore']
+                or not after['noDataBefore'] < limit
+                or after['remoteLowerBound'] is not None
+            ):
                 raise ValueError('Automatic discovery did not stop at the authored data start')
             for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
+                self.command({'type': 'setViewport', 'preset': preset})
                 label = 'cancelled' if index == 0 else 'no-older-data'
-                images.append({'scenario':f'{action}-{label}-{preset}', **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
+                images.append(
+                    {
+                        'scenario': f'{action}-{label}-{preset}',
+                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    }
+                )
             self.stop()
             self.start(self.binary)
-            self.command({'type':'setViewport', 'preset':'wide'})
-            self.command({'type':'click', 'target':'Sync'})
+            self.command({'type': 'setViewport', 'preset': 'wide'})
+            self.command({'type': 'click', 'target': 'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'relaunch after explicit discovery')
             restored = self.summary()
             expected = 'continue' if index == 0 else None
-            if restored['active'] or restored['healthChecks'] != after['healthChecks'] or restored['historicalAction'] != expected:
+            if (
+                restored['active']
+                or restored['healthChecks'] != after['healthChecks']
+                or restored['historicalAction'] != expected
+            ):
                 raise ValueError('Relaunch replayed, lost progress or re-offered work')
-            records['operations'].append({'action':action, 'before':start, 'after':after})
+            records['operations'].append({'action': action, 'before': start, 'after': after})
         records['latest'].append(self.latest_only())
         return records
 
@@ -765,12 +1212,14 @@ class HistoryRun(OrdinaryRun):
         for scenario in ('missing', 'unknown', 'healthy'):
             prepare_dependency_scenario(self, scenario)
             self.start(self.binary)
-            self.command({'type':'click', 'target':'Sync'})
+            self.command({'type': 'click', 'target': 'Sync'})
             self.wait(lambda value: value['view'] == 'Sync', 'dependency Sync')
             if self.summary()['active']:
                 raise ValueError('Passive no-tool navigation started an integration')
             self.wait_sync(lambda value: value['startEnabled'], 10)
-            self.command({'type':'sync', 'action':'start'})  # Once per changed scenario, never failure retry.
+            self.command(
+                {'type': 'sync', 'action': 'start'}
+            )  # Once per changed scenario, never failure retry.
             if scenario == 'healthy':
                 self.wait_sync(lambda value: value['running'] and value['progressStarted'], 15)
                 # Initial rendered log only proves the click, not server/connector admission.
@@ -779,23 +1228,39 @@ class HistoryRun(OrdinaryRun):
                     healthy = self.summary()
                     if healthy['active'] and healthy['operationAttempts'] >= 2:
                         break
-                    time.sleep(.1)
+                    time.sleep(0.1)
                 else:
                     private_json(self.root / 'healthy-admission-timeout.json', healthy)
-                    raise TimeoutError('Healthy synthetic connector admission not observed; no Cancel/replay')
-                self.command({'type':'sync', 'action':'cancel'})
+                    raise TimeoutError(
+                        'Healthy synthetic connector admission not observed; no Cancel/replay'
+                    )
+                self.command({'type': 'sync', 'action': 'cancel'})
                 self.wait_sync(lambda value: value['paused'] and not value['running'], 40)
             else:
                 self.wait_sync(lambda value: value['failed'] and not value['running'], 15)
             self.settle_claim()
             for preset in ('wide', 'narrow'):
-                self.command({'type':'setViewport', 'preset':preset})
-                images.append({'scenario':'dependency-' + scenario + '-' + preset, **self.command({'type':'captureView', 'view':'sync', 'preset':preset})})
-            private_json(self.root / ('dependency-' + scenario + '-evidence.json'), {'captures':images, 'summary':self.summary(), 'source':self.config['source'], 'boot':self.boot, 'realGarminCertified':False})
-            self.command({'type':'setViewport', 'preset':'wide'})
-            self.command({'type':'click', 'target':'Back to chat'})
+                self.command({'type': 'setViewport', 'preset': preset})
+                images.append(
+                    {
+                        'scenario': 'dependency-' + scenario + '-' + preset,
+                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    }
+                )
+            private_json(
+                self.root / ('dependency-' + scenario + '-evidence.json'),
+                {
+                    'captures': images,
+                    'summary': self.summary(),
+                    'source': self.config['source'],
+                    'boot': self.boot,
+                    'realGarminCertified': False,
+                },
+            )
+            self.command({'type': 'setViewport', 'preset': 'wide'})
+            self.command({'type': 'click', 'target': 'Back to chat'})
             self.wait(lambda value: value['view'] == 'Trainer', 'saved offline Trainer')
-            self.command({'type':'click', 'target':'Health'})
+            self.command({'type': 'click', 'target': 'Health'})
             self.wait(lambda value: value['view'] == 'Health', 'saved offline Health')
             self.stop()
 
@@ -805,24 +1270,59 @@ class HistoryRun(OrdinaryRun):
         self.command({'type': 'click', 'target': 'Sync'})
         self.wait(lambda value: value['view'] == 'Sync', 'Sync continuation')
         before = self.summary()
-        if before['active'] or before['outcome'] not in ('failed', 'cancelled', 'budget-limited', 'settled'):
+        if before['active'] or before['outcome'] not in (
+            'failed',
+            'cancelled',
+            'budget-limited',
+            'settled',
+        ):
             raise ValueError('Stopped explicit prior discovery checkpoint required')
         images = self.sync_captures = []
         self.wait_sync(lambda value: value['startEnabled'], 40)
         self.command({'type': 'sync', 'action': 'continue'})  # Exactly one mutation.
         started = self.wait_sync(lambda value: value['running'] or value['failed'], 15)
         if not started['failed']:
-            images.append({'scenario': 'single-continuation-progress', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
-            private_json(self.root / 'single-continuation-progress.json', {'captures':images, 'source':self.config['source'], 'boot':self.boot})
-            result = self.wait_sync(lambda value: not value['running'] and (value['paused'] or value['completed'] or value['failed']))
+            images.append(
+                {
+                    'scenario': 'single-continuation-progress',
+                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'}),
+                }
+            )
+            private_json(
+                self.root / 'single-continuation-progress.json',
+                {'captures': images, 'source': self.config['source'], 'boot': self.boot},
+            )
+            result = self.wait_sync(
+                lambda value: (
+                    not value['running']
+                    and (value['paused'] or value['completed'] or value['failed'])
+                )
+            )
         else:
             result = started
         self.settle_claim()
         after = self.summary()
-        images.append({'scenario': 'single-continuation-settled', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
-        private_json(self.root / 'single-continuation.json', {'before':before, 'after':after, 'rendered':result,
-                     'captures':images, 'maxInvocations':1, 'maxRemoteAttempts':96, 'maxSeconds':180,
-                     'source':self.config['source'], 'boot':self.boot, 'remoteLowerBoundProven':False})
+        images.append(
+            {
+                'scenario': 'single-continuation-settled',
+                **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'}),
+            }
+        )
+        private_json(
+            self.root / 'single-continuation.json',
+            {
+                'before': before,
+                'after': after,
+                'rendered': result,
+                'captures': images,
+                'maxInvocations': 1,
+                'maxRemoteAttempts': 96,
+                'maxSeconds': 180,
+                'source': self.config['source'],
+                'boot': self.boot,
+                'remoteLowerBoundProven': False,
+            },
+        )
         if result['failed']:
             raise ValueError('Single continuation failed; no retry or login')
 
@@ -833,63 +1333,182 @@ class HistoryRun(OrdinaryRun):
         before = self.summary()
         images = self.sync_captures = []
         self.command({'type': 'sync', 'action': 'start'})
-        self.wait_sync(lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'], 15)
-        images.append({'scenario': 'real-sync-progress', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
-        private_json(self.root / 'real-sync-progress.json', {'captures': images, 'before': before,
-                     'source': self.config['source'], 'boot': self.boot})
+        self.wait_sync(
+            lambda value: value['running'] and value['cancelEnabled'] and value['progressStarted'],
+            15,
+        )
+        images.append(
+            {
+                'scenario': 'real-sync-progress',
+                **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'}),
+            }
+        )
+        private_json(
+            self.root / 'real-sync-progress.json',
+            {
+                'captures': images,
+                'before': before,
+                'source': self.config['source'],
+                'boot': self.boot,
+            },
+        )
         self.command({'type': 'sync', 'action': 'cancel'})
-        cancelled = self.wait_sync(lambda value: not value['running'] and (value['paused'] or value['completed'] or value['failed']), 40)
+        cancelled = self.wait_sync(
+            lambda value: (
+                not value['running'] and (value['paused'] or value['completed'] or value['failed'])
+            ),
+            40,
+        )
         if cancelled['failed']:
             raise ValueError('Real copied-token Sync failed; no automatic login or retry')
         self.settle_claim()
-        images.append({'scenario': 'real-sync-cancelled', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
-        private_json(self.root / 'real-sync-cancelled.json', {'captures': images, 'cancelled': cancelled,
-                     'summary': self.summary(), 'source': self.config['source'], 'boot': self.boot})
+        images.append(
+            {
+                'scenario': 'real-sync-cancelled',
+                **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'}),
+            }
+        )
+        private_json(
+            self.root / 'real-sync-cancelled.json',
+            {
+                'captures': images,
+                'cancelled': cancelled,
+                'summary': self.summary(),
+                'source': self.config['source'],
+                'boot': self.boot,
+            },
+        )
         settled = []
         for _ in range(2):  # Two explicit finite continuations, never automatic background work.
             self.wait_sync(lambda value: value['startEnabled'], 40)
             self.command({'type': 'sync', 'action': 'continue'})
             started = self.wait_sync(lambda value: value['running'] or value['failed'], 15)
             if started['failed']:
-                private_json(self.root / 'real-sync-failure.json', {'before': before, 'summary': self.summary(), 'rendered': started, 'cancelled': cancelled, 'captures': images})
-                raise ValueError('Real copied-token continuation failed during start; no login/retry')
-            result = self.wait_sync(lambda value: not value['running'] and (value['paused'] or value['completed'] or value['failed']))
+                private_json(
+                    self.root / 'real-sync-failure.json',
+                    {
+                        'before': before,
+                        'summary': self.summary(),
+                        'rendered': started,
+                        'cancelled': cancelled,
+                        'captures': images,
+                    },
+                )
+                raise ValueError(
+                    'Real copied-token continuation failed during start; no login/retry'
+                )
+            result = self.wait_sync(
+                lambda value: (
+                    not value['running']
+                    and (value['paused'] or value['completed'] or value['failed'])
+                )
+            )
             self.settle_claim()
             settled.append({'rendered': result, 'summary': self.summary()})
             if result['failed']:
-                private_json(self.root / 'real-sync-failure.json', {'before': before, 'settled': settled, 'cancelled': cancelled, 'captures': images})
-                raise ValueError('Real copied-token continuation failed; preserve error, no login/retry')
-        images.append({'scenario': 'real-sync-continued', **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
-        private_json(self.root / 'real-sync.json', {'before': before, 'cancelled': cancelled, 'settled': settled,
-                     'maxInvocations': 3, 'maxRemoteAttempts': 288, 'maxSeconds': 540, 'remoteLowerBoundProven': False})
+                private_json(
+                    self.root / 'real-sync-failure.json',
+                    {
+                        'before': before,
+                        'settled': settled,
+                        'cancelled': cancelled,
+                        'captures': images,
+                    },
+                )
+                raise ValueError(
+                    'Real copied-token continuation failed; preserve error, no login/retry'
+                )
+        images.append(
+            {
+                'scenario': 'real-sync-continued',
+                **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'}),
+            }
+        )
+        private_json(
+            self.root / 'real-sync.json',
+            {
+                'before': before,
+                'cancelled': cancelled,
+                'settled': settled,
+                'maxInvocations': 3,
+                'maxRemoteAttempts': 288,
+                'maxSeconds': 540,
+                'remoteLowerBoundProven': False,
+            },
+        )
         return images
 
 
 @resources.invocation
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, epilog='Discovery: npm run smoke:help -- search sync. Build/run card: docs/synthetic-sync-smoke.md; setup and independent live authority: docs/smoke/sync.md. Run plain npm from the canonical physical task checkout. Outputs include scenario/capture and owned-disposition evidence; synthetic DOM is not trusted input or real Garmin proof.')
-    parser.add_argument('--scratch', required=True, help='Canonical allocator-returned task root, not its evidence/disposable child')
-    parser.add_argument('--input-file', required=True, help='Owner-private database-only selection.json from smoke:prepare; no token discovery')
-    parser.add_argument('--bundle', required=True, help='Current full ordinary desktop:build .app from the same physical source/invocation context')
-    parser.add_argument('--release-record', type=Path, help='Selected final DMG record; original bundle admission remains required')
-    parser.add_argument('--dependency-guidance', action='store_true', help='Three fixed synthetic launcher scenarios, no account calls')
-    parser.add_argument('--synthetic-sync', action='store_true', help='Finite authored stdio data on stopped owned copies; no account calls')
-    parser.add_argument('--token-input', help='UNAVAILABLE legacy route: always refuses before private input access; old T0238 authority does not apply')
-    parser.add_argument('--continuation-only', action='store_true', help='UNAVAILABLE legacy route: requires --token-input, which is refused; not a supported continuation recipe')
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog='Discovery: npm run smoke:help -- search sync. Build/run card: docs/synthetic-sync-smoke.md; setup and independent live authority: docs/smoke/sync.md. Run plain npm from the canonical physical task checkout. Outputs include scenario/capture and owned-disposition evidence; synthetic DOM is not trusted input or real Garmin proof.',
+    )
+    parser.add_argument(
+        '--scratch',
+        required=True,
+        help='Canonical allocator-returned task root, not its evidence/disposable child',
+    )
+    parser.add_argument(
+        '--input-file',
+        required=True,
+        help='Owner-private database-only selection.json from smoke:prepare; no token discovery',
+    )
+    parser.add_argument(
+        '--bundle',
+        required=True,
+        help='Current full ordinary desktop:build .app from the same physical source/invocation context',
+    )
+    parser.add_argument(
+        '--release-record',
+        type=Path,
+        help='Selected final DMG record; original bundle admission remains required',
+    )
+    parser.add_argument(
+        '--dependency-guidance',
+        action='store_true',
+        help='Three fixed synthetic launcher scenarios, no account calls',
+    )
+    parser.add_argument(
+        '--synthetic-sync',
+        action='store_true',
+        help='Finite authored stdio data on stopped owned copies; no account calls',
+    )
+    parser.add_argument(
+        '--token-input',
+        help='UNAVAILABLE legacy route: always refuses before private input access; old T0238 authority does not apply',
+    )
+    parser.add_argument(
+        '--continuation-only',
+        action='store_true',
+        help='UNAVAILABLE legacy route: requires --token-input, which is refused; not a supported continuation recipe',
+    )
     args = parser.parse_args()
-    if args.dependency_guidance and (args.synthetic_sync or args.token_input or args.continuation_only):
+    if args.dependency_guidance and (
+        args.synthetic_sync or args.token_input or args.continuation_only
+    ):
         parser.error('Dependency evidence is synthetic-only and cannot combine execution scopes')
     if args.synthetic_sync and (args.token_input or args.continuation_only):
-        parser.error('Synthetic history cannot consume private tokens or legacy continuation authority')
+        parser.error(
+            'Synthetic history cannot consume private tokens or legacy continuation authority'
+        )
     if args.token_input:
-        parser.error('The historical T0238 live envelope cannot authorize the new interactive operation. Independently approve and review a finite live envelope before use; no private input opened.')
+        parser.error(
+            'The historical T0238 live envelope cannot authorize the new interactive operation. Independently approve and review a finite live envelope before use; no private input opened.'
+        )
     if args.continuation_only and not args.token_input:
         parser.error('--continuation-only requires explicitly selected copied tokens')
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
     selection = canonical(args.input_file)
     info = selection.stat()
-    if info.st_mode & 0o777 != 0o600 or info.st_nlink != 1 or info.st_uid != os.getuid() or info.st_size > 8192:
+    if (
+        info.st_mode & 0o777 != 0o600
+        or info.st_nlink != 1
+        or info.st_uid != os.getuid()
+        or info.st_size > 8192
+    ):
         raise ValueError('Private bounded database selection required')
     value = json.loads(selection.read_text())
     if set(value) != {'database'}:
@@ -897,21 +1516,55 @@ def main():
     database = canonical(value['database'])
     bundle = canonical(args.bundle)
     source = source_identity()
-    with candidate_preparation(REPO, bundle, source, scratch, args.release_record) as (bundle, verify_current, verified, inventory, release_record):
-        history_scenario(args, scratch, database, bundle, source, verified, inventory, verify_current, release_record)
+    with candidate_preparation(REPO, bundle, source, scratch, args.release_record) as (
+        bundle,
+        verify_current,
+        verified,
+        inventory,
+        release_record,
+    ):
+        history_scenario(
+            args,
+            scratch,
+            database,
+            bundle,
+            source,
+            verified,
+            inventory,
+            verify_current,
+            release_record,
+        )
 
 
-def history_scenario(args, scratch, database, bundle, source, verified, inventory, verify_current, release_record):
+def history_scenario(
+    args, scratch, database, bundle, source, verified, inventory, verify_current, release_record
+):
     runs = []
     observer = None
     token_source = None
-    receipt = {'scenarioPassed': False, 'source': source, 'artifactKind': 'ordinary',
-               'syntheticDomInput': True, 'normalDefaultModeCertified': False, 'releaseTransport': release_record,
-               'captures': [], 'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back'}
+    receipt = {
+        'scenarioPassed': False,
+        'source': source,
+        'artifactKind': 'ordinary',
+        'syntheticDomInput': True,
+        'normalDefaultModeCertified': False,
+        'releaseTransport': release_record,
+        'captures': [],
+        'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back',
+    }
     try:
         observer = Observer(scratch, preparation_locked=True)
         for mode in setup_modes(args):
-            run = HistoryRun(scratch, database, source, bundle, inventory, history_setup=mode, verified=verified, macos_metadata=bool(release_record))
+            run = HistoryRun(
+                scratch,
+                database,
+                source,
+                bundle,
+                inventory,
+                history_setup=mode,
+                verified=verified,
+                macos_metadata=bool(release_record),
+            )
             run.before_start = verify_current
             runs.append(run)
             run.observer = observer
@@ -927,14 +1580,20 @@ def history_scenario(args, scratch, database, bundle, source, verified, inventor
         if args.dependency_guidance:
             prepare_synthetic_history(run)
             run.dependency_guidance()
-            receipt['dependencyGuidance'] = 'actual missing/unknown/healthy synthetic launcher actions; offline navigation retained; no real sign-in/interpreter failure certification'
+            receipt['dependencyGuidance'] = (
+                'actual missing/unknown/healthy synthetic launcher actions; offline navigation retained; no real sign-in/interpreter failure certification'
+            )
             receipt['realGarmin'] = 'unavailable: no private input or fresh login authority'
         elif args.synthetic_sync:
             prepare_synthetic_history(run)
             run.start(run.binary)
             run.synthetic_sync()
-            receipt['syntheticHistory'] = 'three explicit latest refreshes preserve history bytes; two historical operations cancel then complete the selected range across restart; authored stdio only'
-            receipt['realGarmin'] = 'unavailable: no current private-input or finite live account authority'
+            receipt['syntheticHistory'] = (
+                'three explicit latest refreshes preserve history bytes; two historical operations cancel then complete the selected range across restart; authored stdio only'
+            )
+            receipt['realGarmin'] = (
+                'unavailable: no current private-input or finite live account authority'
+            )
         elif args.token_input:
             token_source, token_hashes = copy_tokens(args.token_input, run.root)
             # This is our own keyless settings, not operator/native settings or provider discovery.
@@ -949,18 +1608,31 @@ def history_scenario(args, scratch, database, bundle, source, verified, inventor
             run.start(run.binary)
             if args.continuation_only:
                 run.continue_once()
-                receipt['realGarmin'] = 'one explicit copied-token native-owned checkpoint continuation passed; no new Cancel/start batch'
+                receipt['realGarmin'] = (
+                    'one explicit copied-token native-owned checkpoint continuation passed; no new Cancel/start batch'
+                )
             else:
                 run.real_sync()  # finally retains partial captures even when continuation refuses.
-                receipt['realGarmin'] = 'copied-token native-owned Sync/cancel/two explicit continuations passed'
+                receipt['realGarmin'] = (
+                    'copied-token native-owned Sync/cancel/two explicit continuations passed'
+                )
         else:
             receipt['realGarmin'] = 'unavailable: no explicit private copied-token input'
             run.start(run.binary)
             run.command({'type': 'setViewport', 'preset': 'wide'})
             run.command({'type': 'click', 'target': 'Sync'})
             run.wait(lambda value: value['view'] == 'Sync', 'keyless Sync view')
-            receipt['captures'].append({'scenario': 'keyless-sync-idle', **run.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'})})
-        if source_identity() != source or audit(bundle) != inventory or any(audit(run.bundle) != inventory for run in runs):
+            receipt['captures'].append(
+                {
+                    'scenario': 'keyless-sync-idle',
+                    **run.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'}),
+                }
+            )
+        if (
+            source_identity() != source
+            or audit(bundle) != inventory
+            or any(audit(run.bundle) != inventory for run in runs)
+        ):
             raise ValueError('Source/artifact changed during evidence')
         receipt['scenarioPassed'] = True
     finally:
@@ -972,22 +1644,40 @@ def history_scenario(args, scratch, database, bundle, source, verified, inventor
                 errors.append('Owned shutdown failed; inspect private run evidence')
         if observer:
             try:
-                receipt['noninterference'] = observer.stop([pid for run in runs for pid in run.pids])
+                receipt['noninterference'] = observer.stop(
+                    [pid for run in runs for pid in run.pids]
+                )
             except Exception:
                 errors.append('Noninterference observer failed; inspect private evidence')
         with contextlib.closing(readonly(database)) as original:
-            receipt['originalDatabaseUnchanged'] = all(fingerprint(original) == run.original for run in runs)
-        receipt['originalTokensUnchanged'] = tokens_unchanged(token_source, token_hashes) if token_source else (None if args.token_input else True)
-        receipt['captures'].extend(capture for run in runs for capture in getattr(run, 'sync_captures', []))
+            receipt['originalDatabaseUnchanged'] = all(
+                fingerprint(original) == run.original for run in runs
+            )
+        receipt['originalTokensUnchanged'] = (
+            tokens_unchanged(token_source, token_hashes)
+            if token_source
+            else (None if args.token_input else True)
+        )
+        receipt['captures'].extend(
+            capture for run in runs for capture in getattr(run, 'sync_captures', [])
+        )
         receipt.update({'runs': [str(run.root) for run in runs], 'shutdownErrors': errors})
         private_json(scratch / ('history-receipt-' + str(uuid.uuid4()) + '.json'), receipt)
-        if errors or not receipt['originalDatabaseUnchanged'] or not receipt['originalTokensUnchanged']:
-            raise RuntimeError('Original preservation/owned shutdown gate failed; private evidence retained')
+        if (
+            errors
+            or not receipt['originalDatabaseUnchanged']
+            or not receipt['originalTokensUnchanged']
+        ):
+            raise RuntimeError(
+                'Original preservation/owned shutdown gate failed; private evidence retained'
+            )
     print(json.dumps(receipt))
 
 
 if __name__ == '__main__':
+
     def interrupted(_signal, _frame):
         raise KeyboardInterrupt('Owned history smoke interrupted')
+
     signal.signal(signal.SIGTERM, interrupted)
     main()

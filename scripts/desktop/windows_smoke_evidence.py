@@ -3,6 +3,7 @@
 A manifest is not evidence of visual inspection. The consumer must independently
 open every relied-on image and retain textual findings before three-day expiry.
 """
+
 import hashlib
 import io
 import json
@@ -19,15 +20,56 @@ import windows_smoke_state as state
 VIEWS = ('trainer', 'sync', 'profile')
 PRESETS = {'wide': (1280, 850), 'narrow': (420, 850)}
 FILES = {f'{view}-{preset}.png' for view in VIEWS for preset in PRESETS}
-LIMITS = ['windows11-deferred', 'trusted-native-input-unavailable', 'no-real-services',
-          'older-upgrade-downgrade-unqualified', 'no-window-chrome', 'synthetic-masked-only']
-STAGES = ['install', 'identity', 'hydration', 'navigation', 'goalsSave', 'restartReadback',
-          'captureRestore', 'settlement', 'programReplacement', 'uninstall', 'dataPreservation']
-MANIFEST_KEYS = {'schemaVersion', 'sourceSha', 'githubRunId', 'githubAttempt', 'os', 'image',
-                 'osBuild', 'architecture', 'webview2Version', 'installerSha256', 'payloadSha256',
-                 'outcomes', 'limits', 'images'}
-IMAGE_KEYS = {'file', 'sha256', 'view', 'preset', 'width', 'height', 'runId', 'bootId',
-              'captureMethod', 'inputMethod', 'masked'}
+LIMITS = [
+    'windows11-deferred',
+    'trusted-native-input-unavailable',
+    'no-real-services',
+    'older-upgrade-downgrade-unqualified',
+    'no-window-chrome',
+    'synthetic-masked-only',
+]
+STAGES = [
+    'install',
+    'identity',
+    'hydration',
+    'navigation',
+    'goalsSave',
+    'restartReadback',
+    'captureRestore',
+    'settlement',
+    'programReplacement',
+    'uninstall',
+    'dataPreservation',
+]
+MANIFEST_KEYS = {
+    'schemaVersion',
+    'sourceSha',
+    'githubRunId',
+    'githubAttempt',
+    'os',
+    'image',
+    'osBuild',
+    'architecture',
+    'webview2Version',
+    'installerSha256',
+    'payloadSha256',
+    'outcomes',
+    'limits',
+    'images',
+}
+IMAGE_KEYS = {
+    'file',
+    'sha256',
+    'view',
+    'preset',
+    'width',
+    'height',
+    'runId',
+    'bootId',
+    'captureMethod',
+    'inputMethod',
+    'masked',
+}
 
 
 def exact(value, keys):
@@ -63,21 +105,30 @@ def png(data, expected):
     while offset < len(data):
         if offset + 12 > len(data):
             raise ValueError('Truncated PNG')
-        length, kind = struct.unpack('>I4s', data[offset:offset + 8])
+        length, kind = struct.unpack('>I4s', data[offset : offset + 8])
         end = offset + 12 + length
         if end > len(data) or length > 4 * 1024 * 1024:
             raise ValueError('PNG chunk bound')
-        content = data[offset + 8:offset + 8 + length]
-        crc = struct.unpack('>I', data[end - 4:end])[0]
-        if zlib.crc32(kind + content) & 0xffffffff != crc:
+        content = data[offset + 8 : offset + 8 + length]
+        crc = struct.unpack('>I', data[end - 4 : end])[0]
+        if zlib.crc32(kind + content) & 0xFFFFFFFF != crc:
             raise ValueError('PNG CRC refused')
         if kind not in [b'IHDR', b'IDAT', b'IEND', b'sRGB', b'gAMA', b'pHYs', b'cHRM']:
             raise ValueError('PNG metadata/content type outside allowlist')
         if kind == b'IHDR':
             if chunks or length != 13:
                 raise ValueError('PNG IHDR ordering')
-            width, height, depth, color, compression, filtering, interlace = struct.unpack('>IIBBBBB', content)
-            if (width, height) != expected or depth != 8 or color not in (2, 6) or compression or filtering or interlace:
+            width, height, depth, color, compression, filtering, interlace = struct.unpack(
+                '>IIBBBBB', content
+            )
+            if (
+                (width, height) != expected
+                or depth != 8
+                or color not in (2, 6)
+                or compression
+                or filtering
+                or interlace
+            ):
                 raise ValueError('PNG dimensions/encoding refused; no resize fallback')
             size, channels = (width, height), 3 if color == 2 else 4
         elif kind == b'IDAT':
@@ -102,7 +153,7 @@ def png(data, expected):
     prior, colors = bytearray(stride), set()
     for y in range(size[1]):
         start = y * (stride + 1)
-        filtering, row = raw[start], bytearray(raw[start + 1:start + 1 + stride])
+        filtering, row = raw[start], bytearray(raw[start + 1 : start + 1 + stride])
         if filtering not in range(5):
             raise ValueError('PNG row filter')
         for x in range(stride):
@@ -124,7 +175,12 @@ def png(data, expected):
         if len(colors) < 16:
             for x in range(0, stride, channels):
                 alpha = row[x + 3] if channels == 4 else 255
-                colors.add(bytes((value * alpha + 255 * (255 - alpha) + 127) // 255 for value in row[x:x + 3]))
+                colors.add(
+                    bytes(
+                        (value * alpha + 255 * (255 - alpha) + 127) // 255
+                        for value in row[x : x + 3]
+                    )
+                )
                 if len(colors) >= 16:
                     break
         prior = row
@@ -138,7 +194,9 @@ def validate(directory, *, expected_source=None, expected_run=None, expected_att
     # Exact members, including directories/hidden files: never wildcard upload.
     if {path.name for path in directory.iterdir()} != FILES | {'manifest.json'}:
         raise ValueError('Evidence directory members differ from exact allowlist')
-    manifest = json.loads(state.read_file(directory / 'manifest.json', 32 * 1024), object_pairs_hook=unique)
+    manifest = json.loads(
+        state.read_file(directory / 'manifest.json', 32 * 1024), object_pairs_hook=unique
+    )
     exact(manifest, MANIFEST_KEYS)
     if type(manifest['schemaVersion']) is not int or manifest['schemaVersion'] != 2:
         raise ValueError('Evidence schema version refused')
@@ -146,15 +204,23 @@ def validate(directory, *, expected_source=None, expected_run=None, expected_att
     for key in ['installerSha256', 'payloadSha256']:
         hex_digest(manifest[key])
     for key in ['githubRunId', 'githubAttempt']:
-        if not isinstance(manifest[key], str) or not re.fullmatch('[1-9][0-9]{0,19}', manifest[key]):
+        if not isinstance(manifest[key], str) or not re.fullmatch(
+            '[1-9][0-9]{0,19}', manifest[key]
+        ):
             raise ValueError('GitHub identity refused')
-    for key, expected in [('sourceSha', expected_source), ('githubRunId', expected_run), ('githubAttempt', expected_attempt)]:
+    for key, expected in [
+        ('sourceSha', expected_source),
+        ('githubRunId', expected_run),
+        ('githubAttempt', expected_attempt),
+    ]:
         if expected is not None and manifest[key] != expected:
             raise ValueError('Evidence differs from requested source/run/attempt')
     if manifest['os'] != 'Windows Server 2025' or manifest['architecture'] != 'x64':
         raise ValueError('Unexpected platform evidence')
     for key in ['image', 'osBuild', 'webview2Version']:
-        if not isinstance(manifest[key], str) or not re.fullmatch('[A-Za-z0-9._-]{1,96}', manifest[key]):
+        if not isinstance(manifest[key], str) or not re.fullmatch(
+            '[A-Za-z0-9._-]{1,96}', manifest[key]
+        ):
             raise ValueError('Unsafe runtime identity')
     if manifest['limits'] != LIMITS or manifest['outcomes'] != {key: 'passed' for key in STAGES}:
         raise ValueError('Incomplete scenario or unsupported evidence claim')
@@ -165,14 +231,24 @@ def validate(directory, *, expected_source=None, expected_run=None, expected_att
     for image in images:
         exact(image, IMAGE_KEYS)
         view, preset = image['view'], image['preset']
-        if view not in VIEWS or preset not in PRESETS or image['file'] != f'{view}-{preset}.png' or image['file'] in seen:
+        if (
+            view not in VIEWS
+            or preset not in PRESETS
+            or image['file'] != f'{view}-{preset}.png'
+            or image['file'] in seen
+        ):
             raise ValueError('Image allowlist/correlation refused')
         seen.add(image['file'])
         identifier(image['runId'])
         identifier(image['bootId'])
-        if (image['captureMethod'] != 'webview2-capture-preview' or image['inputMethod'] != 'synthetic-dom'
-                or image['masked'] is not True or type(image['width']) is not int or type(image['height']) is not int
-                or (image['width'], image['height']) != PRESETS[preset]):
+        if (
+            image['captureMethod'] != 'webview2-capture-preview'
+            or image['inputMethod'] != 'synthetic-dom'
+            or image['masked'] is not True
+            or type(image['width']) is not int
+            or type(image['height']) is not int
+            or (image['width'], image['height']) != PRESETS[preset]
+        ):
             raise ValueError('Untrusted image method/mask/geometry')
         hex_digest(image['sha256'])
         content = state.read_file(directory / image['file'], 4 * 1024 * 1024)
@@ -181,7 +257,10 @@ def validate(directory, *, expected_source=None, expected_run=None, expected_att
         png(content, PRESETS[preset])
     if seen != FILES:
         raise ValueError('Missing images')
-    if len({image['runId'] for image in images}) != 1 or len({image['bootId'] for image in images}) != 1:
+    if (
+        len({image['runId'] for image in images}) != 1
+        or len({image['bootId'] for image in images}) != 1
+    ):
         raise ValueError('Mixed capture runs/boots')
     return manifest
 
@@ -212,11 +291,17 @@ def download_archive(archive, destination, *, expected_source, expected_run, exp
             if len(content) != item.file_size:
                 raise ValueError('Archive member size/framing changed')
             state.write_file(destination / item.filename, content)
-    return validate(destination, expected_source=expected_source, expected_run=expected_run, expected_attempt=expected_attempt)
+    return validate(
+        destination,
+        expected_source=expected_source,
+        expected_run=expected_run,
+        expected_attempt=expected_attempt,
+    )
 
 
 if __name__ == '__main__':
     import argparse
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', type=Path)
     parser.add_argument('--directory', type=Path, required=True)
@@ -224,7 +309,24 @@ if __name__ == '__main__':
     parser.add_argument('--run', required=True)
     parser.add_argument('--attempt', required=True)
     args = parser.parse_args()
-    options = {'expected_source': args.source, 'expected_run': args.run, 'expected_attempt': args.attempt}
-    value = download_archive(args.archive, args.directory, **options) if args.archive else validate(args.directory, **options)
-    print(json.dumps({'validatedSource': value['sourceSha'], 'run': value['githubRunId'], 'attempt': value['githubAttempt'],
-                      'images': len(value['images']), 'visualInspection': 'required separately'}))
+    options = {
+        'expected_source': args.source,
+        'expected_run': args.run,
+        'expected_attempt': args.attempt,
+    }
+    value = (
+        download_archive(args.archive, args.directory, **options)
+        if args.archive
+        else validate(args.directory, **options)
+    )
+    print(
+        json.dumps(
+            {
+                'validatedSource': value['sourceSha'],
+                'run': value['githubRunId'],
+                'attempt': value['githubAttempt'],
+                'images': len(value['images']),
+                'visualInspection': 'required separately',
+            }
+        )
+    )

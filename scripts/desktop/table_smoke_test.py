@@ -16,18 +16,40 @@ class TableScenarioContracts(unittest.TestCase):
             capture = root / 'screenshots/capture-unit.png'
             capture.write_bytes(b'synthetic unit bytes, not visual evidence')
             calls = []
+
             def command(value):
                 calls.append(value)
-                return {'capture': str(capture)} if value['type'] == 'captureView' else {
-                    'compact': True, 'proseWrapped': True, 'contained': True,
-                    'scrollable': True, 'edgeReached': True, 'allCells': True, 'headerVisible': True}
+                return (
+                    {'capture': str(capture)}
+                    if value['type'] == 'captureView'
+                    else {
+                        'compact': True,
+                        'proseWrapped': True,
+                        'contained': True,
+                        'scrollable': True,
+                        'edgeReached': True,
+                        'allCells': True,
+                        'headerVisible': True,
+                    }
+                )
+
             run = SimpleNamespace(root=root, command=command, wait=lambda predicate, label: None)
             images = scenario(run, scratch)
             self.assertEqual(len(images), 12)
-            self.assertEqual([(value['surface'], value['edge']) for value in calls if value['type'] == 'tables'],
-                             [(surface, edge) for surface in ['chat', 'chat-simple', 'plan', 'review'] for edge in ['start', 'start', 'end']])
-            self.assertEqual([value['target'] for value in calls if value['type'] == 'click'], ['Training Plan'])
-            self.assertTrue(all(Path(value['capture']).parent == scratch / 'screenshots' for value in images))
+            self.assertEqual(
+                [(value['surface'], value['edge']) for value in calls if value['type'] == 'tables'],
+                [
+                    (surface, edge)
+                    for surface in ['chat', 'chat-simple', 'plan', 'review']
+                    for edge in ['start', 'start', 'end']
+                ],
+            )
+            self.assertEqual(
+                [value['target'] for value in calls if value['type'] == 'click'], ['Training Plan']
+            )
+            self.assertTrue(
+                all(Path(value['capture']).parent == scratch / 'screenshots' for value in images)
+            )
             self.assertEqual(len(list(root.glob('table-capture-*.json'))), 12)
             self.assertNotIn('selector', repr(calls))
             for path in root.glob('table-capture-*.json'):
@@ -42,11 +64,23 @@ class TableScenarioContracts(unittest.TestCase):
             capture = root / 'screenshots/capture-unit.png'
             capture.write_bytes(b'unit evidence')
             calls = []
+
             def command(value):
                 calls.append(value)
-                return {'capture': str(capture)} if value['type'] == 'captureView' else {
-                    'compact': False, 'proseWrapped': True, 'contained': True,
-                    'scrollable': True, 'edgeReached': True, 'allCells': True, 'headerVisible': True}
+                return (
+                    {'capture': str(capture)}
+                    if value['type'] == 'captureView'
+                    else {
+                        'compact': False,
+                        'proseWrapped': True,
+                        'contained': True,
+                        'scrollable': True,
+                        'edgeReached': True,
+                        'allCells': True,
+                        'headerVisible': True,
+                    }
+                )
+
             run = SimpleNamespace(root=root, command=command, wait=lambda predicate, label: None)
             with self.assertRaisesRegex(ValueError, 'geometry gate'):
                 scenario(run, scratch)

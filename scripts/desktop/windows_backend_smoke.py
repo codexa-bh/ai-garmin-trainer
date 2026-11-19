@@ -9,6 +9,7 @@ stdin-EOF graceful stop with lease settlement and no orphaned process. No
 network service, credential, private data, installer or native window is used.
 Readiness is reported separately from the behaviour checks.
 """
+
 import argparse
 import http.client
 import json
@@ -29,9 +30,14 @@ def system_env():
 
 
 def run_initializer(node, runtime):
-    result = subprocess.run([str(node), str(runtime / 'runtime.cjs'), '--initialize-database'],
-                            cwd=runtime, input=b'{"version":1}\n', capture_output=True, timeout=60,
-                            env={**system_env(), 'NODE_ENV': 'production'})
+    result = subprocess.run(
+        [str(node), str(runtime / 'runtime.cjs'), '--initialize-database'],
+        cwd=runtime,
+        input=b'{"version":1}\n',
+        capture_output=True,
+        timeout=60,
+        env={**system_env(), 'NODE_ENV': 'production'},
+    )
     if result.returncode or not result.stdout.startswith(b'SQLite format 3\0'):
         raise AssertionError('Packaged fresh-only initializer failed')
     return result.stdout
@@ -40,7 +46,9 @@ def run_initializer(node, runtime):
 def request(port, path, nonce, method='GET'):
     connection = http.client.HTTPConnection('127.0.0.1', port, timeout=15)
     try:
-        connection.request(method, path, headers={'x-trainer-identity': nonce, 'Host': f'127.0.0.1:{port}'})
+        connection.request(
+            method, path, headers={'x-trainer-identity': nonce, 'Host': f'127.0.0.1:{port}'}
+        )
         response = connection.getresponse()
         return response.status, dict(response.getheaders()), response.read(64 * 1024)
     finally:
@@ -49,12 +57,27 @@ def request(port, path, nonce, method='GET'):
 
 def start(node, runtime, frame, root):
     nonce = str(uuid.uuid4())
-    env = {**system_env(), 'TRAINER_DESKTOP_NONCE': nonce, 'NODE_ENV': 'production',
-           'NEXT_TELEMETRY_DISABLED': '1', 'USERPROFILE': str(root), 'LOCALAPPDATA': str(root),
-           'APPDATA': str(root), 'HOME': str(root),
-           'PATH': str(Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32') if os.name == 'nt' else '/usr/bin:/bin'}
-    child = subprocess.Popen([str(node), str(runtime / 'runtime.cjs')], cwd=runtime, env=env,
-                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    env = {
+        **system_env(),
+        'TRAINER_DESKTOP_NONCE': nonce,
+        'NODE_ENV': 'production',
+        'NEXT_TELEMETRY_DISABLED': '1',
+        'USERPROFILE': str(root),
+        'LOCALAPPDATA': str(root),
+        'APPDATA': str(root),
+        'HOME': str(root),
+        'PATH': str(Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32')
+        if os.name == 'nt'
+        else '/usr/bin:/bin',
+    }
+    child = subprocess.Popen(
+        [str(node), str(runtime / 'runtime.cjs')],
+        cwd=runtime,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
     child.stdin.write(json.dumps(frame).encode() + b'\n')
     child.stdin.flush()
     line = child.stdout.readline(64 * 1024)
@@ -70,16 +93,26 @@ def main():
     # The same packaged-runtime contract on either target (bundled node[.exe]).
     node = resources / ('node.exe' if os.name == 'nt' else 'node')
     runtime = resources / 'runtime'
-    outcome = {'scope': 'synthetic packaged backend; no window, installer or services', 'host': sys.platform,
-               'readiness': 'not reached', 'checks': {}}
+    outcome = {
+        'scope': 'synthetic packaged backend; no window, installer or services',
+        'host': sys.platform,
+        'readiness': 'not reached',
+        'checks': {},
+    }
     with tempfile.TemporaryDirectory(prefix='trainer-backend-') as temporary:
         root = Path(temporary).resolve()
         database = root / 'trainer.sqlite'
         database.write_bytes(run_initializer(node, runtime))
         outcome['checks']['freshInitializer'] = 'passed'
-        frame = {'version': 1, 'fields': {'DATABASE_PATH': str(database), 'AI_PROVIDER': 'openai',
-                                          'GARMIN_HISTORY_START_DATE': '2025-01-01'},
-                 'secrets': {'OPENAI_API_KEY': 'test-only-no-network'}}
+        frame = {
+            'version': 1,
+            'fields': {
+                'DATABASE_PATH': str(database),
+                'AI_PROVIDER': 'openai',
+                'GARMIN_HISTORY_START_DATE': '2025-01-01',
+            },
+            'secrets': {'OPENAI_API_KEY': 'test-only-no-network'},
+        }
         child, nonce, ready = start(node, runtime, frame, root)
         try:
             if ready.get('type') != 'ready' or not ready.get('port'):
@@ -135,5 +168,8 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as error:
-        print(json.dumps({'failed': type(error).__name__, 'detail': str(error)[:400]}), file=sys.stderr)
+        print(
+            json.dumps({'failed': type(error).__name__, 'detail': str(error)[:400]}),
+            file=sys.stderr,
+        )
         raise

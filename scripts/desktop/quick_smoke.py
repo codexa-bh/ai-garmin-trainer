@@ -1,4 +1,5 @@
 """CI-only one-instance synthetic Profile save/restart; delivered native bridge, no capture/full suite."""
+
 import argparse
 import contextlib
 import json
@@ -9,7 +10,17 @@ import subprocess
 import uuid
 import smoke_resources as resources
 
-from native_smoke import REPO, Observer, Run, build, canonical, fingerprint, private_json, readonly, source_identity
+from native_smoke import (
+    REPO,
+    Observer,
+    Run,
+    build,
+    canonical,
+    fingerprint,
+    private_json,
+    readonly,
+    source_identity,
+)
 
 
 def require_platform():
@@ -23,16 +34,23 @@ def debug_scenario(run):
     images = []
 
     def state(label, opened, inner, keyboard=False):
-        expected = {'available': True, 'open': opened, 'summaryVisible': True,
-                    'nativeMarker': True, 'innerOpen': inner,
-                    'previewsVisible': [opened, opened],
-                    'bodiesVisible': [opened and inner[0], opened and inner[1]]}
+        expected = {
+            'available': True,
+            'open': opened,
+            'summaryVisible': True,
+            'nativeMarker': True,
+            'innerOpen': inner,
+            'previewsVisible': [opened, opened],
+            'bodiesVisible': [opened and inner[0], opened and inner[1]],
+        }
         if keyboard:
             # A deliberately non-key WebView has no document/:focus-visible state.
             # Assert native key behavior AND nonactivation; keep active-window focus
             # certification explicitly unavailable, not a pass inferred from DOM focus.
             expected.update(nativeKeyReceived=True, focused=True, documentFocused=False)
-        observation = run.wait(lambda o: all(o.get('llmDebug', {}).get(k) == v for k, v in expected.items()), label)
+        observation = run.wait(
+            lambda o: all(o.get('llmDebug', {}).get(k) == v for k, v in expected.items()), label
+        )
         states.append({'state': label, 'observation': observation['llmDebug']})
 
     def capture(label):
@@ -57,10 +75,14 @@ def debug_scenario(run):
     run.command({'type': 'click', 'target': 'Profile & data'})
     state('Profile-reopen-resets-closed', False, [False, False])
     capture('Profile-reopened')
-    evidence = {'passed': True, 'states': states, 'captures': images,
-                'activeWindowFocusCertified': False,
-                'focusLimitation': 'Intentionally non-key document suppresses :focus/:focus-visible; actual active-window focus indicator remains separate required evidence.',
-                'keyboard': 'native-generated Enter/Space sent only to owned non-key WKWebView; DOM trusted key received, no hardware/global input'}
+    evidence = {
+        'passed': True,
+        'states': states,
+        'captures': images,
+        'activeWindowFocusCertified': False,
+        'focusLimitation': 'Intentionally non-key document suppresses :focus/:focus-visible; actual active-window focus indicator remains separate required evidence.',
+        'keyboard': 'native-generated Enter/Space sent only to owned non-key WKWebView; DOM trusted key received, no hardware/global input',
+    }
     private_json(run.root / 'debug-disclosure.json', evidence)
     return evidence
 
@@ -69,8 +91,16 @@ def debug_scenario(run):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
-    parser.add_argument('--llm-debug', action='store_true', help='Opt-in synthetic LLM disclosure actions/local keys/sanitized captures, not recurring nightly')
-    parser.add_argument('--resources-ready', action='store_true', help='Verify same-source assembled inventory instead of rebuilding backend')
+    parser.add_argument(
+        '--llm-debug',
+        action='store_true',
+        help='Opt-in synthetic LLM disclosure actions/local keys/sanitized captures, not recurring nightly',
+    )
+    parser.add_argument(
+        '--resources-ready',
+        action='store_true',
+        help='Verify same-source assembled inventory instead of rebuilding backend',
+    )
     args = parser.parse_args()
     os.umask(0o077)
     require_platform()
@@ -92,8 +122,11 @@ def main():
     errors = []
     passed = False
     receipt = {
-        'source': source, 'scenario': 'synthetic-one-instance-Profile-save-restart' + ('-LLM-disclosure' if args.llm_debug else ''),
-        'runId': run.id, 'platform': platform.platform(),
+        'source': source,
+        'scenario': 'synthetic-one-instance-Profile-save-restart'
+        + ('-LLM-disclosure' if args.llm_debug else ''),
+        'runId': run.id,
+        'platform': platform.platform(),
         'coverage': 'Authenticated native/backend/hydrated renderer, normal Goals save, same-state owned restart, persistence, owned shutdown.',
         'exclusions': 'No private inputs, provider/Garmin/Keychain calls, parallel/navigation matrix, hardware/global input, native dialogs, release packaging or ordinary-artifact certification. Captures only with explicit --llm-debug.',
         'resourceDisposition': resources.disposition(),
@@ -124,17 +157,35 @@ def main():
                     errors.append(type(error).__name__)
             with contextlib.closing(readonly(database)) as original:
                 receipt['syntheticInputUnchanged'] = fingerprint(original) == run.original
-            receipt.update(passed=passed and not errors and receipt['syntheticInputUnchanged'], shutdownErrors=errors,
-                           readiness=run.launches == 2, saveRestart=passed, run=str(run.root))
+            receipt.update(
+                passed=passed and not errors and receipt['syntheticInputUnchanged'],
+                shutdownErrors=errors,
+                readiness=run.launches == 2,
+                saveRestart=passed,
+                run=str(run.root),
+            )
             path = scratch / ('quick-receipt-' + str(uuid.uuid4()) + '.json')
             private_json(path, receipt)
-            print(json.dumps({'passed': receipt['passed'], 'receipt': str(path), 'source': source, 'runId': run.id}))
+            print(
+                json.dumps(
+                    {
+                        'passed': receipt['passed'],
+                        'receipt': str(path),
+                        'source': source,
+                        'runId': run.id,
+                    }
+                )
+            )
             if not receipt['passed']:
-                raise RuntimeError('Quick smoke failed; retained original logs/receipt, no fallback or replay')
+                raise RuntimeError(
+                    'Quick smoke failed; retained original logs/receipt, no fallback or replay'
+                )
 
 
 if __name__ == '__main__':
+
     def interrupted(_signal, _frame):
         raise KeyboardInterrupt('Owned quick smoke interrupted')
+
     signal.signal(signal.SIGTERM, interrupted)
     main()

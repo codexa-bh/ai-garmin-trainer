@@ -6,6 +6,7 @@ member name is validated before extraction. The extracted program files and
 resources form the payload inventory that build identity and release
 verification compare with the legitimate producer outputs.
 """
+
 import hashlib
 import json
 import os
@@ -28,8 +29,11 @@ MAX_BYTES = 2 * 1024 * 1024 * 1024
 
 
 def installer_path(repo, version):
-    return (repo / 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'
-            / f'{PRODUCT}_{version}_x64-setup.exe')
+    return (
+        repo
+        / 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis'
+        / f'{PRODUCT}_{version}_x64-setup.exe'
+    )
 
 
 def digest(path):
@@ -49,12 +53,18 @@ def extractor():
             executable = Path(root) / '7-Zip' / '7z.exe'
             if executable.is_file() and not platform_files.is_link(executable.lstat()):
                 return executable
-    raise ValueError('7-Zip (7z.exe in Program Files\\7-Zip) is required to verify the installer without running it')
+    raise ValueError(
+        '7-Zip (7z.exe in Program Files\\7-Zip) is required to verify the installer without running it'
+    )
 
 
 def extractor_version(seven_zip):
-    output = subprocess.run([str(seven_zip)], capture_output=True, timeout=30).stdout.decode('utf8', 'replace')
-    line = next((line.strip() for line in output.splitlines() if line.strip().startswith('7-Zip')), '')
+    output = subprocess.run([str(seven_zip)], capture_output=True, timeout=30).stdout.decode(
+        'utf8', 'replace'
+    )
+    line = next(
+        (line.strip() for line in output.splitlines() if line.strip().startswith('7-Zip')), ''
+    )
     if not line:
         raise ValueError('7-Zip version unavailable')
     return line
@@ -62,8 +72,11 @@ def extractor_version(seven_zip):
 
 def members(seven_zip, installer):
     """Validated member list; installer bytes are only read."""
-    listing = subprocess.run([str(seven_zip), 'l', '-slt', '-ba', '-sccUTF-8', str(installer)],
-                             capture_output=True, timeout=300)
+    listing = subprocess.run(
+        [str(seven_zip), 'l', '-slt', '-ba', '-sccUTF-8', str(installer)],
+        capture_output=True,
+        timeout=300,
+    )
     if listing.returncode:
         raise ValueError('Installer payload listing failed; installer is not trusted')
     entries, current = [], {}
@@ -81,13 +94,23 @@ def members(seven_zip, installer):
         if entry.get('Folder') == '+':
             continue
         parts = PureWindowsPath(name).parts
-        if (not name or PureWindowsPath(name).is_absolute() or PureWindowsPath(name).drive
-                or any(part in ('', '.', '..') for part in parts) or ':' in name
-                or any(ord(c) < 32 for c in name)):
+        if (
+            not name
+            or PureWindowsPath(name).is_absolute()
+            or PureWindowsPath(name).drive
+            or any(part in ('', '.', '..') for part in parts)
+            or ':' in name
+            or any(ord(c) < 32 for c in name)
+        ):
             raise ValueError('Unsafe installer member name refused')
         total += int(entry.get('Size') or 0)
         names.append(name)
-    if not names or len(names) > MAX_MEMBERS or total > MAX_BYTES or len(set(n.lower() for n in names)) != len(names):
+    if (
+        not names
+        or len(names) > MAX_MEMBERS
+        or total > MAX_BYTES
+        or len(set(n.lower() for n in names)) != len(names)
+    ):
         raise ValueError('Installer payload empty, duplicated or outside bounds')
     return sorted(names)
 
@@ -97,8 +120,11 @@ def payload(seven_zip, installer, workspace):
     names = members(seven_zip, installer)
     destination = workspace / ('payload-' + str(uuid.uuid4()))
     destination.mkdir()
-    result = subprocess.run([str(seven_zip), 'x', '-y', '-bd', '-snl-', '-o' + str(destination), str(installer)],
-                            capture_output=True, timeout=600)
+    result = subprocess.run(
+        [str(seven_zip), 'x', '-y', '-bd', '-snl-', '-o' + str(destination), str(installer)],
+        capture_output=True,
+        timeout=600,
+    )
     if result.returncode:
         raise ValueError('Installer payload extraction failed; nothing was installed')
     inventory = {}
@@ -137,8 +163,10 @@ def check_payload(inventory, release_dir, resources):
         missing = sorted(set(wanted) - set(inventory))[:5]
         extra = sorted(set(inventory) - set(wanted))[:5]
         changed = sorted(k for k in set(wanted) & set(inventory) if wanted[k] != inventory[k])[:5]
-        raise ValueError('Installer payload differs from producer: ' + json.dumps(
-            {'missing': missing, 'extra': extra, 'changed': changed}))
+        raise ValueError(
+            'Installer payload differs from producer: '
+            + json.dumps({'missing': missing, 'extra': extra, 'changed': changed})
+        )
     return wanted
 
 
@@ -149,6 +177,6 @@ def pe_machine(path):
     if header[:2] != b'MZ':
         return None
     offset = int.from_bytes(header[0x3C:0x40], 'little')
-    if header[offset:offset + 4] != b'PE\0\0':
+    if header[offset : offset + 4] != b'PE\0\0':
         return None
-    return int.from_bytes(header[offset + 4:offset + 6], 'little')
+    return int.from_bytes(header[offset + 4 : offset + 6], 'little')

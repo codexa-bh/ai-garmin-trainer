@@ -11,16 +11,17 @@ def main() -> int:
     parser.add_argument('check', choices=('format', 'lint', 'deadcode'))
     check = parser.parse_args().check
     root = Path(__file__).resolve().parent.parent
-    tracked = subprocess.check_output(
-        ['git', 'ls-files', '-z', '--', '*.py'], cwd=root
-    ).decode().split('\0')
+    tracked = (
+        subprocess.check_output(['git', 'ls-files', '-z', '--', '*.py'], cwd=root)
+        .decode()
+        .split('\0')
+    )
     files = [name for name in tracked if name]
     if not files:
         parser.error('No tracked Python files found')
     if check == 'deadcode':
         files = [
-            name for name in files
-            if not (name.startswith('tests/') or name.endswith('_test.py'))
+            name for name in files if not (name.startswith('tests/') or name.endswith('_test.py'))
         ]
         command = ['vulture', '--min-confidence', '60']
     elif check == 'format':

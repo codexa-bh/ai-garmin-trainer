@@ -8,6 +8,7 @@ those records and assets and refuses any mixing, but it does not re-admit a
 foreign host's producer and is labelled accordingly. A caller-supplied record
 grants no producer authority by itself; omitted platforms are not present.
 """
+
 import hashlib
 import json
 from pathlib import Path
@@ -20,10 +21,20 @@ SCHEMA = 1
 NAME = 'release-set.json'
 VERIFICATION = 'portable-digests; per-platform original-producer verification on each native host'
 LEGACY_RECORD = 'release.json'  # Published 0.1.x macOS records keep their name and schema.
-ARTIFACT = {platform_target.MACOS: re.compile(r'^Garmin-Trainer-(?P<v>[^/\\\\]+)-macos-arm64\.dmg$'),
-            platform_target.WINDOWS: re.compile(r'^Garmin-Trainer-(?P<v>[^/\\\\]+)-windows-x64-setup\.exe$')}
-TARGET = {platform_target.MACOS: 'aarch64-apple-darwin', platform_target.WINDOWS: 'x86_64-pc-windows-msvc'}
-RECORD_NAME = {platform_target.MACOS: LEGACY_RECORD, platform_target.WINDOWS: 'release-windows-x64.json'}
+ARTIFACT = {
+    platform_target.MACOS: re.compile(r'^Garmin-Trainer-(?P<v>[^/\\\\]+)-macos-arm64\.dmg$'),
+    platform_target.WINDOWS: re.compile(
+        r'^Garmin-Trainer-(?P<v>[^/\\\\]+)-windows-x64-setup\.exe$'
+    ),
+}
+TARGET = {
+    platform_target.MACOS: 'aarch64-apple-darwin',
+    platform_target.WINDOWS: 'x86_64-pc-windows-msvc',
+}
+RECORD_NAME = {
+    platform_target.MACOS: LEGACY_RECORD,
+    platform_target.WINDOWS: 'release-windows-x64.json',
+}
 HEX = re.compile(r'^[0-9a-f]{64}$')
 
 
@@ -73,19 +84,32 @@ def platform_of(record):
 
 def check_record(record, platform_id):
     artifact = record.get('artifact')
-    if (not isinstance(artifact, dict) or not isinstance(artifact.get('name'), str)
-            or not HEX.match(str(artifact.get('sha256'))) or type(artifact.get('size')) is not int
-            or artifact['size'] <= 0):
+    if (
+        not isinstance(artifact, dict)
+        or not isinstance(artifact.get('name'), str)
+        or not HEX.match(str(artifact.get('sha256')))
+        or type(artifact.get('size')) is not int
+        or artifact['size'] <= 0
+    ):
         raise ValueError('Malformed artifact entry')
     match = ARTIFACT[platform_id].match(artifact['name'])
     if not match or match.group('v') != record.get('version'):
         raise ValueError('Artifact name does not match platform/version')
-    for field in ['originalSource', 'buildSource', 'buildContext', 'inventory', 'payloadIdentity', 'notesSha256']:
+    for field in [
+        'originalSource',
+        'buildSource',
+        'buildContext',
+        'inventory',
+        'payloadIdentity',
+        'notesSha256',
+    ]:
         if not HEX.match(str(record.get(field))):
             raise ValueError('Malformed record identity: ' + field)
     if record.get('repository') != REPOSITORY or record.get('sourceDirty') is not False:
         raise ValueError('Canonical clean exact-source record required')
-    if not re.fullmatch(r'[0-9a-f]{40}', str(record.get('commit'))) or record.get('tag') != 'v' + str(record.get('version')):
+    if not re.fullmatch(r'[0-9a-f]{40}', str(record.get('commit'))) or record.get(
+        'tag'
+    ) != 'v' + str(record.get('version')):
         raise ValueError('Exact commit and version tag required')
     version_value(record['version'])
     if not isinstance(record.get('signing'), str) or not record['signing']:
@@ -114,10 +138,23 @@ def entry(record_path):
     for path in (installer, checksum, record_path):
         asset_sha, asset_size = digest(path)
         assets.append({'name': path.name, 'size': asset_size, 'sha256': asset_sha})
-    identity = {key: record[key] for key in ['originalSource', 'buildSource', 'buildContext', 'inventory',
-                                             'payloadIdentity', 'signing', 'target']}
-    return record, {'platform': platform_id, 'record': record_path.name, **identity, 'assets': assets}, \
-        {asset['name']: directory / asset['name'] for asset in assets}
+    identity = {
+        key: record[key]
+        for key in [
+            'originalSource',
+            'buildSource',
+            'buildContext',
+            'inventory',
+            'payloadIdentity',
+            'signing',
+            'target',
+        ]
+    }
+    return (
+        record,
+        {'platform': platform_id, 'record': record_path.name, **identity, 'assets': assets},
+        {asset['name']: directory / asset['name'] for asset in assets},
+    )
 
 
 def build(record_paths, notes):
@@ -144,22 +181,38 @@ def build(record_paths, notes):
     if hashlib.sha256(notes.encode()).hexdigest() != first['notesSha256']:
         raise ValueError('Reviewed notes differ from platform records')
     entries.sort(key=lambda item: platform_target.PLATFORMS.index(item['platform']))
-    value = {'schemaVersion': SCHEMA, 'kind': 'garmin-trainer-release-set', 'repository': first['repository'],
-             'commit': first['commit'], 'version': first['version'], 'tag': first['tag'],
-             'notesSha256': first['notesSha256'], 'platforms': [item['platform'] for item in entries],
-             'verification': VERIFICATION, 'entries': entries}
+    value = {
+        'schemaVersion': SCHEMA,
+        'kind': 'garmin-trainer-release-set',
+        'repository': first['repository'],
+        'commit': first['commit'],
+        'version': first['version'],
+        'tag': first['tag'],
+        'notesSha256': first['notesSha256'],
+        'platforms': [item['platform'] for item in entries],
+        'verification': VERIFICATION,
+        'entries': entries,
+    }
     return value, files
 
 
 def validate(value):
     """Shape of a stored set (fake-provider/consumer side); bytes rechecked separately."""
-    if (not isinstance(value, dict) or value.get('schemaVersion') != SCHEMA
-            or value.get('kind') != 'garmin-trainer-release-set' or value.get('verification') != VERIFICATION):
+    if (
+        not isinstance(value, dict)
+        or value.get('schemaVersion') != SCHEMA
+        or value.get('kind') != 'garmin-trainer-release-set'
+        or value.get('verification') != VERIFICATION
+    ):
         raise ValueError('Unsupported release set')
     platforms = value.get('platforms')
-    if (not isinstance(platforms, list) or not platforms or len(set(platforms)) != len(platforms)
-            or any(p not in platform_target.PLATFORMS for p in platforms)
-            or [item.get('platform') for item in value.get('entries', [])] != platforms):
+    if (
+        not isinstance(platforms, list)
+        or not platforms
+        or len(set(platforms)) != len(platforms)
+        or any(p not in platform_target.PLATFORMS for p in platforms)
+        or [item.get('platform') for item in value.get('entries', [])] != platforms
+    ):
         raise ValueError('Release set platforms must be explicit, known and unique')
     names = [asset['name'] for item in value['entries'] for asset in item['assets']]
     if len(set(names)) != len(names) or NAME in names:
@@ -202,8 +255,10 @@ def assets(set_path, record_dirs):
     first = load(paths[0])
     for path in paths:
         current = load(path)
-        if any(current[key] != first[key] or value.get(key) != current[key]
-               for key in ('repository', 'commit', 'version', 'tag', 'notesSha256')):
+        if any(
+            current[key] != first[key] or value.get(key) != current[key]
+            for key in ('repository', 'commit', 'version', 'tag', 'notesSha256')
+        ):
             raise ValueError('Stored release set shared identity differs from platform records')
     sha, size = digest(set_path)
     result[NAME] = {'path': Path(set_path), 'size': size, 'sha256': sha}

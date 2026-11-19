@@ -36,16 +36,30 @@ class PreparationTests(unittest.TestCase):
         if args[0] == 'npm':
             self.resource.write_bytes(b'resource')
         else:
-            binary = self.binary if '--release' not in args else self.repo / 'src-tauri/target/aarch64-apple-darwin/release/garmin-trainer-desktop'
+            binary = (
+                self.binary
+                if '--release' not in args
+                else self.repo
+                / 'src-tauri/target/aarch64-apple-darwin/release/garmin-trainer-desktop'
+            )
             binary.parent.mkdir(parents=True, exist_ok=True)
-            binary.write_bytes(b'compiled ' + ('probe' if '--release' in args else 'debug').encode())
+            binary.write_bytes(
+                b'compiled ' + ('probe' if '--release' in args else 'debug').encode()
+            )
             binary.chmod(0o700)
 
     def prepare(self, **kwargs):
-        with patch.object(smoke_build, 'build_key', side_effect=lambda *a: self.key), patch.object(smoke_build.subprocess, 'run', side_effect=self.command):
-            return smoke_build.prepare(self.repo, self.scratch, self.source, lambda: self.current, self.verify, **kwargs)
+        with (
+            patch.object(smoke_build, 'build_key', side_effect=lambda *a: self.key),
+            patch.object(smoke_build.subprocess, 'run', side_effect=self.command),
+        ):
+            return smoke_build.prepare(
+                self.repo, self.scratch, self.source, lambda: self.current, self.verify, **kwargs
+            )
 
-    def test_two_compatible_invocations_skip_resources_and_native_requests_but_keep_independent_copies(self):
+    def test_two_compatible_invocations_skip_resources_and_native_requests_but_keep_independent_copies(
+        self,
+    ):
         first = self.prepare()
         second = self.prepare()
         self.assertEqual(len(self.calls), 2)
@@ -60,10 +74,14 @@ class PreparationTests(unittest.TestCase):
             with self.subTest(change=change):
                 self.prepare()
                 before = len(self.calls)
-                if change == 'key': self.key += 'changed'
-                if change == 'missing-binary': self.binary.unlink()
-                if change == 'resources': self.resource.write_bytes(b'corrupt')
-                if change == 'stamp': (self.repo / 'dist/smoke-build-debug.json').write_text('{incomplete')
+                if change == 'key':
+                    self.key += 'changed'
+                if change == 'missing-binary':
+                    self.binary.unlink()
+                if change == 'resources':
+                    self.resource.write_bytes(b'corrupt')
+                if change == 'stamp':
+                    (self.repo / 'dist/smoke-build-debug.json').write_text('{incomplete')
                 self.prepare(mode='release-probe' if change == 'mode' else 'debug')
                 self.assertEqual(len(self.calls) - before, 2)
 
@@ -89,18 +107,33 @@ class PreparationTests(unittest.TestCase):
             self.prepare()
         self.assertFalse(self.calls)
         self.current = self.source
+
         def failed(*args, **kwargs):
             raise RuntimeError('deterministic build failure')
-        with patch.object(smoke_build, 'build_key', return_value='key'), patch.object(smoke_build.subprocess, 'run', side_effect=failed):
+
+        with (
+            patch.object(smoke_build, 'build_key', return_value='key'),
+            patch.object(smoke_build.subprocess, 'run', side_effect=failed),
+        ):
             with self.assertRaisesRegex(RuntimeError, 'deterministic'):
-                smoke_build.prepare(self.repo, self.scratch, self.source, lambda: self.source, self.verify)
+                smoke_build.prepare(
+                    self.repo, self.scratch, self.source, lambda: self.source, self.verify
+                )
         self.assertFalse((self.repo / 'dist/smoke-build-debug.json').exists())
+
         def changed(args, **kwargs):
             self.command(args, **kwargs)
-            if args[0] == 'cargo': self.current = 'changed'
-        with patch.object(smoke_build, 'build_key', return_value='key'), patch.object(smoke_build.subprocess, 'run', side_effect=changed):
+            if args[0] == 'cargo':
+                self.current = 'changed'
+
+        with (
+            patch.object(smoke_build, 'build_key', return_value='key'),
+            patch.object(smoke_build.subprocess, 'run', side_effect=changed),
+        ):
             with self.assertRaisesRegex(ValueError, 'Inputs changed'):
-                smoke_build.prepare(self.repo, self.scratch, self.source, lambda: self.current, self.verify)
+                smoke_build.prepare(
+                    self.repo, self.scratch, self.source, lambda: self.current, self.verify
+                )
         self.assertFalse((self.repo / 'dist/smoke-build-debug.json').exists())
 
     def test_key_binds_installed_dirty_inputs_environment_modes_toolchain_and_worktree(self):
@@ -109,8 +142,10 @@ class PreparationTests(unittest.TestCase):
         (dependencies / '.package-lock.json').write_text('{}')
         module = dependencies / 'module.js'
         module.write_text('module')
+
         def key(mode='debug', source=self.source):
             return smoke_build.build_key(self.repo, source, mode)
+
         with patch.object(smoke_build.subprocess, 'check_output', return_value=b'tool v1'):
             initial = key()
             self.assertNotEqual(initial, key(source='dirty/untracked source hash'))
@@ -123,7 +158,9 @@ class PreparationTests(unittest.TestCase):
                 self.assertNotEqual(initial, key())
             with patch.dict(os.environ, {'PATH': '/reviewed/bin:/system/bin'}):
                 ordered = key()
-                with patch.dict(os.environ, {'PATH': '/reviewed/bin:/reviewed/bin:/system/bin:/system/bin'}):
+                with patch.dict(
+                    os.environ, {'PATH': '/reviewed/bin:/reviewed/bin:/system/bin:/system/bin'}
+                ):
                     self.assertEqual(ordered, key())  # Nested npm duplicates preserve resolution.
                 with patch.dict(os.environ, {'PATH': '/system/bin:/reviewed/bin'}):
                     self.assertNotEqual(ordered, key())
@@ -145,6 +182,7 @@ class PreparationTests(unittest.TestCase):
     def test_source_identity_binds_tracked_dirty_deleted_and_untracked_inputs(self):
         import subprocess
         import native_smoke
+
         subprocess.run(['git', 'init', '-q', str(self.repo)], check=True)
         source = self.repo / 'source'
         source.write_text('tracked')
@@ -170,14 +208,21 @@ class PreparationTests(unittest.TestCase):
         source.parent.mkdir(parents=True)
         source.write_text('synthetic Swift fixture')
         calls = []
+
         def compile(args, **kwargs):
             calls.append(args)
             Path(args[-1]).write_bytes(b'compiled observer')
-        with patch.object(smoke_build.subprocess, 'check_output', return_value=b'version1'), patch.object(smoke_build.subprocess, 'run', side_effect=compile):
+
+        with (
+            patch.object(smoke_build.subprocess, 'check_output', return_value=b'version1'),
+            patch.object(smoke_build.subprocess, 'run', side_effect=compile),
+        ):
             binary = smoke_build.observer_binary(self.repo)
             self.assertEqual(binary, smoke_build.observer_binary(self.repo))
             with smoke_build.preparation_lock(self.repo / 'dist'):
-                self.assertEqual(binary, smoke_build.observer_binary(self.repo, preparation_locked=True))
+                self.assertEqual(
+                    binary, smoke_build.observer_binary(self.repo, preparation_locked=True)
+                )
             self.assertEqual(len(calls), 1)
             binary.write_bytes(b'corrupt')
             smoke_build.observer_binary(self.repo)
@@ -207,29 +252,41 @@ class PreparationTests(unittest.TestCase):
     def test_worktree_lock_serializes_same_preparation(self):
         import threading
         import time
+
         entered = threading.Event()
         release = threading.Event()
         original = self.command
+
         def command(args, **kwargs):
             if args[0] == 'npm':
                 entered.set()
                 self.assertTrue(release.wait(5))
             original(args, **kwargs)
+
         results = []
         errors = []
+
         def worker():
             try:
-                results.append(smoke_build.prepare(self.repo, self.scratch, self.source, lambda: self.source, self.verify))
+                results.append(
+                    smoke_build.prepare(
+                        self.repo, self.scratch, self.source, lambda: self.source, self.verify
+                    )
+                )
             except BaseException as error:
                 errors.append(error)
+
         (self.repo / 'dist').mkdir()
-        with patch.object(smoke_build, 'build_key', return_value='key'), patch.object(smoke_build.subprocess, 'run', side_effect=command):
+        with (
+            patch.object(smoke_build, 'build_key', return_value='key'),
+            patch.object(smoke_build.subprocess, 'run', side_effect=command),
+        ):
             first = threading.Thread(target=worker)
             second = threading.Thread(target=worker)
             first.start()
             self.assertTrue(entered.wait(5))
             second.start()
-            time.sleep(.02)  # Local lock assertion, not remote-CI polling.
+            time.sleep(0.02)  # Local lock assertion, not remote-CI polling.
             release.set()
             first.join(5)
             second.join(5)
