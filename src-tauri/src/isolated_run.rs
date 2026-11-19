@@ -340,13 +340,12 @@ impl Admission {
             return Err(refusal("mode"));
         }
         let admission = Self::admit(path, verify_artifact)?;
-        if cfg!(windows)
+        if (cfg!(windows)
             || admission.descriptor.history_setup.is_some()
-            || admission.descriptor.provider_smoke.is_some()
+            || admission.descriptor.provider_smoke.is_some())
+            && !stdin_is_pipe()
         {
-            if !stdin_is_pipe() {
-                return Err(refusal("owner-pipe"));
-            }
+            return Err(refusal("owner-pipe"));
         }
         Ok(admission)
     }
@@ -361,7 +360,7 @@ impl Admission {
             return Err(DENIED);
         }
         let descriptor: Descriptor =
-            serde_json::from_slice(&bytes).map_err(|_| refusal("descriptor-json"))?;
+            serde_json::from_slice(bytes).map_err(|_| refusal("descriptor-json"))?;
         descriptor
             .validate(path)
             .map_err(|_| refusal("descriptor-fields"))?;
@@ -524,7 +523,7 @@ impl Admission {
                 return true;
             }
             if key == "DATABASE_PATH" {
-                return PathBuf::from(value) == self.descriptor.root.join("trainer.sqlite");
+                return Path::new(value) == self.descriptor.root.join("trainer.sqlite");
             }
             if key == "GARMIN_HISTORY_START_DATE" {
                 return value.is_empty() || value == "2024-01-01";
@@ -632,7 +631,7 @@ impl Admission {
             return Err(DENIED);
         }
         if let Some(tokens) = fields.get("GARMIN_MCP_TOKEN_DIR").filter(|s| !s.is_empty()) {
-            if PathBuf::from(tokens) != self.descriptor.root.join("tokens") {
+            if Path::new(tokens) != self.descriptor.root.join("tokens") {
                 return Err(DENIED);
             }
             let _ = private_store::PinnedDirectory::open(&self.descriptor.root.join("tokens"))?;

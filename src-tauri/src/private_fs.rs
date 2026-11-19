@@ -1296,12 +1296,13 @@ mod tests {
         assert!(path_meta(&file).unwrap().private_file());
         let first = walk(&root, false).unwrap();
         let second = walk(&root, false).unwrap();
-        let lock = try_lock(&first).unwrap();
-        assert!(
-            try_lock(&second).is_none(),
-            "second owner refused, never stolen"
-        );
-        drop(lock);
+        {
+            let _lock = try_lock(&first).unwrap();
+            assert!(
+                try_lock(&second).is_none(),
+                "second owner refused, never stolen"
+            );
+        }
         unlock(&first);
         assert!(try_lock(&second).is_some());
         drop((first, second));

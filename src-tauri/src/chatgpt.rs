@@ -1057,6 +1057,12 @@ impl Owner {
         sent.map_err(|_| ERROR)
     }
 }
+impl Drop for Owner {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1990,10 +1996,5 @@ mod tests {
         assert_eq!(store.document.registrations[0].email, r.email);
         assert_eq!(store.bytes, original);
         assert_eq!(crate::private_store::read(&owner.path).unwrap(), external);
-    }
-}
-impl Drop for Owner {
-    fn drop(&mut self) {
-        self.stop();
     }
 }
