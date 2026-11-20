@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 
 /** Reconstruct exactly schema28 on an exclusive authored fixture. */
 export function removeGarminExtraFixtureSchema(db: Database.Database): void {
+  db.exec("drop table if exists activity_snow_split");
   if (
     !db
       .prepare("select 1 from sqlite_master where name='garmin_data_coverage'")

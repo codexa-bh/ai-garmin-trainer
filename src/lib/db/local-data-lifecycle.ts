@@ -20,7 +20,7 @@ export function clearChatAndProfile(): string[] {
   return ["messages", "conversations", "trainer_profile"];
 }
 
-// Additional Garmin evidence relations (schema 29) are Garmin data too.
+// Additional Garmin evidence relations are Garmin data too.
 const GARMIN_EXTRA_TABLES = [
   "daily_sleep_detail",
   "daily_sleep_score_component",
@@ -31,6 +31,7 @@ const GARMIN_EXTRA_TABLES = [
   "daily_stress",
   "activity_extra_metrics",
   "activity_split_summary",
+  "activity_snow_split",
   "activity_lap_hr_zone_time",
   "garmin_data_coverage",
 ] as const;

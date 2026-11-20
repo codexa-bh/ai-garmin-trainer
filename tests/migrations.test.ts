@@ -20,7 +20,7 @@ function completeHistoricalFoundation(db: Database.Database): void {
     create table if not exists activity (id text primary key, garmin_id text not null unique, sport text not null, started_at integer not null);
     create table if not exists daily_health (date text primary key, sleep_minutes integer);
     create table if not exists activity_lap (garmin_id text not null, lap_number integer not null, primary key (garmin_id, lap_number));
-    create table if not exists semantic_memory (id text primary key, text text not null, status text not null);
+    create table if not exists semantic_memory (id text primary key, user_id text not null, kind text not null, text text not null, status text not null, embedding_json text not null, embedding_model text not null, source_conversation_id text, source_message_ids_json text not null default '[]', source text not null, created_at integer not null, updated_at integer not null, expires_at integer);
   `);
 }
 

@@ -4,7 +4,10 @@ import { mkdtempSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { migrateDatabase } from "../src/lib/db/migrations";
+import {
+  LATEST_SCHEMA_VERSION,
+  migrateDatabase,
+} from "../src/lib/db/migrations";
 import { removeDeletionContinuityFixtureSchema } from "./conversation-migration-fixture";
 import { acquireDatabaseWriter } from "../src/lib/db/writer-ownership";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
@@ -170,7 +173,7 @@ it("explicit migration refuses live ownership and creates a verified online back
     backupPath: string;
     schemaVersionAfter: number;
   };
-  expect(output.schemaVersionAfter).toBe(29);
+  expect(output.schemaVersionAfter).toBe(LATEST_SCHEMA_VERSION);
   expect(readdirSync(join(root, "backups"))).toHaveLength(1);
   const backup = new Database(output.backupPath, { readonly: true });
   expect(

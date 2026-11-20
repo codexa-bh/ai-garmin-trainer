@@ -63,6 +63,14 @@ const BASIS_SQL = [
   ),
 ];
 
+// Latest activity coverage can change without a normal Sync settlement.
+BASIS_SQL.push(
+  // All split facts participate: a capped prefix would miss later corrections.
+  // Existing worker heap/deadline bounds still apply; this is never tool output.
+  `select s.* from main.activity_snow_split s join main.activity a on a.garmin_id=s.garmin_id where a.started_at >= :week_start_ms and a.started_at < :week_end_ms order by s.garmin_id, s.split_key`,
+  `select c.* from main.garmin_data_coverage c join main.activity a on c.subject_type='activity' and a.garmin_id=c.subject_id where a.started_at >= :week_start_ms and a.started_at < :week_end_ms order by c.data_group, c.subject_id`,
+);
+
 // Runs in a fresh child with an empty environment. A watchdog thread ends the
 // child when the parent disappears or the total deadline passes, even while the
 // main thread is blocked inside a native SQLite call.

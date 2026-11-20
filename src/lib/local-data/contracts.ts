@@ -66,7 +66,27 @@ export type ActivityDashboardHeartRateZoneTime = {
   message: string;
 };
 
+/** Bounded nonlocation read model, independent of vendor ingestion DTOs. */
+export type SnowActivityEvidence = {
+  coverage: {
+    status: "populated" | "empty" | "unavailable" | "failed" | "not_backfilled";
+    reason: string | null;
+  };
+  hrAssociation: "no-proven-lap-link";
+  types: Array<{
+    splitType: "run" | "lift";
+    count: number;
+    distanceMeters: number | null;
+    timerSeconds: number | null;
+    descentMeters: number | null;
+    distanceMeasuredCount: number;
+    timerMeasuredCount: number;
+    descentMeasuredCount: number;
+  }>;
+};
+
 export type ActivityDashboardDetail = {
+  snowEvidence?: SnowActivityEvidence;
   activity: NormalizedActivity;
   detail: {
     status: ActivityDetailStatus;
@@ -84,6 +104,7 @@ export type ActivityDashboardDetail = {
 };
 
 export type ActivityAnalyticsDetail = {
+  snowEvidence?: SnowActivityEvidence;
   activity: NormalizedActivity | null;
   availability: ActivityDetailAvailability | null;
   session: Record<string, unknown> | null;

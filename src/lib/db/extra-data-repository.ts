@@ -1,5 +1,7 @@
 import type Database from "better-sqlite3";
 import { getDatabase } from "./connection";
+import { upsertSnowSplits } from "./snow-split-repository";
+import { SNOW_ACTIVITY_SPORTS } from "../garmin/extra-types";
 import type {
   ActivityListExtras,
   DailyExtras,
@@ -25,6 +27,7 @@ function coverageWriter(db: Db, now: number) {
     where not (
       excluded.status in ('failed','unavailable','empty')
       and garmin_data_coverage.status = 'populated'
+      and excluded.data_group <> 'snow_run_lift_splits'
     )
   `);
   // A later failure/empty read never demotes durable populated evidence.
@@ -409,6 +412,7 @@ export function upsertFitActivityExtras(
             });
       }
     }
+    if (extras.snowSplits) upsertSnowSplits(db, garminId, extras.snowSplits);
     writeCoverage([
       {
         group: "lap_hr_zones",
@@ -437,9 +441,27 @@ export function recordExtraCoverage(
  * only additional evidence, coverage and its own checkpoint key; it never
  * touches activity/daily_health core columns, laps/streams or sync state.
  */
-export function createExtraBackfillStore(db: Db) {
-  const checkpointKey = "garmin_extra_backfill";
+export function createExtraBackfillStore(
+  db: Db,
+  checkpointKey = "garmin_extra_backfill",
+) {
   return {
+    storedSnowActivities(from: string, to: string) {
+      return db
+        .prepare(
+          `select garmin_id as garminId, started_at as startedAt from activity
+        where sport in (select value from json_each(?))
+        and date(started_at/1000,'unixepoch') between ? and ? order by started_at, garmin_id`,
+        )
+        .all(JSON.stringify(SNOW_ACTIVITY_SPORTS), from, to) as Array<{
+        garminId: string;
+        startedAt: number;
+      }>;
+    },
+    upsertSnowSplits: (
+      id: string,
+      evidence: NonNullable<FitActivityExtras["snowSplits"]>,
+    ) => upsertSnowSplits(db, id, evidence),
     readCheckpoint(): string | null {
       const row = db
         .prepare("select value from sync_checkpoint where key = ?")

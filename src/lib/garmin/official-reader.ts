@@ -79,7 +79,8 @@ export type OfficialReaderDeps = {
 
 type Row = Record<string, unknown>;
 type Maps = Map<string, Row>;
-type DecodedOrganic = DecodedActivityFit | { missing: string };
+type DecodedOrganic =
+  DecodedActivityFit | { missing: string; invalid?: boolean };
 
 function span(start: string, end: string): number {
   return (
@@ -309,7 +310,7 @@ export function createOfficialReader(
           return await decodeActivityFit(bytes, cancellation.signal);
         } catch (error) {
           if (error instanceof FitAdmissionError)
-            return { missing: error.message };
+            return { missing: error.message, invalid: true };
           throw error;
         }
       })();
@@ -526,6 +527,9 @@ export function createOfficialReader(
         if ("missing" in fit)
           return {
             recognized: false,
+            fitFailure: fit.invalid
+              ? ("invalid-original-file" as const)
+              : undefined,
             detail: normalizeUnsupportedActivityDetail(garminId, fit.missing),
           };
         deps.archive({
