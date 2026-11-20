@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { migrateDatabase } from "@/lib/db/migrations";
+import { LATEST_SCHEMA_VERSION, migrateDatabase } from "@/lib/db/migrations";
 import { conversationHistory as history } from "@/lib/db/conversation-history";
 import {
   summaryStorage as storage,
@@ -152,7 +152,7 @@ describe("ordinary continuity on real SQLite (supplied output, not model quality
     const bytes = db.serialize();
     db.close();
     db = new Database(bytes);
-    expect(migrateDatabase(db).toVersion).toBe(29);
+    expect(migrateDatabase(db).toVersion).toBe(LATEST_SCHEMA_VERSION);
     expect(
       db.prepare("select name,sql from sqlite_master order by name").all(),
     ).toEqual(schema);

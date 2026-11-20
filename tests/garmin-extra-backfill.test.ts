@@ -229,8 +229,8 @@ describe("explicit extra-data backfill rehearsal", () => {
     const before = preservedState();
     expect(migrateDatabase(db)).toMatchObject({
       fromVersion: 28,
-      toVersion: 29,
-      applied: ["29:garmin_extra_data"],
+      toVersion: 30,
+      applied: ["29:garmin_extra_data", "30:snow_run_lift_splits"],
     });
     expect(preservedState()).toBe(before);
     // Interrupted first pass: cancellation after a few admitted requests.

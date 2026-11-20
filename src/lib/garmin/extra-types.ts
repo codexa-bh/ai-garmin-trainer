@@ -15,7 +15,8 @@ export type ExtraDataGroup =
   | "activity_body_battery"
   | "running_dynamics"
   | "snowboard_splits"
-  | "lap_hr_zones";
+  | "lap_hr_zones"
+  | "snow_run_lift_splits";
 
 /**
  * `populated`: stored evidence exists. `empty`: the source replied successfully
@@ -254,7 +255,52 @@ export type LapHrZones = {
   buckets: LapHrZoneBucket[];
 };
 
+/** Explicit supported stored sport names, not fuzzy terrain classification. */
+export const SNOW_ACTIVITY_SPORTS = [
+  "skiing",
+  "alpine_skiing",
+  "resort_skiing",
+  "backcountry_skiing",
+  "cross_country_skiing",
+  "skate_skiing",
+  "snowboarding",
+  "resort_snowboarding",
+  "backcountry_snowboarding",
+] as const;
+
+export type SnowSplit = {
+  splitKey: string;
+  messageIndex: number;
+  sourceOrder: number;
+  splitType: "run" | "lift";
+  startTime: string | null;
+  endTime: string | null;
+  elapsedSeconds: number | null;
+  timerSeconds: number | null;
+  movingSeconds: number | null;
+  distanceMeters: number | null;
+  avgSpeedMps: number | null;
+  maxSpeedMps: number | null;
+  avgVerticalSpeedMps: number | null;
+  ascentMeters: number | null;
+  descentMeters: number | null;
+  startElevationMeters: number | null;
+  startLat: number | null;
+  startLon: number | null;
+  endLat: number | null;
+  endLon: number | null;
+};
+
+/** All-or-nothing source set: ambiguous/oversized reads never reconcile children. */
+export type SnowSplitEvidence = {
+  rows: SnowSplit[];
+  status: ExtraCoverageStatus;
+  reason: string | null;
+};
+
 export type FitActivityExtras = {
+  /** Optional only for compatibility with older/test producers; absent = not read. */
+  snowSplits?: SnowSplitEvidence;
   session: FitDynamics;
   /** Lap dynamics in file order; lapNumber matches the stored lap number. */
   laps: Array<{

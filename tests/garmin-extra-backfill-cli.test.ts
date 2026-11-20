@@ -5,6 +5,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, expect, it } from "vitest";
 import { migrateDatabase } from "../src/lib/db/migrations";
+import { acquireDatabaseWriter } from "../src/lib/db/writer-ownership";
 import { removeGarminExtraFixtureSchema } from "./conversation-migration-fixture";
 
 /** CLI gates that never reach the network; the key is synthetic. */
@@ -76,6 +77,32 @@ it("refuses missing, relative, aliased and unmigrated targets before any read", 
     cli([...bounds, "--max-requests", "5000"], target).output.error,
   ).toMatch(/1 to 1000/);
   expect(cli(bounds, target, "").output.error).toMatch(/empty/);
+});
+
+it("snow-only shares writer refusal and uses an independent zero-request checkpoint", () => {
+  const dir = directory();
+  const target = join(dir, "snow.sqlite");
+  database(target);
+  const release = acquireDatabaseWriter(target);
+  try {
+    expect(cli([...bounds, "--snow-only"], target).output).toMatchObject({
+      ok: false,
+    });
+  } finally {
+    release();
+  }
+  const result = cli([...bounds, "--snow-only"], target);
+  expect(result.output).toMatchObject({
+    ok: true,
+    status: "completed",
+    counts: { selected: 0 },
+    requests: { total: 0 },
+  });
+  const db = new Database(target);
+  expect(db.prepare("select key from sync_checkpoint").all()).toEqual([
+    { key: "garmin_snow_split_backfill" },
+  ]);
+  db.close();
 });
 
 it("completes an empty stored range with zero requests and never prints the key", () => {

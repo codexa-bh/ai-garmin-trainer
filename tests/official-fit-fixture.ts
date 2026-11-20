@@ -14,6 +14,28 @@ type FitOptions = {
   zonesTarget?: { max?: number; threshold?: number; ftp?: number };
   sport?: number;
   sessions?: number;
+  splitSummaryCount?: number;
+  /** Raw authored message 312 fields; units below match FIT wire scaling. */
+  snowSplits?: Array<{
+    index?: number;
+    type: number;
+    start?: number;
+    end?: number;
+    elapsedMs?: number;
+    timerMs?: number;
+    movingMs?: number;
+    distanceCm?: number;
+    avgSpeedMmps?: number;
+    maxSpeedMmps?: number;
+    verticalMmps?: number;
+    ascent?: number;
+    descent?: number;
+    elevation5?: number;
+    startLat?: number;
+    startLon?: number;
+    endLat?: number;
+    endLon?: number;
+  }>;
   /**
    * Authored multi-lap file: each lap carries its own `message_index`, FIT
    * cadence (cycles/min + 1/128 fraction), cycles and optional dynamics.
@@ -146,6 +168,53 @@ export function buildFit(options: FitOptions = {}): Uint8Array {
         value: lap.oscillationMm10,
       });
     encoder.writeMessage(19, fields);
+  }
+  if (options.splitSummaryCount !== undefined)
+    encoder.writeMessage(313, [
+      { number: 0, size: 1, baseType: FitBaseType.Enum, value: 29 },
+      {
+        number: 3,
+        size: 2,
+        baseType: FitBaseType.Uint16,
+        value: options.splitSummaryCount,
+      },
+    ]);
+  for (const split of options.snowSplits ?? []) {
+    const fields = [
+      { number: 0, size: 1, baseType: FitBaseType.Enum, value: split.type },
+    ];
+    const specs = [
+      [254, split.index, 2, FitBaseType.Uint16],
+      [
+        9,
+        split.start === undefined ? undefined : BASE + split.start,
+        4,
+        FitBaseType.Uint32,
+      ],
+      [
+        27,
+        split.end === undefined ? undefined : BASE + split.end,
+        4,
+        FitBaseType.Uint32,
+      ],
+      [1, split.elapsedMs, 4, FitBaseType.Uint32],
+      [2, split.timerMs, 4, FitBaseType.Uint32],
+      [110, split.movingMs, 4, FitBaseType.Uint32],
+      [3, split.distanceCm, 4, FitBaseType.Uint32],
+      [4, split.avgSpeedMmps, 4, FitBaseType.Uint32],
+      [25, split.maxSpeedMmps, 4, FitBaseType.Uint32],
+      [26, split.verticalMmps, 4, FitBaseType.Sint32],
+      [13, split.ascent, 2, FitBaseType.Uint16],
+      [14, split.descent, 2, FitBaseType.Uint16],
+      [74, split.elevation5, 4, FitBaseType.Uint32],
+      [21, split.startLat, 4, FitBaseType.Sint32],
+      [22, split.startLon, 4, FitBaseType.Sint32],
+      [23, split.endLat, 4, FitBaseType.Sint32],
+      [24, split.endLon, 4, FitBaseType.Sint32],
+    ] as const;
+    for (const [number, value, size, baseType] of specs)
+      if (value !== undefined) fields.push({ number, value, size, baseType });
+    encoder.writeMessage(312, fields);
   }
   const sessions = options.sessions ?? 1;
   for (let index = 0; index < sessions; index += 1)

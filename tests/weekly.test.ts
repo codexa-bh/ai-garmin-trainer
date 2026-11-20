@@ -145,6 +145,7 @@ it("preserves migration data, creates no history, is idempotent and detects week
     "27:memory_survives_source_deletion",
     "28:weekly_kpi_measurements",
     "29:garmin_extra_data",
+    "30:snow_run_lift_splits",
   ]);
   expect(
     db.prepare("select count(*) as count from conversation_completion").get(),

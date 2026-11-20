@@ -143,6 +143,7 @@ export async function executeLocalDataTool(
         tool: "getActivityDetailSlice",
         garminId: args.garminId,
         availability: detail.availability,
+        snowEvidence: detail.snowEvidence,
         laps: detail.laps.slice(0, 20),
         points: detail.stream.slice(
           args.pointOffset,

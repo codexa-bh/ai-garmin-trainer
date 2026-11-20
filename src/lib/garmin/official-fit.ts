@@ -1,4 +1,5 @@
 import FitParser from "fit-file-parser";
+import { snowSplitEvidence } from "./snow-splits";
 import type { NormalizedActivityHrZoneTime } from "./activity-hr-zone-time";
 import type {
   FitActivityExtras,
@@ -361,6 +362,10 @@ export async function decodeActivityFit(
   const zoneTime = sessionZoneTime(zoneMessages);
   const lapRecords = laps.map(record);
   const extras: FitActivityExtras = {
+    snowSplits: snowSplitEvidence(
+      ((parsed as unknown as Fields).splits as Fields[] | undefined) ?? [],
+      sessions.length,
+    ),
     session: fitDynamics(sessions.length ? record(sessions[0]) : {}),
     laps: lapRecords.map((lap, index) => ({
       lapNumber: index + 1,

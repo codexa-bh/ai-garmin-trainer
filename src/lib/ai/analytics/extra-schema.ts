@@ -300,6 +300,45 @@ export const EXTRA_ANALYTICAL_SCHEMA: Record<string, Descriptor> = {
     ],
     joins: ["activity_split_summary.garmin_id = activity.garmin_id"],
   },
+  activity_snow_split: {
+    name: "activity_snow_split",
+    description:
+      "Individual measured skiing/snowboard runs and lifts from FIT, not per-type totals. Stable single-session source index. Display by start_time then message_index; source_order is file order, not identity. Null means unavailable. No proven lap/HR association (no-proven-lap-link): never join laps by order, time proximity or equal counts. Aggregate splits and lap zones independently before an activity-level join. Check latest snow_run_lift_splits coverage: prior rows survive incomplete/error reads. Never add individual and summary totals or treat lift ascent as athlete effort.",
+    columns: [
+      garminId,
+      { name: "split_key", type: "text" },
+      { name: "message_index", type: "integer" },
+      { name: "source_order", type: "integer" },
+      { name: "split_type", type: "text", note: "run|lift" },
+      value("start_time", "UTC ISO", undefined, "text"),
+      value(
+        "end_time",
+        "UTC ISO",
+        "Measured only; never inferred from duration",
+        "text",
+      ),
+      value("elapsed_seconds", "seconds"),
+      value("timer_seconds", "seconds"),
+      value("moving_seconds", "seconds", "Not elapsed minus lift time"),
+      value("distance_meters", "meters"),
+      value("avg_speed_mps", "m/s"),
+      value("max_speed_mps", "m/s"),
+      value("avg_vertical_speed_mps", "m/s", "Signed"),
+      value("ascent_meters", "meters"),
+      value("descent_meters", "meters"),
+      value("start_elevation_meters", "meters", "May be below sea level"),
+      ...["start_lat", "start_lon", "end_lat", "end_lon"].map((name) =>
+        value(
+          name,
+          "degrees",
+          "GPS: only bounded slices for explicit route/GPS questions; omit from ordinary numerical evidence",
+        ),
+      ),
+      { name: "source", type: "text", note: "garmin_official_fit" },
+      fetched,
+    ],
+    joins: ["activity_snow_split.garmin_id = activity.garmin_id"],
+  },
   activity_lap_hr_zone_time: {
     name: "activity_lap_hr_zone_time",
     description:
@@ -339,12 +378,12 @@ export const EXTRA_ANALYTICAL_SCHEMA: Record<string, Descriptor> = {
   garmin_data_coverage: {
     name: "garmin_data_coverage",
     description:
-      "Import coverage for the additional groups. status populated (stored), empty (source replied without it), unavailable (source cannot supply it, e.g. no file) or failed (read failed). A date/activity with no row was not yet imported or backfilled: that is unknown, not empty.",
+      "Import coverage for the additional groups. status populated (stored), empty (source replied without it), unavailable (source cannot supply it, e.g. no file) or failed (read failed). A date/activity with no row was not yet imported or backfilled: that is unknown, not empty. snow_run_lift_splits describes the LATEST attempt, with prior rows preserved on empty/unavailable/failed reads; inspect rows and coverage together. Older groups retain populated status on later missing/error evidence.",
     columns: [
       {
         name: "data_group",
         type: "text",
-        note: "sleep|hrv|vo2_max|body_battery|stress (subject date); activity_body_battery|running_dynamics|snowboard_splits|lap_hr_zones (subject activity)",
+        note: "sleep|hrv|vo2_max|body_battery|stress (subject date); activity_body_battery|running_dynamics|snowboard_splits|lap_hr_zones|snow_run_lift_splits (subject activity)",
       },
       { name: "subject_type", type: "text", note: "date|activity" },
       { name: "subject_id", type: "text", note: "YYYY-MM-DD or garmin_id" },
@@ -371,6 +410,8 @@ export const LAP_DYNAMICS_COLUMNS: AnalysisColumnDescriptor[] = [
 
 /** Bounded examples, one per group, appended to the schema discovery. */
 export const EXTRA_EXAMPLES = [
+  "select garmin_id, split_type, count(*) as measured_splits, sum(distance_meters) as meters, sum(timer_seconds) as timer_seconds, sum(descent_meters) as descent_meters from activity_snow_split group by garmin_id, split_type order by garmin_id, split_type limit 40",
+  "select split_key, elapsed_seconds, timer_seconds, moving_seconds, avg_speed_mps, max_speed_mps, descent_meters from activity_snow_split where garmin_id = 'ACTIVITY_ID' and split_type = 'run' order by start_time, message_index limit 20",
   "select c.date, c.component, c.value, c.qualifier, d.start_local, d.end_local from daily_sleep_score_component c join daily_sleep_detail d on d.date = c.date where c.component in ('overall','deep','rem') and c.date >= date('now','-28 days') order by c.date, c.component limit 100",
   "select h.date, h.weekly_avg_ms, h.baseline_balanced_low_ms, h.baseline_balanced_upper_ms, d.hrv_ms from daily_hrv_detail h left join daily_health d on d.date = h.date order by h.date desc limit 30",
   "select date, branch, sport, vo2_max_precise from vo2_max_reading order by date desc limit 30",

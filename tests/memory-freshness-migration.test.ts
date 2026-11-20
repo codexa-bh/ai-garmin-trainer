@@ -105,13 +105,14 @@ it("preserves every populated authored schema24 table through25, changes effecti
   const before = tables();
   expect(migrateDatabase(db)).toMatchObject({
     fromVersion: 24,
-    toVersion: 29,
+    toVersion: 30,
     applied: [
       "25:memory_freshness_without_erasure",
       "26:structured_weekly_kpis",
       "27:memory_survives_source_deletion",
       "28:weekly_kpi_measurements",
       "29:garmin_extra_data",
+      "30:snow_run_lift_splits",
     ],
     integrity: "ok",
   });
@@ -132,6 +133,7 @@ it("preserves every populated authored schema24 table through25, changes effecti
     daily_stress: [],
     activity_extra_metrics: [],
     activity_split_summary: [],
+    activity_snow_split: [],
     activity_lap_hr_zone_time: [],
     garmin_data_coverage: [],
     summary_debug_revision: [],

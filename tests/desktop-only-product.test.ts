@@ -196,7 +196,7 @@ describe("explicit non-serving source setup", () => {
     expect(existsSync(`${target}.trainer-writer`)).toBe(false);
   }, 20000);
 
-  it("rehearses populated schema28 to29 with online copies, preserved content and exclusive compatible restore", async () => {
+  it("rehearses populated schema28 to current with online copies, preserved content and exclusive compatible restore", async () => {
     const cwd = directory();
     const original = join(cwd, "authored-original.sqlite");
     const target = join(cwd, "rehearsal.sqlite");
@@ -241,7 +241,7 @@ describe("explicit non-serving source setup", () => {
     expect(result).toMatchObject({
       ok: true,
       schemaVersionBefore: 28,
-      schemaVersionAfter: 29,
+      schemaVersionAfter: LATEST_SCHEMA_VERSION,
       integrity: "ok",
     });
     const upgraded = new Database(target, { readonly: true });
