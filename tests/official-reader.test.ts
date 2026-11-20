@@ -7,7 +7,10 @@ import { SyncPause } from "../src/lib/garmin/history-policy";
 import { dayCoverage } from "../src/lib/garmin/coverage-policy";
 import { normalizeGarminAthleteBaseline } from "../src/lib/garmin/athlete-normalize";
 import { normalizeGarminBodyMetrics } from "../src/lib/garmin/body-metrics-normalize";
-import { officialDiscoveryHint } from "../src/lib/garmin/official-normalize";
+import {
+  officialDiscoveryHint,
+  parseSleepRange,
+} from "../src/lib/garmin/official-normalize";
 import {
   accountApi,
   activityRow,
@@ -59,6 +62,38 @@ describe("official daily health", () => {
       availability: "complete",
     });
     expect(dayCoverage("2026-11-18", coverage, NOW).kind).toBe("full");
+  });
+
+  it("skips a dateless nap-only sleep entry but still refuses out-of-range or repeated dates", () => {
+    const dated = (date: string) => ({
+      calendarDate: date,
+      sleepTimeSeconds: 1,
+    });
+    // Shape observed from the Personal API: calendarDate null, nap metadata only.
+    const napOnly = {
+      calendarDate: null,
+      napTimeSeconds: 1200,
+      dailyNapDTOS: [],
+    };
+    const parsed = parseSleepRange(
+      [dated("2024-08-26"), napOnly, dated("2024-08-27")],
+      "2024-08-26",
+      "2024-08-27",
+    );
+    expect([...parsed.keys()]).toEqual(["2024-08-26", "2024-08-27"]);
+    expect(() =>
+      parseSleepRange([dated("2024-08-28")], "2024-08-26", "2024-08-27"),
+    ).toThrow(/out-of-range/);
+    expect(() =>
+      parseSleepRange(
+        [dated("2024-08-26"), dated("2024-08-26")],
+        "2024-08-26",
+        "2024-08-27",
+      ),
+    ).toThrow(/repeated/);
+    expect(() =>
+      parseSleepRange([{ calendarDate: 20240826 }], "2024-08-26", "2024-08-27"),
+    ).toThrow(/out-of-range/);
   });
 
   it("treats a documented null/empty day as source emptiness, never zero or an error", async () => {

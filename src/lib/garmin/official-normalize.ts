@@ -85,7 +85,17 @@ export function parseSleepRange(
   startDate: string,
   endDate: string,
 ) {
-  return keyedByDate(rows(payload), "calendarDate", startDate, endDate);
+  // Garmin can include a dateless entry (`calendarDate: null`) carrying only
+  // nap/sleep-need metadata. It belongs to no day, so it is skipped rather
+  // than guessed onto a neighbour; dated rows keep the strict range checks.
+  return keyedByDate(
+    rows(payload).filter(
+      (item) => item.calendarDate !== null && item.calendarDate !== undefined,
+    ),
+    "calendarDate",
+    startDate,
+    endDate,
+  );
 }
 export function parseHrvRange(
   payload: unknown,
