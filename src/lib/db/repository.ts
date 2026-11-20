@@ -25,6 +25,12 @@ import type {
   LocalDataCounts,
   LocalImportSummary,
 } from "../local-data/contracts";
+import type {
+  GroundingCoverage,
+  RecoveryPreview,
+  TrainerRecoveryDay,
+  ActivityGroundingExtras,
+} from "../local-data/grounding-contracts";
 export type {
   ActivityDashboardDetail,
   ActivityEffortCoverage,
@@ -603,6 +609,62 @@ export function listRecentDailyHealth(limit = 14): NormalizedDailyHealth[] {
        from daily_health order by date desc limit ?`,
     )
     .all(limit) as NormalizedDailyHealth[];
+}
+
+/** Normalized enum data only, never a free-text instruction channel. */
+function groundingCode(value: string | null): string | null {
+  return value !== null && /^[A-Za-z0-9_.-]{1,64}$/.test(value) ? value : null;
+}
+
+function groundingCoverage(
+  subjectType: "date" | "activity",
+  subjectId: string,
+  group: string,
+): GroundingCoverage {
+  const row = getDatabase()
+    .prepare(
+      `select status, reason from garmin_data_coverage
+     where subject_type = ? and subject_id = ? and data_group = ?`,
+    )
+    .get(subjectType, subjectId, group) as
+    { status: GroundingCoverage["status"]; reason: string | null } | undefined;
+  return row
+    ? { status: row.status, reason: groundingCode(row.reason) }
+    : { status: "not_imported_or_backfilled", reason: null };
+}
+
+/** @public Context-only capability bound by local-data composition; no new days. */
+export function listTrainerRecoveryPreview(): TrainerRecoveryDay[] {
+  const days = listRecentDailyHealth(10);
+  const read = getDatabase().prepare(`
+    select s.overall_score as sleepScore, s.overall_qualifier as sleepQualifier,
+      h.weekly_avg_ms as weeklyHrvMs, h.baseline_balanced_low_ms as balancedLowMs,
+      h.baseline_balanced_upper_ms as balancedUpperMs,
+      b.charged as batteryCharged, b.drained as batteryDrained,
+      t.high_seconds as highStressSeconds
+    from daily_health d
+    left join daily_sleep_detail s on s.date = d.date
+    left join daily_hrv_detail h on h.date = d.date
+    left join daily_body_battery b on b.date = d.date
+    left join daily_stress t on t.date = d.date
+    where d.date = ?
+  `);
+  return days.map((day) => {
+    const row = read.get(day.date) as Omit<RecoveryPreview, "coverage">;
+    return {
+      ...day,
+      recovery: {
+        ...row,
+        sleepQualifier: groundingCode(row.sleepQualifier),
+        coverage: {
+          sleep: groundingCoverage("date", day.date, "sleep"),
+          hrv: groundingCoverage("date", day.date, "hrv"),
+          body_battery: groundingCoverage("date", day.date, "body_battery"),
+          stress: groundingCoverage("date", day.date, "stress"),
+        },
+      },
+    };
+  });
 }
 
 function bool(value: boolean): number {
@@ -1443,6 +1505,122 @@ export function getActivityTerrainInput(garminId: string) {
           ) as import("../analytics/terrain-sections").TerrainPoint[])
       : [];
   return { sport: activity?.sport ?? null, points };
+}
+
+/** Known-ID normalized consumer read. Child sets are queried independently. */
+export function getActivityGroundingExtras(
+  garminId: string,
+): ActivityGroundingExtras {
+  const db = getDatabase();
+  const metrics = db
+    .prepare(
+      `select body_battery_delta as bodyBatteryDelta,
+    avg_run_cadence_spm as avgRunCadenceSpm, max_run_cadence_spm as maxRunCadenceSpm,
+    avg_double_cadence_spm as avgDoubleCadenceSpm, max_double_cadence_spm as maxDoubleCadenceSpm,
+    avg_fractional_cadence_spm as avgFractionalCadenceSpm, max_fractional_cadence_spm as maxFractionalCadenceSpm,
+    avg_stride_length_cm as avgStrideLengthCm,
+    fit_avg_cadence_cpm as avgCadenceCpm, fit_max_cadence_cpm as maxCadenceCpm,
+    fit_total_cycles as totalCycles, fit_avg_step_length_m as avgStepLengthM
+    from activity_extra_metrics where garmin_id = ?`,
+    )
+    .get(garminId) as
+    | (ActivityGroundingExtras["activityList"] &
+        ActivityGroundingExtras["fitSession"] & {
+          bodyBatteryDelta: number | null;
+        })
+    | undefined;
+  const lapCount = db
+    .prepare("select count(*) as n from activity_lap where garmin_id = ?")
+    .get(garminId) as { n: number };
+  const lapRows = db
+    .prepare(
+      `select lap_number as lapNumber,
+    fit_avg_cadence_cpm as avgCadenceCpm, fit_max_cadence_cpm as maxCadenceCpm,
+    fit_total_cycles as totalCycles, fit_avg_step_length_m as avgStepLengthM
+    from activity_lap where garmin_id = ? order by lap_number limit 20`,
+    )
+    .all(garminId) as Array<
+    ActivityGroundingExtras["fitSession"] & { lapNumber: number }
+  >;
+  const countBuckets = db.prepare(
+    "select count(*) as n from activity_lap_hr_zone_time where garmin_id = ? and lap_number = ?",
+  );
+  const readBuckets =
+    db.prepare(`select bucket, zone, bucket_kind as kind, seconds, lower_bpm as lowerBpm, upper_bpm as upperBpm,
+    calc_method as calcMethod, source_max_heart_rate as sourceMaxHeartRate, source_resting_heart_rate as sourceRestingHeartRate
+    from activity_lap_hr_zone_time where garmin_id = ? and lap_number = ? order by bucket limit 8`);
+  const splitCount = db
+    .prepare(
+      "select count(*) as n from activity_split_summary where garmin_id = ?",
+    )
+    .get(garminId) as { n: number };
+  const splits = db
+    .prepare(
+      `select split_type as splitType, split_count as count,
+    duration_sec as durationSec, distance_meters as distanceMeters, avg_speed_mps as avgSpeedMps, max_speed_mps as maxSpeedMps,
+    total_ascent_meters as totalAscentMeters, elevation_loss_meters as elevationLossMeters,
+    avg_elevation_gain_meters as avgElevationGainMeters, max_elevation_gain_meters as maxElevationGainMeters,
+    max_distance_meters as maxDistanceMeters, num_falls as numFalls, num_climb_sends as numClimbSends
+    from activity_split_summary where garmin_id = ? and split_type in ('SKI_RUN_SPLIT','SKI_LIFT_SPLIT','ASCENT_SPLIT','DESCENT_SPLIT','TRANSITION') order by split_type limit 5`,
+    )
+    .all(garminId) as ActivityGroundingExtras["snowboard"]["rows"];
+  return {
+    bodyBatteryDelta: metrics?.bodyBatteryDelta ?? null,
+    activityList: {
+      avgRunCadenceSpm: metrics?.avgRunCadenceSpm ?? null,
+      maxRunCadenceSpm: metrics?.maxRunCadenceSpm ?? null,
+      avgDoubleCadenceSpm: metrics?.avgDoubleCadenceSpm ?? null,
+      maxDoubleCadenceSpm: metrics?.maxDoubleCadenceSpm ?? null,
+      avgFractionalCadenceSpm: metrics?.avgFractionalCadenceSpm ?? null,
+      maxFractionalCadenceSpm: metrics?.maxFractionalCadenceSpm ?? null,
+      avgStrideLengthCm: metrics?.avgStrideLengthCm ?? null,
+    },
+    fitSession: {
+      avgCadenceCpm: metrics?.avgCadenceCpm ?? null,
+      maxCadenceCpm: metrics?.maxCadenceCpm ?? null,
+      totalCycles: metrics?.totalCycles ?? null,
+      avgStepLengthM: metrics?.avgStepLengthM ?? null,
+    },
+    coverage: {
+      activity_body_battery: groundingCoverage(
+        "activity",
+        garminId,
+        "activity_body_battery",
+      ),
+      running_dynamics: groundingCoverage(
+        "activity",
+        garminId,
+        "running_dynamics",
+      ),
+      snowboard_splits: groundingCoverage(
+        "activity",
+        garminId,
+        "snowboard_splits",
+      ),
+      lap_hr_zones: groundingCoverage("activity", garminId, "lap_hr_zones"),
+    },
+    snowboard: { sourceTypeCount: splitCount.n, rows: splits },
+    laps: {
+      sourceLapCount: lapCount.n,
+      rows: lapRows.map((lap) => {
+        const count = countBuckets.get(garminId, lap.lapNumber) as {
+          n: number;
+        };
+        const buckets = readBuckets.all(
+          garminId,
+          lap.lapNumber,
+        ) as ActivityGroundingExtras["laps"]["rows"][number]["buckets"];
+        return {
+          ...lap,
+          sourceBucketCount: count.n,
+          buckets: buckets.map((bucket) => ({
+            ...bucket,
+            calcMethod: groundingCode(bucket.calcMethod),
+          })),
+        };
+      }),
+    },
+  };
 }
 
 export function getActivityDashboardDetail(

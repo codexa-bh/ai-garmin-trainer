@@ -36,6 +36,56 @@ const overviewResult = {
     })),
     message: "Authored partial local timing, not complete activity coverage.",
   },
+  extraEvidence: {
+    source: "stored_normalized_garmin",
+    bodyBatteryDelta: 0,
+    cadence: {
+      activityList: { avgRunCadenceSpm: 158, avgStrideLengthCm: 98.5 },
+      fitSession: { avgCadenceCpm: 79.5, avgStepLengthM: null },
+    },
+    coverage: {
+      activity_body_battery: { status: "populated", reason: null },
+      running_dynamics: { status: "failed", reason: "read-failed" },
+      snowboard_splits: { status: "empty", reason: "source-empty" },
+      lap_hr_zones: { status: "unavailable", reason: "stored-laps-differ" },
+    },
+    laps: {
+      sourceLapCount: 105,
+      returnedCount: 20,
+      omittedCount: 85,
+      rows: Array.from({ length: 20 }, (_, i) => ({
+        lapNumber: i + 1,
+        avgCadenceCpm: 78.5,
+        heartRateZones: {
+          sourceBucketCount: 12,
+          returnedCount: 8,
+          omittedCount: 4,
+          buckets: Array.from({ length: 8 }, (_, b) => ({
+            bucket: b,
+            kind: b === 0 ? "below" : b > 5 ? "above" : "zone",
+            seconds: b === 0 ? 0 : 12.125,
+            lowerBpm: 100,
+            upperBpm: 115,
+            calcMethod: "percent_max_hr",
+            sourceMaxHeartRate: 190,
+            sourceRestingHeartRate: 45,
+          })),
+        },
+      })),
+    },
+    snowboard: {
+      meaning: "Per-type totals, not individual runs",
+      rows: [
+        {
+          splitType: "SKI_RUN_SPLIT",
+          count: 9,
+          durationSec: 1200,
+          distanceMeters: 5000,
+        },
+      ],
+    },
+    limits: { bucketsPerLap: 8, optionalLaps: 20 },
+  },
   limits: { optionalRowsPerSection: 20 },
   laps: {
     returnedCount: 20,

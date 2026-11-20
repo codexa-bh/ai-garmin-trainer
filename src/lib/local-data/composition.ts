@@ -16,7 +16,7 @@ export const analyzeActivityTerrain = createTerrainAnalysis((id) =>
 // SQL/row decoding stays in the existing adapter; no generic persistence port.
 export const {
   listActivitiesForDashboard,
-  listRecentDailyHealth,
+  listTrainerRecoveryPreview,
   listRecentActivities,
   getActivityByGarminId,
   getActivityDetailForAnalytics,
@@ -39,10 +39,12 @@ export function getActivityDashboardDetail(id: string) {
 export const getActivityDashboard = createActivityDashboard(
   (id) => storage.getActivityDashboardDetail(id),
   analyzeActivityTerrain,
+  (id) => storage.getActivityGroundingExtras(id),
 );
 const captureActivityDashboard = createActivityDashboardEvidence(
   (id) => storage.getActivityDashboardDetail(id),
   analyzeActivityTerrain,
+  (id) => storage.getActivityGroundingExtras(id),
 );
 export function getActivityDashboardEvidence(id: string) {
   const captured = captureActivityDashboard(id);

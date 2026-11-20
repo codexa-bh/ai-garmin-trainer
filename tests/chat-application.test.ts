@@ -219,7 +219,7 @@ function contextFixture() {
       order.push("activities");
       return [];
     },
-    listRecentDailyHealth: () => {
+    listTrainerRecoveryPreview: () => {
       order.push("health");
       return [];
     },

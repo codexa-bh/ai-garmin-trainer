@@ -83,6 +83,9 @@ const allowed = new Set([
   "ai/execution-budget.ts",
   "analytics/activity-label.ts",
   "garmin/types.ts",
+  // Narrow normalized grounding DTOs only, not the UI dashboard/storage contract.
+  "local-data/grounding-contracts.ts",
+  "garmin/extra-types.ts",
   "memory/types.ts",
   "memory/filters.ts",
   "memory/legacy-contracts.ts",

@@ -15,6 +15,7 @@ const options = ts.parseJsonConfigFileContent(
 ).options;
 const allowed = new Set([
   "local-data/contracts.ts",
+  "local-data/grounding-contracts.ts",
   "local-data/dashboard-policy.ts",
   "local-data/dashboard-projection.ts",
   "local-data/dashboard-overview.ts",
@@ -24,6 +25,7 @@ const allowed = new Set([
   "local-data/coverage-policy.ts",
   "local-data/health-policy.ts",
   "garmin/types.ts",
+  "garmin/extra-types.ts",
   "garmin/detail-types.ts",
   "garmin/import-contracts.ts",
   "garmin/failure.ts",

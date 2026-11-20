@@ -3,9 +3,9 @@ import type {
   GarminAthleteBaselineDto,
   GarminBodyMetricsDto,
   NormalizedActivity,
-  NormalizedDailyHealth,
 } from "../garmin/types";
 import type { RetrievedMemory } from "../memory/types";
+import type { TrainerRecoveryDay } from "../local-data/grounding-contracts";
 import type { TrainingPlanStatus } from "../training-plan/contracts";
 import { trainingPlanReviewTiming } from "../training-plan/policy";
 // Context consumes a preview of the feature-owned document contract.
@@ -180,7 +180,7 @@ function formatAthleteBaseline(
 
 export function buildTrainerContext(input: {
   activities: NormalizedActivity[];
-  health: NormalizedDailyHealth[];
+  health: TrainerRecoveryDay[];
   profile: TrainerProfile;
   athleteBaseline?: GarminAthleteBaselineDto | null;
   bodyMetrics?: GarminBodyMetricsDto | null;
@@ -210,12 +210,21 @@ export function buildTrainerContext(input: {
       display.labelSource === "garmin" ? "Garmin name" : "fallback label";
     return `${a.startedAt.toISOString().slice(0, 10)} ${display.label} [${labelTag}] ${a.sport}: ${distance}, ${duration}, ${pace}, avg HR ${a.avgHeartRate ?? "n/a"}, max HR ${a.maxHeartRate ?? "n/a"}, steps ${a.steps ?? "n/a"}, ${climb}, calories ${a.calories ?? "n/a"}`;
   });
-  const health = input.health
-    .slice(0, 10)
-    .map(
-      (h) =>
-        `${h.date}: sleep ${h.sleepMinutes ?? "n/a"}m, RHR ${h.restingHeartRate ?? "n/a"}, HRV ${h.hrvMs ?? h.hrvStatus ?? "n/a"}, stress ${h.stressAvg ?? "n/a"}, steps ${h.steps ?? "n/a"}, calories ${h.calories ?? "n/a"}, body battery ${h.bodyBatteryAvg ?? "n/a"}, availability ${h.availability}`,
-    );
+  const health = input.health.slice(0, 10).map((h) => {
+    const r = h.recovery;
+    const qualifier =
+      r?.sleepQualifier && /^[A-Za-z0-9_.-]{1,64}$/.test(r.sleepQualifier)
+        ? r.sleepQualifier
+        : "n/a";
+    const extra = r
+      ? `; Garmin recovery: sleep score ${r.sleepScore ?? h.sleepScore ?? "n/a"}/100 qualifier ${qualifier}, weekly HRV ${r.weeklyHrvMs ?? "n/a"} ms, Garmin balanced baseline ${r.balancedLowMs ?? "n/a"}–${r.balancedUpperMs ?? "n/a"} ms, Body Battery charged ${r.batteryCharged ?? "n/a"}/drained ${r.batteryDrained ?? "n/a"} points (daily totals, not levels/activity delta), high stress ${r.highStressSeconds === null ? "n/a" : Math.round((r.highStressSeconds / 60) * 10) / 10} min; group coverage ${Object.entries(
+          r.coverage,
+        )
+          .map(([group, entry]) => `${group}=${entry.status}`)
+          .join(", ")}`
+      : `; Garmin sleep score ${h.sleepScore ?? "n/a"}/100; extra-group coverage not_imported_or_backfilled`;
+    return `${h.date}: sleep ${h.sleepMinutes ?? "n/a"}m, RHR ${h.restingHeartRate ?? "n/a"}, HRV nightly ${h.hrvMs ?? "n/a"} ms/status ${h.hrvStatus ?? "n/a"}, stress ${h.stressAvg ?? "n/a"}, steps ${h.steps ?? "n/a"}, calories ${h.calories ?? "n/a"}, body battery average ${h.bodyBatteryAvg ?? "n/a"}, availability ${h.availability}${extra}`;
+  });
   const retrievedMemories = (input.retrievedMemories ?? [])
     .slice(0, 8)
     .map((item) => {

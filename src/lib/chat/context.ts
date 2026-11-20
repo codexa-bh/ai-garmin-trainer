@@ -27,7 +27,7 @@ export function createChatContext(ports: ChatContextPorts) {
     getTrainerProfile,
     listActivityDetailAvailability,
     listRecentActivities,
-    listRecentDailyHealth,
+    listTrainerRecoveryPreview,
     trainingPlanStatus,
   } = ports;
   return async function buildSystemContext(
@@ -55,7 +55,7 @@ export function createChatContext(ports: ChatContextPorts) {
     }
     const context = `${buildTrainerContext({
       activities: listRecentActivities(),
-      health: listRecentDailyHealth(),
+      health: listTrainerRecoveryPreview(),
       profile: getTrainerProfile(),
       athleteBaseline: getGarminAthleteBaseline(),
       bodyMetrics: getGarminBodyMetrics(),

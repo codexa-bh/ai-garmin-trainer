@@ -98,7 +98,7 @@ Add `--live-settings` to `smoke:settings`. Fixed fake keys/models and explicit o
 
 `npm run smoke:chat -- --scratch "$scratch" --bundle "$bundle"`
 
-Current ordinary build; finite owned loopback provider and synthetic hiking/HR/terrain data. Nine calls prove real JSON/NDJSON/tool evidence, persistence, continuation and fresh-boot history; inspect two native chat images. `--memory-curation` adds supplied memory/privacy/original-date import mechanics; `--activity-images` instead checks four actual server-rendered image parts; `--extra-data` instead proves four calls of guarded describe/SQL/math over the additional Garmin evidence relations (non-visual). Those variants cannot combine. No real provider/Garmin or semantic-quality proof. [Current chat/variant contracts](smoke/features.md#finite-authored-ordinary-chat-proof).
+Current ordinary build; finite owned loopback provider and synthetic hiking/HR/terrain data. Nine calls prove real JSON/NDJSON/tool evidence, persistence, continuation and fresh-boot history; inspect two native chat images. `--memory-curation` adds supplied memory/privacy/original-date import mechanics; `--activity-images` instead checks four actual server-rendered image parts; `--extra-data` instead proves five calls of default recovery-context/known-ID overview plus guarded describe/SQL/math over the additional Garmin evidence relations (non-visual). Those variants cannot combine. No real provider/Garmin or semantic-quality proof. [Current chat/variant contracts](smoke/features.md#finite-authored-ordinary-chat-proof).
 
 ## tables — Ordinary authored Markdown table layout
 

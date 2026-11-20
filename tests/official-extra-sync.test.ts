@@ -349,6 +349,69 @@ describe("additional Garmin groups through foreground Sync", () => {
       h.api.requests.filter((r) => r.path.endsWith("dailysummaries")).length,
     );
 
+    // Default consumer path uses the same imported normalized evidence, without SQL discovery.
+    const local = await import("../src/lib/local-data/composition");
+    const run = local.getActivityDashboard("9001")!.extraEvidence;
+    expect(run).toMatchObject({
+      bodyBatteryDelta: -9,
+      cadence: {
+        activityList: { avgRunCadenceSpm: 158, avgStrideLengthCm: 98.5 },
+        fitSession: { avgCadenceCpm: 79.5, avgStepLengthM: null },
+      },
+      coverage: {
+        activity_body_battery: { status: "populated" },
+        running_dynamics: { status: "populated" },
+        lap_hr_zones: { status: "populated" },
+      },
+      laps: {
+        sourceLapCount: 2,
+        returnedCount: 2,
+        rows: [
+          { lapNumber: 1, avgCadenceCpm: 78 },
+          { lapNumber: 2, avgCadenceCpm: 80 },
+        ],
+      },
+    });
+    expect(run.laps.rows[0].heartRateZones).toMatchObject({
+      sourceBucketCount: 7,
+      returnedCount: 7,
+      omittedCount: 0,
+      buckets: [
+        {
+          bucket: 0,
+          kind: "below",
+          seconds: 1,
+          upperBpm: 100,
+          sourceMaxHeartRate: 190,
+        },
+        { bucket: 1, zone: 1, seconds: 2, lowerBpm: 100, upperBpm: 115 },
+        {},
+        {},
+        {},
+        {},
+        { bucket: 6, kind: "above", seconds: 0 },
+      ],
+    });
+    const snow = local.getActivityDashboard("9002")!.extraEvidence;
+    expect(snow).toMatchObject({
+      bodyBatteryDelta: -20,
+      coverage: { lap_hr_zones: { status: "unavailable" } },
+      snowboard: {
+        sourceTypeCount: 2,
+        returnedCount: 2,
+        rows: [
+          { splitType: "SKI_LIFT_SPLIT", count: 8, durationSec: 2400 },
+          {
+            splitType: "SKI_RUN_SPLIT",
+            count: 9,
+            distanceMeters: 12000,
+            maxSpeedMps: 15.2,
+          },
+        ],
+      },
+    });
+    expect(snow.snowboard.meaning).toContain("not individual");
+
     // 1. Sleep components/timing
     expect(
       sql(

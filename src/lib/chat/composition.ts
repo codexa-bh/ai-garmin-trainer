@@ -22,7 +22,7 @@ import {
   getGarminBodyMetrics,
   listActivityDetailAvailability,
   listRecentActivities,
-  listRecentDailyHealth,
+  listTrainerRecoveryPreview,
 } from "@/lib/local-data/composition";
 import { trainingPlanStatus } from "@/lib/training-plan/composition";
 import { trainerProfile } from "@/lib/profile/composition";
@@ -39,7 +39,7 @@ const buildSystemContext = createChatContext({
   getTrainerProfile: trainerProfile.read,
   listActivityDetailAvailability,
   listRecentActivities,
-  listRecentDailyHealth,
+  listTrainerRecoveryPreview,
   trainingPlanStatus,
   now: () => new Date(),
   // Preserved legacy vectors are inspection-only, never a second active source.
