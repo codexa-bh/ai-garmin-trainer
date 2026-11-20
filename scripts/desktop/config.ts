@@ -72,13 +72,16 @@ export function adoptConfiguration(snapshot: unknown): void {
 function garminFixture(
   snapshot: unknown,
 ): { origin: string; capability: string } | undefined {
-  if (
-    !snapshot ||
-    typeof snapshot !== "object" ||
-    !("garminFixture" in snapshot)
-  )
+  const frame =
+    snapshot &&
+    typeof snapshot === "object" &&
+    "version" in snapshot &&
+    snapshot.version === 4
+      ? (snapshot as { activation?: unknown }).activation
+      : snapshot;
+  if (!frame || typeof frame !== "object" || !("garminFixture" in frame))
     return undefined;
-  const fixture = snapshot.garminFixture as Record<string, unknown> | null;
+  const fixture = frame.garminFixture as Record<string, unknown> | null;
   const origin = typeof fixture?.origin === "string" ? fixture.origin : "";
   const capability =
     typeof fixture?.capability === "string" ? fixture.capability : "";

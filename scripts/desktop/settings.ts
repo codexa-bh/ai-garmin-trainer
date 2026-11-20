@@ -239,6 +239,7 @@ export function activationEnvironment(
     chatCatalog?: unknown;
     selectionCompatibility?: unknown;
     garminKey?: unknown;
+    garminFixture?: unknown;
   };
   if (
     ![1, 2, 3].includes(frame.version as number) ||
@@ -253,6 +254,8 @@ export function activationEnvironment(
                 "chatCatalog",
                 "selectionCompatibility",
                 "garminKey",
+                // Isolated synthetic runs only; parsed and bounded by config.ts.
+                "garminFixture",
               ]
             : frame.version === 2
               ? ["version", "fields", "secrets", "chatCatalog"]

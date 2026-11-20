@@ -104,6 +104,33 @@ describe("desktop Garmin activation", () => {
       false,
     );
   });
+  it("admits only a closed loopback fixture beside the key and refuses any other shape", () => {
+    const root = directory();
+    const database = join(root, "test.sqlite");
+    writeFileSync(database, "authored-path");
+    const garminFixture = {
+      origin: "http://127.0.0.1:40000",
+      capability: "f".repeat(64),
+    };
+    const active = activateConfiguration(
+      { DATABASE_PATH: database },
+      { garminKey: "synthetic-garmin-key-0001", garminFixture },
+    );
+    expect(active.garmin).toBe(true);
+    expect(active.envText).not.toContain(garminFixture.capability);
+    for (const bad of [
+      { ...garminFixture, origin: "https://personal.connectapi.garmin.com" },
+      { ...garminFixture, origin: "http://192.168.1.2:40000" },
+      { ...garminFixture, capability: "short" },
+      { ...garminFixture, extra: true },
+    ])
+      expect(() =>
+        activateConfiguration(
+          { DATABASE_PATH: database },
+          { garminKey: "synthetic-garmin-key-0001", garminFixture: bad },
+        ),
+      ).toThrow();
+  });
   it("refuses retired connector fields and malformed keys instead of selecting a fallback", () => {
     const root = directory();
     const database = join(root, "test.sqlite");
