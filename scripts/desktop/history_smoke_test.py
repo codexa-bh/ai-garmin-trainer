@@ -870,14 +870,22 @@ class NoExternalToolsLaunch(unittest.TestCase):
         from types import SimpleNamespace
         from history_smoke import HistoryRun, NO_EXTERNAL_TOOLS_PROFILE, SANDBOX_EXEC
 
+        from unittest.mock import patch
+
         run = SimpleNamespace(no_external_tools=False)
         self.assertEqual(HistoryRun.launch_prefix(run), [])
         run.no_external_tools = True
+        if not SANDBOX_EXEC.is_file():
+            # Off macOS the proof refuses rather than silently running unrestricted.
+            with self.assertRaisesRegex(ValueError, 'sandbox-exec required'):
+                HistoryRun.launch_prefix(run)
+            self.skipTest('macOS sandbox-exec unavailable')
         self.assertEqual(
             HistoryRun.launch_prefix(run), [str(SANDBOX_EXEC), '-p', NO_EXTERNAL_TOOLS_PROFILE]
         )
-        if not SANDBOX_EXEC.is_file():
-            self.skipTest('macOS sandbox-exec unavailable')
+        with patch('history_smoke.SANDBOX_EXEC', SANDBOX_EXEC.with_name('missing-sandbox')):
+            with self.assertRaisesRegex(ValueError, 'sandbox-exec required'):
+                HistoryRun.launch_prefix(run)
         denied = subprocess.run(
             [*HistoryRun.launch_prefix(run), '/usr/bin/python3', '-c', 'print(1)'],
             capture_output=True,
