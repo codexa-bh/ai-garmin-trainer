@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import Database from "better-sqlite3";
 import { activateConfiguration } from "./desktop-configuration-fixture";
 import { isCanonicalLocalPath } from "../src/lib/db/local-path";
@@ -97,23 +97,29 @@ describe("desktop executable resolution", () => {
           GARMIN_MCP_COMMAND: command,
         }),
       ).toThrow();
-    const script = join(root, windows ? "uv.cmd" : "uv-script");
-    writeFileSync(script, windows ? "@echo off" : "#!/bin/sh\n");
-    if (!windows) chmodSync(script, 0o600);
-    if (windows)
-      expect(() =>
-        activateConfiguration({
-          DATABASE_PATH: database,
-          GARMIN_MCP_COMMAND: script,
-        }),
-      ).toThrow();
-    else
-      expect(
-        activateConfiguration({
-          DATABASE_PATH: database,
-          GARMIN_MCP_COMMAND: script,
-        }).available.uvx,
-      ).toBe(false);
+    for (const name of windows
+      ? ["uv.cmd", "uv.bat", "uv.ps1"]
+      : ["uv-script"]) {
+      const script = join(root, name);
+      writeFileSync(script, windows ? "@echo off" : "#!/bin/sh\n");
+      if (!windows) chmodSync(script, 0o600);
+      // Existing paths are valid configuration, but unsupported executables
+      // must stay unavailable without preventing offline desktop startup.
+      const resolved = activateConfiguration({
+        DATABASE_PATH: database,
+        GARMIN_MCP_COMMAND: script,
+      });
+      expect(resolved.available.uvx).toBe(false);
+      expect(resolved.uvx).toBe(
+        windows
+          ? win32.join(
+              process.env.SystemRoot ?? "C:\\Windows",
+              "unavailable-trainer-tool",
+              "uvx.exe",
+            )
+          : "/unavailable-trainer-tool/uvx",
+      );
+    }
   });
   it("uses only the fixed per-user Windows uv locations, never PATH", () => {
     const home = directory();
