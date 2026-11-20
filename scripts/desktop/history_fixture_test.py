@@ -130,6 +130,18 @@ class AuthoredPersonalApiFixture(unittest.TestCase):
         status, _ = self.request('GET', '/download-service/files/activity/999', bearer)
         self.assertEqual(status, 404)
 
+    def test_weigh_ins_are_authored_and_range_bounded(self):
+        from datetime import datetime, timedelta, timezone
+
+        today = datetime.now(timezone.utc).date()
+        bearer = {'Authorization': 'Bearer ' + self.token()}
+        start, end = (today - timedelta(days=30)).isoformat(), today.isoformat()
+        status, body = self.request('GET', f'/weight-service/weight/range/{start}/{end}', bearer)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(json.loads(body)['dailyWeightSummaries']), 3)
+        status, body = self.request('GET', f'/weight-service/weight/all/{end}/{end}', bearer)
+        self.assertEqual(json.loads(body), [])
+
     def test_request_budget_is_finite(self):
         self.fixture.total = CALL_LIMIT
         status, _ = self.request('POST', TOKEN_PATH, {'Authorization': 'ApiKey ' + SYNTHETIC_KEY})

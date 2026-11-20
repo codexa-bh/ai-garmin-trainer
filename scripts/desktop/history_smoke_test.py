@@ -205,6 +205,12 @@ class HistoryTokenContracts(unittest.TestCase):
                 prepared['fields']['GARMIN_HISTORY_START_DATE'],
                 (datetime.now(timezone.utc).date() - timedelta(days=70)).isoformat(),
             )
+            self.assertEqual(
+                (self.destination / 'tokens/garmin_tokens.json').read_bytes(),
+                __import__('history_smoke').LEGACY_TOKEN_SENTINEL,
+            )
+            self.assertEqual(prepared['fields']['GARMIN_MCP_COMMAND'], 'uvx')
+            self.assertTrue(all(run.legacy_before['retainedFields'].values()))
             fixture = run.descriptor['garminFixture']
             self.assertEqual(set(fixture), {'port', 'capability'})
             self.assertEqual(fixture['port'], run.fixture.port)

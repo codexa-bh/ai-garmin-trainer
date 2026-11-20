@@ -169,14 +169,51 @@ def _attach_fixture(run):
     run.renew_capability()  # Republish launch.json through its owned atomic path.
 
 
+# Authored stand-in for an old unofficial-connector token store. Never a real
+# credential; the upgrade rehearsal proves it is preserved byte-for-byte.
+LEGACY_TOKEN_SENTINEL = b'{"syntheticLegacyTokenSentinel":true}'
+
+
+def legacy_upgrade_state(run):
+    """Closed facts about the authored old connection, for before/after comparison."""
+    root = private_directory(run.root)
+    saved = _saved(root)
+    token = root / 'tokens/garmin_tokens.json'
+    return {
+        'tokenSha256': hashlib.sha256(token.read_bytes()).hexdigest() if token.exists() else None,
+        'tokenMode': oct(token.stat().st_mode & 0o777) if token.exists() else None,
+        'retainedFields': {
+            key: saved['fields'].get(key) == value
+            for key, value in (
+                ('GARMIN_MCP_TOKEN_DIR', str(root / 'tokens')),
+                ('GARMIN_MCP_COMMAND', 'uvx'),
+            )
+        },
+    }
+
+
 def prepare_synthetic_history(run):
-    """Only stopped, owned, keyless run settings; never select private input."""
+    """Only stopped, owned, keyless run settings; never select private input.
+
+    Rehearses an existing-user upgrade: the copy first carries old unofficial
+    connector metadata and an authored token sentinel, then gains the synthetic
+    official key. Both old artefacts must survive unchanged and unused.
+    """
     from history_fixture import SYNTHETIC_KEY
 
     root = _stopped_synthetic(run)
     saved = _saved(root)
     if saved['keys'] or saved.get('garminApiKey'):
         raise ValueError('Keyless unconnected synthetic settings required')
+    tokens = root / 'tokens'
+    tokens.mkdir(mode=0o700)
+    with open(
+        tokens / 'garmin_tokens.json',
+        'xb',
+        opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600),
+    ) as output:
+        output.write(LEGACY_TOKEN_SENTINEL)
+    saved['fields'].update({'GARMIN_MCP_TOKEN_DIR': str(tokens), 'GARMIN_MCP_COMMAND': 'uvx'})
     # Authored synthetic key for the owned fixture only; never a real credential.
     saved['garminApiKey'] = SYNTHETIC_KEY
     saved['fields']['GARMIN_HISTORY_START_DATE'] = (
@@ -185,6 +222,7 @@ def prepare_synthetic_history(run):
     _publish_settings(root, saved, 'history')
     _attach_fixture(run)
     prepare_latest_preset(run, 'known')
+    run.legacy_before = legacy_upgrade_state(run)
 
 
 def synthetic_calls(run):
@@ -772,6 +810,7 @@ class HistoryRun(OrdinaryRun):
             or data['officialZoneRows'] < 15
             or first['requestCounts'].get('token') != 1
             or first['requestCounts'].get('activity-file', 0) < 3
+            or data['weightRows'] < 3
         ):
             raise ValueError('Official coverage finality/FIT zone transition not observed')
         # Restarted repeat: no file re-download, only open (today) health re-read.
@@ -1003,10 +1042,22 @@ class HistoryRun(OrdinaryRun):
                             ),
                         }
                     )
+        legacy_after = legacy_upgrade_state(self)
+        if (
+            legacy_after != self.legacy_before
+            or legacy_after['tokenSha256'] != hashlib.sha256(LEGACY_TOKEN_SENTINEL).hexdigest()
+            or not all(legacy_after['retainedFields'].values())
+        ):
+            raise ValueError('Old connection metadata or token sentinel was not preserved')
         private_json(
             self.root / 'synthetic-sync.json',
             {
                 'source': self.config['source'],
+                'legacyUpgrade': {
+                    'before': self.legacy_before,
+                    'after': legacy_after,
+                    'claim': 'authored old connector metadata and token sentinel retained unchanged and unused; official key sync succeeded',
+                },
                 'captures': images,
                 'settled': settled,
                 'latest': latest,

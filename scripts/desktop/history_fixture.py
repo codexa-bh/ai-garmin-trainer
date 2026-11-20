@@ -106,6 +106,15 @@ def summary_row(day, preset):
     }
 
 
+def weigh_ins():
+    """Three authored weigh-ins (grams) within the last ten days."""
+    today = _today()
+    return [
+        ((today - timedelta(days=offset)).isoformat(), grams)
+        for offset, grams in ((2, 70200), (5, 70600), (9, 71000))
+    ]
+
+
 def activity_ids(preset):
     """Three stable authored activities in the last week (four with new-activity)."""
     today = _today()
@@ -450,7 +459,28 @@ class Fixture:
                 ]
             )
         if path.startswith('/weight-service/weight/range/'):
-            return 'weigh-ins', ok({'dailyWeightSummaries': []})
+            _, _, _, _, start, end = path.split('/')
+            return 'weigh-ins', ok(
+                {
+                    'dailyWeightSummaries': [
+                        {
+                            'summaryDate': day,
+                            'allWeightMetrics': [
+                                {'calendarDate': day, 'weight': grams, 'timestampGMT': 1}
+                            ],
+                        }
+                        for day, grams in weigh_ins()
+                        if start <= day <= end
+                    ]
+                }
+            )
         if path.startswith('/weight-service/weight/all/'):
-            return 'body-history', ok([])
+            _, _, _, _, start, end = path.split('/')
+            return 'body-history', ok(
+                [
+                    {'calendarDate': day, 'weight': grams}
+                    for day, grams in weigh_ins()
+                    if start <= day <= end
+                ]
+            )
         raise ValueError('Unknown authored path')
