@@ -647,6 +647,10 @@ class OrdinaryRun(Run):
             finally:
                 os.close(fd)  # Releases only this descriptor's acquired lease.
 
+    def launch_prefix(self):
+        """Closed launcher wrapper for the owned app; none by default."""
+        return []
+
     def spawn(self, binary, log):
         if Path(binary) != self.binary:
             raise ValueError('Exact owned ordinary bundle required')
@@ -663,7 +667,12 @@ class OrdinaryRun(Run):
             ]  # Retain, never replace or inspect normal HOME contents.
         with open(log, 'xb', opener=lambda p, flags: os.open(p, flags, 0o600)) as output:
             return subprocess.Popen(
-                [str(binary), '--isolated-smoke-run', str(self.root / 'launch.json')],
+                [
+                    *self.launch_prefix(),
+                    str(binary),
+                    '--isolated-smoke-run',
+                    str(self.root / 'launch.json'),
+                ],
                 cwd=self.root,
                 env=env,
                 stdin=subprocess.PIPE,

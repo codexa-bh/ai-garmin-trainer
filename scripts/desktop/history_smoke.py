@@ -409,7 +409,26 @@ def prepare_connection_scenario(run, scenario):
     run.fixture.set_preset('known' if scenario == 'healthy' else scenario)
 
 
+# Kernel-enforced for the owned app tree only: any attempt to execute a Python,
+# uv, uvx or pip binary fails. Developer runners outside this tree are unaffected;
+# nothing is uninstalled, renamed or hidden from the operator's system.
+NO_EXTERNAL_TOOLS_PROFILE = (
+    '(version 1)(allow default)'
+    '(deny process-exec (regex #"/(python[0-9.]*|python[0-9.]*-config|uv|uvx|pip[0-9.]*)$"))'
+)
+SANDBOX_EXEC = Path('/usr/bin/sandbox-exec')
+
+
 class HistoryRun(OrdinaryRun):
+    no_external_tools = False
+
+    def launch_prefix(self):
+        if not self.no_external_tools:
+            return []
+        if not SANDBOX_EXEC.is_file():
+            raise ValueError('macOS sandbox-exec required for the no-external-tools proof')
+        return [str(SANDBOX_EXEC), '-p', NO_EXTERNAL_TOOLS_PROFILE]
+
     def settings_action(self, action):
         return self.command({'type': 'historySettings', 'action': action})
 
@@ -1566,6 +1585,11 @@ def main():
         help='Finite authored loopback Personal API data on stopped owned copies; no account calls',
     )
     parser.add_argument(
+        '--no-external-tools',
+        action='store_true',
+        help='macOS: launch the owned app where executing Python/uv/uvx/pip is denied (synthetic scopes only)',
+    )
+    parser.add_argument(
         '--token-input',
         help='UNAVAILABLE legacy route: always refuses before private input access; old T0238 authority does not apply',
     )
@@ -1583,6 +1607,8 @@ def main():
         parser.error(
             'Synthetic history cannot consume private tokens or legacy continuation authority'
         )
+    if args.no_external_tools and not (args.synthetic_sync or args.dependency_guidance):
+        parser.error('--no-external-tools applies only to the synthetic Sync scopes')
     if args.token_input:
         parser.error(
             'The historical T0238 live envelope cannot authorize the new interactive operation. Independently approve and review a finite live envelope before use; no private input opened.'
@@ -1641,6 +1667,11 @@ def history_scenario(
         'releaseTransport': release_record,
         'captures': [],
         'cleanup': 'private copy-only state/captures retained to task-scratch expiry; no copy-back',
+        'externalToolsDenied': (
+            'Python/uv/uvx/pip execution denied to the owned app tree by sandbox-exec'
+            if args.no_external_tools
+            else False
+        ),
     }
     try:
         observer = Observer(scratch, preparation_locked=True)
@@ -1656,6 +1687,7 @@ def history_scenario(
                 macos_metadata=bool(release_record),
             )
             run.before_start = verify_current
+            run.no_external_tools = args.no_external_tools
             runs.append(run)
             run.observer = observer
             receipt['captures'].extend(run.onboarding())

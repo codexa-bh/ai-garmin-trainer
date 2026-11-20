@@ -57,3 +57,14 @@ it("declares no Garmin connector dependency or terminal sign-in command", () => 
     readdirSync("scripts").filter((name) => /^garmin_.*\.py$/.test(name)),
   ).toEqual([]);
 });
+
+it("gives the owned backend only system search directories", () => {
+  const supervisor = readFileSync("src-tauri/src/supervisor.rs", "utf8");
+  expect(supervisor).toContain(
+    '.env("PATH", process_tree::search_path("/usr/bin:/bin"))',
+  );
+  expect(supervisor).not.toMatch(/homebrew|\/usr\/local\/bin/);
+  expect(readFileSync("scripts/desktop/config.ts", "utf8")).not.toMatch(
+    /homebrew|\/usr\/local\/bin|\.local\/bin|\.cargo/,
+  );
+});

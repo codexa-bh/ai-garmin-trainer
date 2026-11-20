@@ -86,10 +86,9 @@ impl Service {
             .env("TRAINER_DESKTOP_NONCE", &nonce)
             .env("NODE_ENV", "production")
             .env("NEXT_TELEMETRY_DISABLED", "1")
-            .env(
-                "PATH",
-                process_tree::search_path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"),
-            )
+            // System directories only: the product needs no Homebrew/user tool
+            // (no Python, uv or uvx); bundled Node runs the backend in-process.
+            .env("PATH", process_tree::search_path("/usr/bin:/bin"))
             // Retain the write end as an ownership/liveness pipe. EOF lets the
             // backend fail closed even if the native host dies without callbacks.
             .stdin(Stdio::piped())

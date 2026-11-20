@@ -283,16 +283,15 @@ class Fixture:
         fixture = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
-            protocol_version = 'HTTP/1.1'
-
             def log_message(self, *_args):
                 pass  # No request text, key or path ever reaches logs.
 
             def do_POST(self):
                 fixture.handle(self, 'POST')
 
-            def do_GET(self):
-                fixture.handle(self, 'GET')
+        # http.server dispatches do_<METHOD>; the token exchange is POST and every
+        # read is GET, both through the same closed owner.
+        setattr(Handler, 'do_GET', lambda handler: fixture.handle(handler, 'GET'))
 
         self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         self.server.daemon_threads = True
@@ -327,9 +326,6 @@ class Fixture:
         handler.send_header('Connection', 'close')
         handler.end_headers()
         handler.wfile.write(body)
-
-    def _json(self, handler, value, status=200):
-        self._send(handler, status, json.dumps(value).encode())
 
     def handle(self, handler, method):
         if handler.headers.get('x-trainer-fixture') != self.capability:

@@ -48,7 +48,7 @@ class HistoryTokenContracts(unittest.TestCase):
 
         database = self.root / 'empty-authored.sqlite'
         sqlite3.connect(database).close()
-        args = SimpleNamespace(token_input=None)
+        args = SimpleNamespace(token_input=None, no_external_tools=False)
         with (
             patch.object(
                 history, 'Observer', side_effect=RuntimeError('before any launch')
@@ -862,3 +862,28 @@ class HistoryTokenContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             copy_tokens(self.selection, self.destination)
         self.assertEqual(self.token.read_bytes(), original)
+
+
+class NoExternalToolsLaunch(unittest.TestCase):
+    def test_restricted_launch_denies_only_python_and_uv_tools(self):
+        import subprocess
+        from types import SimpleNamespace
+        from history_smoke import HistoryRun, NO_EXTERNAL_TOOLS_PROFILE, SANDBOX_EXEC
+
+        run = SimpleNamespace(no_external_tools=False)
+        self.assertEqual(HistoryRun.launch_prefix(run), [])
+        run.no_external_tools = True
+        self.assertEqual(
+            HistoryRun.launch_prefix(run), [str(SANDBOX_EXEC), '-p', NO_EXTERNAL_TOOLS_PROFILE]
+        )
+        if not SANDBOX_EXEC.is_file():
+            self.skipTest('macOS sandbox-exec unavailable')
+        denied = subprocess.run(
+            [*HistoryRun.launch_prefix(run), '/usr/bin/python3', '-c', 'print(1)'],
+            capture_output=True,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        allowed = subprocess.run(
+            [*HistoryRun.launch_prefix(run), '/bin/echo', 'ok'], capture_output=True
+        )
+        self.assertEqual((allowed.returncode, allowed.stdout), (0, b'ok\n'))
