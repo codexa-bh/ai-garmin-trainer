@@ -107,7 +107,7 @@ class AuthoredPersonalApiFixture(unittest.TestCase):
         self.assertEqual(yesterday['wellnessChronology']['totalDurationInMillis'], 86400000)
         current = summary_row(today.isoformat(), 'known')
         self.assertLess(current['wellnessChronology']['totalDurationInMillis'], 86400000)
-        before = summary_row((today - timedelta(days=200)).isoformat(), 'known')
+        before = summary_row((today - timedelta(days=400)).isoformat(), 'known')
         self.assertFalse(before['includesWellnessData'])
         bearer = {'Authorization': 'Bearer ' + self.token()}
         status, _ = self.request(

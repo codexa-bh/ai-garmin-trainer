@@ -23,7 +23,9 @@ import urllib.parse
 import zlib
 
 SYNTHETIC_KEY = 'synthetic-history-personal-api-key'
-DATA_START_DAYS = 80
+# Long enough that explicit discovery needs several range batches (cancel and
+# Continue are observable) yet finite: earlier dates are source-empty.
+DATA_START_DAYS = 300
 PRESETS = frozenset(('known', 'partial-today', 'new-activity', 'rejected-key', 'rate-limited'))
 ENDPOINTS = frozenset(
     (
