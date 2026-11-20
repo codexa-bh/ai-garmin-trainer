@@ -922,11 +922,16 @@ class HistoryRun(OrdinaryRun):
             steady['requestCounts'].get('activity-list') != 1
             or steady['requestCounts'].get('activity-file', 0)
             or steady['dataAfter']['mutableDays'] > 2
+            or steady['dataAfter']['coverageFinalDays'] < steady['dataBefore']['coverageFinalDays']
         ):
             raise ValueError('Steady official latest did not reduce to bounded core reads')
+        # An identical repeat changes nothing and re-reads only the open day.
+        latest.append(self.latest_probe())
+        repeat = latest[-1]
         if (
-            steady['after']['activities'] != latest[-2]['after']['activities']
-            or steady['after']['healthDays'] != latest[-2]['after']['healthDays']
+            repeat['dataAfter'] != steady['dataAfter']
+            or repeat['requestCounts'].get('daily-summaries') != 1
+            or repeat['requestCounts'].get('activity-file', 0)
         ):
             raise ValueError('Identical latest refresh was not idempotent')
         self.stop()
