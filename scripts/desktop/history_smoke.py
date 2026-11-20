@@ -1211,6 +1211,9 @@ class HistoryRun(OrdinaryRun):
                         'Healthy synthetic fixture admission not observed; no Cancel/replay'
                     )
                 self.command({'type': 'sync', 'action': 'cancel'})
+                # Reconcile the settled server claim through the existing explicit
+                # summary refresh before reading the rendered paused state.
+                self.settle_claim()
                 self.wait_sync(lambda value: value['paused'] and not value['running'], 40)
             else:
                 self.wait_sync(lambda value: value['failed'] and not value['running'], 15)
