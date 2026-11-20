@@ -611,7 +611,10 @@ class HistoryRun(OrdinaryRun):
             ).fetchone()
             freshness = json.loads(row[0]) if row else None
             days = (freshness or {}).get('days', {})
-            weight = db.execute('select * from garmin_body_weight_history order by date').fetchall()
+            # Refresh timestamps change on every read; the facts must not.
+            weight = db.execute(
+                'select date, weight_kg, source from garmin_body_weight_history order by date'
+            ).fetchall()
             legacy_dates = [date for date, day in days.items() if day['source'] == 'legacy']
             legacy = [
                 db.execute('select * from daily_health where date=?', (date,)).fetchone()
