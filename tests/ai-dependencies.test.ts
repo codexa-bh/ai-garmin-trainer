@@ -68,7 +68,7 @@ const allowed = new Set([
   "memory/filters.ts",
   "memory/types.ts",
   "garmin/detail-types.ts",
-  "garmin/dependency-error.ts",
+  "garmin/failure.ts",
   "garmin/import-contracts.ts",
   "garmin/history-policy.ts",
   "garmin/discovery-policy.ts",

@@ -57,12 +57,12 @@ it("maps every HTTP family to its delivered feature composition", () => {
   }
 });
 
-it("constructs every production route/factory without opening DB, reading env, selecting providers or starting a connector", async () => {
+it("constructs every production route/factory without opening DB, reading env, selecting providers or contacting Garmin", async () => {
   vi.resetModules();
   const env = await import("../src/lib/env");
   const storage = await import("../src/lib/db/connection");
   const providers = await import("../src/lib/ai/providers");
-  const connector = await import("../src/lib/garmin/client");
+  const connection = await import("../src/lib/garmin/connection");
   const forbidden = () => {
     throw new Error("import-time resource access");
   };
@@ -75,8 +75,8 @@ it("constructs every production route/factory without opening DB, reading env, s
     vi
       .spyOn(providers, "selectedMemoryExtractionModel")
       .mockImplementation(forbidden),
-    vi.spyOn(connector, "verifyConnectorToken").mockImplementation(forbidden),
-    vi.spyOn(connector, "spawnGarminMcp").mockImplementation(forbidden),
+    vi.spyOn(connection, "garminApiKey").mockImplementation(forbidden),
+    vi.spyOn(connection, "garminTransport").mockImplementation(forbidden),
   ];
   await Promise.all([
     import("../src/app/api/activities/route"),

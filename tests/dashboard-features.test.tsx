@@ -428,48 +428,48 @@ describe("independent dashboard feature ownership", () => {
 
   it.each([
     [
-      "Garmin connector request failed; upstream details are withheld to protect credentials and local paths.",
+      "Garmin sync stopped after a connection or storage failure; committed data and unresolved history are retained.",
       "connector",
     ],
+    ["Garmin protocol failure: the response was unrecognized.", "connector"],
     [
-      "Garmin MCP exited with code 1. Garmin connector request failed; upstream details are withheld to protect credentials and local paths.",
+      "Garmin protocol failure: the response exceeded its size bound.",
       "connector",
     ],
+    ["Garmin rate limit reached (HTTP 429); retry later.", "rate-limit"],
     [
-      "Garmin MCP exited with code null. Garmin service rate-limited the request; retry later, not reauthentication.",
+      "Garmin rate limit reached (HTTP 429); retry later. (HTTP 429)",
       "rate-limit",
     ],
     [
-      "Garmin connection or service is unavailable; authentication validity is inconclusive.",
+      "Garmin connection failed; authentication validity is inconclusive.",
       "network",
     ],
     [
-      "Garmin authentication could not be verified; check the configured store and perform a separate live verification before requesting reauthentication.",
+      "Garmin service is unavailable; authentication validity is inconclusive. (HTTP 503)",
+      "network",
+    ],
+    ["Garmin request timed out; no successful coverage recorded.", "network"],
+    [
+      "Garmin authentication failed: the Personal API key was rejected or has expired. (HTTP 401)",
       "auth",
     ],
     [
-      "Open native Settings → Connect Garmin; no alternate connection is searched.",
-      "auth",
-    ],
-    ["Configured token location must be a directory, not a symlink.", "auth"],
-    [
-      "Expected Garmin token file must be a regular file, not a symlink.",
+      "Garmin authentication failed: the access token was rejected. (HTTP 403)",
       "auth",
     ],
     [
-      "Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login.",
+      "Garmin authentication is not configured: add your Personal API key in native Settings, Save, then quit and reopen Trainer.",
       "auth",
     ],
+    // Retired connector vocabulary is no longer recognized as current guidance.
     [
-      "Configured Garmin connection is missing. Open native Settings → Reconnect Garmin, Save and explicitly quit/reopen.",
-      "auth",
+      "Garmin connector request failed; upstream details are withheld to protect credentials and local paths.",
+      null,
     ],
-    [
-      "Configured Garmin auth state is inaccessible; check file types and private permissions. No token contents were read.",
-      "auth",
-    ],
+    ["Configured token location must be a directory, not a symlink.", null],
     ["Application token counter failed", null],
-    ["Garmin MCP exited with code 1. Unknown failure", null],
+    ["Garmin rate limit reached (HTTP 429); retry later. extra", null],
     [undefined, null],
   ] as const)(
     "classifies only recognized sanitized failure vocabulary: %s",
@@ -480,28 +480,18 @@ describe("independent dashboard feature ownership", () => {
 
   it.each([
     {
-      name: "known dependency",
+      name: "retired dependency field",
       body: '{"type":"result","status":"failed","dependency":"launcher-unavailable"}\n',
-      recovery: "dependency",
-    },
-    {
-      name: "unknown startup",
-      body: '{"type":"result","status":"failed","dependency":"startup-unknown"}\n',
-      recovery: "startup",
-    },
-    {
-      name: "unrecognized dependency",
-      body: '{"type":"result","status":"failed","dependency":"private-canary"}\n',
       recovery: null,
     },
     {
       name: "failed result without progress",
-      body: '{"type":"result","status":"failed","detail":"Garmin connector request failed; upstream details are withheld to protect credentials and local paths."}\n',
+      body: '{"type":"result","status":"failed","detail":"Garmin protocol failure: the response was unrecognized."}\n',
       recovery: "connector",
     },
     {
       name: "failed progress with detail-less result",
-      body: '{"stage":"failed","message":"Garmin connector request failed; upstream details are withheld to protect credentials and local paths."}\n{"type":"result","status":"failed"}\n',
+      body: '{"stage":"failed","message":"Garmin protocol failure: the response was unrecognized."}\n{"type":"result","status":"failed"}\n',
       recovery: "connector",
     },
     {
@@ -526,7 +516,7 @@ describe("independent dashboard feature ownership", () => {
     },
     {
       name: "unrelated HTTP",
-      body: '{"status":"blocked","detail":"Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login."}',
+      body: '{"status":"blocked","detail":"Garmin authentication is not configured: add your Personal API key in native Settings, Save, then quit and reopen Trainer."}',
       http: 500,
       recovery: null,
     },

@@ -1562,7 +1562,7 @@ describe("TrainerDashboard Profile hydration", () => {
       within(dialog).queryByRole("combobox", { name: "Trainer model" }),
     ).toBeNull();
     expect(
-      within(dialog).queryByRole("button", { name: "Verify connector" }),
+      within(dialog).queryByRole("button", { name: "Verify connection" }),
     ).toBeNull();
     expect(within(dialog).queryByLabelText("Garmin activity ID")).toBeNull();
     expect(screen.getByText(/Current operation/)).toBeTruthy();
@@ -4550,7 +4550,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
   });
   it("labels only failed entries, retains recovery across navigation, and resets it on the next run", async () => {
     const detail =
-      "Garmin MCP exited with code 1. Garmin connector request failed; upstream details are withheld to protect credentials and local paths.";
+      "Garmin authentication failed: the Personal API key was rejected or has expired. (HTTP 401)";
     let stream = controlledSyncStream();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -4611,12 +4611,11 @@ describe("TrainerDashboard dedicated Sync view", () => {
     expect(log.textContent).toContain("processed activity records 0");
     expect(log.textContent).toContain("stored totals 247 activities");
     const help = screen.getByRole("region", { name: "Garmin connection help" });
-    expect(help.textContent).toContain(
-      "This does not prove expired credentials",
-    );
-    expect(help.textContent).toContain("Connect Garmin or Reconnect");
-    expect(help.textContent).toContain("preserves existing connections");
-    expect(help.textContent).toContain("running account never");
+    expect(help.textContent).toContain("Personal API key");
+    expect(help.textContent).toContain("Create a new Personal API key");
+    expect(help.textContent).toContain("Garmin connection to enter or");
+    expect(help.textContent).toContain("never switches in place");
+    expect(help.textContent).not.toMatch(/password|MFA|uvx|Python/);
     expect(
       screen.queryByRole("button", { name: "Copy login command" }),
     ).toBeNull();
@@ -4684,7 +4683,7 @@ describe("TrainerDashboard dedicated Sync view", () => {
               {
                 status: "blocked",
                 detail:
-                  "Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login.",
+                  "Garmin authentication is not configured: add your Personal API key in native Settings, Save, then quit and reopen Trainer.",
               },
               { status: 409 },
             );

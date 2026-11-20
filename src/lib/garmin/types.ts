@@ -183,7 +183,8 @@ export type GarminBodyMetricsDto = {
 };
 
 /** Archive labels for payload classes read by the official reader. They map to
- * the same logical daily-health kinds as the MCP tool names (see repository repair SQL). */
+ * the same logical daily-health kinds as the retired MCP tool names still
+ * stored in older archive rows (see repository repair SQL). */
 export type GarminOfficialArchiveTool =
   | "official_activity_list"
   | "official_daily_summary"
@@ -191,32 +192,3 @@ export type GarminOfficialArchiveTool =
   | "official_hrv"
   | "official_body_battery"
   | "official_activity_fit";
-
-export type GarminReadOperation =
-  | "list_activities"
-  | "get_sleep"
-  | "get_rhr"
-  | "get_hrv"
-  | "get_stress"
-  | "get_steps"
-  | "get_calories"
-  | "get_body_battery"
-  | "get_activities_by_date"
-  | "get_activity"
-  | "get_activity_splits"
-  | "get_activity_typed_splits"
-  | "get_activity_split_summaries"
-  | "get_activity_weather"
-  | "get_activity_hr_in_timezones"
-  | "get_activity_power_in_timezones"
-  | "get_activity_fit_data"
-  | "get_stats"
-  | "get_weekly_steps"
-  | "get_devices"
-  | "get_device_last_used"
-  | "get_sleep_summary"
-  | "get_morning_training_readiness"
-  | "get_user_profile"
-  | "get_body_composition"
-  | "get_weigh_ins"
-  | "get_cycling_ftp";

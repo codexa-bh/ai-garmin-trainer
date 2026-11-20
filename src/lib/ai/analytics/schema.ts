@@ -487,7 +487,11 @@ export const ANALYTICAL_SCHEMA: Record<
     columns: [
       { name: "date", type: "text", note: "YYYY-MM-DD" },
       { name: "weight_kg", type: "real", unit: "kg" },
-      { name: "source", type: "text", note: "garmin_mcp" },
+      {
+        name: "source",
+        type: "text",
+        note: "garmin_official | garmin_mcp (older rows)",
+      },
       { name: "fetched_at", type: "integer", unit: "Unix epoch ms" },
     ],
   },

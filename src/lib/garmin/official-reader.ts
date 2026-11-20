@@ -45,7 +45,8 @@ import type {
   NormalizedDailyHealth,
 } from "./types";
 
-/** Documented, measured and conservative request bounds (handoff §4). */
+/** @public Documented, measured and conservative request bounds (handoff §4);
+ * the reader's range tests assert against this contract. */
 export const OFFICIAL_RANGE_LIMITS = {
   activityPage: 100,
   sleepDays: 31,

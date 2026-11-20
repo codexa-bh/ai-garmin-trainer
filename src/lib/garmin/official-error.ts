@@ -1,3 +1,5 @@
+import { GarminSafeFailure } from "./failure";
+
 /**
  * Closed failure vocabulary for the official Personal API reader. Messages are
  * fixed text (never vendor bodies, headers, keys or tokens) and deliberately use
@@ -30,7 +32,7 @@ const MESSAGES: Record<OfficialFailure, string> = {
   "too-large": "Garmin protocol failure: the response exceeded its size bound.",
 };
 
-export class OfficialApiError extends Error {
+export class OfficialApiError extends GarminSafeFailure {
   constructor(
     readonly kind: OfficialFailure,
     readonly status?: number,

@@ -117,7 +117,7 @@ it("loads the model on initial chat without Profile, retains drafts and returns 
   fireEvent.change(goals, { target: { value: "Unsaved T0236 draft" } });
   expect(within(dialog).queryByRole("combobox")).toBeNull();
   for (const name of [
-    "Verify connector",
+    "Verify connection",
     "Refresh import summary",
     "Force refresh detail",
     "Show detail coverage",
@@ -216,8 +216,8 @@ it("keeps maintenance requests, blank rejection, failures and late feedback in S
   expect(
     fetcher.mock.calls.some(([url]) => url === "/api/activity-detail"),
   ).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Verify connector" }));
-  await screen.findByText(/Verify connector: success/);
+  fireEvent.click(screen.getByRole("button", { name: "Verify connection" }));
+  await screen.findByText(/Verify connection: success/);
   fireEvent.click(screen.getByRole("button", { name: "Show detail coverage" }));
   await screen.findByText(/Activity detail coverage: success/);
   fireEvent.click(

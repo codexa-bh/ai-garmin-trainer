@@ -106,6 +106,9 @@
       ].includes(status),
       privateControlsAbsent: [
         "GARMIN_MCP_TOKEN_DIR",
+        "GARMIN_MCP_COMMAND",
+        "email",
+        "password",
         "destination",
         "auth-parent",
       ].every((id) => !byId(id)),
@@ -155,7 +158,7 @@
       ...document.querySelectorAll(
         "#preserved-fields input, #preserved-fields select",
       ),
-    ].length === 19 &&
+    ].length === 14 &&
     byId("preserved-fields")?.matches("[hidden][inert]") === true;
   const summarySection = () => {
     if (!visible(byId("memory-section"))) throw Error("Unavailable Memory");
@@ -516,7 +519,7 @@
           }
           // Never reveal selected paths, key/status/private connection text or credential controls.
           for (const el of document.querySelectorAll(
-            "input:not(#GARMIN_HISTORY_START_DATE):not(#history-limited), #connection-status, #review-summary, #status, #auth-section, #keys, #catalog-entries",
+            "input:not(#GARMIN_HISTORY_START_DATE):not(#history-limited), #connection-status, #review-summary, #status, #garmin-key-section, #keys, #catalog-entries",
           ))
             style(el, "visibility", "hidden");
           if (getComputedStyle(byId("DATABASE_PATH")).visibility !== "hidden")

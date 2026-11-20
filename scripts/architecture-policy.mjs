@@ -1,6 +1,6 @@
 // Shared direct/transitive ownership and scope-aware capability policy.
 export const serverOwner =
-  /^(lib\/db(?:\/|$)|lib\/garmin\/(?:client|importer|mcp-config)(?:\.|\/|$)|lib\/env(?:\.|$)|lib\/ai\/providers(?:\.|$))/;
+  /^(lib\/db(?:\/|$)|lib\/garmin\/(?:connection|importer)(?:\.|\/|$)|lib\/env(?:\.|$)|lib\/ai\/providers(?:\.|$))/;
 export const aiOwner = /^(?:lib\/ai(?:\/|$)|@ai-sdk\/|ai$)/;
 export const mathRoot = "lib/ai/math-analysis.ts";
 export const ambientCapabilities = [

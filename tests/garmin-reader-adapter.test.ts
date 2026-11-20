@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createGarminReader,
   type GarminReaderAdapters,
-} from "../src/lib/garmin/reader-adapter";
+} from "./legacy-reader-double";
 
 function fixture() {
   const journal: string[] = [];

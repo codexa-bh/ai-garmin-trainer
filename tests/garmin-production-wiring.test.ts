@@ -2,157 +2,81 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  activityRow,
+  accountApi,
+  addDays,
+  fitFor,
+  newAccount,
+  TOKEN_PATH,
+  type Account,
+} from "./official-api-fixture";
 
-const state = vi.hoisted(() => ({
-  token: true,
-  starts: 0,
-  closes: 0,
-  constructions: 0,
-  failStart: false,
-  dependency: null as "launcher-unavailable" | "startup-unknown" | null,
-  failDetail: false,
-  newest: "123",
-  upload: "2026-09-21T10:00:00Z" as string | null,
-  failProfile: false,
-  healthDates: [] as string[],
-  calls: [] as string[],
-  devices: null as unknown[] | null,
-  lastUsed: "No last used device found.",
-  profiles: [] as string[],
-}));
-vi.mock("../src/lib/garmin/client", () => ({
-  verifyConnectorToken: async () => ({
-    ok: state.token,
-    detail: "token preflight",
-  }),
-}));
-vi.mock("../src/lib/garmin/mcp-client", () => ({
-  GarminMcpClient: class {
-    constructor(private profile = "reads") {
-      state.constructions += 1;
-      state.profiles.push(profile);
-    }
-    async start() {
-      state.starts += 1;
-      if (state.dependency) {
-        const { GarminDependencyError } =
-          await import("../src/lib/garmin/dependency-error");
-        throw new GarminDependencyError(state.dependency);
-      }
-      if (state.failStart) throw new Error("startup failed");
-    }
-    close() {
-      state.closes += 1;
-    }
-    async callTool(operation: string, args: Record<string, unknown>) {
-      state.calls.push(operation);
-      // The dedicated UTC last-used process exposes only its single tool.
-      if (
-        (operation === "get_device_last_used") !==
-        (this.profile === "last-used")
-      )
-        throw new Error("Unknown tool for this connector profile");
-      if (operation === "get_device_last_used") return state.lastUsed;
-      if (operation === "get_devices")
-        return JSON.stringify(
-          state.devices ?? [
-            { device_id: 1, is_primary: true, last_sync_time: state.upload },
-          ],
-        );
-      if (operation === "get_stats") {
-        state.healthDates.push(String(args.date));
-        return "{}";
-      }
-      if (operation === "get_user_profile") {
-        if (state.failProfile) throw new Error("profile failed");
-        return '{"userData":{"availableTrainingDays":["monday"],"weight":70,"height":180}}';
-      }
-      if (operation === "get_cycling_ftp")
-        return '{"functional_threshold_power_watts":250,"sport":"cycling"}';
-      if (operation === "get_activities_by_date")
-        return JSON.stringify({
-          activities: [
-            {
-              activityId: state.newest,
-              activityType: "running",
-              activityName: "Fixture",
-              startTimeLocal:
-                state.newest === "123"
-                  ? "2026-09-21T08:00:00"
-                  : "2026-09-21T09:00:00",
-              trainingEffect: 2,
-            },
-          ],
-          has_more: false,
-          token: "fake-private-token",
-        });
-      if (operation === "get_activity_fit_data") {
-        if (state.failDetail) throw new Error("detail timeout");
-        return JSON.stringify({
-          zones_target: { max_heart_rate: 190 },
-          records: [
-            {
-              timestamp: "2026-09-21T08:00:00Z",
-              heart_rate_bpm: 140,
-              enhanced_altitude: 200,
-              distance: 0,
-              enhanced_speed: 3,
-            },
-          ],
-          cookie: "fake-private-cookie",
-        });
-      }
-      return "{}";
-    }
-  },
-}));
-vi.mock("../src/lib/garmin/fit-baseline", () => ({
-  fetchFitBaselineWithLocalWrapper: async () => undefined,
-}));
-// Real supplement predicates/merge functions; only external process entrypoints are replaced.
-vi.mock("../src/lib/garmin/fit-altitude", async (original) => ({
-  ...(await original<typeof import("../src/lib/garmin/fit-altitude")>()),
-  fetchFitAltitudeWithLocalWrapper: async () => undefined,
-}));
-vi.mock("../src/lib/garmin/fit-distance", async (original) => ({
-  ...(await original<typeof import("../src/lib/garmin/fit-distance")>()),
-  fetchFitDistanceWithLocalWrapper: async () => undefined,
-}));
-vi.mock("../src/lib/garmin/fit-speed", async (original) => ({
-  ...(await original<typeof import("../src/lib/garmin/fit-speed")>()),
-  fetchFitSpeedWithLocalWrapper: async () => undefined,
-}));
+/**
+ * Real production composition → official reader → SQLite. Only global `fetch`
+ * is authored (the finite Personal API fixture) and the key is installed
+ * through the real process-owned startup capability, exactly as the desktop
+ * launcher does. No MCP client, Python or FIT process exists to mock.
+ */
+const KEY = "synthetic-wiring-key-0001";
 let directory: string;
-beforeEach(() => {
+let account: Account;
+let api: ReturnType<typeof accountApi>;
+const SLOT = "__trainerGarminConnectionV1";
+
+type Slot = { installed?: unknown };
+const slot = () =>
+  (process as unknown as Record<string, Slot | undefined>)[SLOT];
+function installKey(key: string | undefined) {
+  if (slot()) delete slot()!.installed;
+  return import("../src/lib/garmin/connection").then(
+    ({ installGarminConnection }) => installGarminConnection({ key }),
+  );
+}
+function populate() {
+  for (let i = 0; i < 21; i += 1)
+    account.days.set(addDays("2026-08-31", i), { hours: 24, steps: 5000 + i });
+  account.days.set("2026-09-21", { hours: 12, steps: 3000 });
+  account.activities.push(
+    activityRow(123, "2026-09-21 07:00:00", {
+      hrTimeInZone_1: 60,
+      hrTimeInZone_2: 120,
+      hrTimeInZone_3: 180,
+      hrTimeInZone_4: 240,
+      hrTimeInZone_5: 300,
+    }),
+  );
+  account.files.set(
+    "123",
+    fitFor({
+      sessionZones: [0, 10, 20, 30, 40, 50],
+      highBoundaries: [100, 115, 130, 145, 160, 175],
+      zonesTarget: { max: 190 },
+    }),
+  );
+}
+
+beforeEach(async () => {
   directory = mkdtempSync(join(tmpdir(), "garmin-wiring-"));
   vi.stubEnv("DATABASE_PATH", join(directory, "test.sqlite"));
   vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-21");
+  vi.stubEnv("TZ", "UTC");
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-09-21T12:00:00Z"));
-  Object.assign(state, {
-    token: true,
-    starts: 0,
-    closes: 0,
-    constructions: 0,
-    failStart: false,
-    dependency: null,
-    failDetail: false,
-    newest: "123",
-    upload: "2026-09-21T10:00:00Z",
-    failProfile: false,
-    healthDates: [],
-    calls: [],
-    devices: null,
-    lastUsed: "No last used device found.",
-    profiles: [],
-  });
+  account = newAccount();
+  populate();
+  api = accountApi(account);
+  vi.stubGlobal("fetch", api.fetch);
   vi.resetModules();
+  await installKey(KEY);
 });
 afterEach(async () => {
   const { getDatabase } = await import("../src/lib/db/connection");
   getDatabase().close();
+  if (slot()) delete slot()!.installed;
   vi.useRealTimers();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   rmSync(directory, { recursive: true, force: true });
 });
 function detailRequest(body: unknown) {
@@ -162,63 +86,84 @@ function detailRequest(body: unknown) {
     body: JSON.stringify(body),
   });
 }
+async function events(response: Response) {
+  return (await response.text())
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+const latest = () =>
+  new Request("http://localhost/api/sync", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: '{"intent":"latest"}',
+  });
 
-describe("HTTP through real production composition, reader and SQLite", () => {
-  it("keeps token preflight outside sync/connector construction and preserves 409 contracts", async () => {
+describe("HTTP through real production composition, official reader and SQLite", () => {
+  it("makes no Garmin request on import, summary or a missing key, and blocks Sync with the closed reconnect message", async () => {
+    await installKey(undefined);
     const route = await import("../src/app/api/sync/route");
-    expect(state.constructions).toBe(0);
-    state.token = false;
-    const get = await route.GET();
-    expect(get.status).toBe(409);
-    expect(await get.json()).toEqual({ ok: false, detail: "token preflight" });
+    const summary = await import("../src/app/api/summary/route");
+    await summary.GET();
+    expect(api.requests).toEqual([]);
     const post = await route.POST();
     expect(post.status).toBe(409);
     expect(await post.json()).toEqual({
       status: "blocked",
-      detail: "token preflight",
+      detail: expect.stringContaining("Personal API key in native Settings"),
     });
-    expect(state.constructions).toBe(0);
-    state.token = true;
-    expect((await route.GET()).status).toBe(200);
+    const check = await route.GET();
+    expect(check.status).toBe(409);
+    expect(await check.json()).toMatchObject({ state: "not-configured" });
+    expect(api.requests).toEqual([]);
   });
 
-  it.each(["launcher-unavailable", "startup-unknown"] as const)(
-    "carries %s through real Sync and allows an explicit repaired retry with unchanged checkpoints",
-    async (reason) => {
-      vi.useFakeTimers();
-      state.dependency = reason;
+  it("explicit connection check uses only the official token and profile reads and never echoes the key", async () => {
+    const route = await import("../src/app/api/sync/route");
+    const ok = await route.GET();
+    expect(ok.status).toBe(200);
+    const body = JSON.stringify(await ok.json());
+    expect(body).toContain("verified");
+    expect(body).not.toContain(KEY);
+    expect(api.requests.map((r) => r.path)).toEqual([
+      TOKEN_PATH,
+      "/userprofile-service/userprofile/settings",
+      "/biometric-service/heartRateZones/v2",
+    ]);
+    expect(api.requests[0].authorization).toBe(`ApiKey ${KEY}`);
+    expect(
+      api.requests
+        .slice(1)
+        .every((r) => r.authorization?.startsWith("Bearer ")),
+    ).toBe(true);
+    account.failPaths.clear();
+  });
+
+  it.each([
+    [401, "key-rejected"],
+    [429, "rate-limited"],
+    [503, "network"],
+  ] as const)(
+    "classifies a %s token exchange as %s without claiming key expiry for transient failures",
+    async (status, state) => {
+      vi.stubGlobal("fetch", (async (input: URL | RequestInfo) => {
+        const url = new URL(String(input));
+        return url.pathname === TOKEN_PATH
+          ? new Response("x", { status })
+          : new Response("{}", { status: 200 });
+      }) as typeof fetch);
       const route = await import("../src/app/api/sync/route");
-      const response = await route.POST();
-      const text = await response.text();
-      const events = text
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
-      expect(events.at(-1)).toMatchObject({
-        type: "result",
-        status: "failed",
-        dependency: reason,
-        storedActivities: 0,
-      });
-      expect(events.at(-1)?.detail).toContain("README Installation");
-      expect(state.calls).toEqual([]);
-      expect(state.closes).toBeGreaterThan(0);
-      expect(text).not.toContain("fake-private");
-      state.dependency = null;
-      const repaired = await route.POST();
-      const stream = repaired.text();
-      await vi.advanceTimersByTimeAsync(30_000);
-      const final = JSON.parse(
-        (await stream).trim().split("\n").at(-1)!,
-      ) as Record<string, unknown>;
-      expect(final.status).toBe("completed");
-      expect(final.dependency).toBeUndefined();
-      expect(state.starts).toBe(2);
+      const result = await (await route.GET()).json();
+      expect(result).toMatchObject({ ok: false, state });
+      expect(JSON.stringify(result)).not.toContain(KEY);
+      if (state !== "key-rejected")
+        expect(result.detail).not.toMatch(/expired|revoked/);
     },
   );
 
-  it("streams progress/result, persists normalized data and redacts archives; repeated sync preserves coverage", async () => {
+  it("streams progress/result, persists normalized data, HR zones and redacted archives; repeated sync preserves coverage", async () => {
     vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-21T12:00:00Z"));
     const sync = await import("../src/app/api/sync/route");
     const repo = await import("./storage-fixture");
     for (let i = 0; i < 2; i += 1) {
@@ -227,25 +172,16 @@ describe("HTTP through real production composition, reader and SQLite", () => {
       expect(response.headers.get("content-type")).toContain(
         "application/x-ndjson",
       );
-      const stream = response.text();
-      await vi.advanceTimersByTimeAsync(30_000);
-      const events = (await stream)
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line) as Record<string, unknown>);
-      expect(events[0]).toMatchObject({ type: "progress", stage: "starting" });
-      expect(events.at(-2)).toMatchObject({
-        type: "progress",
-        stage: "completed",
-      });
-      expect(events.at(-1)).toMatchObject({
+      const pending = events(response);
+      await vi.advanceTimersByTimeAsync(60_000);
+      const stream = await pending;
+      expect(stream[0]).toMatchObject({ type: "progress", stage: "starting" });
+      expect(stream.at(-1)).toMatchObject({
         type: "result",
         status: "completed",
         storedActivities: 1,
-        storedHealthRows: 1,
       });
-      expect(repo.getCheckpoint("activity_page")).toBeNull();
-      expect(repo.getCheckpoint("health_next_date")).toBeNull();
+      expect(String(stream.at(-1)?.detail)).toContain("HTTP requests");
       expect(
         JSON.parse(repo.getCheckpoint("garmin_history_v1")!),
       ).toMatchObject({
@@ -255,27 +191,42 @@ describe("HTTP through real production composition, reader and SQLite", () => {
         outcome: "settled",
       });
     }
-    expect(state.starts).toBe(2);
-    expect(state.closes).toBe(2);
     const { getDatabase } = await import("../src/lib/db/connection");
-    const archive = getDatabase()
+    const db = getDatabase();
+    const archive = db
       .prepare("select payload_json from garmin_raw_payload")
       .all();
     expect(archive.length).toBeGreaterThan(0);
-    expect(JSON.stringify(archive)).not.toContain("fake-private-token");
-    expect(JSON.stringify(archive)).not.toContain("fake-private-cookie");
+    const all =
+      JSON.stringify(archive) + JSON.stringify(api.requests.map((r) => r.path));
+    expect(all).not.toContain(KEY);
+    expect(
+      db
+        .prepare(
+          "select zone, seconds, source from activity_hr_zone_time where garmin_id='123' order by zone",
+        )
+        .all(),
+    ).toEqual(
+      [10, 20, 30, 40, 50].map((seconds, index) => ({
+        zone: index + 1,
+        seconds,
+        source: "garmin_official_fit",
+      })),
+    );
     expect(
       repo.getActivityDetailForAnalytics("123").availability?.recordCount,
-    ).toBe(1);
+    ).toBeGreaterThan(0);
+    // One token exchange per operation reader; no per-request key exposure.
+    expect(api.count(TOKEN_PATH)).toBe(2);
+    expect(db.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
   });
 
-  it("reconciles legacy data and durable cadence through actual HTTP/reader/SQLite without changing history or non-null facts", async () => {
-    vi.stubEnv("TZ", "UTC");
+  it("first official run over legacy MCP state rechecks recent 14 days, keeps older finals and history checkpoints, and repeats only open days", async () => {
     vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-01");
     const sync = await import("../src/app/api/sync/route");
     const repo = await import("./storage-fixture");
-    const { normalizeDailyHealth } =
-      await import("../src/lib/garmin/normalize");
+    const { normalizeDailyHealth } = await import("./legacy-normalize");
     const { getDatabase } = await import("../src/lib/db/connection");
     const { FRESHNESS_CHECKPOINT } =
       await import("../src/lib/garmin/latest-policy");
@@ -292,65 +243,29 @@ describe("HTTP through real production composition, reader and SQLite", () => {
       repo.getCheckpoint("garmin_discovery_v1"),
     ];
     const run = async () => {
-      const response = await sync.POST(
-        new Request("http://localhost/api/sync", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: '{"intent":"latest"}',
-        }),
-      );
-      expect(response.status).toBe(200);
-      const events = (await response.text())
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
-      expect(events.at(-1)).toMatchObject({
-        type: "result",
-        status: "completed",
-      });
+      const final = (await events(await sync.POST(latest()))).at(-1);
+      expect(final).toMatchObject({ type: "result", status: "completed" });
     };
     await run();
     const fresh = JSON.parse(repo.getCheckpoint(FRESHNESS_CHECKPOINT)!);
     expect(fresh.days["2026-09-01"]).toEqual({ final: true, source: "legacy" });
-    expect(fresh.days["2026-09-20"].final).toBe(true);
-    expect(state.healthDates).toHaveLength(14);
-    expect(state.healthDates).not.toContain("2026-09-01");
-    const athlete = repo.getGarminAthleteBaseline();
-    expect(athlete.values).toMatchObject({
-      configuredMaxHeartRateBpm: 190,
-      cyclingFtpWatts: 250,
-      availableTrainingDays: ["monday"],
-    });
-    expect(fresh.fitActivity).toBe("123");
-    const beforeCalls = state.calls.length;
-    state.healthDates = [];
-    await run();
-    expect(state.healthDates).toEqual(["2026-09-21"]);
-    const repeated = state.calls.slice(beforeCalls);
-    expect(
-      repeated.filter((name) => name === "get_activities_by_date"),
-    ).toHaveLength(1);
-    expect(repeated).not.toContain("get_activity_fit_data");
-    expect(repeated).not.toContain("get_user_profile");
-    expect(repeated).not.toContain("get_cycling_ftp");
-    expect(repo.getGarminAthleteBaseline()).toEqual(athlete);
+    expect(fresh.days["2026-09-20"]).toMatchObject({ final: true });
+    expect(fresh.days["2026-09-21"]).toMatchObject({ final: false });
+    // Official values replace the old mutable recent row; older history stays.
     expect(
       getDatabase()
         .prepare("select steps from daily_health where date='2026-09-20'")
         .get(),
-    ).toEqual({ steps: 4321 });
-    state.newest = "456";
+    ).toEqual({ steps: 5020 });
+    expect(
+      getDatabase()
+        .prepare("select steps from daily_health where date='2026-09-01'")
+        .get(),
+    ).toEqual({ steps: 1234 });
+    const firstRequests = api.requests.length;
     await run();
-    expect(
-      JSON.parse(repo.getCheckpoint(FRESHNESS_CHECKPOINT)!).fitActivity,
-    ).toBe("456");
-    expect(
-      state.calls.filter((name) => name === "get_user_profile"),
-    ).toHaveLength(1);
-    expect(
-      state.calls.filter((name) => name === "get_cycling_ftp"),
-    ).toHaveLength(1);
-    expect(repo.getGarminAthleteBaseline().values).toEqual(athlete.values);
+    const repeat = api.requests.slice(firstRequests).map((r) => r.path);
+    expect(repeat).not.toContain("/download-service/files/activity/123");
     expect([
       repo.getCheckpoint("garmin_history_v1"),
       repo.getCheckpoint("garmin_discovery_v1"),
@@ -361,191 +276,13 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     expect(getDatabase().pragma("foreign_key_check")).toEqual([]);
   });
 
-  it("catches up 15 initialized open days from matched last-used evidence when direct time is missing, then repeats only today after restart", async () => {
-    vi.stubEnv("TZ", "America/Los_Angeles");
-    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-01");
-    const { FRESHNESS_CHECKPOINT } =
-      await import("../src/lib/garmin/latest-policy");
-    const { normalizeDailyHealth } =
-      await import("../src/lib/garmin/normalize");
-    let repo = await import("./storage-fixture");
-    const open = Array.from(
-      { length: 15 },
-      (_, index) => `2026-09-${String(6 + index).padStart(2, "0")}`,
-    );
-    repo.upsertDailyHealth([
-      normalizeDailyHealth("2026-09-02", { stats: { total_steps: 1111 } }),
-      ...open.map((date) =>
-        normalizeDailyHealth(date, { stats: { total_steps: 4321 } }),
-      ),
-    ]);
-    // Valid initialized freshness (not a first-run legacy fixture): 15 older
-    // dates remain open from earlier downloads without usable evidence.
-    const initialized = {
-      version: 1,
-      startDate: "2026-09-06",
-      days: {
-        "2026-09-02": { final: true, source: "legacy" },
-        ...Object.fromEntries(
-          open.map((date) => [
-            date,
-            {
-              final: false,
-              source: "download",
-              downloadedAt: "2026-09-21T01:00:00.000Z",
-              dayEndedAt: new Date(
-                Date.parse(`${date}T07:00:00.000Z`) + 86400000,
-              ).toISOString(),
-              primaryId: null,
-              uploadedAt: null,
-            },
-          ]),
-        ),
-      },
-      profileDay: "2026-09-21",
-      ftpDay: "2026-09-21",
-      fitActivity: "123",
-    };
-    repo.saveCheckpoints([
-      [FRESHNESS_CHECKPOINT, JSON.stringify(initialized)],
-      ["garmin_history_v1", '{"retained":"unsupported-history"}'],
-      ["garmin_discovery_v1", '{"retained":"unsupported-discovery"}'],
-    ]);
-    const history = [
-      repo.getCheckpoint("garmin_history_v1"),
-      repo.getCheckpoint("garmin_discovery_v1"),
-    ];
-    // Large lossless numeric ID; direct upload omitted as by the pinned curation.
-    state.devices = [
-      { device_id: 3456789012, is_primary: true, device_name: "private" },
-      {
-        device_id: 77,
-        is_primary: false,
-        last_sync_time: "2026-09-21T11:00:00Z",
-      },
-    ];
-    state.lastUsed = JSON.stringify({
-      user_device_id: 3456789012,
-      device_name: "private watch",
-      last_upload_time: "2026-09-21 10:00:00",
-    });
-    const run = async () => {
-      const sync = await import("../src/app/api/sync/route");
-      const response = await sync.POST(
-        new Request("http://localhost/api/sync", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: '{"intent":"latest"}',
-        }),
-      );
-      const text = await response.text();
-      expect(text).not.toContain("private");
-      expect(text).not.toContain("3456789012");
-      const final = JSON.parse(text.trim().split("\n").at(-1)!);
-      expect(final).toMatchObject({ type: "result", status: "completed" });
-    };
-    await run();
-    expect(state.healthDates).toEqual(["2026-09-21", ...open]);
-    expect(state.calls.filter((name) => name === "get_devices")).toHaveLength(
-      1,
-    );
-    expect(
-      state.calls.filter((name) => name === "get_device_last_used"),
-    ).toHaveLength(1);
-    const fresh = JSON.parse(repo.getCheckpoint(FRESHNESS_CHECKPOINT)!);
-    for (const date of open)
-      expect(fresh.days[date]).toMatchObject({
-        final: true,
-        primaryId: "3456789012",
-        uploadedAt: "2026-09-21T10:00:00.000Z",
-        uploadedThrough: "2026-09-21T10:00:00.999Z",
-      });
-    expect(fresh.days["2026-09-21"].final).toBe(false);
-    expect(fresh.days["2026-09-02"]).toEqual({ final: true, source: "legacy" });
-    // Recreate the application/reader over the same SQLite and checkpoint.
-    const { getDatabase } = await import("../src/lib/db/connection");
-    getDatabase().close();
-    vi.resetModules();
-    state.healthDates = [];
-    state.calls = [];
-    await run();
-    expect(state.healthDates).toEqual(["2026-09-21"]);
-    expect(state.calls.filter((name) => name === "get_stats")).toHaveLength(1);
-    expect(
-      state.calls.filter((name) => name === "get_sleep_summary"),
-    ).toHaveLength(1);
-    expect(
-      state.calls.filter((name) => name === "get_body_battery"),
-    ).toHaveLength(1);
-    expect(
-      state.calls.filter((name) => name === "get_device_last_used"),
-    ).toHaveLength(1);
-    repo = await import("./storage-fixture");
-    expect([
-      repo.getCheckpoint("garmin_history_v1"),
-      repo.getCheckpoint("garmin_discovery_v1"),
-    ]).toEqual(history);
-    const db = (await import("../src/lib/db/connection")).getDatabase();
-    expect(
-      db
-        .prepare(
-          "select count(*) as n, count(steps) as steps from daily_health",
-        )
-        .get(),
-    ).toEqual({ n: 17, steps: 16 });
-    expect(db.pragma("integrity_check")).toEqual([{ integrity_check: "ok" }]);
-    expect(db.pragma("foreign_key_check")).toEqual([]);
-  });
-
-  it("keeps ended days mutable when last-used names another device, retrying only on the next explicit latest", async () => {
-    vi.stubEnv("TZ", "Europe/Prague");
-    vi.stubEnv("GARMIN_HISTORY_START_DATE", "2026-09-19");
-    const { FRESHNESS_CHECKPOINT } =
-      await import("../src/lib/garmin/latest-policy");
-    const repo = await import("./storage-fixture");
-    state.devices = [{ device_id: "watch-1", device_name: "private" }];
-    state.lastUsed = JSON.stringify({
-      user_device_id: "bike-2",
-      last_upload_time: "2026-09-21 11:00:00",
-    });
-    const run = async () => {
-      const sync = await import("../src/app/api/sync/route");
-      const response = await sync.POST(
-        new Request("http://localhost/api/sync", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: '{"intent":"latest"}',
-        }),
-      );
-      const text = await response.text();
-      expect(text).toContain("last-used-mismatch");
-      expect(text).not.toMatch(/private|bike-2|watch-1/);
-    };
-    await run();
-    await run();
-    const fresh = JSON.parse(repo.getCheckpoint(FRESHNESS_CHECKPOINT)!);
-    expect(fresh.days["2026-09-19"]).toMatchObject({
-      final: false,
-      primaryId: null,
-    });
-    expect(
-      state.healthDates.filter((date) => date === "2026-09-19"),
-    ).toHaveLength(2);
-    expect(
-      state.calls.filter((name) => name === "get_device_last_used"),
-    ).toHaveLength(2);
-    expect(
-      state.profiles.filter((profile) => profile === "last-used"),
-    ).toHaveLength(2);
-  });
-
-  it("rejects missing/unknown IDs before connector access and retains detail status/force/error contracts", async () => {
+  it("rejects missing/unknown IDs before any Garmin request and retains detail status/force/error contracts", async () => {
     const route = await import("../src/app/api/activity-detail/route");
     expect((await route.POST(detailRequest({}))).status).toBe(400);
     expect(
       (await route.POST(detailRequest({ garminId: "unknown" }))).status,
     ).toBe(404);
-    expect(state.constructions).toBe(0);
+    expect(api.requests).toEqual([]);
     const repo = await import("./storage-fixture");
     const { normalizeActivity } = await import("../src/lib/garmin/normalize");
     repo.upsertActivities([
@@ -566,13 +303,13 @@ describe("HTTP through real production composition, reader and SQLite", () => {
       attempt: { force: true, status: "succeeded" },
       coverage: { available: 1 },
     });
-    const status = await route.GET();
-    expect(await status.json()).toMatchObject({
-      recentActivities: [
-        { garminId: "123", name: "Fixture", date: "2026-09-21" },
-      ],
-    });
-    state.failDetail = true;
+    vi.stubGlobal("fetch", (async (
+      input: URL | RequestInfo,
+      init?: RequestInit,
+    ) =>
+      /\/(download-service|activity-service)\//.test(String(input))
+        ? new Response("x", { status: 503 })
+        : api.fetch(input, init)) as typeof fetch);
     const failed = await route.POST(
       detailRequest({ garminId: "123", force: true }),
     );
@@ -580,14 +317,8 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     expect(await failed.json()).toMatchObject({
       status: "failed",
       preservedPrevious: true,
-      recordCount: 1,
       retryable: true,
     });
-    state.failStart = true;
-    expect((await route.POST(detailRequest({ garminId: "123" }))).status).toBe(
-      500,
-    );
-    expect(state.closes).toBe(3);
     expect(
       (
         await route.POST(
@@ -600,20 +331,22 @@ describe("HTTP through real production composition, reader and SQLite", () => {
     ).toBe(500);
   });
 
-  it("keeps sync startup failure as an NDJSON failed result and closes its client", async () => {
-    state.failStart = true;
+  it("reports a rejected key as a closed auth failure result without partial finality", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-21T12:00:00Z"));
+    vi.stubGlobal(
+      "fetch",
+      (async () => new Response("x", { status: 401 })) as typeof fetch,
+    );
     const route = await import("../src/app/api/sync/route");
-    const response = await route.POST();
-    const events = (await response.text())
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(events.at(-1)).toMatchObject({
-      type: "result",
-      status: "failed",
-      detail: expect.stringContaining("connector or storage failure"),
-    });
-    expect(state.closes).toBe(1);
+    const pending = events(await route.POST());
+    await vi.advanceTimersByTimeAsync(60_000);
+    const final = (await pending).at(-1);
+    expect(final).toMatchObject({ type: "result", status: "failed" });
+    expect(String(final?.detail)).toContain(
+      "Personal API key was rejected or has expired",
+    );
+    expect(JSON.stringify(final)).not.toContain(KEY);
   });
 });
 

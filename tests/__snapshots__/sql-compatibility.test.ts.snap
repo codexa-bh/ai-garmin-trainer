@@ -1148,7 +1148,7 @@ exports[`preserves the complete provider-visible schema, examples, bounds and pr
         },
         {
           "name": "source",
-          "note": "garmin_mcp",
+          "note": "garmin_official | garmin_mcp (older rows)",
           "type": "text",
         },
         {

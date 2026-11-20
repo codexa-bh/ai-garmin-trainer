@@ -61,6 +61,7 @@ pub fn activation(
     let expected = serde_json::json!({"version":1,"entries":[{"id":entry,"provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null});
     if run.version != 3
         || !run.keys.is_empty()
+        || run.garmin_api_key.is_some()
         || run.selection_compatibility.is_some()
         || run.fields.len()
             != if integrated {
@@ -206,7 +207,14 @@ mod tests {
                 parsed["secrets"],
                 serde_json::json!({"OPENAI_API_KEY":"synthetic-openai-only"})
             );
-            assert_eq!(parsed["fields"], document["fields"]);
+            // Retired connector metadata stays in the run file, never the frame.
+            let mut forwarded = document["fields"].clone();
+            forwarded
+                .as_object_mut()
+                .unwrap()
+                .remove("GARMIN_MCP_TOKEN_DIR");
+            assert_eq!(parsed["fields"], forwarded);
+            assert!(parsed.get("garminKey").is_none());
             assert!(capture.unchanged());
             assert_eq!(
                 fs::read(&path).unwrap(),

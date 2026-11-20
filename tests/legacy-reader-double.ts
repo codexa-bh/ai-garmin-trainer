@@ -1,40 +1,85 @@
-import type { GarminReader } from "./import-ports";
+/**
+ * Test-only legacy MCP-shaped GarminReader double (the retired product adapter).
+ * Application-policy suites use it to exercise source-independent sync policy
+ * and the persisted mixed MCP/official transition; no product code imports it.
+ */
+import type { GarminReader } from "../src/lib/garmin/import-ports";
+import { type PrimaryUpload } from "../src/lib/garmin/primary-upload";
 import {
   lastUsedUpload,
   parseCuratedDeviceJson,
   selectPrimary,
-  type PrimaryUpload,
-} from "./primary-upload";
+} from "./legacy-normalize";
 import {
   SyncPause,
   UnrecognizedHealthReply,
   SYNC_LIMITS,
   type GarminReadControl,
   historyFailureClass,
-} from "./history-policy";
-import { safeConnectorFailure } from "./mcp-client";
-import { discoveryDate, weeklyStepsHint } from "./discovery-policy";
+} from "../src/lib/garmin/history-policy";
+/** Retired MCP connector's closed failure vocabulary, kept for policy tests. */
+export function safeConnectorFailure(raw: string): string {
+  if (/429|rate.?limit|too many requests/i.test(raw))
+    return "Garmin service rate-limited the request; retry later, not reauthentication.";
+  if (/timeout|timed out|connection|network|\b50[0234]\b/i.test(raw))
+    return "Garmin connection or service is unavailable; authentication validity is inconclusive.";
+  if (/401|403|unauthori|forbidden|auth|token/i.test(raw))
+    return "Garmin authentication could not be verified; check the configured store and perform a separate live verification before requesting reauthentication.";
+  return "Garmin connector request failed; upstream details are withheld to protect credentials and local paths.";
+}
+import { discoveryDate } from "../src/lib/garmin/discovery-policy";
+import { weeklyStepsHint } from "./legacy-normalize";
 
 type FitOptions = { signal: AbortSignal; timeout: number };
-import type { GarminReadOperation } from "./types";
-import { normalizeActivity, normalizeDailyHealth } from "./normalize";
-import { normalizeActivityHrZoneTime } from "./activity-hr-zone-time";
+import { normalizeActivity } from "../src/lib/garmin/normalize";
+import { normalizeDailyHealth } from "./legacy-normalize";
+import { normalizeActivityHrZoneTime } from "./legacy-normalize";
 import {
   normalizeActivityDetail,
   normalizeUnsupportedActivityDetail,
-} from "./detail-normalize";
+} from "../src/lib/garmin/detail-normalize";
 import {
   activityDetailNeedsAltitudeSupplement,
   mergeFitAltitudeRecords,
-} from "./fit-altitude";
+} from "./legacy-fit-altitude";
 import {
   activityDetailNeedsDistanceSupplement,
   mergeFitDistanceRecords,
-} from "./fit-distance";
+} from "./legacy-fit-distance";
 import {
   activityDetailNeedsSpeedSupplement,
   mergeFitSpeedRecords,
-} from "./fit-speed";
+} from "./legacy-fit-speed";
+
+/** Retired MCP tool vocabulary (still the source label of older archive rows). */
+type GarminReadOperation =
+  | "list_activities"
+  | "get_sleep"
+  | "get_rhr"
+  | "get_hrv"
+  | "get_stress"
+  | "get_steps"
+  | "get_calories"
+  | "get_body_battery"
+  | "get_activities_by_date"
+  | "get_activity"
+  | "get_activity_splits"
+  | "get_activity_typed_splits"
+  | "get_activity_split_summaries"
+  | "get_activity_weather"
+  | "get_activity_hr_in_timezones"
+  | "get_activity_power_in_timezones"
+  | "get_activity_fit_data"
+  | "get_stats"
+  | "get_weekly_steps"
+  | "get_devices"
+  | "get_device_last_used"
+  | "get_sleep_summary"
+  | "get_morning_training_readiness"
+  | "get_user_profile"
+  | "get_body_composition"
+  | "get_weigh_ins"
+  | "get_cycling_ftp";
 
 type GarminConnector = {
   start(): Promise<void>;

@@ -27,10 +27,8 @@ import {
   interpretHealthCoverage,
 } from "../src/lib/local-data/coverage-policy";
 import { buildDashboardDetail } from "../src/lib/local-data/dashboard-policy";
-import {
-  normalizeActivity,
-  normalizeDailyHealth,
-} from "../src/lib/garmin/normalize";
+import { normalizeActivity } from "../src/lib/garmin/normalize";
+import { normalizeDailyHealth } from "./legacy-normalize";
 import type { GarminAthleteBaselineDto } from "../src/lib/garmin/types";
 import type { LocalDataCounts } from "../src/lib/local-data/contracts";
 

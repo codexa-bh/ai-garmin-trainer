@@ -55,7 +55,7 @@ export function desktopValidationFailureCode(error: unknown): string {
     : "unavailable";
 }
 
-function literalPath(value: string, directory: boolean): string {
+function literalPath(value: string): string {
   if (
     value !== value.trim() ||
     /[~$%]/.test(value) ||
@@ -65,17 +65,10 @@ function literalPath(value: string, directory: boolean): string {
     throw new Error(
       "Select a canonical absolute local path, without aliases or expansion.",
     );
-  const stat = lstatSync(value);
-  if (directory ? !stat.isDirectory() : !stat.isFile())
-    throw new Error("Selected path has the wrong type.");
   // Windows owner/DACL privacy is not visible to Node; the native settings owner
   // enforces it (private_fs) before any save or activation on every platform.
-  if (
-    directory &&
-    process.platform !== "win32" &&
-    (stat.uid !== process.getuid?.() || stat.mode & 0o077)
-  )
-    throw new Error("Token directory must be owner-private.");
+  if (!lstatSync(value).isFile())
+    throw new Error("Selected path has the wrong type.");
   return value;
 }
 
@@ -122,9 +115,7 @@ export function validateSettings(
   if (!strings.DATABASE_PATH) throw new Error("Select an existing database.");
   // Native validates and exclusively publishes the fresh destination. This mode
   // validates configuration only, never opens or creates a selected database.
-  if (database === "existing") literalPath(strings.DATABASE_PATH, false);
-  if (strings.GARMIN_MCP_TOKEN_DIR)
-    literalPath(strings.GARMIN_MCP_TOKEN_DIR, true);
+  if (database === "existing") literalPath(strings.DATABASE_PATH);
   const date = new Date(`${strings.GARMIN_HISTORY_START_DATE}T00:00:00Z`);
   if (
     strings.GARMIN_HISTORY_START_DATE &&
@@ -157,12 +148,6 @@ export function validateSettings(
     );
   for (const field of fields) {
     const value = strings[field.key];
-    if (
-      field.key.endsWith("_COMMAND") &&
-      value &&
-      value !== (field.key === "GARMIN_MCP_COMMAND" ? "uvx" : "uv")
-    )
-      literalPath(value, false);
     if (field.key.endsWith("_MODEL") && value !== undefined && !value.trim())
       throw new Error("Model cannot be blank.");
   }
@@ -201,6 +186,28 @@ export function decodePrivateFrame(bytes: Uint8Array): unknown {
     throw new Error("Activation too large.");
   return value; // Closed per-operation validators still own the complete schema.
 }
+/** Opaque printable key, mirrored from the native owner; never logged. */
+export function garminActivationKey(input: unknown): string | undefined {
+  const frame =
+    input &&
+    typeof input === "object" &&
+    "version" in input &&
+    input.version === 4
+      ? (input as { activation?: unknown }).activation
+      : input;
+  if (!frame || typeof frame !== "object" || !("garminKey" in frame))
+    return undefined;
+  const key = frame.garminKey;
+  if (
+    typeof key !== "string" ||
+    key.length < 8 ||
+    key.length > 4096 ||
+    !/^[\x21-\x7e]+$/.test(key) ||
+    !configuredSecret(key)
+  )
+    throw new Error("Invalid Garmin key.");
+  return key;
+}
 export function activationEnvironment(
   input: unknown,
   database: "existing" | "new" = "existing",
@@ -231,6 +238,7 @@ export function activationEnvironment(
     secrets?: unknown;
     chatCatalog?: unknown;
     selectionCompatibility?: unknown;
+    garminKey?: unknown;
   };
   if (
     ![1, 2, 3].includes(frame.version as number) ||
@@ -244,6 +252,7 @@ export function activationEnvironment(
                 "secrets",
                 "chatCatalog",
                 "selectionCompatibility",
+                "garminKey",
               ]
             : frame.version === 2
               ? ["version", "fields", "secrets", "chatCatalog"]
@@ -252,6 +261,7 @@ export function activationEnvironment(
     )
   )
     throw new Error("Unsupported activation.");
+  garminActivationKey(frame);
   const result = validateSettings(frame.fields, database);
   if (
     !frame.secrets ||

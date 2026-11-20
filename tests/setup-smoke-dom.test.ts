@@ -70,6 +70,7 @@ beforeEach(async () => {
           DEEPSEEK_API_KEY: "not configured",
           OPENROUTER_API_KEY: "not configured",
         },
+        garmin: "not configured",
         saved: true,
         running: true,
       };
@@ -360,7 +361,7 @@ it.each(["configured", "not configured"])(
     expect(submitted).toHaveLength(2);
   },
 );
-it("drives only actual Connect/later/cancel/Save controls without authentication", async () => {
+it("drives only actual Connect/Back/cancel/Save controls without entering a key", async () => {
   expect(controller.__trainerSetupSmoke("observe")).toMatchObject({
     notConnected: true,
     manualControlsAbsent: true,
@@ -368,7 +369,9 @@ it("drives only actual Connect/later/cancel/Save controls without authentication
   });
   expect(controller.__trainerSetupSmoke("later").ok).toBe(false);
   expect(controller.__trainerSetupSmoke("connect").formVisible).toBe(true);
-  expect(document.getElementById("connect-later")?.textContent).toBe("Back");
+  expect(document.getElementById("connect-later")?.textContent).toBe(
+    "Back — keep saved connection",
+  );
   expect(controller.__trainerSetupSmoke("later").formVisible).toBe(false);
   expect(controller.__trainerSetupSmoke("later").ok).toBe(false);
   expect(controller.__trainerSetupSmoke("cancel").ok).toBe(true);
@@ -386,8 +389,7 @@ it("drives only actual Connect/later/cancel/Save controls without authentication
   expect(
     commands.some((name) =>
       [
-        "start_auth",
-        "submit_mfa",
+        "open_garmin_key_page",
         "choose_path",
         "finish_onboarding",
         "adopt_provider_settings",
@@ -645,7 +647,7 @@ it("accepts non-rendered closed-dialog visibility caching but refuses any render
     expect((el as HTMLElement).style.cssText).toBe("");
 });
 it("refuses private/arbitrary actions and never reads secrets, paths or copied text back", () => {
-  for (const id of ["email", "password", "mfa", "OPENAI_API_KEY"])
+  for (const id of ["OPENAI_API_KEY", "DATABASE_PATH"])
     (document.getElementById(id) as HTMLInputElement).value =
       "private-sentinel";
   invoke.mockClear();
@@ -665,16 +667,16 @@ it("refuses private/arbitrary actions and never reads secrets, paths or copied t
     /private-sentinel|trainer.sqlite|provider-key/,
   );
   expect(controller.__trainerSetupSmoke("capture").ok).toBe(true);
-  for (const id of [
-    "DATABASE_PATH",
-    "OPENAI_API_KEY",
-    "email",
-    "password",
-    "mfa",
-  ])
+  for (const id of ["DATABASE_PATH", "OPENAI_API_KEY", "GARMIN_API_KEY-status"])
     expect(getComputedStyle(document.getElementById(id)!).visibility).toBe(
       "hidden",
     );
+  // A non-empty Garmin key draft is never captured.
+  (document.getElementById("GARMIN_API_KEY") as HTMLInputElement).value =
+    "private-sentinel";
+  controller.__trainerSetupSmokeRestore();
+  expect(controller.__trainerSetupSmoke("capture").ok).toBe(false);
+  (document.getElementById("GARMIN_API_KEY") as HTMLInputElement).value = "";
   expect(
     getComputedStyle(document.getElementById("garmin-fields")!).position,
   ).not.toBe("fixed");
@@ -698,7 +700,7 @@ it.each(["capture", "captureWide", "captureNarrow"])(
     expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
     expect(document.querySelector('[style*="visibility"]')).toBeNull();
     back.hidden = false;
-    back.textContent = "Connect later — keep current selection";
+    back.textContent = "Back — keep current selection";
     expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
     expect(document.querySelector('[style*="visibility"]')).toBeNull();
   },
@@ -1089,7 +1091,8 @@ it.each(["captureWide", "captureNarrow"])(
     expect(root.getBoundingClientRect().toJSON()).toEqual(before);
     expect(getComputedStyle(root).position).not.toBe("fixed");
     expect(
-      getComputedStyle(document.getElementById("auth-status")!).visibility,
+      getComputedStyle(document.getElementById("GARMIN_API_KEY-status")!)
+        .visibility,
     ).toBe("hidden");
     controller.__trainerSetupSmokeRestore();
     expect((root as HTMLElement).style.cssText).toBe("");
@@ -1134,9 +1137,9 @@ it.each([false, true])(
       vi.advanceTimersByTime(5000);
       expect(disclosure.open).toBe(open);
       expect(document.querySelector('[style*="visibility"]')).toBeNull();
-      expect(invoke.mock.calls.some(([name]) => name === "start_auth")).toBe(
-        false,
-      );
+      expect(
+        invoke.mock.calls.some(([name]) => name === "open_garmin_key_page"),
+      ).toBe(false);
     } finally {
       vi.useRealTimers();
     }

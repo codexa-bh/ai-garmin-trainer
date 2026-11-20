@@ -237,8 +237,7 @@ def payload_checks(app, version):
         'redistribution/NOTICES.txt',
         'redistribution/sources/native-crates.tar.gz',
         'runtime/runtime.cjs',
-        'runtime/scripts/garmin_auth.py',
-        'runtime/scripts/garmin_auth.py.lock',
+        'runtime/scripts/chatgpt-oauth.mjs',
     ]:
         if regular(root / name).st_size == 0:
             raise ValueError('Required payload resource/notice missing')

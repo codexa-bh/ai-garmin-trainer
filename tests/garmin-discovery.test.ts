@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  discoveryState,
-  weeklyStepsHint,
-} from "../src/lib/garmin/discovery-policy";
-import { createGarminReader } from "../src/lib/garmin/reader-adapter";
+import { discoveryState } from "../src/lib/garmin/discovery-policy";
+import { weeklyStepsHint } from "./legacy-normalize";
+import { createGarminReader } from "./legacy-reader-double";
 
 const envelope = (weekly_data: unknown[] = []) => ({
   end_date: "2026-09-07",

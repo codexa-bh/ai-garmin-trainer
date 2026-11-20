@@ -6,6 +6,9 @@
 //! the URL. Windows then hands the URL to the user's registered browser itself.
 
 pub const USAGE_PAGE: &str = "https://chatgpt.com/settings/usage";
+/// Garmin Connect's own key-creation page. The user signs in and creates the
+/// key in their browser; the app never automates or observes that session.
+pub const GARMIN_KEY_PAGE: &str = "https://connect.garmin.com/app/settings/personalApiToken";
 const AUTHORIZE_ORIGIN: &str = "https://auth.openai.com";
 const AUTHORIZE_PATH: &str = "/api/accounts/authorize";
 
@@ -24,16 +27,22 @@ pub fn authorization_url(value: &str) -> bool {
 }
 
 pub fn usage_page() -> Result<(), ()> {
+    fixed(USAGE_PAGE)
+}
+pub fn garmin_key_page() -> Result<(), ()> {
+    fixed(GARMIN_KEY_PAGE)
+}
+fn fixed(url: &'static str) -> Result<(), ()> {
     #[cfg(target_os = "macos")]
     return std::process::Command::new("/usr/bin/open")
-        .arg(USAGE_PAGE)
+        .arg(url)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .map(drop)
         .map_err(drop);
     #[cfg(windows)]
-    return windows::open(USAGE_PAGE);
+    return windows::open(url);
 }
 
 /// Windows OAuth route only; macOS opens through the helper's own bridge.

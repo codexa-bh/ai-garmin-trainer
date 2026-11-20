@@ -2,6 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installSyntheticKey } from "./legacy-composition";
 
 const dbDir = join(tmpdir(), "ai-garmin-athlete-sync-tests");
 const mcpState = {
@@ -13,80 +14,84 @@ const mcpState = {
   weighIns: [] as Array<Record<string, unknown>>,
 };
 
-vi.mock("../src/lib/garmin/mcp-client", () => ({
-  GarminMcpClient: class {
-    async start() {
-      return undefined;
-    }
-    close() {
-      return undefined;
-    }
-    async callTool(operation: string) {
-      if (operation === "get_user_profile") {
-        if (mcpState.failAthlete) throw new Error("profile endpoint timeout");
-        return JSON.stringify({
-          userData: mcpState.nullAthlete
-            ? { lactateThresholdHeartRate: null }
-            : {
-                lactateThresholdHeartRate: 168,
-                availableTrainingDays: ["monday", "wednesday"],
-                weight: 70.2,
-                height: 181,
+vi.mock("../src/lib/garmin/official-reader", async () =>
+  (await import("./legacy-composition")).legacyReaderModule(
+    class {
+      async start() {
+        return undefined;
+      }
+      close() {
+        return undefined;
+      }
+      async callTool(operation: string) {
+        if (operation === "get_user_profile") {
+          if (mcpState.failAthlete) throw new Error("profile endpoint timeout");
+          return JSON.stringify({
+            userData: mcpState.nullAthlete
+              ? { lactateThresholdHeartRate: null }
+              : {
+                  lactateThresholdHeartRate: 168,
+                  availableTrainingDays: ["monday", "wednesday"],
+                  weight: 70.2,
+                  height: 181,
+                },
+          });
+        }
+        if (operation === "get_cycling_ftp") {
+          if (mcpState.failAthlete) throw new Error("ftp endpoint timeout");
+          return JSON.stringify(
+            mcpState.nullAthlete
+              ? { functional_threshold_power_watts: null, sport: "cycling" }
+              : {
+                  functional_threshold_power_watts: 250,
+                  calendar_date: "2026-07-19",
+                  is_stale: false,
+                  sport: "cycling",
+                },
+          );
+        }
+        if (operation === "get_body_composition") {
+          if (mcpState.failBodyMetrics)
+            throw new Error("body endpoint timeout");
+          return JSON.stringify({
+            dateWeightList: [{ date: "2026-07-21", weight: 70.4 }],
+            totalAverage: { weight: 70.4, bodyFat: 20 },
+          });
+        }
+        if (operation === "get_weigh_ins") {
+          if (mcpState.failWeighIns)
+            throw new Error("weigh-in endpoint timeout");
+          return JSON.stringify({
+            measurement_count: mcpState.weighIns.length,
+            measurements: mcpState.weighIns,
+          });
+        }
+        if (operation === "get_activities_by_date")
+          return JSON.stringify({
+            activities: mcpState.activities,
+            has_more: false,
+          });
+        if (operation === "get_stats") return JSON.stringify({ steps: 1000 });
+        if (operation === "get_sleep_summary") return JSON.stringify({});
+        if (operation === "get_body_battery") return JSON.stringify([]);
+        if (operation === "get_activity_fit_data") {
+          return JSON.stringify({
+            zones_target: { max_heart_rate: 190 },
+            records: [
+              {
+                timestamp: "2026-07-21T07:00:00Z",
+                heart_rate_bpm: 140,
               },
-        });
+            ],
+          });
+        }
+        throw new Error(`Unexpected operation ${operation}`);
       }
-      if (operation === "get_cycling_ftp") {
-        if (mcpState.failAthlete) throw new Error("ftp endpoint timeout");
-        return JSON.stringify(
-          mcpState.nullAthlete
-            ? { functional_threshold_power_watts: null, sport: "cycling" }
-            : {
-                functional_threshold_power_watts: 250,
-                calendar_date: "2026-07-19",
-                is_stale: false,
-                sport: "cycling",
-              },
-        );
-      }
-      if (operation === "get_body_composition") {
-        if (mcpState.failBodyMetrics) throw new Error("body endpoint timeout");
-        return JSON.stringify({
-          dateWeightList: [{ date: "2026-07-21", weight: 70.4 }],
-          totalAverage: { weight: 70.4, bodyFat: 20 },
-        });
-      }
-      if (operation === "get_weigh_ins") {
-        if (mcpState.failWeighIns) throw new Error("weigh-in endpoint timeout");
-        return JSON.stringify({
-          measurement_count: mcpState.weighIns.length,
-          measurements: mcpState.weighIns,
-        });
-      }
-      if (operation === "get_activities_by_date")
-        return JSON.stringify({
-          activities: mcpState.activities,
-          has_more: false,
-        });
-      if (operation === "get_stats") return JSON.stringify({ steps: 1000 });
-      if (operation === "get_sleep_summary") return JSON.stringify({});
-      if (operation === "get_body_battery") return JSON.stringify([]);
-      if (operation === "get_activity_fit_data") {
-        return JSON.stringify({
-          zones_target: { max_heart_rate: 190 },
-          records: [
-            {
-              timestamp: "2026-07-21T07:00:00Z",
-              heart_rate_bpm: 140,
-            },
-          ],
-        });
-      }
-      throw new Error(`Unexpected operation ${operation}`);
-    }
-  },
-}));
+    },
+  ),
+);
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-07-22T12:00:00Z"));
   rmSync(dbDir, { recursive: true, force: true });
@@ -100,6 +105,7 @@ beforeEach(() => {
   mcpState.activities = [];
   mcpState.weighIns = [];
   vi.resetModules();
+  await installSyntheticKey();
 });
 
 afterEach(() => {

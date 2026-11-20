@@ -121,26 +121,13 @@ try {
 } catch (error) {
   if (error.code !== "ENOENT") throw error;
 }
+// The only packaged helper script. Garmin access is in-process (official
+// HTTPS reader and FIT decoder in runtime.cjs); no Python is ever packaged.
 await mkdir(join(runtime, "scripts"));
-for (const name of [
-  "garmin_token_location",
-  "garmin_fit_baseline",
-  "garmin_fit_speed_stream",
-  "garmin_fit_distance_stream",
-  "garmin_fit_altitude_stream",
-]) {
-  await cp(
-    join(root, "scripts", `${name}.py`),
-    join(runtime, "scripts", `${name}.py`),
-  );
-}
-for (const name of [
-  "garmin_auth.py",
-  "garmin_auth.py.lock",
-  "chatgpt-oauth.mjs",
-]) {
-  await cp(join(root, "scripts/desktop", name), join(runtime, "scripts", name));
-}
+await cp(
+  join(root, "scripts/desktop/chatgpt-oauth.mjs"),
+  join(runtime, "scripts/chatgpt-oauth.mjs"),
+);
 const node = join(resources, target.node);
 await cp(join(cache, target.nodeRoot, target.nodeBinary), node);
 await cp(

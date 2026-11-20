@@ -1,14 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { inspectTokenLocation } from "../garmin/token-location";
 import Database from "better-sqlite3";
 import { z } from "zod";
-import {
-  GARMIN_MCP_COMMIT,
-  GARMIN_MCP_SDK_REQUIREMENT,
-  garminMcpArgs,
-  garminMcpSdkConstraintStatus,
-} from "../garmin/client";
 import {
   currentSchemaVersion,
   LATEST_SCHEMA_VERSION,
@@ -288,8 +281,6 @@ export function runDoctor(
   const checks: DoctorCheck[] = [];
   const nodeVersion = process.version;
   const npmVersion = commandVersion("npm");
-  const pythonVersion = commandVersion("python3");
-  const uvxVersion = commandVersion("uvx", ["--version"]);
 
   if (parseMajor(nodeVersion) >= 22) {
     check(
@@ -451,53 +442,15 @@ export function runDoctor(
       : "Semantic memory is disabled; embedded SQLite vector storage will be used when enabled.",
   );
 
-  const token = inspectTokenLocation(env.GARMIN_MCP_TOKEN_DIR);
+  // The official Personal API key lives only in native private Settings and
+  // reaches the owned backend as a startup capability; this source CLI never
+  // reads it, contacts Garmin or needs Python/uv/uvx for Garmin access.
   check(
     checks,
-    token.ok ? "pass" : "fail",
-    "garmin.auth_state",
-    token.className,
-    token.detail,
-    token.ok
-      ? undefined
-      : "Repair GARMIN_MCP_TOKEN_DIR and verify existing credentials separately. Only if authentication is needed, use npm run garmin:auth in a private terminal; never paste credentials into the app.",
-  );
-
-  const argsPinned = env.GARMIN_MCP_ARGS.includes(GARMIN_MCP_COMMIT);
-  check(
-    checks,
-    argsPinned ? "pass" : "fail",
-    "garmin.pin",
-    argsPinned ? "garmin.connector_pinned" : "garmin.connector_unpinned",
-    `Garmin MCP connector pin ${argsPinned ? "matches" : "does not match"} reviewed commit ${GARMIN_MCP_COMMIT}.`,
-    argsPinned
-      ? undefined
-      : "Use the pinned Taxuspt/garmin_mcp commit from .env.example.",
-  );
-
-  const rawSdkConstraint = garminMcpSdkConstraintStatus(env.GARMIN_MCP_ARGS);
-  const effectiveMcpArgs = garminMcpArgs(env.GARMIN_MCP_ARGS);
-  const effectiveSdkConstraint = garminMcpSdkConstraintStatus(effectiveMcpArgs);
-  const sdkConstraintOk = effectiveSdkConstraint === "exact";
-  check(
-    checks,
-    !sdkConstraintOk ? "fail" : rawSdkConstraint === "exact" ? "pass" : "warn",
-    "garmin.mcp_sdk",
-    sdkConstraintOk
-      ? rawSdkConstraint === "exact"
-        ? "garmin.mcp_sdk_pinned"
-        : "garmin.mcp_sdk_injected"
-      : "garmin.mcp_sdk_incompatible",
-    sdkConstraintOk
-      ? rawSdkConstraint === "exact"
-        ? `Garmin MCP SDK requirement ${GARMIN_MCP_SDK_REQUIREMENT} is configured explicitly.`
-        : `GARMIN_MCP_ARGS omits an explicit MCP SDK requirement; runtime will add ${GARMIN_MCP_SDK_REQUIREMENT} for the reviewed connector.`
-      : `GARMIN_MCP_ARGS does not produce the required ${GARMIN_MCP_SDK_REQUIREMENT} constraint; value content is not printed.`,
-    sdkConstraintOk
-      ? rawSdkConstraint === "exact"
-        ? undefined
-        : `Update .env.local to match .env.example so the MCP SDK requirement is explicit: ${GARMIN_MCP_SDK_REQUIREMENT}.`
-      : `Use the .env.example Garmin MCP args with ${GARMIN_MCP_SDK_REQUIREMENT}; MCP 2.x is incompatible with the pinned connector import path.`,
+    "pass",
+    "garmin.connection",
+    "garmin.native_settings_owned",
+    "Garmin uses the official Personal API with a key saved in native desktop Settings; doctor does not read the key or contact Garmin.",
   );
 
   const loopback = loopbackHost(env.NEXT_PUBLIC_APP_URL);
@@ -532,22 +485,13 @@ export function runDoctor(
   const facts = redactDiagnosticValue({
     nodeVersion,
     npmVersion: npmVersion ?? "missing",
-    pythonVersion: pythonVersion ?? "missing",
-    uvxVersion: uvxVersion ?? "missing",
     platform: process.platform,
     arch: process.arch,
     appUrlLoopback: loopback,
     database: dbFacts,
     garmin: {
-      connectorCommit: GARMIN_MCP_COMMIT,
-      mcpSdkRequirement: GARMIN_MCP_SDK_REQUIREMENT,
-      configuredMcpSdkConstraint: rawSdkConstraint,
-      effectiveMcpSdkConstraint: effectiveSdkConstraint,
-      effectiveMcpArgCount: effectiveMcpArgs.length,
-      configuredTokenDirPresent: token.ok,
-      defaultTokenFilePresent: false,
-      stdioOnly: true,
-      httpTransportSupported: false,
+      access: "official-personal-api",
+      settingsOwner: "native-desktop",
     },
     provider: {
       requested: provider.requested,
@@ -581,7 +525,7 @@ export function runDoctor(
     generatedAt: new Date().toISOString(),
     contractVersion: 1,
     supportedBoundary:
-      "local MCP-only source beta; macOS Apple Silicon primary, Ubuntu LTS secondary; LAN/public exposure unsupported",
+      "local source beta with official Garmin Personal API access; macOS Apple Silicon primary, Ubuntu LTS secondary; LAN/public exposure unsupported",
     facts,
     checks,
   };

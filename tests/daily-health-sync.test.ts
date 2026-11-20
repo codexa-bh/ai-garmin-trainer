@@ -2,6 +2,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installSyntheticKey } from "./legacy-composition";
 import type { NormalizedDailyHealth } from "../src/lib/garmin/types";
 
 const dbDir = join(tmpdir(), "ai-garmin-daily-health-sync-tests");
@@ -14,55 +15,60 @@ const mcpState = {
   bodyBatteryByDate: new Map<string, unknown>(),
 };
 
-vi.mock("../src/lib/garmin/mcp-client", () => ({
-  GarminMcpClient: class {
-    async start() {
-      if (mcpState.failStart) throw new Error("connector start failed");
-      return undefined;
-    }
-    close() {
-      return undefined;
-    }
-    async callTool(operation: string, args: Record<string, unknown> = {}) {
-      mcpState.calls.push({ operation, args });
-      if (operation === "get_user_profile") {
-        return JSON.stringify({
-          userData: { lactateThresholdHeartRate: null },
-        });
+vi.mock("../src/lib/garmin/official-reader", async () =>
+  (await import("./legacy-composition")).legacyReaderModule(
+    class {
+      async start() {
+        if (mcpState.failStart) throw new Error("connector start failed");
+        return undefined;
       }
-      if (operation === "get_cycling_ftp") {
-        return JSON.stringify({ functional_threshold_power_watts: null });
+      close() {
+        return undefined;
       }
-      if (operation === "get_activities_by_date") {
-        return JSON.stringify({
-          activities: mcpState.activities,
-          has_more: false,
-        });
+      async callTool(operation: string, args: Record<string, unknown> = {}) {
+        mcpState.calls.push({ operation, args });
+        if (operation === "get_user_profile") {
+          return JSON.stringify({
+            userData: { lactateThresholdHeartRate: null },
+          });
+        }
+        if (operation === "get_cycling_ftp") {
+          return JSON.stringify({ functional_threshold_power_watts: null });
+        }
+        if (operation === "get_activities_by_date") {
+          return JSON.stringify({
+            activities: mcpState.activities,
+            has_more: false,
+          });
+        }
+        if (
+          operation === "get_body_composition" ||
+          operation === "get_weigh_ins"
+        )
+          return "{}";
+        if (operation === "get_stats") {
+          return JSON.stringify(
+            mcpState.statsByDate.get(String(args.date)) ?? {},
+          );
+        }
+        if (operation === "get_sleep_summary") {
+          return JSON.stringify(
+            mcpState.sleepByDate.get(String(args.date)) ?? {},
+          );
+        }
+        if (operation === "get_body_battery") {
+          return JSON.stringify(
+            mcpState.bodyBatteryByDate.get(String(args.start_date)) ?? [],
+          );
+        }
+        if (operation === "get_activity_fit_data") {
+          return JSON.stringify({ records: [] });
+        }
+        throw new Error(`Unexpected operation ${operation}`);
       }
-      if (operation === "get_body_composition" || operation === "get_weigh_ins")
-        return "{}";
-      if (operation === "get_stats") {
-        return JSON.stringify(
-          mcpState.statsByDate.get(String(args.date)) ?? {},
-        );
-      }
-      if (operation === "get_sleep_summary") {
-        return JSON.stringify(
-          mcpState.sleepByDate.get(String(args.date)) ?? {},
-        );
-      }
-      if (operation === "get_body_battery") {
-        return JSON.stringify(
-          mcpState.bodyBatteryByDate.get(String(args.start_date)) ?? [],
-        );
-      }
-      if (operation === "get_activity_fit_data") {
-        return JSON.stringify({ records: [] });
-      }
-      throw new Error(`Unexpected operation ${operation}`);
-    }
-  },
-}));
+    },
+  ),
+);
 
 function fetchedHealthDates(
   operation: "get_stats" | "get_sleep_summary" | "get_body_battery",
@@ -161,7 +167,7 @@ function recordDailyHealthPayloadEvidence(
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-07-23T12:00:00Z"));
   rmSync(dbDir, { recursive: true, force: true });
@@ -175,6 +181,7 @@ beforeEach(() => {
   mcpState.sleepByDate = new Map();
   mcpState.bodyBatteryByDate = new Map();
   vi.resetModules();
+  await installSyntheticKey();
 });
 
 afterEach(() => {
@@ -396,7 +403,7 @@ describe("Garmin daily health adaptive freshness", () => {
       coverageStart: "2026-07-10",
       coverageEnd: "2026-07-23",
       lastError:
-        "Garmin sync stopped after a connector or storage failure; committed data and unresolved history are retained.",
+        "Garmin sync stopped after a connection or storage failure; committed data and unresolved history are retained.",
     });
   });
 

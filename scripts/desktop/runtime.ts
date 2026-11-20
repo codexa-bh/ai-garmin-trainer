@@ -72,7 +72,7 @@ async function main(): Promise<void> {
     onParentLost();
   });
   const snapshot = await readPrivateFrame();
-  const tooling = adoptConfiguration(snapshot);
+  adoptConfiguration(snapshot);
   if (snapshot && typeof snapshot === "object" && "chatgpt" in snapshot)
     initializeChatgptOwner(snapshot.chatgpt);
   stage = "database";
@@ -255,7 +255,7 @@ async function main(): Promise<void> {
   await summarySchedule.run();
   stage = "ready";
   ready = true;
-  report({ type: "ready", version: 1, port: address.port, tooling });
+  report({ type: "ready", version: 1, port: address.port });
 }
 
 // Consume exactly one bounded line; leave stdin open as the ownership pipe.

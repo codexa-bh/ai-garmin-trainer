@@ -10,7 +10,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
 import {
   validateSettings,
   activationEnvironment,
@@ -22,9 +21,6 @@ import { getOptionalEnv } from "../src/lib/env";
 import fields from "../src-tauri/ui/settings-fields.json";
 
 const roots: string[] = [];
-const windows = process.platform === "win32";
-// Host Python for deterministic helper regressions (Windows: python on PATH).
-const python = process.platform === "win32" ? "python" : "/usr/bin/python3";
 function baseline() {
   // The canonical final-path spelling the desktop validators require.
   const root = realpathSync.native(
@@ -138,7 +134,10 @@ describe("desktop editable settings", () => {
       { DATABASE_PATH: "relative.sqlite" },
       { DATABASE_PATH: alias },
       { DATABASE_PATH: "$HOME/db" },
-      { GARMIN_MCP_TOKEN_DIR: base.fields.DATABASE_PATH },
+      // Retired connector fields are not editable settings at all.
+      { GARMIN_MCP_TOKEN_DIR: base.root },
+      { GARMIN_MCP_COMMAND: "uvx" },
+      { GARMIN_FIT_SPEED_COMMAND: "uv" },
       { AI_PROVIDER: "unknown" },
       { AI_MODEL: " " },
       { GARMIN_HISTORY_START_DATE: "2025-02-30" },
@@ -150,23 +149,9 @@ describe("desktop editable settings", () => {
       { OLLAMA_BASE_URL: "https://remote.example/v1" },
       { MEMORY_EMBEDDING_BASE_URL: "https://user:secret@example.com/v1" },
       { MEMORY_EMBEDDING_BASE_URL: "https://example.com/v1?key=secret" },
-      { GARMIN_MCP_COMMAND: "uvx --unsafe" },
-      { GARMIN_FIT_SPEED_COMMAND: "./uv" },
       { AI_MODEL: "bad\nmodel" },
     ])
       expect(() => validateSettings({ ...base.fields, ...change })).toThrow();
-    expect(
-      validateSettings({ ...base.fields, GARMIN_MCP_TOKEN_DIR: base.root })
-        .GARMIN_MCP_TOKEN_DIR,
-    ).toBe(base.root);
-    // POSIX mode privacy is checked here; Windows DACL privacy is enforced by
-    // the native private_fs owner (exercised by the Windows native tests).
-    if (!windows) {
-      chmodSync(base.root, 0o755);
-      expect(() =>
-        validateSettings({ ...base.fields, GARMIN_MCP_TOKEN_DIR: base.root }),
-      ).toThrow();
-    }
   });
   it("keeps secrets out of non-secret validation and rejects missing/unknown/placeholder activation slots without fallback", () => {
     const base = baseline();
@@ -381,7 +366,7 @@ describe("desktop editable settings", () => {
     expect(snapshot).not.toContain("Settings");
     expect(snapshot).not.toContain("secrets");
   });
-  it("refuses private setup mutation in both admitted modes before auth or managed allocation", () => {
+  it("refuses private setup mutation in both admitted modes and exposes no Garmin sign-in commands", () => {
     const main = readFileSync("src-tauri/src/main.rs", "utf8");
     const guard = main.slice(
       main.indexOf("fn private_setup_only"),
@@ -393,23 +378,32 @@ describe("desktop editable settings", () => {
       "adopt_provider_settings",
       "finish_onboarding",
       "choose_path",
-      "start_auth",
-      "submit_mfa",
+      "open_garmin_key_page",
     ]) {
       const from = main.indexOf(`fn ${name}(`);
       expect(from).toBeGreaterThan(-1);
       const next = main.indexOf("#[tauri::command]", from);
       const body = main.slice(from, next === -1 ? undefined : next);
       expect(body).toContain("private_setup_only(&window)?");
-      if (name === "start_auth")
-        expect(body.indexOf("private_setup_only")).toBeLessThan(
-          body.indexOf(".start_managed("),
-        );
+    }
+    for (const retired of [
+      "start_auth",
+      "submit_mfa",
+      "auth_status",
+      "cancel_auth",
+    ]) {
+      expect(main).not.toContain(`fn ${retired}(`);
+      expect(
+        readFileSync("src-tauri/permissions/setup.toml", "utf8"),
+      ).not.toContain(`"${retired}"`);
     }
   });
-  it("packages the private auth worker and lock, and preserves native liveness/remote capability exclusions", () => {
+  it("packages no Python helper, and preserves native liveness/remote capability exclusions", () => {
     const assembly = readFileSync("scripts/desktop/assemble.mjs", "utf8");
-    expect(assembly).toContain("garmin_auth.py.lock");
+    // Build-time developer Python (redistribution corpus) may run; no Python
+    // file is ever copied into the packaged runtime.
+    expect(assembly).not.toMatch(/garmin_auth|garmin_fit_|garmin_token/);
+    expect(assembly).not.toMatch(/cp\([^)]*\.py/);
     const supervisor = readFileSync("src-tauri/src/supervisor.rs", "utf8");
     expect(supervisor).toContain(".env_clear()");
     expect(supervisor).toContain("write_all(snapshot)");
@@ -422,38 +416,5 @@ describe("desktop editable settings", () => {
     expect(readFileSync("scripts/desktop/config.ts", "utf8")).not.toMatch(
       /(?:processEnv|readFileSync|loadEnvConfig)\s*\(/,
     );
-  });
-  it("runs deterministic Python auth API/privacy/challenge regressions without a network login", () => {
-    const result = spawnSync(python, ["tests/desktop-auth.test.py"], {
-      encoding: "utf8",
-      env: {
-        NODE_ENV: "test",
-        PATH: windows ? process.env.PATH : "/usr/bin:/bin",
-        ...(windows
-          ? { SystemRoot: process.env.SystemRoot, PYTHONUTF8: "1" }
-          : {}),
-        PYTHONDONTWRITEBYTECODE: "1",
-      },
-      timeout: 15000,
-    });
-    expect(result.stderr).not.toContain("sentinel-password");
-    expect(result.status, result.stderr).toBe(0);
-  });
-  it("uses locked reviewed library and never passes password/email to worker argv/environment", () => {
-    const lock = readFileSync("scripts/desktop/garmin_auth.py.lock", "utf8");
-    expect(lock).toMatch(/name = "garminconnect"\s+version = "0.3.2"/);
-    const auth = readFileSync("src-tauri/src/auth.rs", "utf8");
-    expect(auth).toContain("env_clear()");
-    expect(auth).not.toMatch(/\.arg\(&?(email|password|code)\)/);
-    expect(auth).toContain("Duration::from_secs(180)");
-    // Token publication is an exclusive (never replacing) handle-relative rename.
-    expect(auth).toMatch(
-      /private_fs::rename_at\(&parent\.file, source, staging_file, target, false\)/,
-    );
-    // Also parse the worker without importing/network/dependency acquisition.
-    execFileSync(python, [
-      "-c",
-      "import ast;ast.parse(open('scripts/desktop/garmin_auth.py').read())",
-    ]);
   });
 });

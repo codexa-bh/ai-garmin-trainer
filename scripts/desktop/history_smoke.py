@@ -13,7 +13,6 @@ import signal
 import sqlite3
 import stat
 import smoke_resources as resources
-import sys
 import time
 import urllib.request
 import uuid
@@ -135,121 +134,102 @@ def tokens_unchanged(directory, hashes):
     )
 
 
-def prepare_synthetic_history(run):
-    """Only stopped, owned, keyless run settings; never select private input."""
-    from history_connector import SENTINEL
-
+def _stopped_synthetic(run):
     root = private_directory(run.root)
     if run.child is not None or listening(run.config['port']):
         raise ValueError('Stopped owned synthetic run required')
-    path = root / 'config/settings-v3.json'
-    saved = json.loads(path.read_text())
-    if saved['keys'] or saved['fields'].get('GARMIN_MCP_TOKEN_DIR'):
-        raise ValueError('Keyless unconnected synthetic settings required')
-    python = str(Path(sys.executable).resolve())
-    script = root / 'synthetic_history_connector.py'
-    if any(char.isspace() for char in str(script)):
-        raise ValueError('Synthetic connector arguments require a whitespace-free owned path')
-    (root / 'tokens').mkdir(mode=0o700)
-    if any(char.isspace() for char in python):
-        raise ValueError('Unambiguous Python shebang required')
-    connector = (
-        b'#!'
-        + python.encode()
-        + b'\n'
-        + Path(__file__).with_name('history_connector.py').read_bytes().split(b'\n', 1)[1]
-    )
-    for target, data, mode in [
-        (script, connector, 0o700),
-        (root / 'tokens/garmin_tokens.json', SENTINEL, 0o600),
-    ]:
-        with open(
-            target, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, mode)
-        ) as output:
-            output.write(data)
-    # Only an existing allowlisted executable field; reviewed package arguments
-    # remain immutable. The authored executable validates that exact argv.
-    saved['fields'].update(
-        {
-            'GARMIN_MCP_COMMAND': str(script),
-            'GARMIN_MCP_TOKEN_DIR': str(root / 'tokens'),
-            'GARMIN_HISTORY_START_DATE': (
-                datetime.now(timezone.utc).date() - timedelta(days=35)
-            ).isoformat(),
-        }
-    )
-    staged = root / 'config/synthetic-history-settings.json'
+    return root
+
+
+def _saved(root):
+    return json.loads((root / 'config/settings-v3.json').read_text())
+
+
+def _publish_settings(root, saved, label):
+    staged = root / ('config/synthetic-' + label + '-' + str(uuid.uuid4()) + '.json')
     private_json(staged, saved)
-    os.replace(staged, path)
-    prepare_latest_preset(run, 'delayed')
+    os.replace(staged, root / 'config/settings-v3.json')
 
 
-def synthetic_calls(root):
-    from history_connector import TOOLS
-    from smoke_input import private_file
+def _attach_fixture(run):
+    """Bind this stopped run to its own loopback fixture via the private descriptor.
 
-    path = Path(root) / 'synthetic-calls.jsonl'
-    if not os.path.lexists(path):
-        return []
-    _, data, _ = private_file(path, 262144, allow_empty=True)
-    rows = [json.loads(line) for line in data.splitlines()]
-    if any(
-        not isinstance(row, dict)
-        or set(row) != {'name', 'records'}
-        or row['name'] not in TOOLS
-        or (row['records'] is not None and type(row['records']) is not bool)
-        for row in rows
-    ):
+    Native admits the fixture origin only from launch.json, only for history-setup
+    runs, and requires it whenever an isolated run holds a Garmin key.
+    """
+    from history_fixture import Fixture
+
+    if getattr(run, 'fixture', None) is None:
+        run.fixture = Fixture(run.root, os.urandom(32).hex()).start()
+        resources.guard(run.fixture.stop)
+    run.descriptor['garminFixture'] = {
+        'port': run.fixture.port,
+        'capability': run.fixture.capability,
+    }
+    run.renew_capability()  # Republish launch.json through its owned atomic path.
+
+
+def prepare_synthetic_history(run):
+    """Only stopped, owned, keyless run settings; never select private input."""
+    from history_fixture import SYNTHETIC_KEY
+
+    root = _stopped_synthetic(run)
+    saved = _saved(root)
+    if saved['keys'] or saved.get('garminApiKey'):
+        raise ValueError('Keyless unconnected synthetic settings required')
+    # Authored synthetic key for the owned fixture only; never a real credential.
+    saved['garminApiKey'] = SYNTHETIC_KEY
+    saved['fields']['GARMIN_HISTORY_START_DATE'] = (
+        datetime.now(timezone.utc).date() - timedelta(days=35)
+    ).isoformat()
+    _publish_settings(root, saved, 'history')
+    _attach_fixture(run)
+    prepare_latest_preset(run, 'known')
+
+
+def synthetic_calls(run):
+    """Closed per-endpoint request aggregates from the owned fixture."""
+    from history_fixture import ENDPOINTS
+
+    counts = run.fixture.counts()
+    if any(name not in ENDPOINTS or type(value) is not int for name, value in counts.items()):
         raise ValueError('Closed synthetic call aggregates required')
-    return rows
+    return counts
 
 
 def prepare_latest_preset(run, scenario):
-    """Finite stopped synthetic evidence only; no private or checkpoint mutation."""
-    from history_connector import SENTINEL, PRESETS
+    """Finite authored fixture preset only; no private or checkpoint mutation."""
+    from history_fixture import PRESETS, SYNTHETIC_KEY
 
-    root = private_directory(run.root)
-    if run.child is not None or listening(run.config['port']):
-        raise ValueError('Stopped owned synthetic run required')
-    saved = json.loads((root / 'config/settings-v3.json').read_text())
+    root = _stopped_synthetic(run)
+    saved = _saved(root)
     if (
         scenario not in PRESETS
         or saved['keys']
-        or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens')
-        or token_bytes(root / 'tokens', 'garmin_tokens.json') != SENTINEL
+        or saved.get('garminApiKey') != SYNTHETIC_KEY
+        or getattr(run, 'fixture', None) is None
     ):
         raise ValueError('Finite synthetic-only latest preset required')
-    staged = root / ('latest-preset-' + str(uuid.uuid4()) + '.json')
-    private_json(staged, {'preset': scenario})
-    os.replace(staged, root / 'synthetic-latest-preset.json')
+    run.fixture.set_preset(scenario)
 
 
 def prepare_automatic_history(run):
-    """Stopped owned keyless synthetic settings only: clear the authored limit.
+    """Stopped owned synthetic settings only: clear the authored limit.
 
     This is the same allowlisted field prepare_synthetic_history authored, now
     removed so the next owned boot runs automatic discovery. Checkpoints are
     untouched; only the explicit visible action may reconcile them.
     """
-    from history_connector import SENTINEL
+    from history_fixture import SYNTHETIC_KEY
 
-    root = private_directory(run.root)
-    if run.child is not None or listening(run.config['port']):
-        raise ValueError('Stopped owned synthetic run required')
-    path = root / 'config/settings-v3.json'
-    saved = json.loads(path.read_text())
-    if (
-        saved['keys']
-        or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens')
-        or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL
-    ):
+    root = _stopped_synthetic(run)
+    saved = _saved(root)
+    if saved['keys'] or saved.get('garminApiKey') != SYNTHETIC_KEY:
         raise ValueError('Synthetic-only automatic transition required')
     if not saved['fields'].get('GARMIN_HISTORY_START_DATE'):
         raise ValueError('Authored date-limited synthetic settings required')
     del saved['fields']['GARMIN_HISTORY_START_DATE']
-    staged = root / 'config/synthetic-automatic-settings.json'
-    private_json(staged, saved)
-    os.replace(staged, path)
+    _publish_settings(root, saved, 'automatic')
 
 
 def prepare_mixed_sync_presentation(run, outcome):
@@ -258,6 +238,8 @@ def prepare_mixed_sync_presentation(run, outcome):
     This is stopped synthetic presentation seeding, not a recovery operation or
     proof that the engine naturally produced the mixed checkpoint.
     """
+    from history_fixture import SYNTHETIC_KEY
+
     if outcome not in ('settled', 'failed'):
         raise ValueError('Closed mixed presentation outcome required')
     run.verify_settled()
@@ -271,14 +253,8 @@ def prepare_mixed_sync_presentation(run, outcome):
         or info.st_nlink != 1
     ):
         raise ValueError('Exact private owned run database required')
-    saved = json.loads((root / 'config/settings-v3.json').read_text())
-    from history_connector import SENTINEL
-
-    if (
-        saved['keys']
-        or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens')
-        or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL
-    ):
+    saved = _saved(root)
+    if saved['keys'] or saved.get('garminApiKey') != SYNTHETIC_KEY:
         raise ValueError('Synthetic-only mixed presentation required')
     with contextlib.closing(sqlite3.connect(database)) as db:
         row = db.execute(
@@ -329,46 +305,26 @@ def prepare_mixed_sync_presentation(run, outcome):
             raise ValueError('Authored mixed fixture integrity failed')
 
 
-def prepare_dependency_scenario(run, scenario):
-    """Finite stopped synthetic-only variants; never change a live executable/config."""
-    if scenario not in ('missing', 'unknown', 'healthy'):
-        raise ValueError('Closed dependency scenario required')
-    root = private_directory(run.root)
-    if run.child is not None or listening(run.config['port']):
-        raise ValueError('Stopped owned dependency run required')
-    path = root / 'config/settings-v3.json'
-    saved = json.loads(path.read_text())
-    from history_connector import SENTINEL
+def prepare_connection_scenario(run, scenario):
+    """Finite stopped synthetic-only connection states; never a real key or service."""
+    from history_fixture import SYNTHETIC_KEY
 
-    if (
-        saved['keys']
-        or (root / 'tokens/garmin_tokens.json').read_bytes() != SENTINEL
-        or saved['fields'].get('GARMIN_MCP_TOKEN_DIR') != str(root / 'tokens')
-    ):
+    if scenario not in ('missing-key', 'rejected-key', 'rate-limited', 'healthy'):
+        raise ValueError('Closed connection scenario required')
+    root = _stopped_synthetic(run)
+    saved = _saved(root)
+    if saved['keys'] or saved.get('garminApiKey') not in (None, SYNTHETIC_KEY):
         raise ValueError('Exact synthetic-only connection required')
-    if scenario == 'unknown':
-        script = root / 'unknown_connector.py'
-        with open(
-            script, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o700)
-        ) as output:
-            output.write(
-                b'#!' + str(Path(sys.executable).resolve()).encode() + b'\nraise SystemExit(2)\n'
-            )
-    else:
-        script = root / (
-            'missing_uvx' if scenario == 'missing' else 'synthetic_history_connector.py'
-        )
-        if scenario == 'missing':
-            # Existing canonical paths are required by unchanged Settings validation.
-            # A nonexecutable fixture resolves to the product's unavailable-tool sentinel.
-            with open(
-                script, 'xb', opener=lambda p, flags: os.open(p, flags | os.O_NOFOLLOW, 0o600)
-            ) as output:
-                output.write(b'synthetic nonexecutable launcher\n')
-    saved['fields']['GARMIN_MCP_COMMAND'] = str(script)
-    staged = root / ('config/dependency-' + scenario + '.json')
-    private_json(staged, saved)
-    os.replace(staged, path)
+    if scenario == 'missing-key':
+        saved.pop('garminApiKey', None)
+        run.descriptor.pop('garminFixture', None)
+        _publish_settings(root, saved, 'connection')
+        run.renew_capability()
+        return
+    saved['garminApiKey'] = SYNTHETIC_KEY
+    _publish_settings(root, saved, 'connection')
+    _attach_fixture(run)
+    run.fixture.set_preset('known' if scenario == 'healthy' else scenario)
 
 
 class HistoryRun(OrdinaryRun):
@@ -636,22 +592,30 @@ class HistoryRun(OrdinaryRun):
                 'healthRows': db.execute('select count(*) from daily_health').fetchone()[0],
                 'nonNullSteps': db.execute('select count(steps) from daily_health').fetchone()[0],
                 'fitActivityPresent': bool((freshness or {}).get('fitActivity')),
+                'coverageFinalDays': sum(
+                    day['final'] and day['source'] == 'coverage' for day in days.values()
+                ),
+                'coverageTransition': bool((freshness or {}).get('coverageTransition')),
+                'officialZoneRows': db.execute(
+                    "select count(*) from activity_hr_zone_time where source like 'garmin_official%'"
+                ).fetchone()[0],
+                'detailRows': db.execute(
+                    'select count(*) from activity_detail_availability'
+                ).fetchone()[0],
             }
 
     def latest_probe(self, backend=False):
-        before_calls = len(synthetic_calls(self.root))
+        before_calls = synthetic_calls(self)
         before = self.latest_snapshot()
         started = time.monotonic()
         result = self.backend_latest() if backend else self.latest_only()
         elapsed = time.monotonic() - started
-        rows = synthetic_calls(self.root)[before_calls:]
-        counts = {}
-        baseline = 0
-        for row in rows:
-            if set(row) != {'name', 'records'}:
-                raise ValueError('Closed synthetic call aggregates required')
-            counts[row['name']] = counts.get(row['name'], 0) + 1
-            baseline += row['name'] == 'get_activity_fit_data' and row['records'] is False
+        after_calls = synthetic_calls(self)
+        counts = {
+            name: after_calls[name] - before_calls.get(name, 0)
+            for name in after_calls
+            if after_calls[name] != before_calls.get(name, 0)
+        }
         after = self.latest_snapshot()
         if (
             after['integrity'] != 'ok'
@@ -669,12 +633,11 @@ class HistoryRun(OrdinaryRun):
         evidence = {
             **result,
             'requestCounts': counts,
-            'fitBaselineCalls': baseline,
             'elapsedSeconds': round(elapsed, 3),
-            'totalCalls': len(rows),
+            'totalRequests': sum(counts.values()),
             'dataBefore': before,
             'dataAfter': after,
-            'timingLimit': 'authored connector .4 seconds per tool plus native observation/capture, not Garmin latency',
+            'timingLimit': 'authored loopback fixture .05 seconds per HTTP request plus native observation/capture, not Garmin latency',
         }
         private_json(self.root / ('latest-probe-' + str(uuid.uuid4()) + '.json'), evidence)
         return evidence
@@ -775,10 +738,12 @@ class HistoryRun(OrdinaryRun):
         }
 
     def synthetic_sync(self):
-        """Three latest refreshes and two explicit historical operations.
+        """Official-path latest refreshes and two explicit historical operations.
 
-        A fixed authored 35-day selected scope permits actual range completion;
-        no injected cursor, accelerated clock, UI reply or product-budget override.
+        The ordinary app reads the authored loopback Personal API through its real
+        HTTPS-shaped reader, FIT decoder and coverage finality. A fixed authored
+        35-day selected scope permits actual range completion; no injected cursor,
+        accelerated clock, UI reply or product-budget override.
         """
         images = self.sync_captures = []
         self.command({'type': 'setViewport', 'preset': 'wide'})
@@ -787,35 +752,43 @@ class HistoryRun(OrdinaryRun):
         if self.summary()['active']:
             raise ValueError('Passive navigation unexpectedly started sync')
         latest = [self.latest_probe()]
-        if latest[0]['after']['outcome'] is not None:
+        first = latest[0]
+        if first['after']['outcome'] is not None:
             raise ValueError('Fresh latest created historical state')
         if (
-            latest[0]['after']['detailsProcessed'] <= 1
-            or latest[0]['after']['detailsRemaining'] != 0
-            or latest[0]['after']['detailsFailed'] != 0
+            first['after']['detailsProcessed'] <= 1
+            or first['after']['detailsRemaining'] != 0
+            or first['after']['detailsFailed'] != 0
         ):
             raise ValueError('Multi-detail backlog was not actually exhausted')
-        # Delayed upload retains recent days; unknown cannot finalize them.
-        if latest[0]['dataAfter']['mutableDays'] < 5:
-            raise ValueError('Delayed primary upload did not retain mutable days')
-        for scenario in ('unknown', 'known'):
-            self.stop()
-            prepare_latest_preset(self, scenario)
-            self.start(self.binary)
-            self.command({'type': 'setViewport', 'preset': 'wide'})
-            self.command({'type': 'click', 'target': 'Sync'})
-            self.wait(lambda value: value['view'] == 'Sync', 'latest primary evidence restart')
-            latest.append(self.latest_probe())
-            fallback = latest[-1]['requestCounts'].get('get_device_last_used', 0)
-            # Unknown direct time makes exactly one last-used read, which names
-            # the non-primary device; valid direct time makes none (T0345).
-            if scenario == 'unknown' and (
-                fallback != 1
-                or latest[-1]['dataAfter']['mutableDays'] != latest[-2]['dataAfter']['mutableDays']
-            ):
-                raise ValueError('Unknown evidence falsely finalized daily health')
-            if scenario == 'known' and (fallback or latest[-1]['dataAfter']['mutableDays'] != 1):
-                raise ValueError('Qualifying upload catch-up did not settle ended days')
+        # First official run over the prepared copy: transition recorded, ended
+        # full days final by coverage, today (partial) stays open, older stored
+        # dates retained as legacy, exact FIT HR zones stored for every activity.
+        data = first['dataAfter']
+        if (
+            not data['coverageTransition']
+            or data['coverageFinalDays'] < 10
+            or data['mutableDays'] < 1
+            or data['officialZoneRows'] < 15
+            or first['requestCounts'].get('token') != 1
+            or first['requestCounts'].get('activity-file', 0) < 3
+        ):
+            raise ValueError('Official coverage finality/FIT zone transition not observed')
+        # Restarted repeat: no file re-download, only open (today) health re-read.
+        self.stop()
+        self.start(self.binary)
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.wait(lambda value: value['view'] == 'Sync', 'restarted official repeat')
+        latest.append(self.latest_probe())
+        repeat = latest[-1]
+        if (
+            repeat['requestCounts'].get('activity-file', 0)
+            or repeat['dataAfter']['coverageFinalDays'] < data['coverageFinalDays']
+            or repeat['after']['activities'] != first['after']['activities']
+            or repeat['after']['healthDays'] != first['after']['healthDays']
+        ):
+            raise ValueError('Repeated official latest was not idempotent')
         settled = []
         for index in range(2):
             before = self.summary()
@@ -927,50 +900,24 @@ class HistoryRun(OrdinaryRun):
                 or restored['historicalState'] != after['historicalState']
             ):
                 raise ValueError('Restart replayed or lost durable history')
-        # T0345: history left its older dates open in latest freshness. With the
-        # primary's direct time missing, one matched last-used read must catch
-        # all of them up; a restarted repeat then reads only today's health.
-        self.stop()
-        prepare_latest_preset(self, 'last-used')
-        self.start(self.binary)
-        self.command({'type': 'setViewport', 'preset': 'wide'})
-        self.command({'type': 'click', 'target': 'Sync'})
-        self.wait(lambda value: value['view'] == 'Sync', 'missing direct upload catch-up')
-        catchup = self.latest_probe()
-        open_older = catchup['requestCounts'].get('get_stats', 0) - 1
-        if (
-            catchup['requestCounts'].get('get_devices') != 1
-            or catchup['requestCounts'].get('get_device_last_used') != 1
-            or open_older < 15
-            or catchup['dataAfter']['mutableDays'] != 1
-            or catchup['dataAfter']['finalDays'] < catchup['dataBefore']['finalDays'] + 15
-        ):
-            raise ValueError('Matched last-used evidence did not catch up open older dates')
-        latest.append({**catchup, 'openOlderDates': open_older})
+        # History left ended dates it read; a restarted latest settles any that
+        # are now whole-day covered and reads the activity list once.
         self.stop()
         self.start(self.binary)
         self.command({'type': 'setViewport', 'preset': 'wide'})
         self.command({'type': 'click', 'target': 'Sync'})
-        self.wait(lambda value: value['view'] == 'Sync', 'restarted repeat after catch-up')
+        self.wait(lambda value: value['view'] == 'Sync', 'restarted repeat after history')
         latest.append(self.latest_probe(backend=True))
-        counts = dict(latest[-1]['requestCounts'])
-        effort = counts.pop('get_activity', 0)
-        if effort not in (0, 1) or counts != {
-            'get_devices': 1,
-            'get_device_last_used': 1,
-            'get_stats': 1,
-            'get_sleep_summary': 1,
-            'get_body_battery': 1,
-            'get_activities_by_date': 1,
-            'get_body_composition': 1,
-            'get_weigh_ins': 1,
-        }:
-            raise ValueError(
-                'Steady latest did not reduce to core reads plus existing bounded effort work'
-            )
+        steady = latest[-1]
         if (
-            latest[-1]['after']['activities'] != latest[-2]['after']['activities']
-            or latest[-1]['after']['healthDays'] != latest[-2]['after']['healthDays']
+            steady['requestCounts'].get('activity-list') != 1
+            or steady['requestCounts'].get('activity-file', 0)
+            or steady['dataAfter']['mutableDays'] > 2
+        ):
+            raise ValueError('Steady official latest did not reduce to bounded core reads')
+        if (
+            steady['after']['activities'] != latest[-2]['after']['activities']
+            or steady['after']['healthDays'] != latest[-2]['after']['healthDays']
         ):
             raise ValueError('Identical latest refresh was not idempotent')
         self.stop()
@@ -981,10 +928,11 @@ class HistoryRun(OrdinaryRun):
         self.wait(lambda value: value['view'] == 'Sync', 'new newest activity')
         changed = self.latest_probe()
         if (
-            changed['fitBaselineCalls'] != 1
-            or changed['requestCounts'].get('get_user_profile', 0)
-            or changed['requestCounts'].get('get_cycling_ftp', 0)
-            or changed['requestCounts'].get('get_device_last_used', 0)
+            changed['requestCounts'].get('activity-file') != 1
+            or changed['dataAfter']['activities'] != changed['dataBefore']['activities'] + 1
+            or changed['dataAfter']['officialZoneRows']
+            != changed['dataBefore']['officialZoneRows'] + 5
+            or changed['requestCounts'].get('profile-settings', 0)
         ):
             raise ValueError('Changed newest activity bypassed FIT/cadence contract')
         latest.append(changed)
@@ -1052,6 +1000,7 @@ class HistoryRun(OrdinaryRun):
                 'maxInvocations': 12,
                 'maxObservationSecondsPerOperation': 150,
                 'mixedPresentation': 'stopped authored 6/14 latest settled/failed with no-progress blocked history; not engine progression',
+                'transport': 'authored loopback Personal API fixture through the product official reader; not Garmin',
                 'realGarminCertified': False,
             },
         )
@@ -1208,14 +1157,19 @@ class HistoryRun(OrdinaryRun):
         return records
 
     def dependency_guidance(self):
+        """Connection recovery guidance: missing/rejected key, rate limit, healthy.
+
+        No external tool exists to be missing any more; the failure states are the
+        official reader's closed vocabulary against the owned authored fixture.
+        """
         images = self.sync_captures = []
-        for scenario in ('missing', 'unknown', 'healthy'):
-            prepare_dependency_scenario(self, scenario)
+        for scenario in ('missing-key', 'rejected-key', 'rate-limited', 'healthy'):
+            prepare_connection_scenario(self, scenario)
             self.start(self.binary)
             self.command({'type': 'click', 'target': 'Sync'})
-            self.wait(lambda value: value['view'] == 'Sync', 'dependency Sync')
+            self.wait(lambda value: value['view'] == 'Sync', 'connection Sync')
             if self.summary()['active']:
-                raise ValueError('Passive no-tool navigation started an integration')
+                raise ValueError('Passive navigation started an integration')
             self.wait_sync(lambda value: value['startEnabled'], 10)
             self.command(
                 {'type': 'sync', 'action': 'start'}
@@ -1232,23 +1186,32 @@ class HistoryRun(OrdinaryRun):
                 else:
                     private_json(self.root / 'healthy-admission-timeout.json', healthy)
                     raise TimeoutError(
-                        'Healthy synthetic connector admission not observed; no Cancel/replay'
+                        'Healthy synthetic fixture admission not observed; no Cancel/replay'
                     )
                 self.command({'type': 'sync', 'action': 'cancel'})
                 self.wait_sync(lambda value: value['paused'] and not value['running'], 40)
             else:
                 self.wait_sync(lambda value: value['failed'] and not value['running'], 15)
             self.settle_claim()
+            if scenario != 'healthy':
+                # Closed persisted classification; the screenshot shows its guidance.
+                expected = {
+                    'missing-key': None,  # Blocked before any reader: 409 preflight.
+                    'rejected-key': 'auth',
+                    'rate-limited': 'rate-limit',
+                }[scenario]
+                if self.summary()['stopReason'] != expected:
+                    raise ValueError('Closed connection failure classification not observed')
             for preset in ('wide', 'narrow'):
                 self.command({'type': 'setViewport', 'preset': preset})
                 images.append(
                     {
-                        'scenario': 'dependency-' + scenario + '-' + preset,
+                        'scenario': 'connection-' + scenario + '-' + preset,
                         **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
                     }
                 )
             private_json(
-                self.root / ('dependency-' + scenario + '-evidence.json'),
+                self.root / ('connection-' + scenario + '-evidence.json'),
                 {
                     'captures': images,
                     'summary': self.summary(),
@@ -1468,12 +1431,12 @@ def main():
     parser.add_argument(
         '--dependency-guidance',
         action='store_true',
-        help='Three fixed synthetic launcher scenarios, no account calls',
+        help='Four fixed synthetic connection-recovery scenarios against the owned fixture, no account calls',
     )
     parser.add_argument(
         '--synthetic-sync',
         action='store_true',
-        help='Finite authored stdio data on stopped owned copies; no account calls',
+        help='Finite authored loopback Personal API data on stopped owned copies; no account calls',
     )
     parser.add_argument(
         '--token-input',
@@ -1581,7 +1544,7 @@ def history_scenario(
             prepare_synthetic_history(run)
             run.dependency_guidance()
             receipt['dependencyGuidance'] = (
-                'actual missing/unknown/healthy synthetic launcher actions; offline navigation retained; no real sign-in/interpreter failure certification'
+                'actual missing-key/rejected-key/rate-limited/healthy official-path Sync against the owned authored fixture; offline navigation retained; not real key validity'
             )
             receipt['realGarmin'] = 'unavailable: no private input or fresh login authority'
         elif args.synthetic_sync:
@@ -1589,7 +1552,7 @@ def history_scenario(
             run.start(run.binary)
             run.synthetic_sync()
             receipt['syntheticHistory'] = (
-                'three explicit latest refreshes preserve history bytes; two historical operations cancel then complete the selected range across restart; authored stdio only'
+                'official-path latest refreshes (coverage transition, restart repeat, new activity) preserve history bytes; two historical operations cancel then complete the selected range across restart; authored loopback Personal API only'
             )
             receipt['realGarmin'] = (
                 'unavailable: no current private-input or finite live account authority'

@@ -22,7 +22,7 @@ afterEach(async () => {
 
 async function repo() {
   const storage = await import("./storage-fixture");
-  const { normalizeDailyHealth } = await import("../src/lib/garmin/normalize");
+  const { normalizeDailyHealth } = await import("./legacy-normalize");
   return { ...storage, normalizeDailyHealth };
 }
 const archive = (

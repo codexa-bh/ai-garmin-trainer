@@ -254,58 +254,45 @@
           </p>
           <button type="button" id="connect">Connect Garmin</button>
           <button type="button" id="connect-later" hidden>Back</button>
-          <div id="auth-section" hidden aria-label="Private Garmin sign-in">
-            <div id="auth" hidden>
-              <label
-                >Email<input
-                  id="email"
-                  type="email"
-                  autocomplete="off"
-                  required
-                  form="garmin-auth"
-              /></label>
-              <label
-                >Password<input
-                  id="password"
-                  type="password"
-                  autocomplete="new-password"
-                  required
-                  form="garmin-auth"
-              /></label>
-              <button id="sign-in" type="submit" form="garmin-auth">
-                Sign in and verify
-              </button>
-            </div>
-            <div id="mfa-form" hidden>
-              <label
-                >MFA code<input
-                  id="mfa"
-                  type="password"
-                  autocomplete="off"
-                  maxlength="128"
-                  form="garmin-mfa"
-              /></label>
-              <button type="submit" form="garmin-mfa">Submit code once</button>
-            </div>
-            <button type="button" id="auth-cancel" hidden disabled>
-              Cancel sign-in
-            </button>
-            <button type="button" id="use-tokens" hidden>
-              Use this verified connection
-            </button>
-            <p id="auth-status" role="status" tabindex="-1" hidden></p>
+          <div id="garmin-key-section" hidden>
+            <ol id="garmin-key-steps" class="helper">
+              <li>
+                <a
+                  id="garmin-key-link"
+                  href="https://connect.garmin.com/app/settings/personalApiToken"
+                  >Create a Personal API key in Garmin Connect</a
+                >.
+              </li>
+              <li>Paste it here; it is stored privately on this device.</li>
+              <li>
+                Save, then quit and reopen Trainer to use the new connection.
+              </li>
+            </ol>
+            <label class="provider-key" id="garmin-key-label"
+              >Garmin Personal API key<span
+                id="GARMIN_API_KEY-status"
+                aria-live="polite"
+              ></span
+              ><input
+                id="GARMIN_API_KEY"
+                type="password"
+                autocomplete="new-password"
+                autocapitalize="off"
+                spellcheck="false"
+                aria-describedby="GARMIN_API_KEY-status"
+            /></label>
           </div>
           <details id="garmin-privacy">
-            <summary>Sign-in and private storage details</summary>
+            <summary>Key and private storage details</summary>
             <p>
-              This unofficial connector is not official OAuth. Account
-              challenges and rate limits may prevent sign-in. Only your explicit
-              action starts login; no automatic retries.
+              Uses Garmin's official Personal API with your own read-only key.
+              Garmin decides how long a key stays valid and may revoke it; a
+              rejected key needs a new one, not a password.
             </p>
             <p>
-              Email, password and one supported MFA code stay transient in
-              native sign-in, never saved, logged or sent to AI. Do not enter
-              credentials in chat.
+              The key is saved in owner-private plaintext app settings, not
+              encryption, and is never shown again, logged or sent to AI. Do not
+              enter it in chat.
             </p>
           </details>
         </fieldset>
@@ -376,17 +363,15 @@
           <h2>Review and open Trainer</h2>
           <p id="review-summary"></p>
           <p>
-            Finish validates local configuration and private provider keys, not
-            remote funding, model availability or network access. No automatic
-            provider call, Garmin login/sync or fallback. Optional Garmin
-            tooling may be unavailable without blocking saved views. Only
-            selected Ollama chat or enabled Ollama embeddings require its
-            separately managed daemon/model; nothing is installed or started.
+            Finish validates local configuration and private keys, not remote
+            funding, model availability, Garmin key validity or network access.
+            No automatic provider call, Garmin sync or fallback. Only selected
+            Ollama chat or enabled Ollama embeddings require its separately
+            managed daemon/model; nothing is installed or started.
           </p>
           <p>
-            Cancellation retains any database, settings or independently
-            verified tokens already committed. Retry uses the exact committed
-            setup.
+            Cancellation retains any database or settings already committed.
+            Retry uses the exact committed setup.
           </p>
         </section>
         <div class="actions">
@@ -396,9 +381,6 @@
           ><button type="button" id="cancel">Cancel edits</button>
         </div>
       </form>
-      <!-- External form owners keep inline sign-in separate from Settings Save. -->
-      <form id="garmin-auth" autocomplete="off"></form>
-      <form id="garmin-mfa" autocomplete="off"></form>
     </main>
     <dialog
       id="restart-required"

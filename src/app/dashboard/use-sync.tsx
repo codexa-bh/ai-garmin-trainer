@@ -206,11 +206,7 @@ export function useSyncFeature({
             finalKind = "error";
             const detail =
               event.type === "result" ? event.detail : event.message;
-            if (event.dependency === "launcher-unavailable")
-              recovery = "dependency";
-            else if (event.dependency === "startup-unknown")
-              recovery = "startup";
-            else if (detail) recovery = syncFailureRecovery(detail);
+            if (detail) recovery = syncFailureRecovery(detail);
             failureSummary = unknownResult
               ? "Sync outcome unknown. Refresh import summary before continuing."
               : syncFailureSummary(recovery);

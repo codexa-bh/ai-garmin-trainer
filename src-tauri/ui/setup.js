@@ -3,14 +3,9 @@ const byId = (id) => document.getElementById(id);
 const status = byId("status");
 const slots = ["OPENAI_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"];
 let fields = [];
-let session = null;
-let authTimer = null;
-let successfulDestination = "";
-let tokenSelection = "";
-let savedTokenSelection = "";
-let authEpoch = 0;
-let authPending = false;
-let authOpen = false;
+// Status-only Garmin metadata from native; never key material.
+let garminStatus = "not configured";
+let garminOpen = false;
 let onboarding = null;
 let firstRun = false;
 let step = 0;
@@ -47,6 +42,7 @@ restartDialog.addEventListener("keydown", (event) => {
 // replacement drafts; the fixed placeholder cannot enter any native payload.
 const keyStates = new Map();
 const keyPresence = "••••••••";
+const GARMIN_SLOT = "GARMIN_API_KEY";
 function renderKey(slot) {
   const state = keyStates.get(slot);
   const input = byId(slot);
@@ -54,7 +50,8 @@ function renderKey(slot) {
     state?.present && state.intent === "unchanged"
       ? keyPresence
       : "Enter API key";
-  input.disabled = catalogLocked() || !state?.available;
+  input.disabled =
+    (slot === GARMIN_SLOT ? busy : catalogLocked()) || !state?.available;
   byId(`${slot}-status`).textContent = !state?.available
     ? "Unavailable — reload before editing"
     : state.intent === "replace"
@@ -66,6 +63,37 @@ function renderKey(slot) {
           : state.present
             ? "Configured — saved key hidden"
             : "Not configured";
+}
+function resetGarminKey(status) {
+  keyStates.set(GARMIN_SLOT, {
+    available: ["configured", "not configured", "reconnect-required"].includes(
+      status,
+    ),
+    present: status === "configured",
+    legacy: false,
+    intent: "unchanged",
+    replacement: "",
+  });
+  byId(GARMIN_SLOT).value = "";
+  renderKey(GARMIN_SLOT);
+}
+function takeGarminKeyUpdate() {
+  const state = keyStates.get(GARMIN_SLOT);
+  const update =
+    state?.intent === "replace"
+      ? { intent: "replace", value: state.replacement }
+      : { intent: state?.intent === "clear" ? "clear" : "unchanged" };
+  clearGarminDraft();
+  return update;
+}
+function clearGarminDraft() {
+  const state = keyStates.get(GARMIN_SLOT);
+  if (state) {
+    state.intent = "unchanged";
+    state.replacement = "";
+  }
+  byId(GARMIN_SLOT).value = "";
+  renderKey(GARMIN_SLOT);
 }
 function resetKeys(metadata) {
   for (const slot of slots) {
@@ -115,7 +143,8 @@ function takeKeyUpdates() {
 }
 function editKey(slot) {
   const state = keyStates.get(slot);
-  if (catalogLocked() || !state?.available) return;
+  if ((slot === GARMIN_SLOT ? busy : catalogLocked()) || !state?.available)
+    return;
   state.replacement = byId(slot).value;
   state.intent = state.replacement
     ? "replace"
@@ -123,12 +152,13 @@ function editKey(slot) {
       ? "clear"
       : "unchanged";
   renderKey(slot);
-  renderSummaryModels();
+  if (slot === GARMIN_SLOT) renderConnection();
+  else renderSummaryModels();
 }
 function deleteKeyPresence(slot, event) {
   const state = keyStates.get(slot);
   if (
-    catalogLocked() ||
+    (slot === GARMIN_SLOT ? busy : catalogLocked()) ||
     !state?.available ||
     !state.present ||
     state.intent !== "unchanged"
@@ -137,7 +167,8 @@ function deleteKeyPresence(slot, event) {
   event.preventDefault();
   state.intent = "clear";
   renderKey(slot);
-  renderSummaryModels();
+  if (slot === GARMIN_SLOT) renderConnection();
+  else renderSummaryModels();
 }
 
 const providers = {
@@ -813,21 +844,16 @@ function fieldValues() {
   return Object.fromEntries(
     fields.map((field) => [
       field.key,
-      field.key === "GARMIN_MCP_TOKEN_DIR"
-        ? tokenSelection
-        : field.key === "GARMIN_HISTORY_START_DATE" &&
-            !byId("history-limited").checked
-          ? ""
-          : byId(field.key).value,
+      field.key === "GARMIN_HISTORY_START_DATE" &&
+      !byId("history-limited").checked
+        ? ""
+        : byId(field.key).value,
     ]),
   );
 }
 function retainDraft(values) {
-  tokenSelection = values.GARMIN_MCP_TOKEN_DIR ?? "";
   renderSummaryModels(values.SUMMARY_MODEL);
-  for (const field of fields)
-    if (field.key !== "GARMIN_MCP_TOKEN_DIR")
-      byId(field.key).value = values[field.key];
+  for (const field of fields) byId(field.key).value = values[field.key];
   byId("history-limited").checked = Boolean(values.GARMIN_HISTORY_START_DATE);
   renderHistory();
   renderConnection();
@@ -872,76 +898,69 @@ function renderStep() {
   renderMemory();
   renderHistory();
   byId("review-summary").textContent =
-    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries (choose a model explicitly in Trainer). Garmin: ${tokenSelection ? "connection selected (activation on Finish)" : "not connected"}. Memory: ${byId("SUMMARY_ENABLED").value === "true" ? "On" : "Off"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
+    `${byId("database-selection").value === "create-new" ? "Create new" : "Use existing"} database. Chat catalog: ${catalog.entries.length} entries (choose a model explicitly in Trainer). Garmin: ${garminDraftSummary()}. Memory: ${byId("SUMMARY_ENABLED").value === "true" ? "On" : "Off"}. Database committed: ${Boolean(onboarding?.databaseCommitted)}. Settings committed: ${Boolean(onboarding?.settingsCommitted)}.`;
+}
+function garminDraft() {
+  const state = keyStates.get(GARMIN_SLOT);
+  return state?.intent ?? "unchanged";
+}
+function garminDraftSummary() {
+  const intent = garminDraft();
+  if (intent === "replace") return "new key pending Finish";
+  if (intent === "clear") return "key removal pending Finish";
+  return garminStatus === "configured"
+    ? "key saved"
+    : "not connected (connect later in Settings)";
 }
 function renderConnection() {
-  const verified = tokenSelection && tokenSelection === successfulDestination;
-  byId("connection-status").textContent = verified
-    ? `Connected — verified during this sign-in only. ${tokenSelection === savedTokenSelection ? "Saved for next explicit launch" : `Pending ${firstRun ? "Finish" : "Save and next explicit launch"}`}; current backend unchanged.`
-    : tokenSelection
-      ? "Configured — not verified. Saved connection preserved; no network probe performed."
-      : "Not connected. Connect now or later; chat and offline history remain available.";
-  byId("connect").textContent = tokenSelection
-    ? "Reconnect Garmin"
-    : "Connect Garmin";
-  renderAuthPresentation();
+  const intent = garminDraft();
+  const pending = firstRun ? "Finish" : "Save, then quit and reopen";
+  byId("connection-status").textContent =
+    intent === "replace"
+      ? `New key entered — pending ${pending}. Not yet checked with Garmin; the running connection is unchanged.`
+      : intent === "clear"
+        ? `Key removal pending ${pending}. Saved history stays available.`
+        : garminStatus === "configured"
+          ? "Key saved — not checked by opening Settings. Sync or Garmin maintenance → Verify connection checks it explicitly."
+          : garminStatus === "reconnect-required"
+            ? "Reconnect needed: Garmin access now uses your own official Personal API key. Your saved history and earlier connection files are kept unchanged."
+            : "Not connected. Connect now or later; chat and offline history remain available.";
+  byId("connect").textContent =
+    garminStatus === "configured" ? "Replace Garmin key" : "Connect Garmin";
+  renderGarminPresentation();
 }
-function renderAuthPresentation() {
+function renderGarminPresentation() {
   const focused = document.activeElement;
-  const active = authActive();
-  const selected = Boolean(
-    session?.destination && tokenSelection === session.destination,
-  );
-  const visible = authOpen && !selected;
-  byId("auth-section").hidden = !visible;
+  const visible = garminOpen || garminDraft() !== "unchanged";
+  byId("garmin-key-section").hidden = !visible;
+  byId("connect").hidden = visible;
+  byId("connect").disabled = busy;
   byId("connect-later").hidden = !firstRun && !visible;
   byId("connect-later").textContent = firstRun
-    ? tokenSelection
-      ? "Continue with selected connection"
+    ? garminDraft() === "replace" || garminStatus === "configured"
+      ? "Continue"
       : "Continue without Garmin"
-    : tokenSelection
-      ? "Back — keep current connection"
-      : "Back";
-  byId("connection-status").hidden = visible;
-  byId("connect").hidden =
-    visible && !["failed", "cancelled"].includes(session?.state);
-  byId("connect").disabled = busy || authPending || active;
-  byId("connect-later").disabled = busy || authPending || active;
-  byId("auth").hidden = !visible || authPending || Boolean(session);
-  byId("mfa-form").hidden = !visible || session?.state !== "needs-mfa";
-  byId("sign-in").disabled = busy || authPending || active;
-  byId("email").disabled = byId("password").disabled =
-    busy || authPending || active || byId("auth").hidden;
-  byId("mfa").disabled = busy || byId("mfa-form").hidden;
-  byId("auth-cancel").hidden = !visible || !active;
-  byId("auth-cancel").disabled = busy || !active;
-  byId("use-tokens").hidden =
-    !visible || session?.state !== "succeeded" || !session.destination;
-  byId("auth-status").hidden = !visible || (!session && !authPending);
-  // Move focus only when this projection retires the focused Garmin control.
-  if (byId("garmin-fields").contains(focused) && focused.closest("[hidden]")) {
-    const target = !visible
-      ? byId("connection-status")
-      : session?.state === "needs-mfa"
-        ? byId("mfa")
-        : byId("auth-status");
-    target.focus();
-  }
+    : "Back — keep saved connection";
+  byId("connect-later").disabled = busy;
+  byId("garmin-key-link").toggleAttribute("aria-disabled", busy);
+  if (byId("garmin-fields").contains(focused) && focused.closest("[hidden]"))
+    byId("connection-status").focus();
 }
 function setBusy(value) {
   busy = value;
   byId("settings").setAttribute("aria-busy", String(value));
   const committed = firstRun && onboarding?.settingsCommitted;
   for (const element of document.querySelectorAll(
-    "#settings input, #settings select, #settings button, #auth-section input, #auth-section button",
+    "#settings input, #settings select, #settings button",
   ))
     if (element.id !== "cancel")
       element.disabled = value || (committed && element.id !== "save");
   for (const slot of slots) renderKey(slot);
+  renderKey(GARMIN_SLOT);
   for (const add of document.querySelectorAll(".catalog-add"))
     add.disabled = value || committed || catalog.entries.length >= 32;
   renderHistory();
-  renderAuthPresentation();
+  renderGarminPresentation();
   renderChatgpt();
 }
 async function reconcileOnboarding() {
@@ -953,70 +972,7 @@ async function reconcileOnboarding() {
 
 function clearSecrets() {
   clearKeyDrafts();
-  clearAuthSecrets();
-}
-function clearAuthSecrets() {
-  for (const id of ["email", "password", "mfa"]) byId(id).value = "";
-}
-function showAuth(value) {
-  const previousState = session?.state;
-  session = value;
-  const active =
-    value &&
-    ["authenticating", "needs-mfa", "submitting-mfa", "verifying"].includes(
-      value.state,
-    );
-  byId("sign-in").disabled = busy || Boolean(active);
-  byId("connect").disabled = busy || Boolean(active);
-  byId("auth-cancel").disabled = !active;
-  byId("email").disabled = byId("password").disabled = Boolean(active);
-  byId("mfa-form").hidden = value?.state !== "needs-mfa";
-  const failures = {
-    "credentials-rejected":
-      "Reconnect needed: Garmin rejected this sign-in. Check credentials privately before another explicit attempt; saved connection unchanged.",
-    "mfa-rejected":
-      "Garmin rejected the MFA code. No second submission or automatic retry; saved connection unchanged.",
-    "unsupported-challenge":
-      "This account challenge is unsupported or repeated. No bypass or automatic retry.",
-    "auth-unavailable":
-      "Authentication could not start or finish; its cause is unknown. See README Installation for uv/Python setup and recovery. No automatic retry; saved connections and offline data remain available.",
-    "network-service":
-      "Network or Garmin service unavailable. This does not establish credential expiry; try later explicitly.",
-    "rate-limited":
-      "Garmin rate limit reached. Wait before another explicit attempt; this does not establish credential expiry.",
-    timeout:
-      "Sign-in timed out after its bounded deadline. No automatic retry; saved connection unchanged.",
-    "publication-refused":
-      "Private publication refused or outcome uncertain. Original stores preserved; independently committed new tokens may remain. Reconcile native state before another explicit attempt.",
-    "protocol-refused":
-      "Authentication protocol refused. No automatic retry; saved connection unchanged.",
-  };
-  byId("auth-status").textContent =
-    value?.state === "failed"
-      ? failures[value.code] ||
-        "Authentication unavailable. No automatic retry; saved connection unchanged."
-      : value
-        ? `Sign-in: ${value.state}.`
-        : "Idle. No automatic login attempts.";
-  if (!active) {
-    clearTimeout(authTimer);
-    authTimer = null;
-    clearAuthSecrets();
-  }
-  renderAuthPresentation();
-  if (value?.state === "succeeded" && value.destination) {
-    successfulDestination = value.destination;
-    byId("auth-status").textContent =
-      `Connected — authenticated tokens verified during this sign-in and saved privately, not a guarantee of future validity. Choose Use this verified connection, then ${firstRun ? "Review and Finish" : "Save and explicitly quit/reopen"}. The running account is unchanged.`;
-  }
-  if (
-    authOpen &&
-    value?.state !== previousState &&
-    byId("garmin-fields").contains(document.activeElement)
-  ) {
-    if (value?.state === "needs-mfa") byId("mfa").focus();
-    else if (value?.state === "succeeded") byId("use-tokens").focus();
-  }
+  clearGarminDraft();
 }
 async function refresh() {
   closeRestart();
@@ -1039,10 +995,8 @@ async function refresh() {
       ? "Storage: legacy settings preserved. Explicit adoption or private re-entry required."
       : "";
     firstRun = Boolean(onboarding?.eligible && !saved.running);
-    savedTokenSelection = tokenSelection =
-      saved.fields.GARMIN_MCP_TOKEN_DIR ?? "";
+    garminStatus = saved.garmin;
     for (const field of fields) {
-      if (field.key === "GARMIN_MCP_TOKEN_DIR") continue;
       const input = byId(field.key);
       const value =
         saved.fields[field.key] ?? field.default ?? field.options?.[0] ?? "";
@@ -1071,6 +1025,7 @@ async function refresh() {
       ]),
     );
     resetKeys(saved.keys);
+    resetGarminKey(saved.garmin);
     renderSummaryModels();
     if (firstRun && !saved.saved) {
       byId("DATABASE_PATH").value = onboarding.database;
@@ -1091,14 +1046,13 @@ async function refresh() {
   } catch {
     loadedRevision = null;
     resetKeys(null);
+    resetGarminKey(null);
     status.textContent =
       "Saved settings are invalid or inaccessible. Check private settings permissions/version; no env fallback or key readback. Original data is unchanged.";
     return false;
   }
 }
 function createField(field) {
-  // Decoder/activation inventory remains compatible; no manual token control.
-  if (field.key === "GARMIN_MCP_TOKEN_DIR") return;
   const label = document.createElement("label");
   label.textContent = field.label;
   const input = document.createElement(field.options ? "select" : "input");
@@ -1164,7 +1118,7 @@ function createField(field) {
     input.setAttribute("autocorrect", "off");
     input.spellcheck = false;
   }
-  const preserved = field.legacy || field.key.endsWith("_COMMAND");
+  const preserved = field.legacy;
   if (preserved) {
     if (!field.options) input.type = "hidden";
     label.hidden = true;
@@ -1247,6 +1201,17 @@ async function initialize() {
     label.className = "provider-key";
     byId(`catalog-${provider}-config`).append(label);
   }
+  const garminInput = byId(GARMIN_SLOT);
+  garminInput.setAttribute("autocorrect", "off");
+  garminInput.addEventListener("input", () => editKey(GARMIN_SLOT));
+  garminInput.addEventListener("keydown", (event) => {
+    if (["Backspace", "Delete"].includes(event.key))
+      deleteKeyPresence(GARMIN_SLOT, event);
+  });
+  garminInput.addEventListener("beforeinput", (event) => {
+    if (event.inputType?.startsWith("delete"))
+      deleteKeyPresence(GARMIN_SLOT, event);
+  });
   // Dynamic fields exist before asynchronous native snapshots arrive. Keep the
   // form noninteractive until the complete initial snapshot has been applied.
   setBusy(true);
@@ -1263,29 +1228,20 @@ async function initialize() {
     chatgptWelcomeRegistration = null;
     if (chatgptWelcome.open) chatgptWelcome.close();
     closeRestart();
-    authEpoch++;
-    authPending = false;
-    successfulDestination = "";
     clearSecrets();
-    authOpen = false;
-    showAuth(null);
+    garminOpen = false;
+    renderConnection();
   });
   const message = await invoke("setup_status");
   if (message) status.textContent = message;
 }
 async function adoptProviders(readLegacy) {
-  if (
-    busy ||
-    !legacyRequired ||
-    loadedRevision === null ||
-    authPending ||
-    authActive()
-  )
-    return;
+  if (busy || !legacyRequired || loadedRevision === null) return;
   setBusy(true);
   const values = fieldValues();
   const catalogDraft = structuredClone(catalog);
   const keys = takeKeyUpdates();
+  const garminKey = takeGarminKeyUpdate();
   status.textContent = readLegacy
     ? "Explicit adoption in progress; macOS may request access. No automatic retry."
     : "Validating private re-entry; no Keychain access.";
@@ -1296,6 +1252,7 @@ async function adoptProviders(readLegacy) {
         keys,
         chatCatalog: catalog,
         expectedRevision: loadedRevision,
+        garminKey,
       },
       readLegacy,
     });
@@ -1317,6 +1274,7 @@ async function adoptProviders(readLegacy) {
         : "Saved metadata reloaded; no automatic retry.");
   } finally {
     for (const slot of slots) if (keys[slot].value) keys[slot].value = "";
+    if (garminKey.value) garminKey.value = "";
     clearSecrets();
     setBusy(unknownOutcome);
   }
@@ -1327,14 +1285,7 @@ byId("adopt-provider").addEventListener("click", () => adoptProviders(true));
 byId("reenter-provider").addEventListener("click", () => adoptProviders(false));
 byId("settings").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (
-    busy ||
-    restartDialog.open ||
-    legacyRequired ||
-    loadedRevision === null ||
-    authPending ||
-    authActive()
-  )
+  if (busy || restartDialog.open || legacyRequired || loadedRevision === null)
     return;
   if (firstRun && step !== 3) return;
   const epoch = settingsEpoch;
@@ -1348,6 +1299,7 @@ byId("settings").addEventListener("submit", async (event) => {
   const values = fieldValues();
   const catalogDraft = structuredClone(catalog);
   const keys = takeKeyUpdates();
+  const garminKey = takeGarminKeyUpdate();
   try {
     const result = await invoke(
       firstRun ? "finish_onboarding" : "save_settings",
@@ -1361,6 +1313,7 @@ byId("settings").addEventListener("submit", async (event) => {
                 keys,
                 chatCatalog: catalog,
                 expectedRevision: loadedRevision,
+                garminKey,
               },
             }
           : {
@@ -1368,6 +1321,7 @@ byId("settings").addEventListener("submit", async (event) => {
               keys,
               chatCatalog: catalog,
               expectedRevision: loadedRevision,
+              garminKey,
             },
       },
     );
@@ -1411,7 +1365,11 @@ byId("settings").addEventListener("submit", async (event) => {
     }
   } finally {
     for (const slot of slots) if (keys[slot].value) keys[slot].value = "";
+    if (garminKey.value) garminKey.value = "";
     clearKeyDrafts();
+    clearGarminDraft();
+    garminOpen = false;
+    renderConnection();
     setBusy(unknownOutcome);
   }
   if (showRestart && epoch === settingsEpoch && !restartDialog.open) {
@@ -1464,7 +1422,7 @@ byId("cancel").addEventListener("click", async () => {
   }
   if (busy && firstRun) {
     status.textContent =
-      "Cancellation requested. Wait for the operation to settle; committed database/settings/tokens remain saved.";
+      "Cancellation requested. Wait for the operation to settle; committed database/settings remain saved.";
     try {
       await invoke("cancel_onboarding", { id: onboarding.id });
     } catch {
@@ -1473,18 +1431,7 @@ byId("cancel").addEventListener("click", async () => {
     }
     return;
   }
-  authEpoch++;
-  authPending = false;
-  if (session) {
-    try {
-      showAuth(await invoke("cancel_auth", { id: session.id }));
-    } catch {
-      /* Already ended; no new attempt. */
-    }
-  }
-  authOpen = false;
-  successfulDestination = "";
-  showAuth(null);
+  garminOpen = false;
   const reconciled = await refresh();
   if (!reconciled) return;
   unknownOutcome = false;
@@ -1492,155 +1439,41 @@ byId("cancel").addEventListener("click", async () => {
   step = 0;
   renderStep();
   status.textContent =
-    "Edits cancelled. Saved settings and current backend unchanged; any independently committed database or tokens are retained.";
+    "Edits cancelled. Saved settings and current backend unchanged; any independently committed database is retained.";
 });
-function authActive() {
-  return [
-    "authenticating",
-    "needs-mfa",
-    "submitting-mfa",
-    "verifying",
-  ].includes(session?.state);
-}
-function currentAuth(epoch, id) {
-  return epoch === authEpoch && session?.id === id;
-}
-async function pollAuth(epoch, id) {
-  if (!currentAuth(epoch, id) || !authActive()) return;
-  try {
-    const value = await invoke("auth_status");
-    if (!currentAuth(epoch, id) || value?.id !== id) return;
-    showAuth(value);
-    if (authActive()) authTimer = setTimeout(() => pollAuth(epoch, id), 500);
-  } catch {
-    if (!currentAuth(epoch, id)) return;
-    byId("auth-status").textContent =
-      "Native auth status unavailable. Cancel this session or quit to stop owned authentication; no automatic retry.";
-  }
-}
 byId("connect").addEventListener("click", () => {
-  if (busy || authPending || authActive()) return;
-  if (tokenSelection && tokenSelection === session?.destination) showAuth(null);
-  else if (session?.state !== "succeeded") showAuth(null);
-  authOpen = true;
-  renderAuthPresentation();
-  (session?.state === "succeeded" ? byId("use-tokens") : byId("email")).focus();
+  if (busy) return;
+  garminOpen = true;
+  renderConnection();
+  byId(GARMIN_SLOT).focus();
 });
 byId("connect-later").addEventListener("click", () => {
-  if (busy || authPending || authActive()) return;
-  clearAuthSecrets();
-  authOpen = false;
-  renderAuthPresentation();
+  if (busy) return;
+  const keep = !firstRun || garminDraft() === "unchanged";
+  // Back discards only the Garmin key draft; the saved connection is unchanged.
+  if (!firstRun) clearGarminDraft();
+  garminOpen = false;
+  renderConnection();
   if (firstRun && step === 2) {
     step = 3;
     renderStep();
     byId("step-heading").focus();
-  }
-  status.textContent =
-    "No new sign-in. Current connection selection and provider draft preserved; chat and offline history remain available.";
+  } else byId("connect").focus();
+  status.textContent = keep
+    ? "Garmin connection unchanged; chat and offline history remain available."
+    : "";
 });
-byId("garmin-auth").addEventListener("submit", async (event) => {
+byId("garmin-key-link").addEventListener("click", async (event) => {
   event.preventDefault();
-  if (busy || authPending || authActive()) return;
-  const epoch = ++authEpoch;
-  authPending = true;
-  byId("auth-status").textContent =
-    "Starting private sign-in… Outcome not yet known.";
-  renderAuthPresentation();
-  const input = {
-    email: byId("email").value,
-    password: byId("password").value,
-  };
-  clearAuthSecrets();
+  if (busy) return;
   try {
-    const value = await invoke("start_auth", input);
-    if (epoch !== authEpoch) {
-      // Closing/cancelling while start was in flight must not leak an active worker.
-      await invoke("cancel_auth", { id: value.id });
-      return;
-    }
-    authPending = false;
-    showAuth(value);
-    if (authActive())
-      authTimer = setTimeout(() => pollAuth(epoch, value.id), 500);
-  } catch (error) {
-    if (epoch !== authEpoch) return;
-    const dependency = new Map([
-      [
-        "dependency-uv-unavailable",
-        "Sign-in cannot execute uv or its configured override. See README Installation to manage external tools, then explicitly retry. Saved connections and offline data remain available.",
-      ],
-      [
-        "dependency-python-unavailable",
-        "Sign-in requires installed Python 3.12; none was found by the selected uv. See README Installation to manage Python separately, then explicitly retry. Saved connections and offline data remain available.",
-      ],
-    ]).get(typeof error === "string" ? error : "");
-    if (dependency) {
-      // These native refusals precede worker creation; retry is explicit, not automatic.
-      authPending = false;
-      renderAuthPresentation();
-    }
-    // Other refusal/interruption remains ambiguous; do not start another login blindly.
-    byId("auth-status").textContent =
-      dependency ||
-      "Sign-in could not start or its outcome is unknown. Check uv/Python and app-private storage; quit/reopen to reconcile before another attempt. Existing connections are preserved.";
-  } finally {
-    input.email = input.password = "";
-  }
-});
-byId("garmin-mfa").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (session?.state !== "needs-mfa" || busy) return;
-  const { id } = session;
-  const epoch = ++authEpoch;
-  clearTimeout(authTimer);
-  const code = byId("mfa").value;
-  clearAuthSecrets();
-  showAuth({ ...session, state: "submitting-mfa" });
-  try {
-    const value = await invoke("submit_mfa", { id, code });
-    if (currentAuth(epoch, id) && value?.id === id) {
-      showAuth(value);
-      if (authActive()) authTimer = setTimeout(() => pollAuth(epoch, id), 500);
-    }
+    await invoke("open_garmin_key_page");
+    status.textContent =
+      "Opened Garmin Connect in your browser. Create the key there, then paste it here.";
   } catch {
-    if (currentAuth(epoch, id))
-      byId("auth-status").textContent =
-        "MFA submission refused or outcome unknown. Cancel or quit; do not submit again.";
+    status.textContent =
+      "Garmin key page could not open. Visit connect.garmin.com → Settings → Personal API key in your browser.";
   }
-});
-byId("auth-cancel").addEventListener("click", async () => {
-  if (!session || !authActive()) return;
-  const { id } = session;
-  const epoch = ++authEpoch;
-  clearTimeout(authTimer);
-  clearAuthSecrets();
-  try {
-    const value = await invoke("cancel_auth", { id });
-    if (currentAuth(epoch, id) && value?.id === id) showAuth(value);
-  } catch {
-    if (currentAuth(epoch, id))
-      byId("auth-status").textContent =
-        "Cancellation unavailable. Quit to stop owned authentication; do not retry login.";
-  }
-});
-byId("use-tokens").addEventListener("click", () => {
-  if (
-    busy ||
-    authPending ||
-    session?.state !== "succeeded" ||
-    !successfulDestination ||
-    session.destination !== successfulDestination
-  )
-    return;
-  tokenSelection = successfulDestination;
-  renderConnection();
-  renderStep();
-  authOpen = false;
-  renderAuthPresentation();
-  byId("connection-status").focus();
-  // The focused connection summary is the sole selection announcement.
-  status.textContent = "";
 });
 initialize().catch(() => {
   status.textContent =

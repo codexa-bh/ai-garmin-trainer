@@ -21,23 +21,6 @@ function SyncLoginHelp({
 }: {
   recovery: NonNullable<SyncRunState["recovery"]>;
 }) {
-  if (recovery === "dependency" || recovery === "startup")
-    return (
-      <section
-        className="sync-login-help"
-        aria-labelledby="sync-dependency-heading"
-      >
-        <h3 id="sync-dependency-heading">Garmin action setup</h3>
-        <p>{syncFailureSummary(recovery)}</p>
-        <p>
-          See README → Installation → Garmin access for setup. Check the
-          executable path in native Settings → Troubleshooting / technical
-          controls; manage uvx and compatible Python separately, then explicitly
-          retry this action. Sign-in is not a tooling fix. Saved data remains
-          available.
-        </p>
-      </section>
-    );
   return (
     <section
       className="sync-login-help"
@@ -45,23 +28,20 @@ function SyncLoginHelp({
     >
       <h3 id="sync-login-help-heading">Garmin connection help</h3>
       <p>
-        {syncFailureSummary(recovery)} This does not prove expired credentials.
-        {recovery === "network" || recovery === "rate-limit"
-          ? " Login is not an established remedy for this failure."
-          : " Login may not resolve this failure."}
+        {syncFailureSummary(recovery)}
+        {recovery === "auth"
+          ? " Create a new Personal API key in Garmin Connect if needed."
+          : " A new key is not an established remedy for this failure."}
       </p>
       <p>
-        Open Settings from the native app menu → Connect Garmin or Reconnect
-        Garmin when new authentication is needed. The app manages private
-        storage and preserves existing connections. Save, then explicitly quit
-        and reopen to activate the new connection; the running account never
-        switches in place.
+        Open Settings from the native app menu → Garmin connection to enter or
+        replace your key privately. Save, then explicitly quit and reopen to use
+        it; the running connection never switches in place.
       </p>
       <p>
-        Keep passwords and MFA codes in native Settings only, never chat. This
-        trainer page cannot start login or access native credentials.
-        Configured-provider chat and saved/offline history remain available
-        without Garmin; fresh Garmin data requires a working connection.
+        Keep your key in native Settings only, never chat. This trainer page
+        cannot read or change it. Configured-provider chat and saved/offline
+        history remain available without Garmin.
       </p>
     </section>
   );
@@ -393,17 +373,20 @@ export function SyncView({
           aria-labelledby="sync-maintenance-heading"
         >
           <h2 id="sync-maintenance-heading">Garmin maintenance</h2>
-          <p>Verify connector checks file presence, not sign-in validity.</p>
+          <p>
+            Verify connection makes one explicit Garmin request with your saved
+            key. It never runs automatically.
+          </p>
           <div className="button-row">
             <button
               type="button"
               onClick={() =>
                 runInBackground(
-                  runAction("Verify connector", () => fetch("/api/sync")),
+                  runAction("Verify connection", () => fetch("/api/sync")),
                 )
               }
             >
-              Verify connector
+              Verify connection
             </button>
             <button
               type="button"

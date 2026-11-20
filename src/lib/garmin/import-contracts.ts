@@ -45,7 +45,6 @@ export type GarminSyncResult = {
   athleteBaseline: GarminAthleteBaselineDto;
   bodyMetrics: GarminBodyMetricsDto;
   detail: string;
-  dependency?: import("./dependency-error").GarminDependencyReason;
 };
 
 type GarminSyncProgress = {

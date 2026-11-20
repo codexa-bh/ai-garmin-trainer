@@ -20,7 +20,7 @@ const allowed = new Set([
   "detail-requests.ts",
   "import-ports.ts",
   "import-contracts.ts",
-  "dependency-error.ts",
+  "failure.ts",
   "import-policy.ts",
   "history-policy.ts",
   "discovery-policy.ts",
@@ -141,10 +141,7 @@ it.each([
 );
 it("follows transitive dependencies through otherwise pure helpers", () => {
   expect(() =>
-    check(
-      sync,
-      new Map([["dependency-error.ts", 'import fs from "node:fs";']]),
-    ),
+    check(sync, new Map([["failure.ts", 'import fs from "node:fs";']])),
   ).toThrow("opaque dependency");
   expect(() =>
     check(
