@@ -105,6 +105,9 @@ Rendered smoke contracts keep independent navigation, mode-persistence and
 privacy scenarios in separate tests under the default per-test deadline. They
 still exercise the real components and bridge; splitting cumulative render work
 does not justify extending timeouts, dropping assertions or mocking the boundary.
+Independent CLI refusal scenarios likewise keep separate default-deadline cases
+so cumulative subprocess startup does not consume one shared test deadline; each
+case still executes the real CLI and checks its refusal.
 For load-sensitive failures, run the affected file first and then the full Vitest
 suite to check behavior under normal worker concurrency. Serialized SQLite
 preservation/idempotency checks use `Buffer.equals` for exact byte equality rather
