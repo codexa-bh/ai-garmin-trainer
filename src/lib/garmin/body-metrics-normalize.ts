@@ -1,4 +1,5 @@
 import type {
+  GarminDataSource,
   GarminBodyMetricValues,
   GarminBodyMetricsAvailability,
   GarminBodyMetricsSnapshot,
@@ -89,6 +90,7 @@ function hasCurrentFact(values: GarminBodyMetricValues): boolean {
 function rowsFromWeightList(
   rows: unknown[],
   fetchedAt: Date,
+  source: GarminDataSource,
 ): GarminBodyWeightHistoryRow[] {
   const byDate = new Map<string, GarminBodyWeightHistoryRow>();
   for (const row of rows) {
@@ -107,7 +109,7 @@ function rowsFromWeightList(
       350,
     );
     if (!date || weightKg === null) continue;
-    byDate.set(date, { date, weightKg, source: "garmin_mcp", fetchedAt });
+    byDate.set(date, { date, weightKg, source, fetchedAt });
   }
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -115,6 +117,7 @@ function rowsFromWeightList(
 function historyRowsFromPayload(
   historyPayload: unknown,
   fetchedAt: Date,
+  source: GarminDataSource,
 ): GarminBodyWeightHistoryRow[] {
   const root = objectValue(historyPayload) ?? {};
   const rows = Array.isArray(root.dateWeightList)
@@ -122,12 +125,13 @@ function historyRowsFromPayload(
     : Array.isArray(root.weightData)
       ? root.weightData
       : [];
-  return rowsFromWeightList(rows, fetchedAt);
+  return rowsFromWeightList(rows, fetchedAt, source);
 }
 
 function weighInRowsFromPayload(
   weighInPayload: unknown,
   fetchedAt: Date,
+  source: GarminDataSource,
 ): GarminBodyWeightHistoryRow[] {
   const root = objectValue(weighInPayload) ?? {};
   const rows = Array.isArray(root.measurements) ? root.measurements : [];
@@ -147,7 +151,7 @@ function weighInRowsFromPayload(
             return grams === null ? null : Number((grams / 1000).toFixed(3));
           })();
     if (!date || weightKg === null) continue;
-    byDate.set(date, { date, weightKg, source: "garmin_mcp", fetchedAt });
+    byDate.set(date, { date, weightKg, source, fetchedAt });
   }
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -228,8 +232,10 @@ export function normalizeGarminBodyMetrics(input: {
   fetchedAt?: Date;
   historyFailed?: boolean;
   weighInFailed?: boolean;
+  source?: GarminDataSource;
 }): GarminBodyMetricsSnapshot {
   const fetchedAt = input.fetchedAt ?? new Date();
+  const source = input.source ?? "garmin_mcp";
   const userData = userDataFromProfile(input.profilePayload);
   const profileWeightKg = boundedNumber(
     userData.weight ?? userData.weightKg ?? userData.weightInKg,
@@ -244,8 +250,13 @@ export function normalizeGarminBodyMetrics(input: {
   const bodyCompositionRows = historyRowsFromPayload(
     input.historyPayload,
     fetchedAt,
+    source,
   );
-  const weighInRows = weighInRowsFromPayload(input.weighInPayload, fetchedAt);
+  const weighInRows = weighInRowsFromPayload(
+    input.weighInPayload,
+    fetchedAt,
+    source,
+  );
   const merged = mergeHistoryRows(weighInRows, bodyCompositionRows);
   const currentWeight = currentWeightFromRows(weighInRows, profileWeightKg);
   const values: GarminBodyMetricValues = {
@@ -274,7 +285,7 @@ export function normalizeGarminBodyMetrics(input: {
         : "unavailable";
   return {
     availability,
-    source: "garmin_mcp",
+    source,
     fetchedAt,
     values,
     history,

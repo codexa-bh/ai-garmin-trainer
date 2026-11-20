@@ -16,10 +16,30 @@ import type {
   NormalizedActivityDetail,
 } from "./detail-types";
 import type { NormalizedActivityHrZoneTime } from "./activity-hr-zone-time";
+import type { DayCoverageEvidence } from "./coverage-policy";
+import type { GarminDataSource } from "./types";
 
 // Named read capabilities, not an arbitrary MCP tool dispatcher. Wire parsing,
 // FIT process supplements and redacted raw archival belong to the outer reader.
 export interface GarminReader {
+  /** Provenance of facts this reader produces; absent means the MCP reader. */
+  source?: GarminDataSource;
+  /** Label stored with a discovery hint; absent means `get_weekly_steps`. */
+  hintSource?: "get_weekly_steps" | "official_daily_summaries";
+  /**
+   * Optional no-I/O hint of the dates the application will read next, so a
+   * range-backed reader can batch them. Never required for correctness, and a
+   * reader must not fetch outside the dates it is given.
+   */
+  planDailyHealth?(dates: string[]): void;
+  /**
+   * Optional daily read that also returns the source's coverage chronology.
+   * Only the official reader provides it; its presence selects coverage-based
+   * finality in place of primary-upload finality.
+   */
+  dailyHealthEvidence?(
+    date: string,
+  ): Promise<{ day: NormalizedDailyHealth; coverage: DayCoverageEvidence }>;
   start(): Promise<void>;
   close(): void;
   profile(): Promise<unknown>;
@@ -38,9 +58,12 @@ export interface GarminReader {
   activityEffort(garminId: string): Promise<NormalizedActivity | null>;
   fitBaseline(garminIds: string[]): Promise<unknown>;
   primaryUpload?(): Promise<import("./primary-upload").PrimaryUpload>;
+  /** `floor` is the selected history limit; only a range reader that would
+   * otherwise read below it uses it, so no request leaves the chosen bounds. */
   weeklySteps?(
     endDate: string,
     weeks: number,
+    floor?: string | null,
   ): Promise<import("./discovery-policy").StepsHint>;
   dailyHealth(date: string): Promise<NormalizedDailyHealth>;
   activityDetail(garminId: string): Promise<{

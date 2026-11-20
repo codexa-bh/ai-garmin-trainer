@@ -30,11 +30,14 @@ import type { GarminSyncResult, ProgressReporter } from "./import-contracts";
 import { isoDate } from "./import-policy";
 import {
   FRESHNESS_CHECKPOINT,
+  coveredHealth,
   downloadedHealth,
   latestFreshness,
   latestHealthDates,
   localDate,
+  transitionToCoverage,
 } from "./latest-policy";
+import { dayCoverage } from "./coverage-policy";
 import type { PrimaryUpload } from "./primary-upload";
 import {
   GarminDependencyError,
@@ -229,7 +232,7 @@ export function createGarminImports({
       limit && limit > shiftDate(today, -13) ? limit : shiftDate(today, -13);
     const historical = options.intent !== "latest";
     const healthToday = historical ? today : localDate(clock());
-    const freshness = historical
+    let freshness = historical
       ? null
       : latestFreshness(
           store.getCheckpoint(FRESHNESS_CHECKPOINT),
@@ -519,12 +522,23 @@ export function createGarminImports({
         date,
       );
       try {
-        const day = await client.dailyHealth(date);
+        // A reader with coverage evidence selects coverage finality; otherwise the
+        // MCP primary-upload path is unchanged.
+        const read = freshness && client.dailyHealthEvidence;
+        const evidence = read ? await read(date) : null;
+        const day = evidence ? evidence.day : await client.dailyHealth(date);
         checkStop();
         healthDaysImported += store.upsertDailyHealth([day]);
         // Durable normalized data first; a crash before metadata safely replays.
         if (freshness)
-          freshness.days[date] = downloadedHealth(date, upload, clock());
+          freshness.days[date] = evidence
+            ? coveredHealth(
+                date,
+                dayCoverage(date, evidence.coverage, clock()),
+                healthToday,
+                clock(),
+              )
+            : downloadedHealth(date, upload, clock());
         if (historical) checked(state.health, date, healthHasMetrics(day));
         if (
           healthHasMetrics(day) &&
@@ -569,7 +583,18 @@ export function createGarminImports({
           "Starting one bounded, explicit read-only Garmin sync…",
         );
         await client.start();
-        if (freshness) {
+        // First coverage-based run over MCP-era state: persist the transition
+        // before any read, so an interruption replays the same idempotent result.
+        if (freshness && client.dailyHealthEvidence) {
+          const next = transitionToCoverage(freshness, healthToday, clock());
+          if (next !== freshness) {
+            freshness = next;
+            store.saveCheckpoints([
+              [FRESHNESS_CHECKPOINT, JSON.stringify(freshness)],
+            ]);
+          }
+        }
+        if (freshness && !client.dailyHealthEvidence) {
           upload = (await client.primaryUpload?.()) ?? upload;
           checkStop();
           if (upload.kind === "unknown")
@@ -583,6 +608,16 @@ export function createGarminImports({
               "Primary upload evidence came from the matching last-used device record (whole-second UTC).",
             );
         }
+        // Planning is a no-I/O hint so a range-backed reader can batch reads.
+        if (freshness)
+          client.planDailyHealth?.(
+            latestHealthDates(
+              freshness,
+              store.listStoredDailyHealthDates(),
+              healthToday,
+              limit,
+            ),
+          );
         // Latest health has its own local calendar; activity/history UTC ranges
         // and their existing recent-first ordering remain unchanged.
         for (const date of historical
@@ -646,11 +681,11 @@ export function createGarminImports({
             historyDateAllowed(end, limit) &&
             end >= "0002-01-01"
           ) {
-            const hint = await client.weeklySteps(end, 52);
+            const hint = await client.weeklySteps(end, 52, limit);
             checkStop();
             const previous = discovery.hint;
             discovery.hint = {
-              source: "get_weekly_steps",
+              source: client.hintSource ?? "get_weekly_steps",
               startDate: hint.startDate,
               endDate: hint.endDate,
               weeksWithData: hint.weeksWithData,
@@ -707,9 +742,21 @@ export function createGarminImports({
               save();
             }
           }
+          // A range-capable reader batches up to one 31-day sleep range per
+          // family batch; the per-day reader keeps its established quantum of 6.
+          const healthQuantum = client.planDailyHealth ? 31 : 6;
+          if (client.planDailyHealth && state.health.nextDate) {
+            const upcoming: string[] = [];
+            for (let back = 0; back < healthQuantum; back += 1) {
+              const candidate = shiftDate(state.health.nextDate, -back);
+              if (historyDateAllowed(candidate, floor()))
+                upcoming.push(candidate);
+            }
+            client.planDailyHealth(upcoming);
+          }
           for (
             let index = 0;
-            index < 6 &&
+            index < healthQuantum &&
             historyDateAllowed(state.health.nextDate, floor()) &&
             state.unresolvedHealth.length < 32;
             index += 1
@@ -832,12 +879,14 @@ export function createGarminImports({
           }
         }
         async function repairBatch() {
-          for (const date of repairCandidates(
+          const repairs = repairCandidates(
             state,
             today,
             options.intent ? recentStart : shiftDate(today, 1),
             handledHealth,
-          ).slice(0, 2)) {
+          ).slice(0, 2);
+          client.planDailyHealth?.(repairs);
+          for (const date of repairs) {
             await health(date, date < recentStart);
             state.repairAfter = date;
             save();
@@ -915,7 +964,7 @@ export function createGarminImports({
             const fit = await client.fitBaseline(newestIds);
             checkStop();
             if (freshness) {
-              if (fit && baseline.storeFitBaseline(fit)) {
+              if (fit && baseline.storeFitBaseline(fit, client.source)) {
                 freshness.fitActivity = newest;
                 save();
                 athleteBaseline = store.getGarminAthleteBaseline();
@@ -1083,7 +1132,7 @@ export function createGarminImports({
         history: historical ? state : summary.history,
         ...(discovery ? { discovery } : {}),
         continuationAvailable: remaining,
-        detail: `${failure ?? (historical ? "Historical invocation settled." : "Latest refresh settled; saved history preserved.")} ${freshness && upload.kind === "unknown" ? `Primary upload evidence unavailable (${upload.reason}); health dates remain non-final. ` : ""}${summary.sync.historical.reason} Remote earliest-health boundary is unknown. ${operations}/${operationLimits.operations} remote-operation attempts (not HTTP requests).`,
+        detail: `${failure ?? (historical ? "Historical invocation settled." : "Latest refresh settled; saved history preserved.")} ${freshness && !client.dailyHealthEvidence && upload.kind === "unknown" ? `Primary upload evidence unavailable (${upload.reason}); health dates remain non-final. ` : ""}${summary.sync.historical.reason} Remote earliest-health boundary is unknown. ${operations}/${operationLimits.operations} ${client.source === "garmin_official" ? "HTTP requests" : "remote-operation attempts (not HTTP requests)"}.`,
       };
       close();
       progress(outcome === "settled" ? "completed" : outcome, result.detail);

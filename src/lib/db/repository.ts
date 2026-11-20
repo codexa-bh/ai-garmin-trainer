@@ -40,6 +40,7 @@ import { getDatabase } from "./connection";
 import { EMPTY_GARMIN_ATHLETE_VALUES } from "../garmin/athlete-normalize";
 import { EMPTY_GARMIN_BODY_METRIC_VALUES } from "../garmin/body-metrics-normalize";
 import type {
+  GarminDataSource,
   GarminAthleteBaselineAvailability,
   GarminAthleteBaselineDto,
   GarminAthleteBaselineSnapshot,
@@ -297,13 +298,13 @@ export function listDailyHealthRepairCandidateDates(input: {
            not exists (
              select 1 from garmin_raw_payload
              where subject_type = 'daily_health'
-               and source_tool = 'get_stats'
+               and source_tool in ('get_stats', 'official_daily_summary')
                and subject_id = daily_health.date || ':stats'
            )
            or not exists (
              select 1 from garmin_raw_payload
              where subject_type = 'daily_health'
-               and source_tool = 'get_sleep_summary'
+               and source_tool in ('get_sleep_summary', 'official_sleep')
                and subject_id = daily_health.date || ':sleep'
            )
          )
@@ -338,7 +339,7 @@ export function listDailyHealthIntensityRepairCandidateDates(input: {
          and not exists (
            select 1 from garmin_raw_payload
            where subject_type = 'daily_health'
-             and source_tool = 'get_stats'
+             and source_tool in ('get_stats', 'official_daily_summary')
              and subject_id = daily_health.date || ':stats'
          )
        order by daily_health.date asc
@@ -372,13 +373,13 @@ export function listDailyHealthTrailingCandidateDates(input: {
           or daily_health.availability <> 'complete'
           or candidate_dates.date >= ?
           or (
-            select count(distinct source_tool) from garmin_raw_payload
+            select count(distinct substr(subject_id, 12)) from garmin_raw_payload
             where subject_type = 'daily_health'
               and fetched_at > ?
               and (
-                (source_tool = 'get_stats' and subject_id = candidate_dates.date || ':stats')
-                or (source_tool = 'get_sleep_summary' and subject_id = candidate_dates.date || ':sleep')
-                or (source_tool = 'get_body_battery' and subject_id = candidate_dates.date || ':body_battery')
+                (source_tool in ('get_stats', 'official_daily_summary') and subject_id = candidate_dates.date || ':stats')
+                or (source_tool in ('get_sleep_summary', 'official_sleep') and subject_id = candidate_dates.date || ':sleep')
+                or (source_tool in ('get_body_battery', 'official_body_battery') and subject_id = candidate_dates.date || ':body_battery')
               )
           ) < 3
        order by candidate_dates.date asc
@@ -799,7 +800,7 @@ export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
     .get() as
     | {
         fetchedAt: number;
-        source: "garmin_mcp";
+        source: GarminDataSource;
         availability: Exclude<GarminAthleteBaselineAvailability, "failed">;
         configuredMaxHeartRateBpm: number | null;
         heartRateZonesStatus:
@@ -834,7 +835,7 @@ export function getGarminAthleteBaseline(): GarminAthleteBaselineDto {
           status: baseline.heartRateZonesStatus ?? "unavailable",
           source:
             baseline.heartRateZonesStatus === "garmin_configured"
-              ? ("garmin_mcp" as const)
+              ? baseline.source
               : baseline.heartRateZonesStatus === "derived_from_garmin_max_hr"
                 ? ("derived" as const)
                 : null,
@@ -924,6 +925,7 @@ export function writeGarminBodyMetricsRefresh(input: {
           `insert into garmin_body_metrics (id, fetched_at, source, availability, weight_kg, height_cm, history_availability, history_range_start, history_range_end, history_count, history_source, current_weight_source, weigh_in_availability)
          values ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          on conflict(id) do update set fetched_at=excluded.fetched_at,
+           source=excluded.source,
            availability=excluded.availability,
            weight_kg=coalesce(excluded.weight_kg, garmin_body_metrics.weight_kg),
            height_cm=coalesce(excluded.height_cm, garmin_body_metrics.height_cm),
@@ -1020,7 +1022,7 @@ export function getGarminBodyMetrics(): GarminBodyMetricsDto {
     .get() as
     | {
         fetchedAt: number;
-        source: "garmin_mcp";
+        source: GarminDataSource;
         availability: Exclude<GarminBodyMetricsAvailability, "failed">;
         weightKg: number | null;
         heightCm: number | null;

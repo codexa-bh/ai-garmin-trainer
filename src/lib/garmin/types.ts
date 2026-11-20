@@ -75,6 +75,10 @@ export type NormalizedDailyHealth = {
   availability: "complete" | "partial" | "missing";
 };
 
+/** Which reader produced a stored fact. Existing `garmin_mcp` rows stay
+ * readable historical provenance; new official-reader writes use `garmin_official`. */
+export type GarminDataSource = "garmin_mcp" | "garmin_official";
+
 export type GarminAthleteBaselineAvailability =
   "complete" | "partial" | "unavailable" | "failed";
 
@@ -87,7 +91,7 @@ export type HeartRateZoneBoundaryDto = {
 
 type HeartRateZoneSetDto = {
   status: "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
-  source: "garmin_mcp" | "derived" | null;
+  source: GarminDataSource | "derived" | null;
   formula: string | null;
   boundaries: HeartRateZoneBoundaryDto[];
 };
@@ -104,14 +108,14 @@ export type GarminAthleteBaselineValues = {
 
 export type GarminAthleteBaselineSnapshot = {
   availability: Exclude<GarminAthleteBaselineAvailability, "failed">;
-  source: "garmin_mcp";
+  source: GarminDataSource;
   fetchedAt: Date;
   values: GarminAthleteBaselineValues;
 };
 
 export type GarminAthleteBaselineDto = {
   availability: GarminAthleteBaselineAvailability;
-  source: "garmin_mcp" | null;
+  source: GarminDataSource | null;
   fetchedAt: string | null;
   lastAttemptAt: string | null;
   preservedPrevious: boolean;
@@ -135,7 +139,7 @@ export type GarminBodyMetricValues = {
 export type GarminBodyWeightHistoryRow = {
   date: string;
   weightKg: number;
-  source: "garmin_mcp";
+  source: GarminDataSource;
   fetchedAt: Date;
 };
 
@@ -157,7 +161,7 @@ export type GarminWeighInAvailability =
 
 export type GarminBodyMetricsSnapshot = {
   availability: Exclude<GarminBodyMetricsAvailability, "failed">;
-  source: "garmin_mcp";
+  source: GarminDataSource;
   fetchedAt: Date;
   values: GarminBodyMetricValues;
   history: GarminBodyWeightHistorySummary;
@@ -168,7 +172,7 @@ export type GarminBodyMetricsSnapshot = {
 
 export type GarminBodyMetricsDto = {
   availability: GarminBodyMetricsAvailability;
-  source: "garmin_mcp" | null;
+  source: GarminDataSource | null;
   fetchedAt: string | null;
   lastAttemptAt: string | null;
   preservedPrevious: boolean;
@@ -177,6 +181,16 @@ export type GarminBodyMetricsDto = {
   currentWeightSource: GarminCurrentWeightSource;
   weighInAvailability: GarminWeighInAvailability;
 };
+
+/** Archive labels for payload classes read by the official reader. They map to
+ * the same logical daily-health kinds as the MCP tool names (see repository repair SQL). */
+export type GarminOfficialArchiveTool =
+  | "official_activity_list"
+  | "official_daily_summary"
+  | "official_sleep"
+  | "official_hrv"
+  | "official_body_battery"
+  | "official_activity_fit";
 
 export type GarminReadOperation =
   | "list_activities"

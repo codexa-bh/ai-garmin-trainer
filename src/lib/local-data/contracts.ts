@@ -53,7 +53,7 @@ export type ActivityDashboardHeartRateZoneTime = {
     | "insufficient_stream"
     | "missing_activity_zone_times";
   timeSource: "garmin_activity" | "local_stream" | null;
-  zoneSource: "garmin_mcp" | "derived" | null;
+  zoneSource: "garmin_mcp" | "garmin_official" | "derived" | null;
   zoneStatus:
     "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
   formula: string | null;

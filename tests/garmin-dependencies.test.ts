@@ -32,6 +32,7 @@ const allowed = new Set([
   "detail-types.ts",
   "athlete-normalize.ts",
   "body-metrics-normalize.ts",
+  "coverage-policy.ts",
   "detail-normalize.ts",
   "activity-hr-zone-time.ts",
 ]);

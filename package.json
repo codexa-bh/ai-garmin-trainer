@@ -72,6 +72,7 @@
     "ai": "7.0.29",
     "better-sqlite3": "12.11.1",
     "drizzle-orm": "0.45.2",
+    "fit-file-parser": "6.2.10",
     "next": "16.4.6",
     "react": "19.2.7",
     "react-dom": "19.2.7",

@@ -151,7 +151,7 @@ type AthleteBaselineAvailability =
 
 export type AthleteBaselinePayload = {
   availability: AthleteBaselineAvailability;
-  source: "garmin_mcp" | null;
+  source: "garmin_mcp" | "garmin_official" | null;
   fetchedAt: string | null;
   lastAttemptAt: string | null;
   preservedPrevious: boolean;
@@ -160,7 +160,7 @@ export type AthleteBaselinePayload = {
     heartRateZones: {
       status:
         "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
-      source: "garmin_mcp" | "derived" | null;
+      source: "garmin_mcp" | "garmin_official" | "derived" | null;
       formula: string | null;
       boundaries: Array<{
         zone: 1 | 2 | 3 | 4 | 5;
@@ -188,7 +188,7 @@ type BodyMetricsAvailability =
 
 export type BodyMetricsPayload = {
   availability: BodyMetricsAvailability;
-  source: "garmin_mcp" | null;
+  source: "garmin_mcp" | "garmin_official" | null;
   fetchedAt: string | null;
   lastAttemptAt: string | null;
   preservedPrevious: boolean;
@@ -450,7 +450,7 @@ export type ActivityDashboardPayload = {
       | "insufficient_stream"
       | "missing_activity_zone_times";
     timeSource: "garmin_activity" | "local_stream" | null;
-    zoneSource: "garmin_mcp" | "derived" | null;
+    zoneSource: "garmin_mcp" | "garmin_official" | "derived" | null;
     zoneStatus:
       "garmin_configured" | "derived_from_garmin_max_hr" | "unavailable";
     formula: string | null;
