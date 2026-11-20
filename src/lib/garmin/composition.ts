@@ -34,6 +34,12 @@ import {
   writeGarminAthleteBaselineRefresh,
   writeGarminBodyMetricsRefresh,
 } from "../db/repository";
+import {
+  recordExtraCoverage,
+  upsertActivityListExtras,
+  upsertDailyExtras,
+  upsertFitActivityExtras,
+} from "../db/extra-data-repository";
 import { createGarminImports } from "./sync-import";
 import { createOfficialReader } from "./official-reader";
 import {
@@ -89,6 +95,11 @@ const imports = createGarminImports({
     upsertActivityDetail,
     upsertActivityHrZoneTime,
     upsertDailyHealth,
+    upsertDailyExtras: (days) => upsertDailyExtras(days),
+    upsertActivityListExtras: (items) => upsertActivityListExtras(items),
+    upsertFitActivityExtras: (garminId, extras) =>
+      upsertFitActivityExtras(garminId, extras),
+    recordExtraCoverage: (entries) => recordExtraCoverage(entries),
     writeGarminAthleteBaselineRefresh,
     writeGarminBodyMetricsRefresh,
     getDetailAvailability: (garminId) =>

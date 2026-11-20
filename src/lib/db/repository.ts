@@ -1118,6 +1118,15 @@ export function upsertActivityDetail(detail: NormalizedActivityDetail): void {
     db.prepare("delete from activity_lap where garmin_id = ?").run(
       detail.garminId,
     );
+    // Lap zones belong to the replaced lap set. Removing them with their
+    // coverage row truthfully means "not yet refreshed" until the same detail
+    // import writes the new file's lap evidence.
+    db.prepare("delete from activity_lap_hr_zone_time where garmin_id = ?").run(
+      detail.garminId,
+    );
+    db.prepare(
+      "delete from garmin_data_coverage where data_group = 'lap_hr_zones' and subject_type = 'activity' and subject_id = ?",
+    ).run(detail.garminId);
     db.prepare("delete from activity_stream_point where garmin_id = ?").run(
       detail.garminId,
     );

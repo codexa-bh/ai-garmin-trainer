@@ -19,6 +19,7 @@ function completeHistoricalFoundation(db: Database.Database): void {
     create table if not exists trainer_profile (id text primary key, goals_json text not null default '[]', sports_json text not null default '[]', preferences_json text not null default '{}', constraints_json text not null default '[]', updated_at integer not null);
     create table if not exists activity (id text primary key, garmin_id text not null unique, sport text not null, started_at integer not null);
     create table if not exists daily_health (date text primary key, sleep_minutes integer);
+    create table if not exists activity_lap (garmin_id text not null, lap_number integer not null, primary key (garmin_id, lap_number));
     create table if not exists semantic_memory (id text primary key, text text not null, status text not null);
   `);
 }

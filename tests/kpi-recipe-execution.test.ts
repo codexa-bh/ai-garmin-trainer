@@ -291,3 +291,40 @@ it("changes the imported-data basis on relevant writes and settlement only", asy
   const run = await execution.run([], window);
   expect(run.outcomes).toEqual([]);
 });
+
+it("sees additional evidence relations in recipes and their freshness basis", async () => {
+  const insert = await load();
+  insert.run("y", "y", "Hike", "hiking", at(12), 9000, 1);
+  insert.run("x", "x", "Other week", "hiking", at(2), 9000, 1);
+  const { createKpiRecipeExecution } =
+    await import("../src/lib/ai/analytics/recipe-execution");
+  const execution = createKpiRecipeExecution();
+  const first = execution.basis(window);
+  // A backfilled child fact outside the window does not move this week's basis.
+  db.prepare(
+    "insert into activity_extra_metrics(garmin_id,body_battery_delta,fetched_at) values ('x',-5,1)",
+  ).run();
+  expect(execution.basis(window)).toBe(first);
+  db.prepare(
+    "insert into activity_lap_hr_zone_time(garmin_id,lap_number,bucket,zone,bucket_kind,seconds,fetched_at) values ('y',1,2,2,'zone',600,1)",
+  ).run();
+  const second = execution.basis(window);
+  expect(second).not.toBe(first);
+  db.prepare(
+    "insert into daily_stress(date,high_seconds,fetched_at) values ('2026-11-10',3600,1)",
+  ).run();
+  expect(execution.basis(window)).not.toBe(second);
+  const run = await execution.run(
+    [
+      {
+        conceptId: "zone2",
+        sql: "select coalesce(sum(z.seconds), 0) as zone2 from activity a join activity_lap_hr_zone_time z on z.garmin_id = a.garmin_id where z.bucket_kind = 'zone' and z.zone = 2 and a.started_at >= :week_start_ms and a.started_at < :week_end_ms",
+        tracks: [{ key: "zone2", signature: "s" }],
+      },
+    ],
+    window,
+  );
+  expect(run.outcomes).toMatchObject([
+    { conceptId: "zone2", status: "measured" },
+  ]);
+});

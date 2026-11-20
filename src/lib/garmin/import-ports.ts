@@ -18,6 +18,12 @@ import type {
 import type { NormalizedActivityHrZoneTime } from "./activity-hr-zone-time";
 import type { DayCoverageEvidence } from "./coverage-policy";
 import type { GarminDataSource } from "./types";
+import type {
+  ActivityListExtras,
+  DailyExtras,
+  ExtraCoverage,
+  FitActivityExtras,
+} from "./extra-types";
 
 // Named read capabilities, not an arbitrary MCP tool dispatcher. Wire parsing,
 // FIT process supplements and redacted raw archival belong to the outer reader.
@@ -37,9 +43,12 @@ export interface GarminReader {
    * Only the official reader provides it; its presence selects coverage-based
    * finality in place of primary-upload finality.
    */
-  dailyHealthEvidence?(
-    date: string,
-  ): Promise<{ day: NormalizedDailyHealth; coverage: DayCoverageEvidence }>;
+  dailyHealthEvidence?(date: string): Promise<{
+    day: NormalizedDailyHealth;
+    coverage: DayCoverageEvidence;
+    /** Additional groups translated from the same range replies. */
+    extras?: DailyExtras;
+  }>;
   start(): Promise<void>;
   close(): void;
   profile(): Promise<unknown>;
@@ -52,6 +61,8 @@ export interface GarminReader {
     page: number,
   ): Promise<{
     activities: NormalizedActivity[];
+    /** Additional list-row evidence for the same activities. */
+    extras?: ActivityListExtras[];
     hasMore: boolean;
     nextPage?: number;
   }>;
@@ -69,6 +80,8 @@ export interface GarminReader {
   activityDetail(garminId: string): Promise<{
     recognized: boolean;
     detail: NormalizedActivityDetail;
+    /** Lap/session dynamics and lap HR zones from the same decoded file. */
+    fitExtras?: FitActivityExtras;
   }>;
   activityHrZoneTime(
     garminId: string,
@@ -104,7 +117,18 @@ export interface BaselineStore {
   }): void;
 }
 
-export interface DetailStore {
+/** Optional so legacy test stores remain valid; production wires all three. */
+interface ExtraDataStore {
+  upsertDailyExtras?(days: DailyExtras[]): number;
+  upsertActivityListExtras?(items: ActivityListExtras[]): number;
+  upsertFitActivityExtras?(
+    garminId: string,
+    extras: FitActivityExtras,
+  ): { lapsMatched: boolean };
+  recordExtraCoverage?(entries: ExtraCoverage[]): void;
+}
+
+export interface DetailStore extends ExtraDataStore {
   upsertActivities(activities: NormalizedActivity[]): number;
   listActivityIdsNeedingEffortBackfill(limit: number): string[];
   upsertActivityHrZoneTime(value: NormalizedActivityHrZoneTime): void;

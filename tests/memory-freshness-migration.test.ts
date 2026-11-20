@@ -105,12 +105,13 @@ it("preserves every populated authored schema24 table through25, changes effecti
   const before = tables();
   expect(migrateDatabase(db)).toMatchObject({
     fromVersion: 24,
-    toVersion: 28,
+    toVersion: 29,
     applied: [
       "25:memory_freshness_without_erasure",
       "26:structured_weekly_kpis",
       "27:memory_survives_source_deletion",
       "28:weekly_kpi_measurements",
+      "29:garmin_extra_data",
     ],
     integrity: "ok",
   });
@@ -121,6 +122,18 @@ it("preserves every populated authored schema24 table through25, changes effecti
     weekly_kpi_track: [],
     weekly_kpi_recipe: [],
     weekly_kpi_measurement: [],
+    // Schema29 adds empty Garmin evidence relations only.
+    daily_sleep_detail: [],
+    daily_sleep_score_component: [],
+    daily_hrv_detail: [],
+    vo2_max_reading: [],
+    daily_body_battery: [],
+    body_battery_event: [],
+    daily_stress: [],
+    activity_extra_metrics: [],
+    activity_split_summary: [],
+    activity_lap_hr_zone_time: [],
+    garmin_data_coverage: [],
     summary_debug_revision: [],
     summary_debug_event: [],
     conversation_history_control: (

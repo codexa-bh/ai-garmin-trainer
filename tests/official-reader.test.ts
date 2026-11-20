@@ -83,16 +83,18 @@ describe("official daily health", () => {
     const { reader, api } = readerFor(account);
     reader.planDailyHealth!(dates);
     for (const date of dates) await reader.dailyHealthEvidence!(date);
-    // 10 days cost 4 range reads plus 1 token exchange, not 10×3 per-day calls.
-    expect(api.requests).toHaveLength(5);
+    // 10 days cost 5 range reads (VO2 shares the block) plus 1 token exchange,
+    // not per-day calls.
+    expect(api.requests).toHaveLength(6);
     expect(reader.requestStats()).toMatchObject({
-      total: 5,
+      total: 6,
       byEndpoint: {
         token: 1,
         "daily-summaries": 1,
         sleep: 1,
         hrv: 1,
         "body-battery": 1,
+        "vo2-max": 1,
       },
     });
   });
@@ -473,7 +475,7 @@ describe("cancellation and budget", () => {
     });
     await reader.dailyHealthEvidence!("2026-11-18");
     expect(admit).toHaveBeenCalledTimes(api.requests.length);
-    expect(admit).toHaveBeenCalledTimes(5);
+    expect(admit).toHaveBeenCalledTimes(6);
     expect(wallEnd("2026-11-18")).toBeTruthy();
   });
 

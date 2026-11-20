@@ -14,7 +14,10 @@ import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { LATEST_SCHEMA_VERSION } from "../src/lib/db/migrations";
-import { removeGlobalSummaryFixtureSchema } from "./conversation-migration-fixture";
+import {
+  removeGarminExtraFixtureSchema,
+  removeGlobalSummaryFixtureSchema,
+} from "./conversation-migration-fixture";
 
 const root = process.cwd();
 const directories: string[] = [];
@@ -193,7 +196,7 @@ describe("explicit non-serving source setup", () => {
     expect(existsSync(`${target}.trainer-writer`)).toBe(false);
   }, 20000);
 
-  it("rehearses populated schema27 to28 with online copies, preserved content and exclusive compatible restore", async () => {
+  it("rehearses populated schema28 to29 with online copies, preserved content and exclusive compatible restore", async () => {
     const cwd = directory();
     const original = join(cwd, "authored-original.sqlite");
     const target = join(cwd, "rehearsal.sqlite");
@@ -201,9 +204,16 @@ describe("explicit non-serving source setup", () => {
     command("scripts/migrate.ts", cwd, original);
     const source = new Database(original);
     source.pragma("journal_mode=WAL");
-    // Migration28 adds exactly these two tables; removing them reconstructs27.
+    // Migration29 is additive Garmin evidence; removing it reconstructs28.
+    removeGarminExtraFixtureSchema(source);
     source.exec(
-      "drop table weekly_kpi_recipe; drop table weekly_kpi_measurement; update app_metadata set value='27' where key='schema_version'",
+      "insert into activity(id,garmin_id,sport,started_at,steps) values('garmin-9001','9001','running',1,4321)",
+    );
+    source.exec(
+      "insert into activity_lap(garmin_id,lap_number,start_time,avg_heart_rate) values('9001',1,'2026-11-09T07:00:00.000Z',141)",
+    );
+    source.exec(
+      "insert into daily_health(date,sleep_minutes,hrv_ms,stress_avg) values('2026-11-09',433,52,28)",
     );
     source.exec(
       "insert into conversation(id,title,created_at,updated_at) values('release-chat','Authored continuity',1,1)",
@@ -230,8 +240,8 @@ describe("explicit non-serving source setup", () => {
     const result = command("scripts/migrate.ts", cwd, target);
     expect(result).toMatchObject({
       ok: true,
-      schemaVersionBefore: 27,
-      schemaVersionAfter: 28,
+      schemaVersionBefore: 28,
+      schemaVersionAfter: 29,
       integrity: "ok",
     });
     const upgraded = new Database(target, { readonly: true });
@@ -243,16 +253,32 @@ describe("explicit non-serving source setup", () => {
       "training_plan",
       "weekly_artifact",
       "weekly_kpi",
+      "activity",
+      "daily_health",
     ]) {
       expect(upgraded.prepare(`select * from ${table}`).all()).toEqual(
         saved.prepare(`select * from ${table}`).all(),
       );
     }
-    expect(upgraded.pragma("foreign_key_check")).toEqual([]);
+    // Existing lap facts survive; the added FIT dynamics columns start unknown.
     expect(
       upgraded
-        .prepare("select count(*) as n from weekly_kpi_measurement")
-        .get(),
+        .prepare(
+          "select lap_number, start_time, avg_heart_rate, fit_avg_cadence_cpm from activity_lap",
+        )
+        .all(),
+    ).toEqual([
+      {
+        lap_number: 1,
+        start_time: "2026-11-09T07:00:00.000Z",
+        avg_heart_rate: 141,
+        fit_avg_cadence_cpm: null,
+      },
+    ]);
+    expect(upgraded.pragma("foreign_key_check")).toEqual([]);
+    // No coverage row: history is "not yet backfilled", never empty/complete.
+    expect(
+      upgraded.prepare("select count(*) as n from garmin_data_coverage").get(),
     ).toEqual({ n: 0 });
     upgraded.close();
     saved.close();
@@ -264,7 +290,7 @@ describe("explicit non-serving source setup", () => {
     expect(logicalDatabase(restore)).toEqual(before);
     expect(logicalDatabase(original)).toEqual(before);
     expect(command("scripts/db-status.ts", cwd, restore)).toMatchObject({
-      schemaVersion: 27,
+      schemaVersion: 28,
       needsMigration: true,
     });
     expect(existsSync(`${target}.trainer-writer`)).toBe(false);

@@ -130,6 +130,22 @@ class AuthoredPersonalApiFixture(unittest.TestCase):
         status, _ = self.request('GET', '/download-service/files/activity/999', bearer)
         self.assertEqual(status, 404)
 
+    def test_vo2_is_sparse_dated_walking_and_range_bounded(self):
+        from datetime import datetime, timedelta, timezone
+
+        today = datetime.now(timezone.utc).date()
+        bearer = {'Authorization': 'Bearer ' + self.token()}
+        start = (today - timedelta(days=89)).isoformat()
+        status, body = self.request(
+            'GET', f'/metrics-service/metrics/maxmet/daily/{start}/{today.isoformat()}', bearer
+        )
+        self.assertEqual(status, 200)
+        rows = json.loads(body)
+        self.assertTrue(1 <= len(rows) <= 4)
+        self.assertTrue(all(row['cycling'] is None for row in rows))
+        self.assertEqual({row['generic']['sport'] for row in rows}, {'WALKING'})
+        self.assertEqual(self.fixture.counts()['vo2-max'], 1)
+
     def test_weigh_ins_are_authored_and_range_bounded(self):
         from datetime import datetime, timedelta, timezone
 

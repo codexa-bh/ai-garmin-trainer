@@ -26,6 +26,12 @@ import {
 } from "./official-fit";
 import { FitAdmissionError } from "./official-zip";
 import {
+  officialActivityListExtras,
+  officialDailyExtras,
+  parseVo2Range,
+} from "./official-extra-normalize";
+import type { Vo2Reading } from "./extra-types";
+import {
   listHrZoneSeconds,
   officialActivityPayload,
   officialBodyHistory,
@@ -141,6 +147,10 @@ export function createOfficialReader(
   // ---- operation-local, per-reader caches (never shared across accounts) ----
   let planned: string[] = [];
   const ranges = new Map<string, Promise<Maps>>();
+  const vo2Ranges = new Map<
+    string,
+    Promise<Map<string, Vo2Reading[]> | "failed">
+  >();
   const archived = new Set<string>();
   const listZones = new Map<string, number[]>();
   const decodes = new Map<string, Promise<DecodedOrganic>>();
@@ -223,7 +233,31 @@ export function createOfficialReader(
         end,
       ),
     );
-    return { summaries, sleep, hrv, bodyBattery };
+    // Sparse dated VO2 shares the planned block. A non-fatal failure is cached
+    // as failed coverage for this block, never retried per date or read as empty.
+    let vo2 = vo2Ranges.get(key);
+    if (!vo2) {
+      vo2 = (async () => {
+        try {
+          return parseVo2Range(
+            await client.json(
+              `/metrics-service/metrics/maxmet/daily/${start}/${end}`,
+              undefined,
+              "vo2-max",
+            ),
+            start,
+            end,
+          );
+        } catch (error) {
+          if (fatal(error)) throw error;
+          return "failed" as const;
+        }
+      })();
+      vo2Ranges.set(key, vo2);
+      vo2.catch(() => vo2Ranges.delete(key));
+    }
+    const vo2Readings = await vo2;
+    return { summaries, sleep, hrv, bodyBattery, vo2: vo2Readings };
   }
 
   function archiveDay(
@@ -375,11 +409,13 @@ export function createOfficialReader(
         });
         const seen = new Set<string>();
         const activities: NormalizedActivity[] = [];
+        const extras = [];
         for (const item of list) {
           const activity = normalizedList(item);
           if (seen.has(activity.garminId)) continue;
           seen.add(activity.garminId);
           activities.push(activity);
+          extras.push(officialActivityListExtras(activity.garminId, item));
           const zones = listHrZoneSeconds(item);
           if (zones) listZones.set(activity.garminId, zones);
         }
@@ -387,6 +423,7 @@ export function createOfficialReader(
         const hasMore = list.length >= limit;
         return {
           activities,
+          extras,
           hasMore,
           ...(hasMore ? { nextPage: page + 1 } : {}),
         };
@@ -469,7 +506,14 @@ export function createOfficialReader(
         const coverage: DayCoverageEvidence = summaryCoverageEvidence(
           sources.summaries.get(date),
         );
-        return { day, coverage };
+        const extras = officialDailyExtras(date, {
+          summary: sources.summaries.get(date),
+          sleep: sources.sleep.get(date),
+          hrv: sources.hrv.get(date),
+          vo2:
+            sources.vo2 === "failed" ? "failed" : (sources.vo2.get(date) ?? []),
+        });
+        return { day, coverage, extras };
       });
     },
     async dailyHealth(date) {
@@ -493,6 +537,7 @@ export function createOfficialReader(
         return {
           recognized: true,
           detail: normalizeActivityDetail(garminId, fit.detail),
+          fitExtras: fit.extras,
         };
       }),
 

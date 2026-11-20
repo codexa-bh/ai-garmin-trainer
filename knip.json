@@ -4,6 +4,7 @@
     "eslint.config.mjs!",
     "scripts/architecture-check.mjs!",
     "scripts/backfill-activity-effort.ts!",
+    "scripts/backfill-garmin-extra.ts!",
     "scripts/backfill-weekly-kpis.ts!",
     "scripts/ci/seed.ts!",
     "scripts/db-status.ts!",

@@ -171,6 +171,12 @@ export const activityLap = sqliteTable("activity_lap", {
   elevationLossMeters: real("elevation_loss_meters"),
   avgPowerWatts: real("avg_power_watts"),
   normalizedPowerWatts: real("normalized_power_watts"),
+  fitAvgCadenceCpm: real("fit_avg_cadence_cpm"),
+  fitMaxCadenceCpm: real("fit_max_cadence_cpm"),
+  fitTotalCycles: real("fit_total_cycles"),
+  fitAvgVerticalOscillationCm: real("fit_avg_vertical_oscillation_cm"),
+  fitAvgStanceTimeMs: real("fit_avg_stance_time_ms"),
+  fitAvgStepLengthM: real("fit_avg_step_length_m"),
 });
 
 export const activityStreamPoint = sqliteTable("activity_stream_point", {

@@ -39,6 +39,28 @@ const BASIS_SQL = [
   "select id, finished_at from main.sync_run where status = 'completed' order by finished_at desc, id desc limit 1",
   `select * from main.activity where started_at >= :week_start_ms and started_at < :week_end_ms order by garmin_id limit ${RECIPE_LIMITS.basisRows}`,
   `select * from main.daily_health where date >= :week_start_date and date <= :week_last_date order by date limit ${RECIPE_LIMITS.basisRows}`,
+  // Additional evidence relations: a backfill or refresh of these child facts
+  // must not leave saved measurements falsely current.
+  ...[
+    "daily_sleep_detail",
+    "daily_sleep_score_component",
+    "daily_hrv_detail",
+    "vo2_max_reading",
+    "daily_body_battery",
+    "body_battery_event",
+    "daily_stress",
+  ].map(
+    (table) =>
+      `select * from main.${table} where date >= :week_start_date and date <= :week_last_date order by 1, 2 limit ${RECIPE_LIMITS.basisRows}`,
+  ),
+  ...[
+    "activity_extra_metrics",
+    "activity_split_summary",
+    "activity_lap_hr_zone_time",
+  ].map(
+    (table) =>
+      `select c.* from main.${table} c join main.activity a on a.garmin_id = c.garmin_id where a.started_at >= :week_start_ms and a.started_at < :week_end_ms order by 1, 2, 3 limit ${RECIPE_LIMITS.basisRows}`,
+  ),
 ];
 
 // Runs in a fresh child with an empty environment. A watchdog thread ends the

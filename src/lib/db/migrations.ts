@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 
-export const LATEST_SCHEMA_VERSION = 28;
+export const LATEST_SCHEMA_VERSION = 29;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -34,6 +34,28 @@ const WEEKLY_SCHEMA_SQL = [
 const WEEKLY_KPI_MEASUREMENT_SQL = [
   `create table weekly_kpi_recipe (concept_id text not null, version integer not null, recipe_json text not null check(json_valid(recipe_json)), primary key(concept_id,version))`,
   `create table weekly_kpi_measurement (week_start text primary key, state_json text not null check(json_valid(state_json)))`,
+];
+
+// Additive Garmin evidence relations. Repeated facts use small keyed child
+// tables so analytical `select *` stays within the guarded column bound.
+const GARMIN_EXTRA_DATA_SQL = [
+  `create table daily_sleep_detail (date text primary key, start_gmt_ms integer, end_gmt_ms integer, start_local text, end_local text, utc_offset_minutes integer, awake_count integer, avg_sleep_stress real, avg_heart_rate real, unmeasurable_seconds integer, window_confirmation_type text, overall_score integer, overall_qualifier text, feedback_code text, insight_code text, personalized_insight_code text, fetched_at integer not null)`,
+  `create table daily_sleep_score_component (date text not null, component text not null check(component in ('overall','deep','light','rem','total_duration','stress','awake_count','restlessness')), value integer, qualifier text, optimal_start real, optimal_end real, ideal_start_seconds real, ideal_end_seconds real, primary key (date, component))`,
+  `create table daily_hrv_detail (date text primary key, weekly_avg_ms real, last_night_5min_high_ms real, baseline_low_upper_ms real, baseline_balanced_low_ms real, baseline_balanced_upper_ms real, baseline_marker_value real, feedback_code text, fetched_at integer not null)`,
+  `create table vo2_max_reading (date text not null, branch text not null check(branch in ('generic','cycling','rowing')), vo2_max real, vo2_max_precise real, sport text, sub_sport text, fetched_at integer not null, primary key (date, branch))`,
+  `create table daily_body_battery (date text primary key, min_level integer, max_level integer, charged integer, drained integer, latest_level integer, end_of_day_level integer, feedback_level integer, feedback_at_gmt text, feedback_short_code text, feedback_long_code text, end_of_day_feedback_level integer, end_of_day_feedback_at_gmt text, end_of_day_feedback_short_code text, end_of_day_feedback_long_code text, fetched_at integer not null)`,
+  `create table body_battery_event (date text not null, event_key text not null, event_type text, start_gmt text, start_local text, duration_seconds real, impact integer, feedback_type text, short_feedback text, source_activity_id text, primary key (date, event_key))`,
+  `create table daily_stress (date text primary key, avg_level integer, max_level integer, qualifier text, total_seconds real, rest_seconds real, activity_seconds real, uncategorized_seconds real, low_seconds real, medium_seconds real, high_seconds real, rest_fraction real, activity_fraction real, uncategorized_fraction real, low_fraction real, medium_fraction real, high_fraction real, fetched_at integer not null)`,
+  `create table activity_extra_metrics (garmin_id text primary key, body_battery_delta integer, avg_run_cadence_spm real, max_run_cadence_spm real, avg_double_cadence_spm real, max_double_cadence_spm real, avg_fractional_cadence_spm real, max_fractional_cadence_spm real, avg_stride_length_cm real, avg_vertical_oscillation_cm real, avg_ground_contact_time_ms real, avg_ground_contact_balance_pct real, avg_vertical_ratio_pct real, avg_grade_adjusted_speed_mps real, fit_avg_cadence_cpm real, fit_max_cadence_cpm real, fit_total_cycles real, fit_avg_vertical_oscillation_cm real, fit_avg_stance_time_ms real, fit_avg_stance_time_balance_pct real, fit_avg_vertical_ratio_pct real, fit_avg_step_length_m real, fit_avg_grade_adjusted_speed_mps real, fetched_at integer not null)`,
+  `create table activity_split_summary (garmin_id text not null, split_type text not null check(split_type in ('SKI_RUN_SPLIT','SKI_LIFT_SPLIT','ASCENT_SPLIT','DESCENT_SPLIT','TRANSITION')), split_count integer, duration_sec real, distance_meters real, avg_speed_mps real, max_speed_mps real, total_ascent_meters real, elevation_loss_meters real, avg_elevation_gain_meters real, max_elevation_gain_meters real, max_distance_meters real, num_falls integer, num_climb_sends integer, fetched_at integer not null, primary key (garmin_id, split_type))`,
+  `create table activity_lap_hr_zone_time (garmin_id text not null, lap_number integer not null, bucket integer not null check(bucket >= 0), zone integer check(zone between 1 and 5), bucket_kind text not null check(bucket_kind in ('below','zone','above')), seconds real not null check(seconds >= 0), lower_bpm integer, upper_bpm integer, calc_method text, source_max_heart_rate integer, source_resting_heart_rate integer, fetched_at integer not null, primary key (garmin_id, lap_number, bucket))`,
+  `alter table activity_lap add column fit_avg_cadence_cpm real`,
+  `alter table activity_lap add column fit_max_cadence_cpm real`,
+  `alter table activity_lap add column fit_total_cycles real`,
+  `alter table activity_lap add column fit_avg_vertical_oscillation_cm real`,
+  `alter table activity_lap add column fit_avg_stance_time_ms real`,
+  `alter table activity_lap add column fit_avg_step_length_m real`,
+  `create table garmin_data_coverage (data_group text not null check(data_group in ('sleep','hrv','vo2_max','body_battery','stress','activity_body_battery','running_dynamics','snowboard_splits','lap_hr_zones')), subject_type text not null check(subject_type in ('date','activity')), subject_id text not null, status text not null check(status in ('populated','empty','unavailable','failed')), reason text, updated_at integer not null, primary key (data_group, subject_type, subject_id))`,
 ];
 
 const TRAINING_PLAN_TABLE_SQL = `create table if not exists training_plan (id text primary key default 'default', title text not null, content_markdown text not null, revised_at integer not null, updated_at integer not null)`;
@@ -474,6 +496,13 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     name: "weekly_kpi_measurements",
     // Additive measurement-only state; assessments and points are untouched.
     statements: WEEKLY_KPI_MEASUREMENT_SQL,
+  },
+  {
+    version: 29,
+    name: "garmin_extra_data",
+    // Additive only: existing activity/health/lap facts are not rewritten and
+    // absent coverage rows mean not yet backfilled.
+    statements: GARMIN_EXTRA_DATA_SQL,
   },
 ];
 

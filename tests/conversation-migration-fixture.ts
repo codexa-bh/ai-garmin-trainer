@@ -2,8 +2,43 @@ import { SCHEMA_MIGRATIONS } from "./historical-schema-fixture";
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 
+/** Reconstruct exactly schema28 on an exclusive authored fixture. */
+export function removeGarminExtraFixtureSchema(db: Database.Database): void {
+  if (
+    !db
+      .prepare("select 1 from sqlite_master where name='garmin_data_coverage'")
+      .get()
+  )
+    return;
+  for (const table of [
+    "daily_sleep_detail",
+    "daily_sleep_score_component",
+    "daily_hrv_detail",
+    "vo2_max_reading",
+    "daily_body_battery",
+    "body_battery_event",
+    "daily_stress",
+    "activity_extra_metrics",
+    "activity_split_summary",
+    "activity_lap_hr_zone_time",
+    "garmin_data_coverage",
+  ])
+    db.exec(`drop table ${table}`);
+  for (const column of [
+    "fit_avg_cadence_cpm",
+    "fit_max_cadence_cpm",
+    "fit_total_cycles",
+    "fit_avg_vertical_oscillation_cm",
+    "fit_avg_stance_time_ms",
+    "fit_avg_step_length_m",
+  ])
+    db.exec(`alter table activity_lap drop column ${column}`);
+  db.exec("update app_metadata set value='28' where key='schema_version'");
+}
+
 /** Reconstruct exactly schema27 on an exclusive authored fixture. */
 function removeMeasurementFixtureSchema(db: Database.Database): void {
+  removeGarminExtraFixtureSchema(db);
   if (
     !db
       .prepare("select 1 from sqlite_master where name='weekly_kpi_recipe'")

@@ -54,6 +54,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "backfill:weekly-kpis": "tsx scripts/backfill-weekly-kpis.ts",
+    "backfill:garmin-extra": "tsx scripts/backfill-garmin-extra.ts",
     "reconcile:weekly-kpi-sources": "tsx scripts/reconcile-weekly-kpi-sources.ts",
     "map:weekly-kpi-points": "tsx scripts/map-weekly-kpi-points.ts",
     "deps:evidence": "tsx scripts/dependency-evidence.ts",

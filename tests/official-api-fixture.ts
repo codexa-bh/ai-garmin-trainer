@@ -29,6 +29,12 @@ export type AccountDay = {
   /** Hours of the day covered; 24 is a whole day, 0 is a source-empty day. */
   hours: number;
   steps?: number | null;
+  /** Authored additional evidence merged into the summary/sleep/HRV rows. */
+  extra?: {
+    summary?: Record<string, unknown>;
+    sleep?: Record<string, unknown>;
+    hrv?: Record<string, unknown>;
+  };
 };
 export type Account = {
   days: Map<string, AccountDay>;
@@ -37,6 +43,8 @@ export type Account = {
   weighIns: Array<{ calendarDate: string; grams: number }>;
   failPaths: Map<string, number>;
   nullPaths: Set<string>;
+  /** Authored sparse VO2 rows (`{generic?, cycling?}` objects with dates). */
+  vo2: Array<Record<string, unknown>>;
 };
 
 export function newAccount(): Account {
@@ -47,6 +55,7 @@ export function newAccount(): Account {
     weighIns: [],
     failPaths: new Map(),
     nullPaths: new Set(),
+    vo2: [],
   };
 }
 
@@ -73,8 +82,16 @@ export function summaryRow(date: string, day: AccountDay | undefined) {
       : null,
     heartRate: covered ? { restingValue: 52 } : null,
     intensityMinutes: covered ? { moderate: 20, vigorous: 5 } : null,
-    stress: covered ? { avgLevel: 31 } : null,
-    bodyBattery: covered ? { latestValue: 40, maxValue: 90 } : null,
+    stress: covered
+      ? { avgLevel: 31, ...(day?.extra?.summary?.stress ?? {}) }
+      : null,
+    bodyBattery: covered
+      ? {
+          latestValue: 40,
+          maxValue: 90,
+          ...(day?.extra?.summary?.bodyBattery ?? {}),
+        }
+      : null,
   };
 }
 
@@ -128,7 +145,10 @@ export function accountApi(account: Account) {
       return json(
         eachDay(startDate, endDate)
           .filter((date) => (account.days.get(date)?.hours ?? 0) > 0)
-          .map(sleepRow),
+          .map((date) => ({
+            ...sleepRow(date),
+            ...(account.days.get(date)?.extra?.sleep ?? {}),
+          })),
       );
     },
     "GET /hrv-service/hrv/daily/*": (request) => {
@@ -140,6 +160,7 @@ export function accountApi(account: Account) {
             calendarDate: date,
             lastNightAvg: 55,
             status: "BALANCED",
+            ...(account.days.get(date)?.extra?.hrv ?? {}),
           })),
       });
     },
@@ -165,6 +186,22 @@ export function accountApi(account: Account) {
               [Date.parse(`${date}T22:00:00Z`), 25],
             ],
           })),
+      );
+    },
+    "GET /metrics-service/metrics/maxmet/daily/*": (request) => {
+      const failure = account.failPaths.get("vo2");
+      if (failure) return json({ error: "x" }, failure);
+      const [, , , , , from, to] = request.path.split("/");
+      return json(
+        account.vo2.filter((entry) => {
+          const day = String(
+            (entry.generic as { calendarDate?: string } | undefined)
+              ?.calendarDate ??
+              (entry.cycling as { calendarDate?: string } | undefined)
+                ?.calendarDate,
+          );
+          return day >= from && day <= to;
+        }),
       );
     },
     "GET /activitylist-service/activities/search/activities": (request) => {

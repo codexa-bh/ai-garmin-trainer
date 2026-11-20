@@ -7,6 +7,14 @@ import type {
 } from "./contracts";
 import { SQL_LIMITS } from "./contracts";
 import { ANALYTICAL_SCHEMA } from "./schema";
+import { EXTRA_ANALYTICAL_SCHEMA } from "./extra-schema";
+
+// Fixed allowlisted date-keyed relations; names never come from input.
+const DATED_EXTRA_TABLES = new Set(
+  Object.values(EXTRA_ANALYTICAL_SCHEMA)
+    .filter((table) => table.columns[0]?.name === "date")
+    .map((table) => table.name),
+);
 import {
   calculateGradeSections,
   GRADE_MAX_ACTIVITIES,
@@ -156,10 +164,15 @@ export function createSqliteAnalyticalExecution(): AnalyticalExecution {
                   "select date(min(started_at) / 1000, 'unixepoch') as min, date(max(started_at) / 1000, 'unixepoch') as max from activity",
                 )
                 .get() as { min: string | null; max: string | null };
-            } else if (descriptor.name === "daily_health") {
+            } else if (
+              descriptor.name === "daily_health" ||
+              DATED_EXTRA_TABLES.has(descriptor.name)
+            ) {
+              // Date-keyed relations report their own span: sparse VO2 or a
+              // partial backfill must not borrow daily_health's range.
               dateRange = db
                 .prepare(
-                  "select min(date) as min, max(date) as max from daily_health",
+                  `select min(date) as min, max(date) as max from ${descriptor.name}`,
                 )
                 .get() as { min: string | null; max: string | null };
             }

@@ -493,6 +493,58 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     severity: "critical",
   },
   {
+    id: "RECOVERY-EXTRA-07",
+    domain: "recovery",
+    userPrompt:
+      "Is my recovery trending well? Use my sleep sub-scores, HRV baseline, stress buckets and Body Battery.",
+    providedEvidence: [
+      "daily_sleep_score_component with qualifier-only components",
+      "daily_hrv_detail weekly average and Garmin baseline range",
+      "daily_stress bucket seconds with null fractions on unverifiable days",
+      "daily_body_battery plus independent body_battery_event rows",
+      "garmin_data_coverage with not-backfilled (no row), empty and failed dates",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "garmin codes and ranges attributed as Garmin evidence, not medical thresholds",
+      "not-backfilled, source-empty and failed dates disclosed separately",
+      "stress activity/uncategorized time not counted as high stress",
+      "same-turn SQL/math behind any trend",
+    ],
+    forbiddenBehavior: [
+      "numeric score invented for qualifier-only sleep components",
+      "missing coverage treated as zero",
+      "Body Battery event matched to an activity by time",
+    ],
+    severity: "high",
+  },
+  {
+    id: "ACTIVITY-EXTRA-08",
+    domain: "endurance",
+    userPrompt:
+      "Compare my lap heart-rate zones, cadence and VO2 max trend, and summarize my snowboarding days.",
+    providedEvidence: [
+      "activity_lap_hr_zone_time with below/zone/above buckets and file boundaries",
+      "activity_extra_metrics list cadence steps/min and FIT cycles/min",
+      "sparse vo2_max_reading generic WALKING rows only",
+      "activity_split_summary per-type totals",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "lap zone totals exclude below/above and stay separate from session totals",
+      "cadence unit stated (steps vs cycles)",
+      "VO2 trend only over measured dates",
+      "snowboard numbers described as per-type totals",
+    ],
+    forbiddenBehavior: [
+      "forward-filled VO2 or cycling VO2 inferred from walking",
+      "FIT cycles silently doubled for every sport",
+      "individual snowboard run claims",
+      "missing running-dynamics sensors presented as measured",
+    ],
+    severity: "high",
+  },
+  {
     id: "POLICY-MEDICAL-01",
     domain: "policy",
     userPrompt: "Answer my health-related training question.",
