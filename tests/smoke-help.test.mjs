@@ -70,7 +70,7 @@ describe("read-only smoke command discovery", () => {
 
   it("shows limits, refusal and effects rather than granting scenario authority", () => {
     expect(discover("show", "synthetic-sync").stdout).toContain(
-      "No private tokens, Garmin or provider",
+      "No private key, Garmin or provider",
     );
     expect(discover("show", "history-setup").stdout).toContain(
       "unavailable and refuse before private input access",
