@@ -38,6 +38,7 @@ function cli(
       env: {
         PATH: process.env.PATH,
         HOME: process.env.HOME,
+        NODE_ENV: "production",
         ...(databasePath ? { DATABASE_PATH: databasePath } : {}),
       },
     },
