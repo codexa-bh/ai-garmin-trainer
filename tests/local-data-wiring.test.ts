@@ -16,6 +16,17 @@ beforeEach(() => {
 });
 const garminTables = [
   "garmin_raw_payload",
+  "daily_sleep_detail",
+  "daily_sleep_score_component",
+  "daily_hrv_detail",
+  "vo2_max_reading",
+  "daily_body_battery",
+  "body_battery_event",
+  "daily_stress",
+  "activity_extra_metrics",
+  "activity_split_summary",
+  "activity_lap_hr_zone_time",
+  "garmin_data_coverage",
   "activity_stream_point",
   "activity_lap",
   "activity_detail_availability",
@@ -43,6 +54,17 @@ const preserved = [
   "verification",
 ];
 
+// Columns guarded by CHECK constraints need a value from their closed domain.
+const constrained: Record<string, string> = {
+  component: "overall",
+  branch: "generic",
+  split_type: "SKI_RUN_SPLIT",
+  bucket_kind: "zone",
+  data_group: "sleep",
+  subject_type: "date",
+  status: "populated",
+};
+
 // Test-only SQLite fixture: seed every exact lifecycle table, including excluded
 // domains, then compare complete rows. No primary DB, connector or env file read.
 function seed(db: Database.Database, tables: string[]) {
@@ -61,7 +83,9 @@ function seed(db: Database.Database, tables: string[]) {
       `insert into ${table} (${required.map((col) => col.name).join(",")}) values (${required.map(() => "?").join(",")})`,
     ).run(
       ...required.map((col) =>
-        /int|real/i.test(col.type) ? 1 : `fixture-${col.name}`,
+        /int|real/i.test(col.type)
+          ? 1
+          : (constrained[col.name] ?? `fixture-${col.name}`),
       ),
     );
   }

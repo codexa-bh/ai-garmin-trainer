@@ -536,6 +536,7 @@ export function createGarminImports({
         const day = evidence ? evidence.day : await client.dailyHealth(date);
         checkStop();
         healthDaysImported += store.upsertDailyHealth([day]);
+        if (evidence?.extras) store.upsertDailyExtras?.([evidence.extras]);
         // Durable normalized data first; a crash before metadata safely replays.
         if (freshness)
           freshness.days[date] = evidence
@@ -640,6 +641,8 @@ export function createGarminImports({
         activitiesImported += store.upsertActivities(
           recentActivities.activities,
         );
+        if (recentActivities.extras)
+          store.upsertActivityListExtras?.(recentActivities.extras);
         progress(
           "body_metrics",
           "Refreshing recent Garmin body metrics from read-only tools…",
@@ -813,6 +816,7 @@ export function createGarminImports({
               );
               checkStop();
               activitiesImported += store.upsertActivities(page.activities);
+              if (page.extras) store.upsertActivityListExtras?.(page.extras);
               for (const activity of page.activities) {
                 const date = isoDate(activity.startedAt);
                 if (

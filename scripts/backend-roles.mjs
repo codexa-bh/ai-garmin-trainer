@@ -66,7 +66,7 @@ const groups = [
     "analytics",
     "domain",
     "lib/ai/analytics",
-    ["calculated-grade", "contracts", "policy", "schema"],
+    ["calculated-grade", "contracts", "extra-schema", "policy", "schema"],
   ],
   ["analytics", "application", "lib/ai/analytics", ["application"]],
   [
@@ -132,6 +132,7 @@ const groups = [
       "summary-import",
       "summary-rebuild",
       "local-data-lifecycle",
+      "extra-data-repository",
       "migrations",
       "profile-repository",
       "repository",
@@ -170,6 +171,7 @@ const groups = [
       "import-ports",
       "normalize",
       "types",
+      "extra-types",
     ],
   ],
   [
@@ -189,6 +191,7 @@ const groups = [
       "official-error",
       "official-fit",
       "official-normalize",
+      "official-extra-normalize",
       "official-reader",
       "official-zip",
       "raw-payload",

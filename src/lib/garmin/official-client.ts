@@ -44,6 +44,7 @@ export type OfficialEndpoint =
   | "sleep"
   | "hrv"
   | "body-battery"
+  | "vo2-max"
   | "weigh-ins"
   | "body-history"
   | "profile-settings"

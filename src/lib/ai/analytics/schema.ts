@@ -4,6 +4,11 @@ import type {
   AnalyticalTableStatistics,
 } from "./contracts";
 import { SQL_LIMITS } from "./contracts";
+import {
+  EXTRA_ANALYTICAL_SCHEMA,
+  EXTRA_EXAMPLES,
+  LAP_DYNAMICS_COLUMNS,
+} from "./extra-schema";
 
 export const PRIVACY =
   "Read-only local SQLite analytics over allowlisted app-owned normalized Garmin analytical tables by default, including bounded normalized GPS route coordinates when route/GPS evidence is requested; auth/session/account/verification, conversations/messages/memory/profile, operational sync/import internals, secrets, connector credentials, raw payloads, and filesystem paths are excluded.";
@@ -114,6 +119,9 @@ export const ANALYTICAL_SCHEMA: Record<
       "activity.garmin_id = activity_lap.garmin_id",
       "activity.garmin_id = activity_stream_point.garmin_id",
       "activity.garmin_id = activity_hr_zone_time.garmin_id",
+      "activity.garmin_id = activity_extra_metrics.garmin_id",
+      "activity.garmin_id = activity_split_summary.garmin_id",
+      "activity.garmin_id = activity_lap_hr_zone_time.garmin_id",
     ],
   },
   daily_health: {
@@ -294,6 +302,7 @@ export const ANALYTICAL_SCHEMA: Record<
         unit: "watts",
         nullable: true,
       },
+      ...LAP_DYNAMICS_COLUMNS,
     ],
     joins: ["activity_lap.garmin_id = activity.garmin_id"],
   },
@@ -537,6 +546,7 @@ export const ANALYTICAL_SCHEMA: Record<
       },
     ],
   },
+  ...EXTRA_ANALYTICAL_SCHEMA,
 };
 
 export function describeAnalyticalSchema(
@@ -561,6 +571,7 @@ export function describeAnalyticalSchema(
       "select garmin_id, coalesce(name, sport || ' on ' || date(started_at / 1000, 'unixepoch')) as label, name, sport, date(started_at / 1000, 'unixepoch') as date, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, elevation_gain_meters, elevation_loss_meters, training_effect from activity where started_at >= unixepoch('now', '-365 days') * 1000 order by started_at desc limit 200 -- then use runMathAnalysis score/normalize with a transparent model-selected formula over these columns, e.g. duration_sec + distance_meters + elevation_gain_meters + calories + avg_heart_rate + max_heart_rate + training_effect",
       "select sport, count(*) as activities, avg(duration_sec) as avg_duration_sec from activity group by sport order by activities desc",
       "select a.garmin_id, a.name, d.status, d.record_count from activity a join activity_detail_availability d on d.garmin_id = a.garmin_id limit 20",
+      ...EXTRA_EXAMPLES,
     ],
     limits: SQL_LIMITS,
     privacy: PRIVACY,

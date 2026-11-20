@@ -20,6 +20,21 @@ export function clearChatAndProfile(): string[] {
   return ["messages", "conversations", "trainer_profile"];
 }
 
+// Additional Garmin evidence relations (schema 29) are Garmin data too.
+const GARMIN_EXTRA_TABLES = [
+  "daily_sleep_detail",
+  "daily_sleep_score_component",
+  "daily_hrv_detail",
+  "vo2_max_reading",
+  "daily_body_battery",
+  "body_battery_event",
+  "daily_stress",
+  "activity_extra_metrics",
+  "activity_split_summary",
+  "activity_lap_hr_zone_time",
+  "garmin_data_coverage",
+] as const;
+
 /** @public Runtime capability passed by namespace through local-data/composition to
  * createLocalData/createLocalDataDeletion; Knip cannot follow that property use. */
 export function clearGarminData(): string[] {
@@ -27,6 +42,8 @@ export function clearGarminData(): string[] {
   db.transaction(() => {
     invalidateConversationHistory();
     db.prepare("delete from garmin_raw_payload").run();
+    for (const table of GARMIN_EXTRA_TABLES)
+      db.prepare(`delete from ${table}`).run();
     db.prepare("delete from activity_stream_point").run();
     db.prepare("delete from activity_lap").run();
     db.prepare("delete from activity_detail_availability").run();
@@ -42,6 +59,7 @@ export function clearGarminData(): string[] {
   })();
   return [
     "garmin_raw_payload",
+    ...GARMIN_EXTRA_TABLES,
     "activity_stream_point",
     "activity_lap",
     "activity_detail_availability",

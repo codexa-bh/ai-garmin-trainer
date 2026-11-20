@@ -115,7 +115,13 @@ it("inspection reads only fixed allowlisted counts/ranges and closes on failure"
     return prepare.call(this, query);
   });
   const description = describeGarminDatabase();
-  expect(queries).toHaveLength(description.tables.length + 1);
+  // One count per static table plus one range per dated table (activity,
+  // daily_health and each date-keyed relation report their own span).
+  expect(queries).toHaveLength(
+    description.tables.length -
+      1 +
+      description.tables.filter((table) => table.dateRange).length,
+  );
   expect(
     queries.filter((query) => query.startsWith("select count(*)")),
   ).toEqual(

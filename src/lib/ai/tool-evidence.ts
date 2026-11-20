@@ -110,6 +110,15 @@ export function renderToolSteps(steps: TrainerToolStep[]): string {
           ? ` Date range ${table.dateRange.min ?? "n/a"} to ${table.dateRange.max ?? "n/a"}.`
           : "";
         lines.push(`${table.name} columns: ${columns}.${dateRange}`);
+        // Meaning/unit caveats (sparse series, per-type totals, cycles vs
+        // steps, coverage semantics) live in descriptions, not column names.
+        if (
+          table.name !== "activity_calculated_grade" &&
+          typeof table.description === "string"
+        )
+          lines.push(
+            `${table.name} meaning: ${boundedText(table.description, 480)}`,
+          );
         // This relation has no static rows; its binding/quality contract must reach
         // the model, not just the raw schema response. Zero is not availability.
         if (table.name === "activity_calculated_grade")

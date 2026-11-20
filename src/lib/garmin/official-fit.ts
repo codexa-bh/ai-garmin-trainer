@@ -1,5 +1,11 @@
 import FitParser from "fit-file-parser";
 import type { NormalizedActivityHrZoneTime } from "./activity-hr-zone-time";
+import type {
+  FitActivityExtras,
+  FitDynamics,
+  LapHrZoneBucket,
+  LapHrZones,
+} from "./extra-types";
 import { FitAdmissionError, admitFitBytes } from "./official-zip";
 
 /**
@@ -28,6 +34,8 @@ export type DecodedActivityFit = {
     threshold_heart_rate: number | null;
     functional_threshold_power: number | null;
   } | null;
+  /** Session/lap dynamics and lap-referenced HR zones from the same decode. */
+  extras: FitActivityExtras;
 };
 
 function record(value: unknown): Fields {
@@ -61,6 +69,153 @@ function numericArray(value: unknown): number[] | null {
 function referenceIndex(message: Fields): number | undefined {
   const raw = message.reference_index;
   return typeof raw === "number" ? raw : num(record(raw).value);
+}
+/** A lap/session message's own FIT `message_index`, never its array position. */
+function messageIndex(message: Fields): number | undefined {
+  const raw = message.message_index;
+  return typeof raw === "number" ? raw : num(record(raw).value);
+}
+
+function positiveOrNull(value: unknown): number | null {
+  const parsed = num(value);
+  return parsed !== undefined && parsed > 0 ? parsed : null;
+}
+
+/**
+ * FIT cadence is cycles per minute (`rpm`): a stride for foot sports, a
+ * revolution for cycling. The fractional part is added, never doubled.
+ * Oscillation/step length arrive in millimetres (the parser does not convert).
+ */
+function fitDynamics(message: Fields): FitDynamics {
+  const cadence = (whole: unknown, fraction: unknown) => {
+    const base = positiveOrNull(whole);
+    const part = num(fraction);
+    return base === null
+      ? null
+      : base + (part !== undefined && part >= 0 && part < 1 ? part : 0);
+  };
+  const cycles = positiveOrNull(message.total_cycles);
+  const fractionalCycles = num(message.total_fractional_cycles);
+  const oscillation = positiveOrNull(message.avg_vertical_oscillation);
+  const step = positiveOrNull(message.avg_step_length);
+  return {
+    avgCadenceCpm: cadence(message.avg_cadence, message.avg_fractional_cadence),
+    maxCadenceCpm: cadence(message.max_cadence, message.max_fractional_cadence),
+    totalCycles:
+      cycles === null
+        ? null
+        : cycles +
+          (fractionalCycles !== undefined &&
+          fractionalCycles >= 0 &&
+          fractionalCycles < 1
+            ? fractionalCycles
+            : 0),
+    avgVerticalOscillationCm: oscillation === null ? null : oscillation / 10,
+    avgStanceTimeMs: positiveOrNull(message.avg_stance_time),
+    avgStanceTimeBalancePct: positiveOrNull(message.avg_stance_time_balance),
+    avgVerticalRatioPct: positiveOrNull(message.avg_vertical_ratio),
+    avgStepLengthM: step === null ? null : step / 1000,
+    avgGradeAdjustedSpeedMps: positiveOrNull(message.avg_grade_adjusted_speed),
+  };
+}
+
+const MAX_LAP_ZONE_BUCKETS = 16;
+
+function lapBuckets(message: Fields): LapHrZoneBucket[] | null {
+  const seconds = message.time_in_hr_zone;
+  if (!Array.isArray(seconds) || seconds.length < 6) return null;
+  if (seconds.length > MAX_LAP_ZONE_BUCKETS) return null;
+  const high = numericArray(message.hr_zone_high_boundary);
+  const buckets: LapHrZoneBucket[] = [];
+  for (const [bucket, value] of seconds.entries()) {
+    // A per-bucket invalid marker is unavailable evidence, never measured zero.
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0)
+      continue;
+    const kind: LapHrZoneBucket["kind"] =
+      bucket === 0 ? "below" : bucket <= 5 ? "zone" : "above";
+    const lower = bucket === 0 ? null : (high?.[bucket - 1] ?? null);
+    const upper = high?.[bucket] ?? null;
+    buckets.push({
+      bucket,
+      zone: kind === "zone" ? (bucket as 1 | 2 | 3 | 4 | 5) : null,
+      kind,
+      seconds: value,
+      lowerBpm: lower !== null && lower > 0 ? Math.round(lower) : null,
+      upperBpm:
+        kind === "above" || upper === null || upper <= 0
+          ? null
+          : Math.round(upper),
+    });
+  }
+  return buckets.length ? buckets : null;
+}
+
+/**
+ * Lap-referenced zone messages joined to laps by the lap's own message_index.
+ * Duplicate or unknown references make the whole file's lap zones unavailable
+ * rather than shifting time onto another lap.
+ */
+function lapZoneTime(
+  messages: Fields[],
+  laps: Fields[],
+): Pick<FitActivityExtras, "lapZones" | "lapZoneStatus"> {
+  const lapMessages = messages.filter(
+    (message) => message.reference_mesg === "lap",
+  );
+  if (!lapMessages.length)
+    return {
+      lapZones: [],
+      lapZoneStatus: {
+        status: laps.length ? "empty" : "unavailable",
+        reason: laps.length ? "no-lap-zone-messages" : "no-laps",
+      },
+    };
+  const lapNumberByIndex = new Map<number, number>();
+  for (const [position, lap] of laps.entries()) {
+    const index = messageIndex(lap);
+    if (index === undefined || lapNumberByIndex.has(index))
+      return {
+        lapZones: [],
+        lapZoneStatus: { status: "unavailable", reason: "ambiguous-laps" },
+      };
+    lapNumberByIndex.set(index, position + 1);
+  }
+  const seen = new Set<number>();
+  const lapZones: LapHrZones[] = [];
+  for (const message of lapMessages) {
+    const reference = referenceIndex(message);
+    const lapNumber =
+      reference === undefined ? undefined : lapNumberByIndex.get(reference);
+    if (lapNumber === undefined || seen.has(reference!))
+      return {
+        lapZones: [],
+        lapZoneStatus: {
+          status: "unavailable",
+          reason: "ambiguous-references",
+        },
+      };
+    seen.add(reference!);
+    const buckets = lapBuckets(message);
+    if (!buckets) continue;
+    lapZones.push({
+      lapNumber,
+      calcMethod:
+        typeof message.hr_calc_type === "string" &&
+        message.hr_calc_type.length <= 40
+          ? message.hr_calc_type
+          : null,
+      sourceMaxHeartRate: positiveOrNull(message.max_heart_rate),
+      sourceRestingHeartRate: positiveOrNull(message.resting_heart_rate),
+      buckets,
+    });
+  }
+  lapZones.sort((a, b) => a.lapNumber - b.lapNumber);
+  return {
+    lapZones,
+    lapZoneStatus: lapZones.length
+      ? { status: "populated", reason: null }
+      : { status: "empty", reason: "no-valid-lap-zones" },
+  };
 }
 
 function sessionFields(session: Fields): Fields {
@@ -204,6 +359,16 @@ export async function decodeActivityFit(
   const sessions = (parsed.sessions ?? []) as Fields[];
   const zoneMessages = (parsed.time_in_zone ?? []) as Fields[];
   const zoneTime = sessionZoneTime(zoneMessages);
+  const lapRecords = laps.map(record);
+  const extras: FitActivityExtras = {
+    session: fitDynamics(sessions.length ? record(sessions[0]) : {}),
+    laps: lapRecords.map((lap, index) => ({
+      lapNumber: index + 1,
+      startTime: iso(lap.start_time) ?? null,
+      dynamics: fitDynamics(lap),
+    })),
+    ...lapZoneTime(zoneMessages.map(record), lapRecords),
+  };
   // `zones_target` is exposed as a single message by the parser when present.
   const target = (parsed as unknown as Fields).zones_target;
   return {
@@ -214,6 +379,7 @@ export async function decodeActivityFit(
     },
     ...zoneTime,
     zonesTarget: zonesTarget(target ? [record(target)] : []),
+    extras,
   };
 }
 

@@ -225,6 +225,25 @@ describe("canonical trainer instruction package", () => {
     });
   });
 
+  it("routes the additional Garmin groups through guarded SQL with their semantics", () => {
+    const planner = buildPlannerInstructions("base", "none");
+    for (const phrase of [
+      "read describeGarminDatabase meanings first",
+      "VO2 is sparse dated measurements (no forward fill)",
+      "per-type totals, never individual runs",
+      "exclude below/above buckets from zone totals and never add to session totals",
+      "FIT cadence is cycles/min",
+      "Garmin codes, not sentences",
+      "no row means not yet imported",
+    ])
+      expect(planner).toContain(phrase);
+    expect(TRAINER_SYSTEM_PROMPT.length).toBeLessThan(9_000);
+    for (const id of ["RECOVERY-EXTRA-07", "ACTIVITY-EXTRA-08"])
+      expect(
+        COACHING_SCENARIOS.find((scenario) => scenario.id === id),
+      ).toMatchObject({ expectedRoute: "sql-math" });
+  });
+
   it("teaches fractional constants within the unchanged math tool schema", () => {
     const input = {
       inputResult: "week_facts",

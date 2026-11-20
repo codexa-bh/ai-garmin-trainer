@@ -215,11 +215,12 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
       // per section). Never clip critical zone values or silently cut row metadata.
       if (step.tool === "getActivityDashboard") return evidence;
       // Schema is bounded public capability metadata, not activity data. Its
-      // complete current contract is ~8k characters; the ordinary 1800 cap hid
-      // grade binding/quality fields and later tables from every fresh call.
+      // complete current contract (tables, units, meanings, examples) is ~19k
+      // characters; a smaller cap hid later tables and their caveats from
+      // every fresh call.
       const limit =
         step.tool === "describeGarminDatabase"
-          ? 10_000
+          ? 24000
           : step.tool === "analyzeActivityTerrain"
             ? 24000
             : step.tool === "runMathAnalysis"

@@ -30,6 +30,7 @@ const allowed = new Set([
   "primary-upload.ts",
   "types.ts",
   "detail-types.ts",
+  "extra-types.ts",
   "athlete-normalize.ts",
   "body-metrics-normalize.ts",
   "coverage-policy.ts",

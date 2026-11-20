@@ -19,6 +19,25 @@ export function createDetailImports(
     recordActivityDetailAttempt,
     upsertActivityDetail,
   } = store;
+  /** Extras never decide the detail outcome; their failure keeps prior facts. */
+  function storeFitExtras(
+    garminId: string,
+    extras: Parameters<NonNullable<DetailStore["upsertFitActivityExtras"]>>[1],
+  ) {
+    try {
+      store.upsertFitActivityExtras?.(garminId, extras);
+    } catch {
+      store.recordExtraCoverage?.([
+        {
+          group: "lap_hr_zones",
+          subjectType: "activity",
+          subjectId: garminId,
+          status: "failed",
+          reason: "store-failed",
+        },
+      ]);
+    }
+  }
   async function fetchAndStoreActivityEffort(
     client: GarminReader,
     garminId: string,
@@ -106,6 +125,7 @@ export function createDetailImports(
       if (fetched.recognized) {
         const detail = fetched.detail;
         upsertActivityDetail(detail);
+        if (fetched.fitExtras) storeFitExtras(garminId, fetched.fitExtras);
         const storedHrZoneTime = await fetchAndStoreActivityHrZoneTime(
           client,
           garminId,
@@ -133,6 +153,16 @@ export function createDetailImports(
       }
       const unsupported = fetched.detail;
       upsertActivityDetail(unsupported);
+      // No original file: lap zones cannot be sourced, which is not emptiness.
+      store.recordExtraCoverage?.([
+        {
+          group: "lap_hr_zones",
+          subjectType: "activity",
+          subjectId: garminId,
+          status: "unavailable",
+          reason: "no-original-file",
+        },
+      ]);
       recordActivityDetailAttempt({
         garminId,
         force: options.force,

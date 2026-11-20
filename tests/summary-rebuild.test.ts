@@ -1160,7 +1160,7 @@ describe("same writer, staged candidate and atomic complete replacement", () => 
     const result = migrateDatabase(db);
     expect(result).toMatchObject({
       fromVersion: 21,
-      toVersion: 28,
+      toVersion: 29,
       integrity: "ok",
     });
     const bytes = db.serialize();

@@ -14,6 +14,31 @@ type FitOptions = {
   zonesTarget?: { max?: number; threshold?: number; ftp?: number };
   sport?: number;
   sessions?: number;
+  /**
+   * Authored multi-lap file: each lap carries its own `message_index`, FIT
+   * cadence (cycles/min + 1/128 fraction), cycles and optional dynamics.
+   * Replaces the single default lap when given.
+   */
+  laps?: Array<{
+    index: number;
+    startOffset: number;
+    cadence?: number;
+    fractionalCadence128?: number;
+    cycles?: number;
+    stepLengthMm?: number;
+    oscillationMm10?: number;
+  }>;
+  /** Lap-referenced zone messages by referenced lap message_index. */
+  lapZoneMessages?: Array<{
+    reference: number;
+    seconds: number[];
+    high?: number[];
+    maxHr?: number;
+    restingHr?: number;
+    calcType?: number;
+  }>;
+  /** Session cadence in FIT cycles/min with optional 1/128 fraction. */
+  sessionCadence?: { avg: number; max?: number; fraction128?: number };
 };
 
 function u32(values: number[]): Uint8Array {
@@ -66,12 +91,62 @@ export function buildFit(options: FitOptions = {}): Uint8Array {
     encoder.writeMessage(20, fields);
   });
   const end = BASE + (records.at(-1)?.at ?? 0) + 1;
-  encoder.writeMessage(19, [
-    { number: 253, size: 4, baseType: FitBaseType.Uint32, value: end },
-    { number: 254, size: 2, baseType: FitBaseType.Uint16, value: 0 },
-    { number: 2, size: 4, baseType: FitBaseType.Uint32, value: BASE },
-    { number: 7, size: 4, baseType: FitBaseType.Uint32, value: 5000 },
-  ]);
+  if (!options.laps)
+    encoder.writeMessage(19, [
+      { number: 253, size: 4, baseType: FitBaseType.Uint32, value: end },
+      { number: 254, size: 2, baseType: FitBaseType.Uint16, value: 0 },
+      { number: 2, size: 4, baseType: FitBaseType.Uint32, value: BASE },
+      { number: 7, size: 4, baseType: FitBaseType.Uint32, value: 5000 },
+    ]);
+  for (const lap of options.laps ?? []) {
+    const fields = [
+      { number: 253, size: 4, baseType: FitBaseType.Uint32, value: end },
+      { number: 254, size: 2, baseType: FitBaseType.Uint16, value: lap.index },
+      {
+        number: 2,
+        size: 4,
+        baseType: FitBaseType.Uint32,
+        value: BASE + lap.startOffset,
+      },
+      { number: 7, size: 4, baseType: FitBaseType.Uint32, value: 5000 },
+    ];
+    if (lap.cadence !== undefined)
+      fields.push({
+        number: 17,
+        size: 1,
+        baseType: FitBaseType.Uint8,
+        value: lap.cadence,
+      });
+    if (lap.fractionalCadence128 !== undefined)
+      fields.push({
+        number: 80,
+        size: 1,
+        baseType: FitBaseType.Uint8,
+        value: lap.fractionalCadence128,
+      });
+    if (lap.cycles !== undefined)
+      fields.push({
+        number: 10,
+        size: 4,
+        baseType: FitBaseType.Uint32,
+        value: lap.cycles,
+      });
+    if (lap.stepLengthMm !== undefined)
+      fields.push({
+        number: 120,
+        size: 2,
+        baseType: FitBaseType.Uint16,
+        value: lap.stepLengthMm * 10,
+      });
+    if (lap.oscillationMm10 !== undefined)
+      fields.push({
+        number: 77,
+        size: 2,
+        baseType: FitBaseType.Uint16,
+        value: lap.oscillationMm10,
+      });
+    encoder.writeMessage(19, fields);
+  }
   const sessions = options.sessions ?? 1;
   for (let index = 0; index < sessions; index += 1)
     encoder.writeMessage(18, [
@@ -86,6 +161,36 @@ export function buildFit(options: FitOptions = {}): Uint8Array {
         value: options.sport ?? 1,
       },
       { number: 16, size: 1, baseType: FitBaseType.Uint8, value: 130 },
+      ...(options.sessionCadence
+        ? [
+            {
+              number: 18,
+              size: 1,
+              baseType: FitBaseType.Uint8,
+              value: options.sessionCadence.avg,
+            },
+            ...(options.sessionCadence.max !== undefined
+              ? [
+                  {
+                    number: 19,
+                    size: 1,
+                    baseType: FitBaseType.Uint8,
+                    value: options.sessionCadence.max,
+                  },
+                ]
+              : []),
+            ...(options.sessionCadence.fraction128 !== undefined
+              ? [
+                  {
+                    number: 92,
+                    size: 1,
+                    baseType: FitBaseType.Uint8,
+                    value: options.sessionCadence.fraction128,
+                  },
+                ]
+              : []),
+          ]
+        : []),
     ]);
   if (options.zonesTarget)
     encoder.writeMessage(7, [
@@ -148,6 +253,63 @@ export function buildFit(options: FitOptions = {}): Uint8Array {
         : []),
     ]);
   if (options.lapZones) zoneMessage(19, 0, options.lapZones);
+  for (const message of options.lapZoneMessages ?? [])
+    encoder.writeMessage(216, [
+      { number: 253, size: 4, baseType: FitBaseType.Uint32, value: end },
+      { number: 0, size: 2, baseType: FitBaseType.Uint16, value: 19 },
+      {
+        number: 1,
+        size: 2,
+        baseType: FitBaseType.Uint16,
+        value: message.reference,
+      },
+      {
+        number: 2,
+        size: message.seconds.length * 4,
+        baseType: FitBaseType.Uint32,
+        value: u32(message.seconds.map((seconds) => seconds * 1000)),
+      },
+      ...(message.high
+        ? [
+            {
+              number: 6,
+              size: message.high.length,
+              baseType: FitBaseType.Uint8,
+              value: Uint8Array.from(message.high),
+            },
+          ]
+        : []),
+      ...(message.calcType !== undefined
+        ? [
+            {
+              number: 10,
+              size: 1,
+              baseType: FitBaseType.Enum,
+              value: message.calcType,
+            },
+          ]
+        : []),
+      ...(message.maxHr !== undefined
+        ? [
+            {
+              number: 11,
+              size: 1,
+              baseType: FitBaseType.Uint8,
+              value: message.maxHr,
+            },
+          ]
+        : []),
+      ...(message.restingHr !== undefined
+        ? [
+            {
+              number: 12,
+              size: 1,
+              baseType: FitBaseType.Uint8,
+              value: message.restingHr,
+            },
+          ]
+        : []),
+    ]);
   if (options.sessionZones)
     for (let index = 0; index < sessions; index += 1)
       zoneMessage(18, index, options.sessionZones);
