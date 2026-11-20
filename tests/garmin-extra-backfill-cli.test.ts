@@ -59,24 +59,58 @@ function database(path: string, schema28 = false) {
 }
 const bounds = ["--from", "2026-01-01", "--to", "2026-01-31"];
 
-it("refuses missing, relative, aliased and unmigrated targets before any read", () => {
+// Each independent refusal gets the default deadline, not eight cumulative
+// subprocess startups competing with the rest of the suite on hosted runners.
+it.each(["missing", "relative", "nonexistent"] as const)(
+  "refuses a %s target before any read",
+  (kind) => {
+    const target =
+      kind === "missing"
+        ? undefined
+        : kind === "relative"
+          ? "relative.sqlite"
+          : join(directory(), "target.sqlite");
+    const refused = cli(bounds, target);
+    expect(refused.status).toBe(1);
+    expect(refused.output).toMatchObject({ ok: false });
+    expect(refused.output.error).toMatch(/canonical existing/);
+  },
+);
+
+it("refuses an aliased target before any read", () => {
   const dir = directory();
   const target = join(dir, "target.sqlite");
-  expect(cli(bounds, undefined).output).toMatchObject({ ok: false });
-  expect(cli(bounds, "relative.sqlite").output.error).toMatch(/canonical/);
-  expect(cli(bounds, target).output.error).toMatch(/canonical existing/);
   database(target, true);
   const alias = join(dir, "alias.sqlite");
   symlinkSync(target, alias);
-  expect(cli(bounds, alias).output.error).toMatch(/canonical/);
+  const refused = cli(bounds, alias);
+  expect(refused.status).toBe(1);
+  expect(refused.output.error).toMatch(/canonical/);
+});
+
+it("refuses an unmigrated target before any read", () => {
+  const target = join(directory(), "target.sqlite");
+  database(target, true);
   const refused = cli(bounds, target);
   expect(refused.status).toBe(1);
   expect(refused.output.error).toMatch(/Explicit schema migration/);
-  expect(cli([], target).output.error).toMatch(/--from/);
-  expect(
-    cli([...bounds, "--max-requests", "5000"], target).output.error,
-  ).toMatch(/1 to 1000/);
-  expect(cli(bounds, target, "").output.error).toMatch(/empty/);
+});
+
+it.each([
+  { name: "missing bounds", args: [], key: "synthetic-key", error: /--from/ },
+  {
+    name: "excessive request limit",
+    args: [...bounds, "--max-requests", "5000"],
+    key: "synthetic-key",
+    error: /1 to 1000/,
+  },
+  { name: "empty key", args: bounds, key: "", error: /empty/ },
+])("refuses $name before any read", ({ args, key, error }) => {
+  const target = join(directory(), "target.sqlite");
+  database(target, true);
+  const refused = cli(args, target, key);
+  expect(refused.status).toBe(1);
+  expect(refused.output.error).toMatch(error);
 });
 
 it("snow-only shares writer refusal and uses an independent zero-request checkpoint", () => {
