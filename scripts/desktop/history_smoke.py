@@ -203,6 +203,18 @@ SYNC_OWNED_TABLES = frozenset(
         'activity_lap',
         'activity_stream_point',
         'activity_hr_zone_time',
+        # Additional evidence relations written by Sync (T0352, schema 29).
+        'daily_sleep_detail',
+        'daily_sleep_score_component',
+        'daily_hrv_detail',
+        'vo2_max_reading',
+        'daily_body_battery',
+        'body_battery_event',
+        'daily_stress',
+        'activity_extra_metrics',
+        'activity_split_summary',
+        'activity_lap_hr_zone_time',
+        'garmin_data_coverage',
         'garmin_athlete_baseline',
         'garmin_athlete_baseline_attempt',
         'garmin_body_metrics',
@@ -214,6 +226,20 @@ SYNC_OWNED_TABLES = frozenset(
         # Completed Sync refreshes stored KPI measurements (T0328), nothing else weekly.
         'weekly_kpi_measurement',
     )
+)
+
+
+EXTRA_EVIDENCE_TABLES = (
+    'daily_sleep_detail',
+    'daily_sleep_score_component',
+    'daily_hrv_detail',
+    'vo2_max_reading',
+    'daily_body_battery',
+    'body_battery_event',
+    'daily_stress',
+    'activity_extra_metrics',
+    'activity_lap_hr_zone_time',
+    'garmin_data_coverage',
 )
 
 
@@ -706,6 +732,11 @@ class HistoryRun(OrdinaryRun):
                 'detailRows': db.execute(
                     'select count(*) from activity_detail_availability'
                 ).fetchone()[0],
+                # Aggregate counts only, never values (T0352 extra groups).
+                'extraRows': {
+                    table: db.execute(f'select count(*) from {table}').fetchone()[0]
+                    for table in EXTRA_EVIDENCE_TABLES
+                },
             }
 
     def latest_probe(self, backend=False):
@@ -879,6 +910,28 @@ class HistoryRun(OrdinaryRun):
             or data['weightRows'] < 3
         ):
             raise ValueError('Official coverage finality/FIT zone transition not observed')
+        # Additional groups land through the same Sync: daily relations for the
+        # read days, one VO2 read per daily block, list extras and lap zones
+        # (7 buckets) for every activity file.
+        extra = data['extraRows']
+        if (
+            min(
+                extra[table]
+                for table in (
+                    'daily_sleep_detail',
+                    'daily_hrv_detail',
+                    'daily_body_battery',
+                    'daily_stress',
+                )
+            )
+            < 10
+            or extra['activity_extra_metrics'] < 3
+            or extra['activity_lap_hr_zone_time'] < 21
+            or not extra['garmin_data_coverage']
+            or first['requestCounts'].get('vo2-max', 0)
+            != first['requestCounts'].get('daily-summaries', 0)
+        ):
+            raise ValueError('Additional Garmin evidence groups were not imported by Sync')
         # Restarted repeat: no file re-download, only open (today) health re-read.
         self.stop()
         self.start(self.binary)
@@ -1051,6 +1104,8 @@ class HistoryRun(OrdinaryRun):
             or changed['dataAfter']['activities'] != changed['dataBefore']['activities'] + 1
             or changed['dataAfter']['officialZoneRows']
             != changed['dataBefore']['officialZoneRows'] + 5
+            or changed['dataAfter']['extraRows']['activity_lap_hr_zone_time']
+            != changed['dataBefore']['extraRows']['activity_lap_hr_zone_time'] + 7
             or changed['requestCounts'].get('profile-settings', 0)
         ):
             raise ValueError('Changed newest activity bypassed FIT/cadence contract')

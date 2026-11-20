@@ -320,9 +320,23 @@ export function upsertActivityListExtras(
 }
 
 /**
+ * FIT lap times are UTC. Stored lap text from earlier readers may omit the
+ * zone or milliseconds, so compare instants (zone-less text read as UTC)
+ * within two seconds; a missing or unparseable time never matches a present one.
+ */
+function sameLapStart(stored: string | null, decoded: string | null): boolean {
+  if (stored === null || decoded === null) return stored === decoded;
+  const instant = (value: string) =>
+    Date.parse(/(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`);
+  const a = instant(stored);
+  const b = instant(decoded);
+  return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 2000;
+}
+
+/**
  * FIT session/lap dynamics and lap HR zones for one activity. Lap rows are
- * matched by lap number and start time; mismatching stored laps leave lap
- * evidence unavailable rather than attaching it to different laps.
+ * matched by count, lap number and start instant; mismatching stored laps
+ * leave lap evidence unavailable rather than attaching it to different laps.
  */
 export function upsertFitActivityExtras(
   garminId: string,
@@ -342,7 +356,7 @@ export function upsertFitActivityExtras(
     stored.every(
       (lap, index) =>
         lap.lapNumber === extras.laps[index].lapNumber &&
-        (lap.startTime ?? null) === (extras.laps[index].startTime ?? null),
+        sameLapStart(lap.startTime, extras.laps[index].startTime),
     );
   const session = db.prepare(
     upsertSql(
@@ -416,4 +430,95 @@ export function recordExtraCoverage(
 ): void {
   const write = coverageWriter(db, Date.now());
   db.transaction(() => write(entries))();
+}
+
+/**
+ * Explicit-target maintenance store for the extra-data backfill. It writes
+ * only additional evidence, coverage and its own checkpoint key; it never
+ * touches activity/daily_health core columns, laps/streams or sync state.
+ */
+export function createExtraBackfillStore(db: Db) {
+  const checkpointKey = "garmin_extra_backfill";
+  return {
+    readCheckpoint(): string | null {
+      const row = db
+        .prepare("select value from sync_checkpoint where key = ?")
+        .get(checkpointKey) as { value: string } | undefined;
+      return row?.value ?? null;
+    },
+    /** Data and checkpoint commit together; a crash replays idempotently. */
+    commit(work: () => void, checkpoint: string): void {
+      db.transaction(() => {
+        work();
+        db.prepare(
+          `insert into sync_checkpoint (key, value, updated_at) values (?, ?, ?)
+           on conflict(key) do update set value=excluded.value, updated_at=excluded.updated_at`,
+        ).run(checkpointKey, checkpoint, Date.now());
+      })();
+    },
+    upsertDailyExtras: (days: DailyExtras[]) => upsertDailyExtras(days, db),
+    upsertActivityListExtras: (items: ActivityListExtras[]) =>
+      upsertActivityListExtras(items, db),
+    upsertFitActivityExtras: (garminId: string, extras: FitActivityExtras) =>
+      upsertFitActivityExtras(garminId, extras, db),
+    recordExtraCoverage: (entries: ExtraCoverage[]) =>
+      recordExtraCoverage(entries, db),
+    /** Stored activities by UTC start date, ordered for a stable cursor. */
+    storedActivities(from: string, to: string) {
+      return db
+        .prepare(
+          `select garmin_id as garminId, started_at as startedAt from activity
+           where date(started_at / 1000, 'unixepoch') between ? and ?
+           order by started_at, garmin_id`,
+        )
+        .all(from, to) as Array<{ garminId: string; startedAt: number }>;
+    },
+    /** Stored daily-health dates only: the backfill never invents days. */
+    storedDates(from: string, to: string): string[] {
+      return (
+        db
+          .prepare(
+            "select date from daily_health where date between ? and ? order by date",
+          )
+          .all(from, to) as Array<{ date: string }>
+      ).map((row) => row.date);
+    },
+    /** Stored daily steps (account-consistency evidence only). */
+    storedSteps(from: string, to: string): Map<string, number> {
+      const rows = db
+        .prepare(
+          "select date, steps from daily_health where date between ? and ? and steps is not null",
+        )
+        .all(from, to) as Array<{ date: string; steps: number }>;
+      return new Map(rows.map((row) => [row.date, row.steps]));
+    },
+    /** Subjects whose group coverage exists and is not a failure. */
+    settled(group: string, subjectIds: string[]): Set<string> {
+      if (!subjectIds.length) return new Set();
+      const rows = db
+        .prepare(
+          `select subject_id as id from garmin_data_coverage
+           where data_group = ? and status <> 'failed'
+           and subject_id in (select value from json_each(?))`,
+        )
+        .all(group, JSON.stringify(subjectIds)) as Array<{ id: string }>;
+      return new Set(rows.map((row) => row.id));
+    },
+    coverageCounts(from: string, to: string) {
+      return db
+        .prepare(
+          `select c.data_group as "group", c.status, count(*) as count
+           from garmin_data_coverage c
+           left join activity a on c.subject_type = 'activity' and a.garmin_id = c.subject_id
+           where (c.subject_type = 'date' and c.subject_id between ? and ?)
+              or (c.subject_type = 'activity' and date(a.started_at / 1000, 'unixepoch') between ? and ?)
+           group by c.data_group, c.status order by 1, 2`,
+        )
+        .all(from, to, from, to) as Array<{
+        group: string;
+        status: string;
+        count: number;
+      }>;
+    },
+  };
 }

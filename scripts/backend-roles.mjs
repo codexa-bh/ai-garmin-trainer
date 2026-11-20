@@ -178,7 +178,13 @@ const groups = [
     "garmin",
     "application",
     "lib/garmin",
-    ["baseline-import", "detail-import", "detail-requests", "sync-import"],
+    [
+      "baseline-import",
+      "detail-import",
+      "detail-requests",
+      "extra-backfill",
+      "sync-import",
+    ],
   ],
   [
     "garmin",

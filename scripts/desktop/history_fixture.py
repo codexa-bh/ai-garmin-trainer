@@ -34,6 +34,7 @@ ENDPOINTS = frozenset(
         'sleep',
         'hrv',
         'body-battery',
+        'vo2-max',
         'activity-list',
         'activity-summary',
         'activity-file',
@@ -101,8 +102,36 @@ def summary_row(day, preset):
         else None,
         'heartRate': {'restingValue': 54} if covered else None,
         'intensityMinutes': {'moderate': 20, 'vigorous': 5} if covered else None,
-        'stress': {'avgLevel': 28} if covered else None,
-        'bodyBattery': {'latestValue': 40, 'maxValue': 88} if covered else None,
+        # Authored stress buckets (ms) and Body Battery day/events (T0352).
+        'stress': {
+            'avgLevel': 28,
+            'maxLevel': 85,
+            'totalDurationInMillis': 72000000,
+            'lowStressDurationInMillis': 36000000,
+            'highStressDurationInMillis': 3600000,
+            'lowStressProportion': 0.5,
+            'highStressProportion': 0.05,
+        }
+        if covered
+        else None,
+        'bodyBattery': {
+            'latestValue': 40,
+            'maxValue': 88,
+            'minValue': 15,
+            'chargedValue': 55,
+            'drainedValue': 60,
+            'activityEvents': [
+                {
+                    'eventType': 'SLEEP',
+                    'eventStartTimeGmt': _wall(start - timedelta(hours=2)),
+                    'bodyBatteryImpact': 50,
+                    'durationInMillis': 28800000,
+                    'shortFeedback': 'SLEEP_RESTFUL',
+                }
+            ],
+        }
+        if covered
+        else None,
     }
 
 
@@ -147,6 +176,9 @@ def activity_row(garmin_id, day, sport):
         'hrTimeInZone_3': 900,
         'hrTimeInZone_4': 420,
         'hrTimeInZone_5': 120,
+        'differenceBodyBattery': -8,
+        'averageRunningCadenceInStepsPerMinute': 160 if sport == 'running' else None,
+        'avgStrideLength': 100.5 if sport == 'running' else None,
     }
 
 
@@ -196,7 +228,13 @@ def fit_file(sport_code):
     body += _message(
         2,
         19,
-        [(253, 0x86, 'I', end), (254, 0x84, 'H', 0), (2, 0x86, 'I', base), (7, 0x86, 'I', 5000)],
+        [
+            (253, 0x86, 'I', end),
+            (254, 0x84, 'H', 0),
+            (2, 0x86, 'I', base),
+            (7, 0x86, 'I', 5000),
+            (17, 0x02, 'B', 80),
+        ],
     )
     body += _message(
         3,
@@ -220,6 +258,19 @@ def fit_file(sport_code):
             (0, 0x84, 'H', 18),
             (1, 0x84, 'H', 0),
             (2, 0x86, '6I', zones),
+            (6, 0x02, '6B', (100, 120, 140, 155, 170, 190)),
+        ],
+    )
+    # One lap-referenced zone message (seven buckets incl. below/above).
+    lap_zones = tuple(seconds * 1000 for seconds in (10, 50, 300, 900, 420, 100, 20))
+    body += _message(
+        6,
+        216,
+        [
+            (253, 0x86, 'I', end),
+            (0, 0x84, 'H', 19),
+            (1, 0x84, 'H', 0),
+            (2, 0x86, '7I', lap_zones),
             (6, 0x02, '6B', (100, 120, 140, 155, 170, 190)),
         ],
     )
@@ -377,7 +428,12 @@ class Fixture:
                         'remSleepSeconds': 5400,
                         'awakeSleepSeconds': 1800,
                         'napTimeSeconds': 0,
-                        'sleepScores': {'overall': {'value': 80}},
+                        'sleepScores': {
+                            'overall': {'value': 80, 'qualifierKey': 'GOOD'},
+                            'deepPercentage': {'value': 20, 'qualifierKey': 'GOOD'},
+                            'stress': {'qualifierKey': 'FAIR'},
+                        },
+                        'awakeCount': 2,
                     }
                     for day in days
                     if _covered(day, preset)
@@ -388,7 +444,13 @@ class Fixture:
             return 'hrv', ok(
                 {
                     'hrvSummaries': [
-                        {'calendarDate': day, 'lastNightAvg': 52, 'status': 'BALANCED'}
+                        {
+                            'calendarDate': day,
+                            'lastNightAvg': 52,
+                            'status': 'BALANCED',
+                            'weeklyAvg': 54,
+                            'baseline': {'balancedLow': 45, 'balancedUpper': 65},
+                        }
                         for day in _days(start, end)
                         if _covered(day, preset)
                     ]
@@ -414,6 +476,24 @@ class Fixture:
                     }
                     for day in days
                     if _covered(day, preset)
+                ]
+            )
+        if path.startswith('/metrics-service/metrics/maxmet/daily/'):
+            _, _, _, _, _, start, end = path.split('/')
+            # Sparse authored VO2: one walking reading every 30th covered day.
+            return 'vo2-max', ok(
+                [
+                    {
+                        'generic': {
+                            'calendarDate': day,
+                            'vo2MaxValue': 45,
+                            'vo2MaxPreciseValue': 45.2,
+                            'sport': 'WALKING',
+                        },
+                        'cycling': None,
+                    }
+                    for day in _days(start, end)
+                    if _covered(day, preset) and date.fromisoformat(day).toordinal() % 30 == 0
                 ]
             )
         if path == '/activitylist-service/activities/search/activities':
