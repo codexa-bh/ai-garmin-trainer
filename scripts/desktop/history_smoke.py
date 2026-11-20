@@ -1190,11 +1190,19 @@ class HistoryRun(OrdinaryRun):
             )  # Once per changed scenario, never failure retry.
             if scenario == 'healthy':
                 self.wait_sync(lambda value: value['running'] and value['progressStarted'], 15)
-                # Initial rendered log only proves the click, not server/connector admission.
+                # Initial rendered log only proves the click; admission is the owned
+                # fixture actually serving the token exchange plus a data read.
+                before = synthetic_calls(self)
                 deadline = time.monotonic() + 15
                 while time.monotonic() < deadline:
                     healthy = self.summary()
-                    if healthy['active'] and healthy['operationAttempts'] >= 2:
+                    served = synthetic_calls(self)
+                    reads = sum(served.values()) - sum(before.values())
+                    if (
+                        healthy['active']
+                        and served.get('token', 0) > before.get('token', 0)
+                        and reads >= 2
+                    ):
                         break
                     time.sleep(0.1)
                 else:
