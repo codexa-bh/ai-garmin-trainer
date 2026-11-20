@@ -1,4 +1,8 @@
 import * as storage from "../db/repository";
+import {
+  getActivitySupplement,
+  getHealthSupplements,
+} from "../db/supplement-repository";
 import { activityImageSource } from "./activity-image-renderer";
 import {
   createActivityDashboard,
@@ -27,9 +31,14 @@ export const {
   getGarminAthleteBaseline,
   getGarminBodyMetrics,
   healthDashboard,
+  activitySupplement,
   verifyActivityReference,
   summarizeSyncStatus,
-} = createLocalData(storage);
+} = createLocalData({
+  ...storage,
+  getActivitySupplement,
+  getHealthSupplements,
+});
 export function getActivityDashboardDetail(id: string) {
   const dashboard = storage.getActivityDashboardDetail(id);
   return dashboard

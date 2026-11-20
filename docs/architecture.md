@@ -116,7 +116,16 @@ no cross-day aggregation or additional read is introduced. Roving keyboard tabs
 and responsive raw Daily chart cards with keyboard/pointer exact-value buttons
 preserve access without a wide comparison table. Per-date source coverage and HRV
 context live in a secondary disclosure; chart presentation projects finite values
-or gaps without aggregation, interpolation or date compression.
+or gaps without aggregation, interpolation or date compression. Additional Garmin
+evidence (HRV baseline band, sleep qualifiers, stress breakdown, sparse VO2 points,
+Body Battery charged/drained) arrives in the same `/api/health-dashboard` payload
+from `db/supplement-repository.ts` (independent child reads on their real keys,
+bounded to the daily window) through `local-data/supplement-policy.ts`, and follows
+the selected seven dates; the Activity route adds one explicit `supplement`
+projection per activity. Presentation is `health-supplements.tsx` and
+`activity-supplement.tsx` plus an optional band on the existing chart wrapper. The
+trainer's `grounding-contracts.ts` reads are separate and unchanged. See
+[Visibility in Health and Activity](garmin-extra-data.md#visibility-in-health-and-activity).
 
 Files below are in [`src/app/dashboard`](../src/app/dashboard):
 

@@ -864,10 +864,21 @@ body::before {
   font-size: 12px;
 }
 
-.health-daily-coverage summary {
+.health-daily-coverage summary,
+.health-supplement-disclosure summary {
   cursor: pointer;
 }
 
+.health-supplement-disclosure {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.health-supplement-disclosure ul,
 .health-daily-coverage ul {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
@@ -876,6 +887,7 @@ body::before {
   list-style: none;
 }
 
+.health-supplement-disclosure li,
 .health-daily-coverage li {
   display: flex;
   min-width: 0;
@@ -1076,6 +1088,38 @@ body::before {
 }
 .health-calories-chart .health-rollup-value {
   justify-content: center;
+}
+.health-rollup-grid .health-rollup-value[aria-pressed="true"] {
+  border-color: #49d6c8;
+}
+.health-rollup-band-key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.health-rollup-band-key i {
+  display: inline-block;
+  width: 18px;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(73, 214, 200, 0.28);
+}
+.health-calories-legend i[style] {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.health-rollup-readout span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.health-sleep-detail li > span,
+.health-supplement-coverage li > span {
+  display: block;
 }
 .health-calories-chart .health-rollup-value[aria-pressed="true"] {
   border-color: #49d6c8;
@@ -3148,4 +3192,102 @@ label {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+.lap-zone-column {
+  min-width: 150px;
+}
+
+.lap-zone-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lap-zone-bar {
+  display: flex;
+  height: 10px;
+  min-width: 120px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: rgba(160, 180, 210, 0.12);
+}
+
+.lap-zone-bar span {
+  min-width: 2px;
+}
+
+.lap-zone-detail summary {
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lap-zone-detail ul {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  color: var(--text);
+  font-size: 11px;
+  list-style: none;
+}
+
+.lap-zone-detail li i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+
+.lap-zone-detail .lap-zone-method {
+  color: var(--muted);
+}
+
+.snow-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.snow-section h3 {
+  margin: 0;
+}
+
+.snow-totals-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.snow-totals {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.snow-totals caption {
+  padding-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.snow-totals th,
+.snow-totals td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.snow-totals thead th {
+  color: var(--muted);
+}
+
+.activity-supplement-coverage li {
+  display: block;
 }

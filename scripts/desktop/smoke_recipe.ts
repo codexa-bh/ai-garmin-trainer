@@ -27,6 +27,7 @@ import {
   trainerProfile,
 } from "../../src/lib/db/schema";
 
+// Additive authored evidence keeps the version: other smoke owners pin it (Weekly KPI).
 export const RECIPE_VERSION = 1;
 const DAY = 86_400_000;
 
@@ -158,6 +159,212 @@ export function populate(db: Database.Database, anchor: string) {
       })
       .run();
   }
+  populateSupplements(db, time);
+}
+
+/**
+ * Authored additional-Garmin evidence for the existing Health/Activity views:
+ * populated, measured-zero, partial and absent cases beside source-coverage
+ * states. Every value is fictional; absence is left absent on purpose.
+ */
+function populateSupplements(db: Database.Database, time: number) {
+  const date = (index: number) =>
+    new Date(time - index * DAY).toISOString().slice(0, 10);
+  const cover = db.prepare(
+    "insert into garmin_data_coverage values (?, ?, ?, ?, ?, ?)",
+  );
+  const coverDate = (
+    group: string,
+    index: number,
+    status: string,
+    reason: string | null = null,
+  ) => cover.run(group, "date", date(index), status, reason, time);
+  const hrv = db.prepare(
+    "insert into daily_hrv_detail (date, weekly_avg_ms, baseline_balanced_low_ms, baseline_balanced_upper_ms, feedback_code, fetched_at) values (?,?,?,?,?,?)",
+  );
+  // Latest page: baseline on some dates, one lower-only (no band), one absent.
+  [
+    [0, 46, 40, 55],
+    [1, 45, 40, 55],
+    [2, 44, 39, 54],
+    [3, 43, 39, null],
+    [5, 41, 38, 52],
+    [8, 40, 37, 51],
+  ].forEach(([index, weekly, low, high]) =>
+    hrv.run(date(index!), weekly, low, high, "BALANCED", time),
+  );
+  coverDate("hrv", 0, "populated");
+  coverDate("hrv", 4, "empty");
+  coverDate("hrv", 6, "failed", "http_429");
+
+  const sleep = db.prepare(
+    "insert into daily_sleep_detail (date, overall_score, overall_qualifier, fetched_at) values (?,?,?,?)",
+  );
+  const part = db.prepare(
+    "insert into daily_sleep_score_component (date, component, value, qualifier) values (?,?,?,?)",
+  );
+  sleep.run(date(0), 81, "GOOD", time);
+  sleep.run(date(1), 64, "FAIR", time);
+  [
+    ["overall", 81, "GOOD"],
+    ["deep", 0, "POOR"],
+    ["light", 77, "GOOD"],
+    ["rem", 88, "EXCELLENT"],
+    ["total_duration", null, "GOOD"],
+    ["stress", null, "FAIR"],
+    ["awake_count", null, "EXCELLENT"],
+    ["restlessness", null, null],
+  ].forEach(([component, value, qualifier]) =>
+    part.run(date(0), component, value, qualifier),
+  );
+  part.run(date(1), "overall", 64, "FAIR");
+  part.run(date(1), "total_duration", null, "POOR");
+  coverDate("sleep", 0, "populated");
+  coverDate("sleep", 1, "populated");
+  coverDate("sleep", 2, "empty");
+  coverDate("sleep", 3, "unavailable");
+
+  const stress = db.prepare(
+    "insert into daily_stress (date, total_seconds, rest_seconds, low_seconds, medium_seconds, high_seconds, activity_seconds, uncategorized_seconds, fetched_at) values (?,?,?,?,?,?,?,?,?)",
+  );
+  // Complete day with a genuine zero bucket, and a partial day that must not stack.
+  stress.run(date(0), 86400, 36000, 18000, 0, 3600, 7200, 21600, time);
+  stress.run(date(1), 86400, 40000, 15000, null, null, 6000, 25400, time);
+  coverDate("stress", 0, "populated");
+  coverDate("stress", 1, "populated");
+  coverDate("stress", 2, "failed", "timeout");
+
+  const battery = db.prepare(
+    "insert into daily_body_battery (date, charged, drained, latest_level, end_of_day_level, fetched_at) values (?,?,?,?,?,?)",
+  );
+  battery.run(date(0), 0, null, 74, 31, time);
+  battery.run(date(1), 55, 61, 12, 14, time);
+  battery.run(date(2), 48, null, 20, 22, time);
+  coverDate("body_battery", 0, "populated");
+  coverDate("body_battery", 1, "populated");
+  coverDate("body_battery", 3, "unavailable");
+
+  const vo2 = db.prepare(
+    "insert into vo2_max_reading (date, branch, vo2_max, vo2_max_precise, sport, sub_sport, fetched_at) values (?,?,?,?,?,?,?)",
+  );
+  vo2.run(date(1), "generic", 51, 51.4, "RUNNING", null, time);
+  vo2.run(date(1), "cycling", 58, null, "CYCLING", "ROAD", time);
+  vo2.run(date(4), "generic", 50, null, "RUNNING", null, time);
+  vo2.run(date(8), "rowing", 44, null, "ROWING", null, time);
+  coverDate("vo2_max", 1, "populated");
+  coverDate("vo2_max", 4, "populated");
+
+  // Activities: one run with laps (zones on three of four), one snowboard day.
+  const insertActivity = db.prepare(
+    "insert into activity (id, garmin_id, name, sport, started_at, duration_sec, distance_meters, calories, avg_heart_rate, max_heart_rate, steps) values (?,?,?,?,?,?,?,?,?,?,?)",
+  );
+  insertActivity.run(
+    "synthetic-activity-run",
+    "synthetic-run",
+    "Fictional lap run",
+    "running",
+    time - DAY / 2,
+    2400,
+    6400,
+    410,
+    148,
+    171,
+    6100,
+  );
+  insertActivity.run(
+    "synthetic-activity-snow",
+    "synthetic-snow",
+    "Fictional snow day",
+    "resort_snowboarding",
+    time - DAY * 1.5,
+    14400,
+    38000,
+    900,
+    118,
+    160,
+    null,
+  );
+  const lap = db.prepare(
+    "insert into activity_lap (garmin_id, lap_number, start_time, duration_sec, distance_meters, avg_speed_mps, avg_heart_rate, max_heart_rate, elevation_gain_meters, elevation_loss_meters) values (?,?,?,?,?,?,?,?,?,?)",
+  );
+  for (let n = 1; n <= 4; n++)
+    lap.run(
+      "synthetic-run",
+      n,
+      new Date(time - DAY / 2 + (n - 1) * 600_000).toISOString(),
+      600,
+      1600,
+      2.7,
+      140 + n * 4,
+      165,
+      12,
+      10,
+    );
+  db.prepare(
+    "insert into activity_extra_metrics (garmin_id, body_battery_delta, avg_run_cadence_spm, max_run_cadence_spm, avg_stride_length_cm, fit_avg_cadence_cpm, fit_avg_step_length_m, fetched_at) values ('synthetic-run', -9, 162, 176, 98.5, 81.5, 0.99, ?)",
+  ).run(time);
+  const zone = db.prepare(
+    "insert into activity_lap_hr_zone_time (garmin_id, lap_number, bucket, bucket_kind, zone, seconds, lower_bpm, upper_bpm, calc_method, source_max_heart_rate, source_resting_heart_rate, fetched_at) values (?,?,?,?,?,?,?,?,?,?,?,?)",
+  );
+  const bounds = [
+    [0, "below", null, null, 100],
+    [1, "zone", 1, 101, 120],
+    [2, "zone", 2, 121, 140],
+    [3, "zone", 3, 141, 160],
+    [4, "zone", 4, 161, 175],
+    [5, "zone", 5, 176, 190],
+    [6, "above", null, 191, null],
+  ] as const;
+  // Lap 3 has no recorded zones (unknown); lap 4 is recorded and entirely zero.
+  const seconds: Record<number, number[]> = {
+    1: [20, 40, 250, 220, 70, 0, 0],
+    2: [0, 0, 60, 380, 160, 0, 0],
+    4: [0, 0, 0, 0, 0, 0, 0],
+  };
+  for (const [lapNumber, values] of Object.entries(seconds))
+    bounds.forEach(([bucket, kind, zoneNo, lower, upper]) =>
+      zone.run(
+        "synthetic-run",
+        Number(lapNumber),
+        bucket,
+        kind,
+        zoneNo,
+        values[bucket],
+        lower,
+        upper,
+        "PERCENT_MAX_HR",
+        191,
+        52,
+        time,
+      ),
+    );
+  const coverActivity = (
+    id: string,
+    group: string,
+    status: string,
+    reason: string | null = null,
+  ) => cover.run(group, "activity", id, status, reason, time);
+  coverActivity("synthetic-run", "activity_body_battery", "populated");
+  coverActivity("synthetic-run", "running_dynamics", "populated");
+  coverActivity("synthetic-run", "lap_hr_zones", "populated");
+
+  const summary = db.prepare(
+    "insert into activity_split_summary (garmin_id, split_type, split_count, duration_sec, distance_meters, max_distance_meters, max_speed_mps, fetched_at) values ('synthetic-snow',?,?,?,?,?,?,?)",
+  );
+  summary.run("SKI_RUN_SPLIT", 12, 3600, 31000, 4200, 19.5, time);
+  summary.run("SKI_LIFT_SPLIT", 11, 3000, 8400, 1300, null, time);
+  const run = db.prepare(
+    "insert into activity_snow_split (garmin_id, split_key, message_index, source_order, split_type, start_time, timer_seconds, distance_meters, descent_meters, ascent_meters, max_speed_mps, fetched_at) values ('synthetic-snow',?,?,?,?,?,?,?,?,?,?,?)",
+  );
+  const start = (minute: number) =>
+    new Date(time - DAY * 1.5 + minute * 60_000).toISOString();
+  run.run("index:1", 1, 1, "lift", start(0), 420, 1200, 0, 310, null, time);
+  run.run("index:2", 2, 2, "run", start(8), 190, 2600, 340, 0, 17.8, time);
+  run.run("index:3", 3, 3, "lift", start(14), 400, 1150, 0, 295, null, time);
+  run.run("index:4", 4, 4, "run", start(22), null, null, 0, 0, null, time);
+  run.run("index:5", 5, 5, "run", start(26), 205, 2900, 360, 0, 19.5, time);
+  coverActivity("synthetic-snow", "snowboard_splits", "populated");
+  coverActivity("synthetic-snow", "snow_run_lift_splits", "populated");
 }
 
 function inventory(db: Database.Database) {
@@ -186,6 +393,19 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
   const allowed = new Set([
     "activity",
     "daily_health",
+    // Authored additional-Garmin evidence for the existing Health/Activity views.
+    "garmin_data_coverage",
+    "daily_hrv_detail",
+    "daily_sleep_detail",
+    "daily_sleep_score_component",
+    "daily_stress",
+    "daily_body_battery",
+    "vo2_max_reading",
+    "activity_lap",
+    "activity_extra_metrics",
+    "activity_lap_hr_zone_time",
+    "activity_split_summary",
+    "activity_snow_split",
     "trainer_profile",
     "app_metadata",
     "conversation_history_control",

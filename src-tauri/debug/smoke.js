@@ -58,6 +58,281 @@
   }
   let rememberedHealthRange = null;
   let syntheticCalories = false;
+
+  // Authored additional-Garmin evidence (finite recipe in smoke_recipe.ts). Every
+  // action recomputes the exact authored text from the DOM and refuses on any
+  // difference, so a private input can never satisfy it. Dates are anchor-relative:
+  // the newest of the seven Daily buttons is the anchor day (index 0).
+  const SUPPLEMENT_HEALTH = {
+    "health-hrv": {
+      card: "HRV",
+      band: true,
+      // index 0..6 from the newest date: nightly value · status · Garmin baseline.
+      values: [
+        "42 ms · BALANCED · Garmin baseline 40–55 ms",
+        "43 ms · BALANCED · Garmin baseline 40–55 ms",
+        "44 ms · BALANCED · Garmin baseline 39–54 ms",
+        "45 ms · BALANCED",
+        "46 ms · BALANCED",
+        "47 ms · BALANCED · Garmin baseline 38–52 ms",
+        "48 ms · BALANCED",
+      ],
+    },
+    "health-stress": {
+      card: "Stress breakdown",
+      values: [
+        "Rest: 600 min · Low: 300 min · Medium: 0 min · High: 60 min · Activity (not stress): 120 min · Uncategorized: 360 min",
+        "Rest: 666.7 min · Low: 250 min · Medium: Not reported · High: Not reported · Activity (not stress): 100 min · Uncategorized: 423.3 min",
+        "Read failed",
+        "Not imported (unknown)",
+        "Not imported (unknown)",
+        "Not imported (unknown)",
+        "Not imported (unknown)",
+      ],
+    },
+    "health-battery": {
+      card: "Body Battery charged and drained",
+      values: [
+        "Charged: 0 points · Drained: Not reported",
+        "Charged: 55 points · Drained: 61 points",
+        "Charged: 48 points · Drained: Not reported",
+        "Source unavailable",
+        "Not imported (unknown)",
+        "Not imported (unknown)",
+        "Not imported (unknown)",
+      ],
+    },
+    "health-vo2": {
+      card: "VO2 max",
+      values: [
+        "No reading stored for this date",
+        "General: 51.4 ml/kg/min (Running) · Cycling: 58 ml/kg/min (Road)",
+        "No reading stored for this date",
+        "No reading stored for this date",
+        "General: 50 ml/kg/min (Running)",
+        "No reading stored for this date",
+        "No reading stored for this date",
+      ],
+    },
+  };
+  // Sleep-score detail disclosure: exact authored per-date text, newest first.
+  const SUPPLEMENT_SLEEP = [
+    "Overall: 81 · Good · Deep: 0 · Poor · Light: 77 · Good · REM: 88 · Excellent · Total duration: Good · Stress: Fair · Awake count: Excellent · Restlessness: Not reported",
+    "Overall: 64 · Fair · Total duration: Poor",
+    "Garmin returned none",
+    "Source unavailable",
+    "Not imported (unknown)",
+    "Not imported (unknown)",
+    "Not imported (unknown)",
+  ];
+  let supplementReveal = null;
+  // Applied at capture time: the native resize that precedes a capture changes overflow.
+  let supplementScrollEnd = false;
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const longDate = (date) =>
+    new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  async function supplementSleep() {
+    const comparison = healthComparison();
+    const disclosure = comparison.querySelector(".health-sleep-detail");
+    const rows = [
+      ...(disclosure?.querySelectorAll("li[data-sleep-detail]") ?? []),
+    ];
+    if (!disclosure || rows.length !== 7)
+      throw Error("Authored sleep detail unavailable");
+    // Rows are ascending by date; authored index 0 is the newest.
+    const dates = rows.map((row) => row.dataset.sleepDetail);
+    if (
+      rows
+        .slice()
+        .reverse()
+        .some(
+          (row, index) =>
+            row.textContent !==
+            `${longDate(row.dataset.sleepDetail)}${SUPPLEMENT_SLEEP[index]}`,
+        ) ||
+      new Set(dates).size !== 7
+    )
+      throw Error("Noncanonical authored evidence refused");
+    disclosure.open = true;
+    supplementReveal = disclosure;
+    return { ok: true, action: "health-sleep", trustedInput: false };
+  }
+  async function supplementHealth(action) {
+    if (action === "health-sleep") return supplementSleep();
+    const spec = SUPPLEMENT_HEALTH[action];
+    const comparison = healthComparison();
+    const card = comparison.querySelector(
+      `.health-rollup-chart[aria-label="${spec.card} daily chart"]`,
+    );
+    const buttons = [
+      ...(card?.querySelectorAll("button[data-source-date]") ?? []),
+    ];
+    if (!card || buttons.length !== 7) throw Error("Authored card unavailable");
+    // Buttons are ascending; authored index 0 is the newest date.
+    const labelled = buttons
+      .slice()
+      .reverse()
+      .map((button, index) => {
+        const date = button.dataset.sourceDate;
+        return { button, expected: `${longDate(date)}: ${spec.values[index]}` };
+      });
+    if (
+      labelled.some(({ button, expected }) => button.title !== expected) ||
+      (spec.band &&
+        card.querySelector(".health-rollup-band-key")?.textContent.trim() !==
+          "Garmin baseline range")
+    )
+      throw Error("Noncanonical authored evidence refused");
+    // Select each date so the shared readout is checked against the exact text.
+    // Oldest to newest, so the capture's readout ends on the newest (data) date.
+    for (const { button, expected } of labelled.slice().reverse()) {
+      button.dispatchEvent(new Event("pointerover", { bubbles: true }));
+      button.focus({ preventScroll: true });
+      button.click();
+      await pause(0);
+      if (
+        !card
+          .querySelector(".health-rollup-readout")
+          ?.textContent.startsWith(expected.split(":")[0])
+      )
+        throw Error("Shared readout did not follow the selected date");
+    }
+    supplementReveal = card;
+    return { ok: true, action, trustedInput: false };
+  }
+  async function waitFor(check, label) {
+    for (let waited = 0; waited < 3000; waited += 50) {
+      const value = check();
+      if (value) return value;
+      await pause(50);
+    }
+    throw Error(`${label} not ready`);
+  }
+  async function supplementActivity(action) {
+    const wanted =
+      action === "activity-snow" ? "Fictional snow day" : "Fictional lap run";
+    const lapAction = ["activity-laps", "activity-laps-end"].includes(action);
+    supplementScrollEnd = false;
+    // The list loads after the view switches; wait for exactly one authored match.
+    const choices = await waitFor(() => {
+      const found = [
+        ...document.querySelectorAll(".activity-list-item"),
+      ].filter(
+        (el) =>
+          visible(el) && el.querySelector("strong")?.textContent === wanted,
+      );
+      return found.length === 1 ? found : null;
+    }, "Authored activity");
+    const heading = () =>
+      document.querySelector(".selected-activity-heading h2")?.textContent;
+    if (heading() !== wanted) choices[0].click();
+    await waitFor(() => heading() === wanted, "Authored activity");
+    const detail = document.querySelector(".selected-activity-detail");
+    if (!detail) throw Error("Activity detail unavailable");
+    let region;
+    if (action === "activity-summary") {
+      region = detail.querySelector(".activity-stat-grid");
+      const text = region?.textContent ?? "";
+      for (const expected of [
+        "Body Battery change−9 points",
+        "Cadence (Garmin list)162 steps/min",
+        "Max cadence (Garmin list)176 steps/min",
+        "Stride length (Garmin list)98.5 cm",
+        "Cadence (FIT file)81.5 cycles/min",
+        "Step length (FIT file)0.99 m",
+      ])
+        if (!text.includes(expected))
+          throw Error("Noncanonical summary refused");
+    } else if (lapAction) {
+      region = detail.querySelector(".lap-table-wrap");
+      const rows = [...(region?.querySelectorAll("tbody tr") ?? [])];
+      const zone = (row) => row.querySelector(".lap-zone-column");
+      const labelOf = (row) =>
+        zone(row)?.querySelector("[role=group]")?.getAttribute("aria-label");
+      if (
+        rows.length !== 4 ||
+        [...region.querySelectorAll("thead th")].at(-1)?.textContent !==
+          "HR zones" ||
+        labelOf(rows[0]) !==
+          "Lap HR zones: Below zone 1 (…–100 bpm): 20s · Zone 1 (101–120 bpm): 40s · Zone 2 (121–140 bpm): 4m 10s · Zone 3 (141–160 bpm): 3m 40s · Zone 4 (161–175 bpm): 1m 10s · Zone 5 (176–190 bpm): 0s · Above zone 5 (191–max bpm): 0s" ||
+        !labelOf(rows[1])?.includes("Zone 3 (141–160 bpm): 6m 20s") ||
+        zone(rows[2]).textContent !== "" ||
+        !zone(rows[3]).textContent.includes("All zero") ||
+        new Set(rows.map((row) => row.children.length)).size !== 1
+      )
+        throw Error("Noncanonical lap-zone evidence refused");
+      supplementScrollEnd = action === "activity-laps-end";
+    } else {
+      region = detail.querySelector(".snow-section");
+      const totals = [
+        ...(region?.querySelectorAll(".snow-totals:not(.snow-runs) tbody tr") ??
+          []),
+      ].map((row) => row.textContent);
+      const runs = [
+        ...(region?.querySelectorAll(".snow-runs tbody tr") ?? []),
+      ].map((row) => row.textContent);
+      const same = (left, right) =>
+        JSON.stringify(left) === JSON.stringify(right);
+      if (
+        !same(totals, [
+          "Runs121h 00m31 km4.2 km",
+          "Lifts1150m 00s8.4 km1.3 km",
+        ]) ||
+        !same(runs, [
+          "1Lift7m 00s1.2 km0 m—",
+          "2Run3m 10s2.6 km340 m64.1 km/h",
+          "3Lift6m 40s1.15 km0 m—",
+          "4Run——0 m—",
+          "5Run3m 25s2.9 km360 m70.2 km/h",
+        ])
+      )
+        throw Error("Noncanonical snow evidence refused");
+    }
+    if (!region || !visible(region)) throw Error("Authored region unavailable");
+    supplementReveal = region;
+    return { ok: true, action, trustedInput: false };
+  }
+  async function supplementCapture() {
+    const region = supplementReveal;
+    if (!region || !document.contains(region)) throw Error("Validate first");
+    restore();
+    // Layout settles after the native resize; measure the real rendered width.
+    await pause(300);
+    // The real wrapper scroll, as a user would: reveals the last column when narrow.
+    if (region.classList.contains("lap-table-wrap"))
+      region.scrollLeft = supplementScrollEnd ? region.scrollWidth : 0;
+    // The page itself must not overflow horizontally at this viewport; only the
+    // reviewed table wrappers may scroll.
+    if (document.documentElement.scrollWidth > window.innerWidth + 1)
+      throw Error("Page-level horizontal overflow refused");
+    const width = Math.round(region.getBoundingClientRect().width);
+    if (!(width > 0 && width <= window.innerWidth))
+      throw Error("Authored region width refused");
+    region.setAttribute("data-smoke-supplement", "");
+    const style = document.createElement("style");
+    style.id = "trainer-smoke-sanitizer";
+    // Only the validated authored subtree is visible. It is repositioned at its
+    // measured real width on an opaque background (the disclosure-capture
+    // precedent): a scrolled layer gave stale or blank native frames. Subtree
+    // fidelity, not full-layout fidelity.
+    style.textContent = `body * {visibility:hidden !important}
+      [data-smoke-supplement] {position:fixed !important; top:24px !important; left:24px !important;
+        width:${width}px !important; max-width:calc(100vw - 48px) !important; margin:0 !important;
+        z-index:2147483647 !important; background:#101c2c !important}
+      [data-smoke-supplement], [data-smoke-supplement] * {visibility:visible !important}`;
+    document.head.append(style);
+    await pause(600);
+    return {
+      ok: true,
+      boundary: "sanitized actual additional-Garmin evidence subtree",
+    };
+  }
+
   const dailyChartTitles = [
     "Calories",
     "Sleep duration",
@@ -72,6 +347,10 @@
     "REM sleep",
     "Awake sleep",
     "Nap sleep",
+    // Additional Garmin evidence cards; each still carries every selected date.
+    "Stress breakdown",
+    "Body Battery charged and drained",
+    "VO2 max",
   ];
   // Closed authored recipe only; never infer permission from merely populated data.
   function canonicalCalories(comparison) {
@@ -3438,6 +3717,8 @@
       el.removeAttribute("data-smoke-reveal");
     for (const el of document.querySelectorAll("[data-smoke-structure]"))
       el.removeAttribute("data-smoke-structure");
+    for (const el of document.querySelectorAll("[data-smoke-supplement]"))
+      el.removeAttribute("data-smoke-supplement");
   }
   function profileLayers() {
     const sheets = document.querySelectorAll("aside.settings-sheet");
@@ -3820,9 +4101,13 @@
     if (!command || typeof command !== "object") throw Error("Invalid command");
     if (
       globalThis.__trainerOrdinaryIsolated &&
-      (["debugKey", "captureDebug", "health", "settings"].includes(
-        command.type,
-      ) ||
+      ([
+        "debugKey",
+        "captureDebug",
+        "health",
+        "supplement",
+        "settings",
+      ].includes(command.type) ||
         (command.type === "click" &&
           ["LLM debug traces", "First LLM trace"].includes(command.target)))
     )
@@ -3961,6 +4246,26 @@
       }
       case "captureView":
         return maskedView(command);
+      case "supplement": {
+        if (
+          Object.keys(command).sort().join(",") !== "action,type" ||
+          ![
+            ...Object.keys(SUPPLEMENT_HEALTH),
+            "health-sleep",
+            "activity-summary",
+            "activity-laps",
+            "activity-laps-end",
+            "activity-snow",
+            "capture-wide",
+            "capture-narrow",
+          ].includes(command.action)
+        )
+          throw Error("Unsupported additional-evidence action");
+        if (command.action.startsWith("capture-")) return supplementCapture();
+        return command.action.startsWith("health-")
+          ? supplementHealth(command.action)
+          : supplementActivity(command.action);
+      }
       case "health": {
         if (Object.keys(command).sort().join(",") !== "action,type")
           throw Error("Unknown Health fields");

@@ -1,3 +1,7 @@
+import type {
+  ActivitySupplement,
+  HealthSupplements,
+} from "@/lib/local-data/supplement-contracts";
 import { type TrainerProgress } from "@/lib/ai/trainer-progress";
 
 export type Status = {
@@ -277,6 +281,8 @@ export type HealthDashboardMode = "daily" | "weekly" | "monthly";
 export type HealthDashboardPayload = {
   days: HealthDashboardDay[];
   latestDate: string | null;
+  /** Dated additional Garmin evidence; null when there are no daily rows. */
+  supplements?: HealthSupplements | null;
 };
 
 export const SLEEP_DETAIL_SOURCE_LIMITED =
@@ -362,6 +368,7 @@ export const emptySyncRun: SyncRunState = {
 };
 
 export type ActivityDashboardPayload = {
+  supplement?: ActivitySupplement;
   terrainSections?: import("@/lib/analytics/terrain-sections").TerrainAnalysis;
   activity: ActivityListItem & {
     calories: number | null;

@@ -317,6 +317,62 @@ class OwnershipTests(unittest.TestCase):
             run.health_scenario()
         self.assertEqual(run.command.call_count, 1)
 
+    def test_supplement_scenario_is_closed_sequential_and_stops_on_first_refusal(self):
+        from unittest.mock import Mock
+
+        run = Run.__new__(Run)
+        run.root = Path('/unused')
+        run.wait = Mock()
+        run.command = Mock(return_value={'ok': True})
+        with patch('native_smoke.private_json') as receipt:
+            run.supplement_scenario()
+            self.assertTrue(receipt.call_args.args[1]['passed'])
+        sent = [call.args[0] for call in run.command.call_args_list]
+        # Each evidence action is validated before its own two captures, nothing else.
+        supplement = [item['action'] for item in sent if item['type'] == 'supplement']
+        self.assertEqual(
+            supplement,
+            [
+                'health-hrv',
+                'capture-narrow',
+                'capture-wide',
+                'health-sleep',
+                'capture-narrow',
+                'capture-wide',
+                'health-stress',
+                'capture-narrow',
+                'capture-wide',
+                'health-battery',
+                'capture-narrow',
+                'capture-wide',
+                'health-vo2',
+                'capture-narrow',
+                'capture-wide',
+                'activity-summary',
+                'capture-narrow',
+                'capture-wide',
+                'activity-laps',
+                'capture-narrow',
+                'capture-wide',
+                'activity-laps-end',
+                'capture-narrow',
+                'capture-wide',
+                'activity-snow',
+                'capture-narrow',
+                'capture-wide',
+            ],
+        )
+        self.assertEqual(
+            [item['target'] for item in sent if item['type'] == 'click'],
+            ['Back to chat', 'Activities', 'Back to chat'],
+        )
+        self.assertFalse(any(item['type'] in ['input', 'assert'] for item in sent))
+        # A refused validation is never retried and never captured.
+        run.command = Mock(side_effect=ValueError('Noncanonical authored evidence refused'))
+        with self.assertRaises(ValueError):
+            run.supplement_scenario()
+        self.assertEqual(run.command.call_count, 1)
+
     def test_readonly_resources_preserve_executable_node(self):
         from release_smoke import protect_resources
 

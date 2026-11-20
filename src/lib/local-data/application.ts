@@ -21,6 +21,10 @@ import type {
   ActivityDetailAvailability,
   ActivityDetailCoverage,
 } from "../garmin/detail-types";
+import type {
+  ActivitySupplement,
+  HealthSupplements,
+} from "./supplement-contracts";
 import { interpretActivityReference } from "./activity-policy";
 import {
   DASHBOARD_OVERVIEW_ROW_LIMIT,
@@ -86,6 +90,9 @@ export interface LocalDataReads {
   getActivityDashboardDetail(garminId: string): ActivityDashboardDetail | null;
   listRecentDailyHealth(limit?: number): NormalizedDailyHealth[];
   listTrainerRecoveryPreview(): TrainerRecoveryDay[];
+  /** Null when no daily-health window exists. */
+  getHealthSupplements(dayLimit: number): HealthSupplements | null;
+  getActivitySupplement(garminId: string): ActivitySupplement;
   listRecentActivities(limit?: number): NormalizedActivity[];
   listActivitiesForComparison(limit?: number): NormalizedActivity[];
   getActivityByGarminId(garminId: string): NormalizedActivity | null;
@@ -113,6 +120,7 @@ export function createLocalData(reads: LocalDataReads) {
     getActivityDashboardDetail: (id: string) =>
       reads.getActivityDashboardDetail(id),
     listTrainerRecoveryPreview: () => reads.listTrainerRecoveryPreview(),
+    activitySupplement: (id: string) => reads.getActivitySupplement(id),
     listRecentDailyHealth: (limit?: number) =>
       reads.listRecentDailyHealth(limit),
     listRecentActivities: (limit?: number) => reads.listRecentActivities(limit),
@@ -128,7 +136,14 @@ export function createLocalData(reads: LocalDataReads) {
     getGarminBodyMetrics: () => reads.getGarminBodyMetrics(),
     healthDashboard() {
       const days = reads.listRecentDailyHealth(HEALTH_DASHBOARD_DAY_LIMIT);
-      return { days, latestDate: days.length > 0 ? days[0].date : null };
+      return {
+        days,
+        latestDate: days.length > 0 ? days[0].date : null,
+        supplements:
+          days.length > 0
+            ? reads.getHealthSupplements(HEALTH_DASHBOARD_DAY_LIMIT)
+            : null,
+      };
     },
     verifyActivityReference(reference: ActivityReferenceInput, matchLimit = 5) {
       return interpretActivityReference(

@@ -499,6 +499,52 @@ class Run:
             },
         )
 
+    def supplement_scenario(self):
+        """Authored additional-Garmin evidence: exact values validated before each capture.
+
+        Runs only on the authored synthetic route, after the Health scenario returned
+        to the latest page. Every action refuses unless the rendered authored text
+        matches exactly, so private input can never satisfy it.
+        """
+        captures = {}
+        for action in [
+            'health-hrv',
+            'health-sleep',
+            'health-stress',
+            'health-battery',
+            'health-vo2',
+        ]:
+            self.command({'type': 'supplement', 'action': action})
+            captures[action] = {
+                size: self.command({'type': 'supplement', 'action': 'capture-' + size})
+                for size in ['narrow', 'wide']
+            }
+        self.command({'type': 'click', 'target': 'Back to chat'})
+        self.wait(lambda o: o['view'] == 'Trainer', 'Health away')
+        self.command({'type': 'click', 'target': 'Activities'})
+        self.wait(lambda o: o['view'] == 'Activities', 'Activities')
+        for action in [
+            'activity-summary',
+            'activity-laps',
+            'activity-laps-end',
+            'activity-snow',
+        ]:
+            self.command({'type': 'supplement', 'action': action})
+            captures[action] = {
+                size: self.command({'type': 'supplement', 'action': 'capture-' + size})
+                for size in ['narrow', 'wide']
+            }
+        self.command({'type': 'click', 'target': 'Back to chat'})
+        self.wait(lambda o: o['view'] == 'Trainer', 'Trainer return')
+        private_json(
+            self.root / 'supplement-scenario.json',
+            {
+                'passed': True,
+                'captures': captures,
+                'limit': 'Only the validated authored card/table subtree is revealed; everything else keeps its geometry but stays hidden. Authored synthetic values only, never trusted input or real Garmin data. Image inspection remains required.',
+            },
+        )
+
     def scenario(self, health_comparison=False):
         other_fields = self.other_profile_fields()
         self.wait(lambda o: o['view'] == 'Trainer', 'Trainer')
@@ -509,6 +555,9 @@ class Run:
                 self.health_scenario(
                     synthetic_calories=getattr(self, 'synthetic_health_calories', False)
                 )
+                if getattr(self, 'synthetic_health_calories', False):
+                    self.supplement_scenario()
+                    continue
             self.command({'type': 'click', 'target': 'Back to chat'})
             self.wait(lambda o: o['view'] == 'Trainer', 'Trainer return')
         return self.profile_scenario(capture=True, other_fields=other_fields)

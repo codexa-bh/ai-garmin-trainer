@@ -25,6 +25,7 @@ import { modelSettingsSnapshot } from "../src/lib/model-settings/policy";
 import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 import { WeeklyKpiScorecard } from "../src/app/dashboard/weekly-kpi-scorecard";
 import { authoredAssessedLatestKpis } from "./kpi-fixture";
+import type { HealthSupplements } from "../src/lib/local-data/supplement-contracts";
 const tableProse =
   "Synthetic evidence describes duration and partial credit with explicit limitations; descriptive prose should wrap at word boundaries.";
 import { projectKpis } from "../src/lib/weekly/kpis";
@@ -1210,6 +1211,154 @@ describe("native-installed rendered smoke boundary", () => {
     expect(capture).not.toMatch(
       /makeKeyAndOrderFront|activateIgnoringOtherApps|CGWindowListCreateImage/,
     );
+  });
+
+  describe("finite rendered additional-Garmin evidence boundary", () => {
+    // Anchor-relative authored recipe: index 0 is the newest of the seven dates.
+    const ANCHOR = "2026-11-01";
+    const shift = (index: number) =>
+      new Date(Date.parse(`${ANCHOR}T00:00:00Z`) - index * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+    const record = (date: string) =>
+      ({
+        date,
+        sleepMinutes: 444,
+        sleepScore: 86,
+        sleepDeepMinutes: 74,
+        sleepLightMinutes: 244,
+        sleepRemMinutes: 96,
+        sleepAwakeMinutes: 30,
+        sleepNapMinutes: 0,
+        restingHeartRate: 52,
+        hrvStatus: "BALANCED",
+        hrvMs: 41.2,
+        stressAvg: 38,
+        steps: 8412,
+        calories: 2310,
+        activeCalories: 710,
+        restingCalories: 1600,
+        totalCalories: 2310,
+        intensityMinutes: 38,
+        bodyBatteryAvg: null,
+        bodyBatteryMorning: null,
+        bodyBatteryEvening: null,
+        availability: "complete",
+      }) as HealthDashboardDay;
+    const unknown = { status: "not_imported" as const, reason: null };
+    const coverage = (over: Partial<Record<string, unknown>> = {}) => ({
+      sleep: unknown,
+      hrv: unknown,
+      stress: unknown,
+      body_battery: unknown,
+      vo2_max: unknown,
+      ...over,
+    });
+    function authoredSupplements(tamper = false): HealthSupplements {
+      const hrv = (
+        index: number,
+        low: number | null,
+        high: number | null,
+      ): HealthSupplements["days"][number] => ({
+        date: shift(index),
+        hrv: {
+          weeklyAvgMs: 40 + index,
+          balancedLowMs: low,
+          balancedUpperMs: high,
+          feedbackCode: "BALANCED",
+        },
+        sleep: null,
+        stress: null,
+        bodyBattery: null,
+        coverage: coverage(),
+      });
+      const days = [
+        hrv(0, 40, 55),
+        hrv(1, 40, 55),
+        hrv(2, 39, 54),
+        hrv(3, null, null),
+        hrv(5, 38, 52),
+      ];
+      days[0].stress = {
+        totalSeconds: 86400,
+        restSeconds: 36000,
+        lowSeconds: 18000,
+        mediumSeconds: 0,
+        highSeconds: tamper ? 1 : 3600,
+        activitySeconds: 7200,
+        uncategorizedSeconds: 21600,
+      };
+      return { from: shift(6), to: shift(0), days, vo2: [] };
+    }
+    function Authored({ tamper = false }: { tamper?: boolean }) {
+      const [end, setEnd] = useState<string | null>(null);
+      return (
+        <section className="health-dashboard-panel">
+          <HealthDashboardView
+            days={Array.from({ length: 7 }, (_, index) =>
+              record(shift(6 - index)),
+            )}
+            supplements={authoredSupplements(tamper)}
+            rangeEnd={end}
+            onSelectRange={setEnd}
+            notice=""
+          />
+        </section>
+      );
+    }
+    // Rendered data differs from the full authored recipe in this unit fixture, so the
+    // contract asserted here is the mechanism: exact validation, refusal and masking.
+    it("refuses every supplement action outside its closed list, with extra fields, or without prior validation", async () => {
+      render(<Authored />);
+      for (const unknown of [
+        { type: "supplement", action: "eval" },
+        { type: "supplement", action: "health-hrv", date: "2026-01-01" },
+        { type: "supplement", action: "capture-wide", selector: "body" },
+        { type: "supplement" },
+      ])
+        expect((await command(unknown)).result.ok).toBe(false);
+      // Capture is refused before any evidence action validated a region.
+      expect(
+        (await command({ type: "supplement", action: "capture-wide" })).result
+          .ok,
+      ).toBe(false);
+      expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+    });
+
+    it("refuses authored evidence whose rendered text does not match exactly and never masks", async () => {
+      render(<Authored tamper />);
+      const before = document.body.innerHTML;
+      for (const action of ["health-stress", "health-hrv", "health-battery"])
+        expect((await command({ type: "supplement", action })).result.ok).toBe(
+          false,
+        );
+      expect(
+        (await command({ type: "supplement", action: "capture-narrow" })).result
+          .ok,
+      ).toBe(false);
+      expect(document.body.innerHTML).toBe(before);
+      expect(document.querySelector("[data-smoke-supplement]")).toBeNull();
+    });
+
+    it("is unavailable to ordinary isolated runs", async () => {
+      smoke.__trainerOrdinaryIsolated = { runId: "run" };
+      render(<Authored />);
+      for (const action of ["health-hrv", "capture-wide", "activity-laps"])
+        expect((await command({ type: "supplement", action })).result.ok).toBe(
+          false,
+        );
+      expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+    });
+
+    it("never returns dates, values or text from an evidence action", async () => {
+      render(<Authored />);
+      const results = [
+        await command({ type: "supplement", action: "health-stress" }),
+        await command({ type: "supplement", action: "health-hrv" }),
+      ];
+      const text = JSON.stringify(results);
+      expect(text).not.toMatch(/2026-|min|ms|points|Garmin baseline/);
+    });
   });
 
   describe("finite rendered Health boundary", () => {
