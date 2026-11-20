@@ -28,6 +28,7 @@ from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 from smoke_input import prepare
 from weekly_kpi_provider import response as weekly_kpi_response
+import extra_data_provider
 
 ANSWER = 'Authored weekday hike: 6543 m in 4321 s, 321 m ascent, mean HR 123. The elevation section averages 10% across 1000 m. Keep weekday climbing practice manageable; surface and technicality remain unknown.'
 FOLLOWUP = 'Continue with short weekday practice and adjust to recovery; this is authored coaching, not live-provider validation.'
@@ -275,11 +276,20 @@ def response(index, body, expected_zones=None, activity_images=False):
 
 class AuthoredProvider:
     def __init__(
-        self, *, activity_images=False, memory_curation=False, weekly_kpis=False, scratch=None
+        self,
+        *,
+        activity_images=False,
+        memory_curation=False,
+        weekly_kpis=False,
+        extra_data=False,
+        scratch=None,
     ):
-        if weekly_kpis and (activity_images or memory_curation):
-            raise ValueError('Authored KPI scope is exclusive')
+        if (weekly_kpis or extra_data) and (
+            activity_images or memory_curation or (weekly_kpis and extra_data)
+        ):
+            raise ValueError('Authored KPI/extra-data scopes are exclusive')
         self.weekly_kpis = weekly_kpis
+        self.extra_data = extra_data
         self.calls = []
         self.memory_curation = memory_curation
         self.summary_calls = []
@@ -321,6 +331,8 @@ class AuthoredProvider:
                     memory = owner.memory_curation and body.get('model') == MEMORY_MODEL
                     if owner.weekly_kpis:
                         message = weekly_kpi_response(len(owner.calls), body, owner.week)
+                    elif owner.extra_data:
+                        message = extra_data_provider.response(len(owner.calls), body)
                     elif memory:
                         message, summary = memory_response(body)
                     elif owner.memory_curation and len(owner.calls) >= 9:
@@ -452,6 +464,8 @@ def seed_run(run, provider):
                 for zone in range(1, 6)
             ],
         )
+        if getattr(provider, 'extra_data', False):
+            extra_data_provider.seed(db)
         db.commit()
         if (
             db.execute('pragma integrity_check').fetchone()[0] != 'ok'
@@ -494,7 +508,37 @@ def api(run, method, path, body=None, expected_status=200):
         client.close()
 
 
+def exercise_extra_data(run, provider):
+    """Actual guarded describe/SQL/math over authored extra-data relations (T0352)."""
+    conversation = 't0352-authored-' + str(uuid.uuid4())
+    value = json.loads(
+        api(
+            run,
+            'POST',
+            '/api/chat',
+            {
+                'conversationId': conversation,
+                'message': 'Authored review of my extra Garmin recovery and activity evidence.',
+                'stream': False,
+            },
+        )
+    )
+    if value['assistant']['content'] != extra_data_provider.ANSWER or [
+        (s['tool'], s['status']) for s in value['toolSteps']
+    ] != [
+        ('describeGarminDatabase', 'succeeded'),
+        ('runReadOnlySql', 'succeeded'),
+        ('runMathAnalysis', 'succeeded'),
+    ]:
+        raise ValueError('Actual extra-data SQL/math tool sequence mismatch')
+    if len(provider.calls) != extra_data_provider.CALLS:
+        raise ValueError('Extra-data provider call count mismatch')
+    return [conversation]
+
+
 def exercise(run, provider):
+    if getattr(provider, 'extra_data', False):
+        return exercise_extra_data(run, provider)
     dashboard = json.loads(api(run, 'GET', '/api/activities/weekdayHike/dashboard'))
     provider.expected_zones = dashboard['heartRateZones']
     ids = []
@@ -825,10 +869,17 @@ def main():
         action='store_true',
         help='Finite authored Profile/correction/plan/weekly/automatic-memory proof; no private or real provider input',
     )
+    parser.add_argument(
+        '--extra-data',
+        action='store_true',
+        help='Finite authored guarded describe/SQL/math over the T0352 extra Garmin relations; no live model',
+    )
     parser.set_defaults(input_file=None, grant_file=None, provenance_file=None, anchor=None)
     args = parser.parse_args()
     if args.memory_curation and args.activity_images:
         parser.error('Memory curation and image fixtures are separate scenarios')
+    if args.extra_data and (args.memory_curation or args.activity_images):
+        parser.error('Extra-data proof is a separate scenario')
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
     prepared = prepare(scratch, args, 'ordinary')
@@ -851,6 +902,7 @@ def main():
             provider = AuthoredProvider(
                 activity_images=args.activity_images,
                 memory_curation=args.memory_curation,
+                extra_data=args.extra_data,
                 scratch=scratch,
             )
             seed_run(run, provider)
@@ -864,7 +916,10 @@ def main():
             if run.boot == old_boot:
                 raise ValueError('Restart reused boot')
             captures = []
-            for preset in ['wide', 'narrow']:
+            # The extra-data scope is non-visual: its proof is the actual tool
+            # wire/SQL cells and persisted history, and the fixed chat mask
+            # admits only the canonical ordinary answer, so no capture is taken.
+            for preset in [] if args.extra_data else ['wide', 'narrow']:
                 run.command({'type': 'setViewport', 'preset': preset})
                 # Read-only fixed capture can wait for selected history hydration.
                 # No mutation retry: capture is attempted only after bounded history checks.
@@ -876,10 +931,16 @@ def main():
                     run.command({'type': 'captureView', 'view': 'ordinary-chat', 'preset': preset})
                 )
             with contextlib.closing(readonly(run.database)) as db:
-                if db.execute(
-                    "select content from message where conversation_id=? and role='assistant' order by created_at",
-                    (ids[0],),
-                ).fetchall() != [(ANSWER,), (FOLLOWUP,)]:
+                expected_history = (
+                    [(extra_data_provider.ANSWER,)] if args.extra_data else [(ANSWER,), (FOLLOWUP,)]
+                )
+                if (
+                    db.execute(
+                        "select content from message where conversation_id=? and role='assistant' order by created_at",
+                        (ids[0],),
+                    ).fetchall()
+                    != expected_history
+                ):
                     raise ValueError('Restart history mismatch')
             memory_evidence = memory_curation(run, provider) if args.memory_curation else None
             if (
@@ -899,6 +960,13 @@ def main():
                     'memoryCuration': memory_evidence,
                     'activityImageCaptures': provider.captures,
                     'selectedPanels': PANELS if args.activity_images else [],
+                    'extraData': {
+                        'tools': ['describeGarminDatabase', 'runReadOnlySql', 'runMathAnalysis'],
+                        'sqlCells': sorted(extra_data_provider.EXPECTED),
+                        'screenshot': 'not applicable: non-visual guarded SQL/math wire proof',
+                    }
+                    if args.extra_data
+                    else None,
                     'backSync': 'Authored current-schema run copies only; memory/Profile/plan changes persist only in owned copies. Original prepared input unchanged; schema24-to25 rehearsal is separately covered by SQLite regressions.',
                     'passed': True,
                 }
