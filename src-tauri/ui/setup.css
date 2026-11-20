@@ -43,8 +43,7 @@ button {
 button:disabled {
   opacity: 0.5;
 }
-#status,
-#auth-status {
+#status {
   color: var(--focus);
 }
 fieldset,
@@ -110,6 +109,17 @@ button {
 }
 #garmin-fields button {
   max-width: 100%;
+}
+#garmin-key-link {
+  color: var(--accent);
+}
+#garmin-key-steps {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+/* Empty live status takes no row; it reappears when a draft intent exists. */
+#GARMIN_API_KEY-status:empty {
+  display: none;
 }
 #garmin-privacy {
   border-top: 1px solid var(--line);
