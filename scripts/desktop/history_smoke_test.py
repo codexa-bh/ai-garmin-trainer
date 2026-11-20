@@ -177,8 +177,16 @@ class HistoryTokenContracts(unittest.TestCase):
         from unittest.mock import Mock
 
         (self.destination / 'config').mkdir(mode=0o700, exist_ok=True)
+        import sqlite3
+
+        database = self.destination / 'trainer.sqlite'
+        with sqlite3.connect(database) as db:
+            db.execute('create table conversation(value text)')
+            db.execute("insert into conversation values ('authored canary')")
+            db.execute('create table activity(value text)')
         run = SimpleNamespace(
             root=self.destination,
+            database=database,
             child=None,
             config={'port': 12345},
             descriptor={'runId': 'unit'},
@@ -211,6 +219,9 @@ class HistoryTokenContracts(unittest.TestCase):
             )
             self.assertEqual(prepared['fields']['GARMIN_MCP_COMMAND'], 'uvx')
             self.assertTrue(all(run.legacy_before['retainedFields'].values()))
+            # Only tables Sync does not own are fingerprinted for preservation.
+            self.assertEqual(list(run.unrelated_before), ['conversation'])
+            self.assertEqual(run.unrelated_before['conversation'][0], 1)
             fixture = run.descriptor['garminFixture']
             self.assertEqual(set(fixture), {'port', 'capability'})
             self.assertEqual(fixture['port'], run.fixture.port)
