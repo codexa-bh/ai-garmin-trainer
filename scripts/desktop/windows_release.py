@@ -36,8 +36,7 @@ REQUIRED = [
     'redistribution/NOTICES.txt',
     'redistribution/sources/native-crates.tar.gz',
     'runtime/runtime.cjs',
-    'runtime/scripts/garmin_auth.py',
-    'runtime/scripts/garmin_auth.py.lock',
+    'runtime/scripts/chatgpt-oauth.mjs',
 ]
 EXCLUDED_RUNTIME = (
     'node_modules/sharp',

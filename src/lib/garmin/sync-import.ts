@@ -39,10 +39,7 @@ import {
 } from "./latest-policy";
 import { dayCoverage } from "./coverage-policy";
 import type { PrimaryUpload } from "./primary-upload";
-import {
-  GarminDependencyError,
-  garminDependencyReason,
-} from "./dependency-error";
+import { GarminSafeFailure } from "./failure";
 import { createBaselineImports } from "./baseline-import";
 import { createDetailImports } from "./detail-import";
 import {
@@ -73,6 +70,17 @@ class NoHistoryProgress extends Error {
       "Garmin history made no forward progress; unresolved work is retained for explicit recovery.",
     );
   }
+}
+
+/**
+ * Closed, secret-free failure text: adapter failures that are fixed vocabulary
+ * pass through; anything else stays generic so no vendor/storage text reaches
+ * the UI.
+ */
+function officialFailure(error: unknown): string {
+  return error instanceof GarminSafeFailure
+    ? error.message
+    : "Garmin sync stopped after a connection or storage failure; committed data and unresolved history are retained.";
 }
 
 export function createGarminImports({
@@ -445,7 +453,6 @@ export function createGarminImports({
     let bodyMetrics = store.getGarminBodyMetrics();
     let outcome: typeof state.outcome = "settled";
     let failure: string | undefined;
-    let dependency: GarminSyncResult["dependency"];
     const save = () => {
       state.operations = operations;
       state.updatedAt = clock().toISOString();
@@ -1036,7 +1043,6 @@ export function createGarminImports({
             "Required historical work remains; continue explicitly within the saved scope.";
         }
       } catch (error) {
-        dependency = garminDependencyReason(error);
         const failureClass = historyFailureClass(error);
         stopReason ??=
           error instanceof SyncPause || error instanceof BatchEnd
@@ -1071,10 +1077,9 @@ export function createGarminImports({
                 : overallRemaining() <= 0
                   ? "Operation deadline reached; Resume explicitly to continue unknown history."
                   : "Internal batch deadline reached; committed progress retained. Refresh durable truth before Resume."
-            : error instanceof NoHistoryProgress ||
-                error instanceof GarminDependencyError
+            : error instanceof NoHistoryProgress
               ? error.message
-              : "Garmin sync stopped after a connector or storage failure; committed data and unresolved history are retained.";
+              : officialFailure(error);
       }
       detailsRemaining = store.listActivityIdsNeedingDetail().length;
       if (outcome === "settled" && detailsRemaining > 0) {
@@ -1110,7 +1115,6 @@ export function createGarminImports({
         status: outcome === "settled" ? "completed" : outcome,
         intent: options.intent,
         sync: summary.sync,
-        ...(dependency ? { dependency } : {}),
         activitiesImported,
         healthDaysImported,
         activitiesProcessed: activitiesImported,

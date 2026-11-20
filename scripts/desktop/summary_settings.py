@@ -52,17 +52,8 @@ def preserved_fields(run):
     values = {
         field['key']: field.get('default', field.get('options', [''])[0])
         for field in inventory
-        if field.get('legacy') or field['key'].endswith('_COMMAND')
+        if field.get('legacy')
     }
-    # A real canonical existing run-owned file exercises exact custom path round
-    # trips; this keyless scenario never invokes connector/FIT tools.
-    values.update(
-        {
-            field['key']: str(run.binary.resolve())
-            for field in inventory
-            if field['key'].endswith('_COMMAND')
-        }
-    )
     values.update(
         {
             'AI_PROVIDER': 'ollama',

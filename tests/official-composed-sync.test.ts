@@ -102,7 +102,7 @@ async function harness(
   const { getDatabase } = await import("../src/lib/db/connection");
   const { FRESHNESS_CHECKPOINT } =
     await import("../src/lib/garmin/latest-policy");
-  const { normalizeDailyHealth } = await import("../src/lib/garmin/normalize");
+  const { normalizeDailyHealth } = await import("./legacy-normalize");
   return {
     api,
     imports,

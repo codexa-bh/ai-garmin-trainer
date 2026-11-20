@@ -12,6 +12,17 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 pub const SLOTS: [&str; 3] = ["OPENAI_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"];
+/// Retired unofficial-connector fields. Saved values stay readable inert
+/// compatibility metadata in preserved files; nothing validates, activates or
+/// falls back to them. Their presence without an official key means reconnect.
+pub const RETIRED_FIELDS: [&str; 6] = [
+    "GARMIN_MCP_TOKEN_DIR",
+    "GARMIN_MCP_COMMAND",
+    "GARMIN_FIT_BASELINE_COMMAND",
+    "GARMIN_FIT_SPEED_COMMAND",
+    "GARMIN_FIT_DISTANCE_COMMAND",
+    "GARMIN_FIT_ALTITUDE_COMMAND",
+];
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SelectionCompatibility {
@@ -36,12 +47,24 @@ pub struct Settings {
         skip_serializing_if = "Option::is_none"
     )]
     pub selection_compatibility: Option<SelectionCompatibility>,
+    /// The user's official Garmin Personal API key. Deliberately not a chat
+    /// provider slot: the live provider path never carries it, and builds that
+    /// predate it refuse the file instead of silently dropping the connection.
+    #[serde(
+        rename = "garminApiKey",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub garmin_api_key: Option<String>,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(tag = "intent", rename_all = "lowercase", deny_unknown_fields)]
 pub enum KeyUpdate {
+    #[default]
     Unchanged,
-    Replace { value: String },
+    Replace {
+        value: String,
+    },
     Clear,
 }
 #[derive(Deserialize)]
@@ -53,11 +76,17 @@ pub struct SaveInput {
     pub chat_catalog: Catalog,
     #[serde(rename = "expectedRevision")]
     pub expected_revision: String,
+    /// Garmin key intent; absent means unchanged.
+    #[serde(rename = "garminKey", default)]
+    pub garmin_key: KeyUpdate,
 }
 #[derive(Serialize)]
 pub struct Snapshot {
     pub fields: BTreeMap<String, String>,
     pub keys: BTreeMap<String, &'static str>,
+    /// Status only, never key material: configured, not configured or
+    /// reconnect-required (saved unofficial connection, no official key).
+    pub garmin: &'static str,
     pub saved: bool,
     pub running: bool,
     pub storage: &'static str,
@@ -120,6 +149,48 @@ fn valid_secret(value: &str) -> bool {
             .iter()
             .any(|word| ["replace", "placeholder", "changeme"].contains(word))
 }
+/// A Personal API key is opaque printable ASCII without whitespace. Its expiry
+/// and validity are never inferred from the text; only an explicit official
+/// operation can show whether Garmin accepts it.
+fn valid_garmin_key(value: &str) -> bool {
+    (8..=4096).contains(&value.len())
+        && value.bytes().all(|b| b.is_ascii_graphic())
+        && valid_secret(value)
+}
+/// Saved unofficial connection metadata without an official key.
+fn reconnect_required(settings: &Settings) -> bool {
+    settings.garmin_api_key.is_none()
+        && settings
+            .fields
+            .get("GARMIN_MCP_TOKEN_DIR")
+            .map(|value| !value.is_empty())
+            .unwrap_or(false)
+}
+pub fn garmin_status(settings: &Settings) -> &'static str {
+    if settings.garmin_api_key.is_some() {
+        "configured"
+    } else if reconnect_required(settings) {
+        "reconnect-required"
+    } else {
+        "not configured"
+    }
+}
+fn apply_garmin(next: &mut Settings, update: KeyUpdate) -> Result<(), &'static str> {
+    match update {
+        KeyUpdate::Unchanged => Ok(()),
+        KeyUpdate::Clear => {
+            next.garmin_api_key = None;
+            Ok(())
+        }
+        KeyUpdate::Replace { value } => {
+            if !valid_garmin_key(&value) {
+                return Err("Enter a valid Garmin Personal API key or choose unchanged/clear.");
+            }
+            next.garmin_api_key = Some(value);
+            Ok(())
+        }
+    }
+}
 fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
     let settings: Settings = serde_json::from_slice(bytes)
         .map_err(|_| "Private settings invalid; preserve originals and use a compatible build.")?;
@@ -127,9 +198,10 @@ fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
         serde_json::from_str(include_str!("../ui/settings-fields.json"))
             .map_err(|_| "Settings catalog unavailable.")?;
     if settings.fields.iter().any(|(key, value)| {
-        !catalog
+        (!catalog
             .iter()
             .any(|field| field["key"].as_str() == Some(key))
+            && !RETIRED_FIELDS.contains(&key.as_str()))
             || value.len() > 2048
             || value.chars().any(char::is_control)
     }) {
@@ -155,6 +227,14 @@ fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
             .validate()?;
     } else if settings.chat_catalog.is_some() {
         return Err("Unexpected catalog on legacy settings; originals preserved.");
+    }
+    if settings
+        .garmin_api_key
+        .as_ref()
+        .map(|key| settings.version != 3 || !valid_garmin_key(key))
+        .unwrap_or(false)
+    {
+        return Err("Saved Garmin key unsupported; preserve settings and use a compatible build.");
     }
     if ![1, 2, 3].contains(&settings.version)
         || settings.keys.iter().any(|(slot, value)| {
@@ -243,6 +323,7 @@ pub fn snapshot(path: &Path, running: bool) -> Result<Snapshot, &'static str> {
                 )
             })
             .collect(),
+        garmin: garmin_status(&settings),
         fields: settings.fields,
         saved,
         running,
@@ -310,6 +391,14 @@ pub struct SavedCommit {
     pub previous_fields: BTreeMap<String, String>,
     pub fields: BTreeMap<String, String>,
     pub durable: bool,
+    /// The saved Garmin key differs from the one before this Save.
+    pub garmin_changed: bool,
+}
+/// Comparison token for the Garmin key, never the key: lets the running host
+/// tell whether a saved key still matches its startup capability.
+pub fn garmin_fingerprint(key: Option<&str>) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    key.map(|key| format!("{:x}", Sha256::digest(key.as_bytes())))
 }
 #[cfg(test)]
 pub fn save(path: &Path, input: SaveInput) -> Result<String, &'static str> {
@@ -376,12 +465,28 @@ fn save_inner(path: &Path, input: SaveInput, fresh: bool) -> Result<SavedCommit,
         });
     }
     let previous_fields = next.fields.clone();
+    let previous_garmin = garmin_fingerprint(next.garmin_api_key.as_deref());
     next.version = 3;
+    if input
+        .fields
+        .keys()
+        .any(|key| RETIRED_FIELDS.contains(&key.as_str()))
+    {
+        return Err("Retired Garmin connector settings cannot be edited.");
+    }
+    // Native carries saved retired metadata forward unchanged; it stays inert.
+    let retained: Vec<(String, String)> = previous_fields
+        .iter()
+        .filter(|(key, _)| RETIRED_FIELDS.contains(&key.as_str()))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
     next.fields = input.fields;
+    next.fields.extend(retained);
     let mut catalog = input.chat_catalog;
     catalog.default_entry_id = None;
     next.chat_catalog = Some(catalog);
     apply(&mut next, input.keys)?;
+    apply_garmin(&mut next, input.garmin_key)?;
     let bytes = encode(&next)?;
     check_revision(path, &input.expected_revision)?;
     let target = if migrating {
@@ -404,6 +509,7 @@ fn save_inner(path: &Path, input: SaveInput, fresh: bool) -> Result<SavedCommit,
                 ""
             }
         ),
+        garmin_changed: previous_garmin != garmin_fingerprint(next.garmin_api_key.as_deref()),
         previous_fields,
         fields: next.fields,
         durable,
@@ -436,6 +542,7 @@ pub fn adoption(
             database: old.fields.get("DATABASE_PATH").cloned(),
             catalog: chat_catalog::legacy(&old.fields, &old.keys),
         }),
+        garmin_api_key: None,
     };
     for (slot, account) in old.keys {
         if matches!(input.keys.get(&slot), None | Some(KeyUpdate::Unchanged)) {
@@ -452,6 +559,7 @@ pub fn adoption(
         }
     }
     apply(&mut next, input.keys)?;
+    apply_garmin(&mut next, input.garmin_key)?;
     encode(&next)?;
     Ok((next, original))
 }
@@ -468,15 +576,26 @@ pub fn commit_adoption(
     Ok(format!("Private file adoption committed; legacy settings and Keychain items preserved. Quit and reopen explicitly.{}", if durable { "" } else { " Verification/directory durability uncertain; reconcile saved state before retry." }))
 }
 fn frame(settings: &Settings) -> Result<Vec<u8>, &'static str> {
+    // Retired connector metadata stays in the saved file only; it never reaches
+    // the backend, so no activation can select an unofficial path from it.
+    let fields: BTreeMap<&String, &String> = settings
+        .fields
+        .iter()
+        .filter(|(key, _)| !RETIRED_FIELDS.contains(&key.as_str()))
+        .collect();
     let value = if let Some(catalog) = &settings.chat_catalog {
         catalog.validate()?;
         if let Some(prior) = &settings.selection_compatibility {
-            serde_json::json!({"version":3,"fields":settings.fields,"secrets":settings.keys,"chatCatalog":catalog,"selectionCompatibility":prior})
+            let mut value = serde_json::json!({"version":3,"fields":fields,"secrets":settings.keys,"chatCatalog":catalog,"selectionCompatibility":prior});
+            if let Some(key) = &settings.garmin_api_key {
+                value["garminKey"] = serde_json::Value::String(key.clone());
+            }
+            value
         } else {
-            serde_json::json!({"version":2,"fields":settings.fields,"secrets":settings.keys,"chatCatalog":catalog})
+            serde_json::json!({"version":2,"fields":fields,"secrets":settings.keys,"chatCatalog":catalog})
         }
     } else {
-        serde_json::json!({"version":1,"fields":settings.fields,"secrets":settings.keys})
+        serde_json::json!({"version":1,"fields":fields,"secrets":settings.keys})
     };
     let mut bytes = serde_json::to_vec(&value).map_err(|_| "Activation unavailable.")?;
     if bytes.len() >= 128 * 1024 {
@@ -495,6 +614,7 @@ pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
         keys: BTreeMap::new(),
         chat_catalog: Some(input.chat_catalog.clone()),
         selection_compatibility: None,
+        garmin_api_key: None,
     };
     for (slot, update) in &input.keys {
         if !SLOTS.contains(&slot.as_str()) {
@@ -505,6 +625,13 @@ pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
                 return Err("Invalid replacement provider key.");
             }
             next.keys.insert(slot.clone(), value.clone());
+        }
+    }
+    // Refuse a malformed Garmin key before first-run creates anything; the key
+    // itself never enters this validation frame.
+    if let KeyUpdate::Replace { value } = &input.garmin_key {
+        if !valid_garmin_key(value) {
+            return Err("Enter a valid Garmin Personal API key or continue without Garmin.");
         }
     }
     frame(&next)
@@ -827,7 +954,173 @@ mod tests {
             keys,
             chat_catalog: snapshot(path, false).unwrap().chat_catalog,
             expected_revision: revision(path).unwrap(),
+            garmin_key: Default::default(),
         }
+    }
+    fn garmin(path: &Path, update: KeyUpdate) -> SaveInput {
+        SaveInput {
+            garmin_key: update,
+            ..input(path, BTreeMap::new(), BTreeMap::new())
+        }
+    }
+    const GARMIN_KEY: &str = "synthetic-garmin-personal-key";
+    #[test]
+    fn garmin_key_unchanged_replace_clear_is_status_only_and_never_a_chat_slot() {
+        let root = root();
+        let path = selected(&root);
+        save_new(&path, input(&path, BTreeMap::new(), BTreeMap::new())).unwrap();
+        assert_eq!(snapshot(&path, false).unwrap().garmin, "not configured");
+        let replaced = save_confirmed(
+            &path,
+            garmin(
+                &path,
+                KeyUpdate::Replace {
+                    value: GARMIN_KEY.into(),
+                },
+            ),
+        )
+        .unwrap();
+        assert!(replaced.garmin_changed);
+        let read = serde_json::to_string(&snapshot(&path, true).unwrap()).unwrap();
+        assert!(!read.contains(GARMIN_KEY));
+        assert!(read.contains("\"garmin\":\"configured\""));
+        assert!(!load(&path).unwrap().keys.contains_key("GARMIN_API_KEY"));
+        // Activation carries it separately from the chat-provider secrets.
+        let frame: serde_json::Value = serde_json::from_slice(&activation(&path).unwrap()).unwrap();
+        assert_eq!(frame["garminKey"], GARMIN_KEY);
+        assert_eq!(frame["secrets"], serde_json::json!({}));
+        let unchanged = save_confirmed(&path, garmin(&path, KeyUpdate::Unchanged)).unwrap();
+        assert!(!unchanged.garmin_changed);
+        assert_eq!(
+            load(&path).unwrap().garmin_api_key.as_deref(),
+            Some(GARMIN_KEY)
+        );
+        // Blank/placeholder text is refused, never stored or treated as removal.
+        for value in ["", "your-garmin-key", "two words", "short"] {
+            let before = private_store::read(&path).unwrap();
+            assert!(save(
+                &path,
+                garmin(
+                    &path,
+                    KeyUpdate::Replace {
+                        value: value.into()
+                    }
+                )
+            )
+            .is_err());
+            assert_eq!(private_store::read(&path).unwrap(), before);
+        }
+        let cleared = save_confirmed(&path, garmin(&path, KeyUpdate::Clear)).unwrap();
+        assert!(cleared.garmin_changed);
+        assert_eq!(snapshot(&path, false).unwrap().garmin, "not configured");
+        let frame: serde_json::Value = serde_json::from_slice(&activation(&path).unwrap()).unwrap();
+        assert!(frame.get("garminKey").is_none());
+        // A stale form never publishes a Garmin change.
+        let stale = garmin(
+            &path,
+            KeyUpdate::Replace {
+                value: GARMIN_KEY.into(),
+            },
+        );
+        save(&path, input(&path, BTreeMap::new(), BTreeMap::new())).unwrap();
+        assert!(save(&path, stale).is_err());
+        assert!(load(&path).unwrap().garmin_api_key.is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn saved_unofficial_connection_needs_reconnect_and_its_metadata_stays_inert_and_preserved() {
+        let root = root();
+        let path = root.join("settings-v3.json");
+        let old = Settings {
+            version: 3,
+            fields: BTreeMap::from([
+                (
+                    "GARMIN_MCP_TOKEN_DIR".into(),
+                    "/private/old-token-store".into(),
+                ),
+                ("GARMIN_MCP_COMMAND".into(), "uvx".into()),
+                ("AI_PROVIDER".into(), "ollama".into()),
+            ]),
+            keys: BTreeMap::new(),
+            chat_catalog: Some(Catalog::default()),
+            selection_compatibility: Some(SelectionCompatibility {
+                database: None,
+                catalog: Catalog::default(),
+            }),
+            garmin_api_key: None,
+        };
+        assert!(private_store::publish(&path, &encode(&old).unwrap(), None).unwrap());
+        let snapshot = snapshot(&path, false).unwrap();
+        assert_eq!(snapshot.garmin, "reconnect-required");
+        assert_eq!(snapshot.storage, "private-file");
+        // Retired metadata never reaches the backend, so no fallback can use it.
+        let frame: serde_json::Value = serde_json::from_slice(&activation(&path).unwrap()).unwrap();
+        assert_eq!(
+            frame["fields"],
+            serde_json::json!({"AI_PROVIDER": "ollama"})
+        );
+        // Renderer forms cannot edit retired fields.
+        let mut edit = input(&path, BTreeMap::new(), BTreeMap::new());
+        edit.fields
+            .insert("GARMIN_MCP_TOKEN_DIR".into(), String::new());
+        assert!(save(&path, edit).is_err());
+        // Ordinary Save and key entry carry the old metadata forward unchanged.
+        save(
+            &path,
+            SaveInput {
+                garmin_key: KeyUpdate::Replace {
+                    value: GARMIN_KEY.into(),
+                },
+                ..input(
+                    &path,
+                    BTreeMap::from([("AI_PROVIDER".into(), "ollama".into())]),
+                    BTreeMap::new(),
+                )
+            },
+        )
+        .unwrap();
+        let saved = load(&path).unwrap();
+        assert_eq!(
+            saved.fields["GARMIN_MCP_TOKEN_DIR"],
+            "/private/old-token-store"
+        );
+        assert_eq!(saved.fields["GARMIN_MCP_COMMAND"], "uvx");
+        assert_eq!(garmin_status(&saved), "configured");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn first_run_preview_refuses_a_malformed_garmin_key_without_framing_it() {
+        let root = root();
+        let path = selected(&root);
+        let mut input = garmin(
+            &path,
+            KeyUpdate::Replace {
+                value: "has space".into(),
+            },
+        );
+        assert!(preview(&input).is_err());
+        input.garmin_key = KeyUpdate::Replace {
+            value: GARMIN_KEY.into(),
+        };
+        let frame = preview(&input).unwrap();
+        assert!(!String::from_utf8(frame).unwrap().contains(GARMIN_KEY));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn older_formats_and_builds_cannot_carry_or_silently_drop_a_garmin_key() {
+        let root = root();
+        let path = root.join("settings-v2.json");
+        // Only the current format may carry a key; older ones refuse it.
+        for version in [1, 2] {
+            let old = serde_json::json!({"version":version,"fields":{},"keys":{},"garminApiKey":GARMIN_KEY});
+            assert!(decode(&serde_json::to_vec(&old).unwrap()).is_err());
+        }
+        // The current-format key field is outside every older deny_unknown_fields schema.
+        let v3 = serde_json::json!({"version":3,"fields":{},"keys":{},"chatCatalog":Catalog::default(),"selectionCompatibility":{"database":null,"catalog":Catalog::default()},"garminApiKey":GARMIN_KEY});
+        let decoded = decode(&serde_json::to_vec(&v3).unwrap()).unwrap();
+        assert_eq!(decoded.garmin_api_key.as_deref(), Some(GARMIN_KEY));
+        let _ = path;
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn confirmed_save_carries_private_delta_only_internally_and_refuses_stale_commit() {
@@ -969,15 +1262,6 @@ mod tests {
             ("MEMORY_EXTRACTION_MODE".into(), "off".into()),
             ("MEMORY_EXTRACTION_TIMEOUT_MS".into(), "5432".into()),
         ]);
-        for key in [
-            "GARMIN_MCP_COMMAND",
-            "GARMIN_FIT_BASELINE_COMMAND",
-            "GARMIN_FIT_SPEED_COMMAND",
-            "GARMIN_FIT_DISTANCE_COMMAND",
-            "GARMIN_FIT_ALTITUDE_COMMAND",
-        ] {
-            fields.insert(key.into(), "/private/synthetic/custom-executable".into());
-        }
         save_new(&path, input(&path, fields.clone(), replacement())).unwrap();
         for enabled in ["false", "true"] {
             fields.insert("MEMORY_ENABLED".into(), enabled.into());
@@ -1012,6 +1296,7 @@ mod tests {
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
                 .collect(),
+            garmin_api_key: None,
         };
         private_store::publish(&path, &encode(&legacy).unwrap(), None).unwrap();
         let original = private_store::read(&path).unwrap();
@@ -1079,6 +1364,7 @@ mod tests {
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
                 .collect(),
+            garmin_api_key: None,
         };
         private_store::publish(&path, &encode(&legacy).unwrap(), None).unwrap();
         let fake = Fake {
@@ -1143,6 +1429,7 @@ mod tests {
                 .iter()
                 .map(|s| (s.to_string(), format!("{s}/{}", uuid::Uuid::new_v4())))
                 .collect(),
+            garmin_api_key: None,
         };
         private_store::publish(&path, &encode(&legacy).unwrap(), None).unwrap();
         let fake = Fake {
@@ -1191,6 +1478,7 @@ mod tests {
             keys: BTreeMap::new(),
             chat_catalog: None,
             selection_compatibility: None,
+            garmin_api_key: None,
         };
         let mut invalid = adoption_frame(&no_keys).unwrap();
         assert!(crate::onboarding::bundled(
@@ -1295,6 +1583,7 @@ mod tests {
             keys: BTreeMap::from([("OPENAI_API_KEY".into(), "synthetic-original-key".into())]),
             chat_catalog: None,
             selection_compatibility: None,
+            garmin_api_key: None,
         };
         let original = encode(&old).unwrap();
         private_store::publish(&old_path, &original, None).unwrap();

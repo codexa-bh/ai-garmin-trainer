@@ -2,7 +2,6 @@
     any(not(debug_assertions), all(test, windows)),
     windows_subsystem = "windows"
 )]
-mod auth;
 mod chat_catalog;
 mod chatgpt;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
@@ -18,7 +17,6 @@ mod private_fs;
 mod private_store;
 mod process_tree;
 mod provider_smoke;
-mod runtime_dependency;
 mod settings;
 #[cfg(debug_assertions)]
 mod setup_smoke;
@@ -45,7 +43,6 @@ struct Runtime {
     settings_write: Mutex<()>,
     live_unknown: AtomicBool,
     setup_failure: Mutex<Option<&'static str>>,
-    auth: Mutex<auth::Auth>,
     chatgpt: Mutex<Option<std::sync::Arc<chatgpt::Owner>>>,
     chatgpt_context: std::sync::Arc<std::sync::atomic::AtomicU64>,
     chatgpt_control: Mutex<()>,
@@ -299,9 +296,6 @@ fn stop_runtime(app: &tauri::AppHandle) {
         let _control = runtime.chatgpt_control.lock().ok();
         runtime.chatgpt_context.fetch_add(2, Ordering::SeqCst);
     }
-    if let Ok(mut auth) = runtime.auth.lock() {
-        auth.stop();
-    }
     if let Ok(mut guard) = runtime.service.lock() {
         if guard.is_some() {
             eprintln!("desktop: stopping owned backend");
@@ -404,11 +398,7 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     let origin = format!("http://127.0.0.1:{}", service.port);
     let url = origin.parse().map_err(|_| "Owned origin invalid.")?;
     let expected = origin.clone();
-    let title = if service.tooling_available {
-        "Garmin Trainer"
-    } else {
-        "Garmin Trainer — connector tooling/config unavailable"
-    };
+    let title = "Garmin Trainer";
     #[allow(unused_mut)]
     let mut window = WebviewWindowBuilder::new(app, "trainer", WebviewUrl::External(url));
     #[cfg(any(debug_assertions, feature = "release-probe"))]
@@ -496,6 +486,13 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     Ok("Ready. Runtime owns its loopback backend; originals were not relocated.".into())
 }
 
+/// Fixed destination only; no caller URL. Opening the page is not a connection.
+#[tauri::command]
+fn open_garmin_key_page(window: tauri::WebviewWindow) -> Result<(), String> {
+    private_setup_only(&window)?;
+    system_open::garmin_key_page().map_err(|_| "Garmin key page could not open.".to_string())
+}
+
 #[tauri::command]
 fn setup_status(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<String, String> {
     if window.label() != "setup" {
@@ -531,7 +528,7 @@ async fn read_settings(
                 snapshot.activation = format!("{}{}", if service.live.revision == snapshot.revision {
                     "Saved live revision is active for subsequent operations."
                 } else { "Saved live revision is not active; no automatic retry. Explicit reopen can apply saved settings." },
-                if service.live.pending_fields(&snapshot.fields) { " Other saved settings are pending explicit quit/reopen." } else { "" });
+                if service.live.pending_fields(&snapshot.fields) || settings::load(&path).map(|saved| service.live.pending_garmin(&saved)).unwrap_or(false) { " Other saved settings are pending explicit quit/reopen." } else { "" });
             }
         } else if service.is_some() {
             snapshot.activation = "Owned backend not running; saved settings apply on explicit reopen.".into();
@@ -627,11 +624,11 @@ async fn save_settings(
             let revision = settings::revision(&path)?;
             let saved = settings::load(&path)?;
             if settings::revision(&path)? != revision || saved.fields != committed.fields { return Err("Committed authority changed during projection."); }
-            restart_required = committed.durable && live_settings::restart_delta(
+            restart_required = committed.durable && (live_settings::restart_delta(
                 &committed.previous_fields,
                 &saved.fields,
                 service.as_ref().and_then(|guard| guard.as_ref()).map(|owned| &owned.live.startup_fields),
-            );
+            ) || (committed.garmin_changed && service.as_ref().and_then(|guard| guard.as_ref()).map(|owned| owned.live.pending_garmin(&saved)).unwrap_or(true)));
             if runtime.quitting.load(Ordering::SeqCst) { return Ok(" Saved; live fields not applied because the app is quitting.".to_string()); }
             let Some(owned) = service.as_mut().and_then(|guard| guard.as_mut()) else {
                 return Ok(" Saved; live fields not applied: owned backend absent or busy. No start/restart or retry performed.".to_string());
@@ -774,9 +771,6 @@ async fn finish_onboarding(
         if !state.eligible || state.id != input.id || runtime.quitting.load(Ordering::SeqCst) { return Err("First-run eligibility refused; existing installations are never overwritten.".into()); }
         if runtime.service.try_lock().map(|service| service.is_some()).unwrap_or(true) { return Err("Runtime already started or starting; no live configuration switch.".into()); }
         runtime.onboarding_cancel.store(false, Ordering::SeqCst);
-        if runtime.auth.lock().map_err(|_| "Auth state unavailable.")?.status().map(|status| ["authenticating", "needs-mfa", "submitting-mfa", "verifying"].contains(&status.state.as_str())).unwrap_or(false) {
-            return Err("Finish after optional Garmin sign-in settles, or cancel that exact sign-in first.".into());
-        }
         let result = (|| -> Result<String, &'static str> {
             let write = runtime.settings_write.try_lock().map_err(|_| "Settings operation already active.")?;
             let path = settings_path(&app)?;
@@ -817,7 +811,7 @@ async fn finish_onboarding(
             Ok(format!("{ready} {message}"))
         })();
         if let Ok(mut failure) = runtime.setup_failure.lock() { *failure = result.as_ref().err().copied(); }
-        result.map_err(|error| format!("{error} Database committed: {}. Settings committed: {}. Independent successful Garmin tokens are retained. Retry reconciles saved state; no automatic recreation or rollback.", state.database.is_some(), state.settings_committed))
+        result.map_err(|error| format!("{error} Database committed: {}. Settings committed: {}. Retry reconciles saved state; no automatic recreation or rollback.", state.database.is_some(), state.settings_committed))
     }).await.map_err(|_| "Setup result interrupted; inspect commit state before retry.".to_owned())?
 }
 
@@ -852,104 +846,6 @@ async fn choose_path(
     .await
     .map_err(|_| "Selection interrupted.".to_string())?
 }
-#[tauri::command]
-async fn start_auth(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-    email: String,
-    password: String,
-) -> Result<auth::Status, String> {
-    private_setup_only(&window)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let runtime = app.state::<Runtime>();
-        let _setup = runtime
-            .onboarding
-            .try_lock()
-            .map_err(|_| "Setup is active; wait before starting optional sign-in.")?;
-        if runtime.quitting.load(Ordering::SeqCst) {
-            return Err("App is quitting.");
-        }
-        // Only a saved validated FIT/uv override or the fixed GUI search is used.
-        let configured = settings_path(&app)
-            .ok()
-            .filter(|path| path.exists())
-            .map(|path| settings::load(&path))
-            .transpose()?
-            .and_then(|saved| saved.fields.get("GARMIN_FIT_BASELINE_COMMAND").cloned());
-        let executable = if let Some(path) = configured.filter(|path| path != "uv") {
-            PathBuf::from(path)
-        } else {
-            runtime_dependency::uv_candidates()
-                .into_iter()
-                .find(|path| path.is_file())
-                .ok_or(runtime_dependency::UV_UNAVAILABLE)?
-        };
-        let result = runtime
-            .auth
-            .lock()
-            .map_err(|_| "Auth ownership unavailable.")?
-            .start_managed(
-                &resources(&app)?,
-                &executable,
-                &app.path()
-                    .app_data_dir()
-                    .map_err(|_| "Private app storage unavailable.")?
-                    .join("private"),
-                email,
-                password,
-            );
-        result
-    })
-    .await
-    .map_err(|_| "Auth start interrupted.".to_string())?
-    .map_err(str::to_owned)
-}
-#[tauri::command]
-fn auth_status(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-) -> Result<Option<auth::Status>, String> {
-    setup_only(&window)?;
-    let runtime = app.state::<Runtime>();
-    let result = runtime
-        .auth
-        .lock()
-        .map_err(|_| "Auth status unavailable.".to_string())?
-        .status();
-    Ok(result)
-}
-#[tauri::command]
-fn submit_mfa(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-    id: String,
-    code: String,
-) -> Result<auth::Status, String> {
-    private_setup_only(&window)?;
-    let runtime = app.state::<Runtime>();
-    let result = runtime
-        .auth
-        .lock()
-        .map_err(|_| "Auth ownership unavailable.".to_string())?
-        .mfa(&id, code);
-    result.map_err(str::to_owned)
-}
-#[tauri::command]
-fn cancel_auth(
-    app: tauri::AppHandle,
-    window: tauri::WebviewWindow,
-    id: String,
-) -> Result<auth::Status, String> {
-    setup_only(&window)?;
-    let runtime = app.state::<Runtime>();
-    let result = runtime
-        .auth
-        .lock()
-        .map_err(|_| "Auth ownership unavailable.".to_string())?
-        .cancel(&id);
-    result.map_err(str::to_owned)
-}
-
 fn main() {
     let intent = isolated_run::intent(&std::env::args_os().skip(1).collect::<Vec<_>>());
     let ordinary = match intent.and_then(|path| {
@@ -1045,10 +941,7 @@ fn main() {
         read_settings,
         save_settings,
         choose_path,
-        start_auth,
-        auth_status,
-        submit_mfa,
-        cancel_auth,
+        open_garmin_key_page,
         adopt_provider_settings,
         read_memory_status,
         chatgpt_connections,
@@ -1066,10 +959,7 @@ fn main() {
         read_settings,
         save_settings,
         choose_path,
-        start_auth,
-        auth_status,
-        submit_mfa,
-        cancel_auth,
+        open_garmin_key_page,
         adopt_provider_settings,
         read_memory_status,
         chatgpt_connections,
@@ -1088,7 +978,6 @@ fn main() {
                         runtime.chatgpt_context.fetch_add(2,Ordering::SeqCst);
                         if let Ok(owner)=runtime.chatgpt.lock(){if let Some(owner)=owner.as_ref(){owner.cancel();}};
                     }
-                    if let Ok(mut auth)=app.state::<Runtime>().auth.lock(){auth.stop();}
                     let _=app.emit_to("setup","desktop-settings-closed",());
                     if app.get_webview_window("trainer").is_some() { let _ = window.hide(); }
                     else { app.exit(0); }
@@ -1203,10 +1092,9 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 let runtime = handle.state::<Runtime>();
                 if runtime.quitting.load(Ordering::SeqCst) { break; }
-                if let Ok(mut auth)=runtime.auth.try_lock(){auth.tick();}
                 if let Ok(mut guard) = runtime.service.try_lock() {
                     if guard.as_mut().map(|service| service.exited()).unwrap_or(false) {
-                        guard.take(); // Drop terminates any owned connector descendants.
+                        guard.take(); // Drop terminates any owned descendants.
                         drop(guard);
                         if let Some(window) = handle.get_webview_window("trainer") { let _ = window.close(); }
                         if let Some(window) = handle.get_webview_window("setup") { let _ = window.show(); }

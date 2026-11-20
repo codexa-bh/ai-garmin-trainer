@@ -125,7 +125,7 @@ OpenRouter is **chat/tools only**: extraction continues through configured DeepS
 
 ## Local desktop mode
 
-The [macOS ARM64 desktop app](desktop.md) bundles Node and a production Next service, adopts explicit private state references and owns only its backend/connector descendants. It neither calls source bootstrap/restart nor starts/pulls external Ollama/Python. Quit before explicit source CLI migration against the same DB; status/doctor remain readonly. Source and desktop preserve provider preferences, NDJSON/title behavior and separate memory readiness; browser-only active selection is not imported.
+The [macOS ARM64 desktop app](desktop.md) bundles Node and a production Next service, adopts explicit private state references and owns only its backend descendants. It neither calls source bootstrap/restart nor starts/pulls external Ollama, and needs no Python for Garmin. Quit before explicit source CLI migration against the same DB; status/doctor remain readonly. Source and desktop preserve provider preferences, NDJSON/title behavior and separate memory readiness; browser-only active selection is not imported.
 
 ## Native development and restart
 

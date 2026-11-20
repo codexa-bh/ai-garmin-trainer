@@ -422,7 +422,7 @@ def dependency_settings(run, captures, binary):
             }
         )
     run.command({'type': 'settings', 'action': 'connect'})
-    wait_settings(run, lambda o: o['formVisible'], 'optional Connect, no login')
+    wait_settings(run, lambda o: o['formVisible'], 'optional Connect, no key entered')
     run.command({'type': 'settings', 'action': 'later'})
     run.command({'type': 'settings', 'action': 'cancel'})
     wait_settings(run, lambda o: o['ready'] and not o['formVisible'], 'cancel/reload')
@@ -625,13 +625,15 @@ def main():
         )
         capture_garmin(run, captures, 'not-connected-back-hidden')
         run.command({'type': 'settings', 'action': 'connect'})
-        wait_settings(run, lambda o: o['formVisible'], 'Connect reveals private form without login')
-        capture_garmin(run, captures, 'connect-form-no-login')
+        wait_settings(
+            run, lambda o: o['formVisible'], 'Connect reveals private key control, no key entered'
+        )
+        capture_garmin(run, captures, 'connect-key-control-empty')
         run.command({'type': 'settings', 'action': 'later'})
         wait_settings(
             run,
             lambda o: not o['formVisible'] and o['notConnected'],
-            'Back closes form without login',
+            'Back closes key control without saving',
         )
         capture_garmin(run, captures, 'back-closed')
         run.command({'type': 'settings', 'action': 'connect'})
@@ -720,6 +722,7 @@ def main():
             (not args.provider_fields and saved['keys'])
             or saved['fields']['DATABASE_PATH'] != str(run.database)
             or saved['fields']['AI_PROVIDER'] != 'ollama'
+            or saved.get('garminApiKey')
             or saved['fields'].get('GARMIN_MCP_TOKEN_DIR')
         ):
             raise ValueError('Saved settings escaped keyless copy scope')

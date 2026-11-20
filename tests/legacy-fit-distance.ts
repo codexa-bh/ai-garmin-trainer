@@ -1,10 +1,4 @@
-import { execFile } from "node:child_process";
-import { garminTokenEnvironment } from "./token-location";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+// Test-only legacy MCP detail supplement merge (retired product path). No process launch.
 
 const DISTANCE_RECORD_KEYS = [
   "distance",
@@ -114,41 +108,4 @@ export function mergeFitDistanceRecords(
   });
 
   return mergedCount > 0 ? { ...payload, records } : payload;
-}
-
-export async function fetchFitDistanceWithLocalWrapper(
-  garminId: string,
-  options?: { signal: AbortSignal; timeout: number },
-): Promise<unknown> {
-  const scriptPath = join(
-    process.cwd(),
-    "scripts",
-    "garmin_fit_distance_stream.py",
-  );
-  if (!existsSync(scriptPath)) return undefined;
-  const command = process.env.GARMIN_FIT_DISTANCE_COMMAND ?? "uv";
-  const args = [
-    "run",
-    "--python",
-    "3.12",
-    "--with",
-    "garminconnect==0.3.2",
-    "--with",
-    "fitparse>=1.2.0",
-    "python",
-    scriptPath,
-    garminId,
-  ];
-  try {
-    const { stdout } = await execFileAsync(command, args, {
-      timeout: options?.timeout ?? 120_000,
-      signal: options?.signal,
-      killSignal: "SIGTERM",
-      maxBuffer: 8 * 1024 * 1024,
-      env: garminTokenEnvironment(),
-    });
-    return JSON.parse(stdout.trim()) as unknown;
-  } catch {
-    return undefined;
-  }
 }

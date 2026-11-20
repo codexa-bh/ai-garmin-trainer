@@ -725,8 +725,8 @@ describe("native-installed rendered smoke boundary", () => {
     ).toBe(false);
     expect((await command({ type: "capture" })).result.ok).toBe(false);
   });
-  it.each(["dependency", "startup"] as const)(
-    "reveals only actual closed %s guidance and refuses private substitutions",
+  it.each(["auth", "network", "rate-limit", "connector"] as const)(
+    "reveals only actual closed %s connection guidance and refuses private substitutions",
     async (recovery) => {
       vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
         new DOMRect(24, 300, 300, 150),
@@ -762,13 +762,17 @@ describe("native-installed rendered smoke boundary", () => {
           />
         </div>,
       );
-      const help = screen.getByRole("region", { name: "Garmin action setup" });
+      const help = screen.getByRole("region", {
+        name: "Garmin connection help",
+      });
       help.parentElement!.scrollTop = 30;
       help.scrollIntoView = vi.fn(() => {
         help.parentElement!.scrollTop = 80;
       });
-      expect(help.textContent).toContain("Saved data remains available");
-      expect(help.textContent).not.toContain("Reconnect Garmin");
+      expect(help.textContent).toContain(
+        "saved/offline history remain available",
+      );
+      expect(help.textContent).not.toMatch(/password|MFA|uvx|Python/);
       expect(
         (await command({ type: "captureView", view: "sync", preset: "wide" }))
           .result.ok,
@@ -781,8 +785,7 @@ describe("native-installed rendered smoke boundary", () => {
       ).toBe("hidden");
       smoke.__trainerSmokeRestore();
       expect(help.parentElement!.scrollTop).toBe(30);
-      help.querySelector("p")!.textContent =
-        "private-path-canary Python not found";
+      help.querySelector("p")!.textContent = "private-path-canary key rejected";
       expect(
         (await command({ type: "captureView", view: "sync", preset: "wide" }))
           .result.ok,

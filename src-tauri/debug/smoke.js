@@ -3706,27 +3706,33 @@
         }
       }
       const help = document.querySelector(
-        '[aria-labelledby="sync-dependency-heading"]',
+        '[aria-labelledby="sync-login-help-heading"]',
       );
       if (help && visible(help)) {
         const children = [...help.children];
+        // Closed official connection guidance only (sync-presentation/view).
         const summaries = [
-          "The Garmin connector launcher cannot execute. Check uvx or its configured override, then explicitly retry.",
-          "The Garmin connector could not start. Its cause, including Python availability, is unknown.",
+          "Garmin did not accept the connection: the Personal API key is missing, rejected, expired or revoked. Create a new Personal API key in Garmin Connect if needed.",
+          "Garmin rate-limited the request. Retry later; the key is not shown to be invalid. A new key is not an established remedy for this failure.",
+          "Garmin connection or service is unavailable. Check connectivity and retry later. A new key is not an established remedy for this failure.",
+          "The Garmin request failed. The cause is not established. A new key is not an established remedy for this failure.",
         ];
         if (
-          children.length !== 3 ||
+          children.length !== 4 ||
           children.some((el) => el.childElementCount) ||
           children[0].tagName !== "H3" ||
-          children[0].textContent !== "Garmin action setup" ||
+          children[0].textContent !== "Garmin connection help" ||
           children[1].tagName !== "P" ||
           !summaries.includes(children[1].textContent) ||
           children[2].tagName !== "P" ||
           children[2].textContent !==
-            "See README → Installation → Garmin access for setup. Check the executable path in native Settings → Troubleshooting / technical controls; manage uvx and compatible Python separately, then explicitly retry this action. Sign-in is not a tooling fix. Saved data remains available."
+            "Open Settings from the native app menu → Garmin connection to enter or replace your key privately. Save, then explicitly quit and reopen to use it; the running connection never switches in place." ||
+          children[3].tagName !== "P" ||
+          children[3].textContent !==
+            "Keep your key in native Settings only, never chat. This trainer page cannot read or change it. Configured-provider chat and saved/offline history remain available without Garmin."
         ) {
           restore();
-          throw Error("Unrecognized dependency guidance");
+          throw Error("Unrecognized connection guidance");
         }
         for (let node = help.parentElement; node; node = node.parentElement)
           maskScroll.push([node, node.scrollLeft, node.scrollTop]);
@@ -3745,7 +3751,7 @@
           rect.bottom > innerHeight
         ) {
           restore();
-          throw Error("Dependency guidance outside viewport");
+          throw Error("Connection guidance outside viewport");
         }
         help.setAttribute("data-smoke-reveal", "");
         for (const el of children) el.setAttribute("data-smoke-reveal", "");

@@ -2,24 +2,22 @@ import { describe, expect, it } from "vitest";
 
 import { normalizeGarminAthleteBaseline } from "../src/lib/garmin/athlete-normalize";
 import { normalizeGarminBodyMetrics } from "../src/lib/garmin/body-metrics-normalize";
-import { normalizeActivityHrZoneTime } from "../src/lib/garmin/activity-hr-zone-time";
+import { normalizeActivityHrZoneTime } from "./legacy-normalize";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
 import {
   activityDetailNeedsAltitudeSupplement,
   mergeFitAltitudeRecords,
-} from "../src/lib/garmin/fit-altitude";
+} from "./legacy-fit-altitude";
 import {
   activityDetailNeedsDistanceSupplement,
   mergeFitDistanceRecords,
-} from "../src/lib/garmin/fit-distance";
+} from "./legacy-fit-distance";
 import {
   activityDetailNeedsSpeedSupplement,
   mergeFitSpeedRecords,
-} from "../src/lib/garmin/fit-speed";
-import {
-  normalizeActivity,
-  normalizeDailyHealth,
-} from "../src/lib/garmin/normalize";
+} from "./legacy-fit-speed";
+import { normalizeActivity } from "../src/lib/garmin/normalize";
+import { normalizeDailyHealth } from "./legacy-normalize";
 
 describe("Garmin boundary", () => {
   it("normalizes athlete baseline facts and excludes unsupported profile fields", () => {

@@ -228,7 +228,9 @@ impl Config {
             })
     }
     pub fn accepts_save(&self, input: &crate::settings::SaveInput) -> bool {
-        self.accepts_fields(&input.fields)
+        // Debug smoke never stores or clears a Garmin key.
+        matches!(input.garmin_key, crate::settings::KeyUpdate::Unchanged)
+            && self.accepts_fields(&input.fields)
             && self.accepts_catalog(&input.chat_catalog, &input.fields)
             && input
                 .keys
@@ -487,6 +489,7 @@ mod tests {
                     "OPENROUTER_API_KEY":{"intent":"unchanged"}
                 }))
                 .unwrap(),
+                garmin_key: Default::default(),
             };
             rejected.keys.insert(slot.into(), update);
             assert!(!config.accepts_save(&rejected));
@@ -497,12 +500,11 @@ mod tests {
         input.keys.clear();
         input
             .fields
-            .insert("GARMIN_MCP_TOKEN_DIR".into(), String::new());
-        input
-            .fields
             .insert("MEMORY_EMBEDDING_BASE_URL".into(), String::new());
         assert!(config.accepts_save(&input));
         for (key, value) in [
+            // Retired connector fields are refused outright, empty or not.
+            ("GARMIN_MCP_TOKEN_DIR", ""),
             ("GARMIN_MCP_TOKEN_DIR", "/not-a-run-token-store"),
             ("GARMIN_MCP_COMMAND", "/unsafe-override"),
             ("OLLAMA_BASE_URL", "http://external.invalid"),
@@ -514,15 +516,29 @@ mod tests {
                 keys: Default::default(),
                 chat_catalog: input.chat_catalog.clone(),
                 expected_revision: input.expected_revision.clone(),
+                garmin_key: Default::default(),
             };
             changed.fields.insert(key.into(), value.into());
             assert!(!config.accepts_save(&changed));
         }
+        let mut garmin = crate::settings::SaveInput {
+            fields: input.fields.clone(),
+            keys: Default::default(),
+            chat_catalog: input.chat_catalog.clone(),
+            expected_revision: input.expected_revision.clone(),
+            garmin_key: crate::settings::KeyUpdate::Clear,
+        };
+        assert!(!config.accepts_save(&garmin));
+        garmin.garmin_key = crate::settings::KeyUpdate::Replace {
+            value: "synthetic-garmin-key".into(),
+        };
+        assert!(!config.accepts_save(&garmin));
         let mut changed_catalog = crate::settings::SaveInput {
             fields: input.fields.clone(),
             keys: Default::default(),
             chat_catalog: input.chat_catalog.clone(),
             expected_revision: input.expected_revision.clone(),
+            garmin_key: Default::default(),
         };
         changed_catalog.chat_catalog.default_entry_id = None;
         assert!(config.accepts_save(&changed_catalog));
@@ -536,6 +552,7 @@ mod tests {
                 keys: Default::default(),
                 chat_catalog: input.chat_catalog.clone(),
                 expected_revision: input.expected_revision.clone(),
+                garmin_key: Default::default(),
             };
             live.chat_catalog
                 .entries

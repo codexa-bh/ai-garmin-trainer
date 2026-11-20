@@ -27,7 +27,7 @@ class SummarySettingsTests(unittest.TestCase):
             self.assertEqual(value['fields']['SUMMARY_ENABLED'], 'false')
             self.assertEqual(value['fields']['SUMMARY_MODEL'], 'gpt-6-luna')
             self.assertTrue(run.keyless_lifecycle)
-            self.assertEqual(len(settings.preserved_fields(run)), 19)
+            self.assertEqual(len(settings.preserved_fields(run)), 14)
             for key, value in settings.preserved_fields(run).items():
                 self.assertEqual(
                     value, json.loads((root / 'config/settings-v3.json').read_text())['fields'][key]

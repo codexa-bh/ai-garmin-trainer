@@ -10,7 +10,7 @@ from history_smoke import (
     selected_tokens,
     tokens_unchanged,
     prepare_synthetic_history,
-    prepare_dependency_scenario,
+    prepare_connection_scenario,
 )
 from native_smoke import private_json
 
@@ -48,7 +48,7 @@ class HistoryTokenContracts(unittest.TestCase):
 
         database = self.root / 'empty-authored.sqlite'
         sqlite3.connect(database).close()
-        args = SimpleNamespace(token_input=None)
+        args = SimpleNamespace(token_input=None, no_external_tools=False)
         with (
             patch.object(
                 history, 'Observer', side_effect=RuntimeError('before any launch')
@@ -172,56 +172,95 @@ class HistoryTokenContracts(unittest.TestCase):
         target.write_bytes(b'copy-only token refresh simulation')
         self.assertTrue(tokens_unchanged(directory, hashes))
 
-    def test_dependency_presets_are_stopped_synthetic_only_and_do_not_install(self):
+    def _fixture_run(self):
         from types import SimpleNamespace
-        from unittest.mock import patch
+        from unittest.mock import Mock
 
-        (self.destination / 'config').mkdir(mode=0o700)
-        private_json(
-            self.destination / 'config/settings-v3.json', {'version': 3, 'keys': {}, 'fields': {}}
+        (self.destination / 'config').mkdir(mode=0o700, exist_ok=True)
+        import sqlite3
+
+        database = self.destination / 'trainer.sqlite'
+        with sqlite3.connect(database) as db:
+            db.execute('create table conversation(value text)')
+            db.execute("insert into conversation values ('authored canary')")
+            db.execute('create table activity(value text)')
+        run = SimpleNamespace(
+            root=self.destination,
+            database=database,
+            child=None,
+            config={'port': 12345},
+            descriptor={'runId': 'unit'},
+            fixture=None,
+            renew_capability=Mock(),
         )
-        run = SimpleNamespace(root=self.destination, child=None, config={'port': 12345})
+        self.addCleanup(lambda: run.fixture and run.fixture.stop())
+        return run
+
+    def test_connection_presets_are_stopped_synthetic_only_and_bind_the_owned_fixture(self):
+        from unittest.mock import patch
+        from history_fixture import SYNTHETIC_KEY
+
+        run = self._fixture_run()
+        settings = self.destination / 'config/settings-v3.json'
+        private_json(settings, {'version': 3, 'keys': {}, 'fields': {}})
         with patch('history_smoke.listening', return_value=False):
             prepare_synthetic_history(run)
             from datetime import datetime, timedelta, timezone
 
-            prepared = json.loads((self.destination / 'config/settings-v3.json').read_text())
+            prepared = json.loads(settings.read_text())
+            self.assertEqual(prepared['garminApiKey'], SYNTHETIC_KEY)
             self.assertEqual(
                 prepared['fields']['GARMIN_HISTORY_START_DATE'],
-                (datetime.now(timezone.utc).date() - timedelta(days=35)).isoformat(),
+                (datetime.now(timezone.utc).date() - timedelta(days=70)).isoformat(),
             )
-            for scenario in ('missing', 'unknown', 'healthy'):
-                prepare_dependency_scenario(run, scenario)
-                saved = json.loads((self.destination / 'config/settings-v3.json').read_text())
-                command = Path(saved['fields']['GARMIN_MCP_COMMAND'])
-                self.assertEqual(command.parent, self.destination)
-                self.assertTrue(command.is_file())
-                self.assertEqual(bool(command.stat().st_mode & 0o111), scenario != 'missing')
+            self.assertEqual(
+                (self.destination / 'tokens/garmin_tokens.json').read_bytes(),
+                __import__('history_smoke').LEGACY_TOKEN_SENTINEL,
+            )
+            self.assertEqual(prepared['fields']['GARMIN_MCP_COMMAND'], 'uvx')
+            self.assertTrue(all(run.legacy_before['retainedFields'].values()))
+            # Only tables Sync does not own are fingerprinted for preservation.
+            self.assertEqual(list(run.unrelated_before), ['conversation'])
+            self.assertEqual(run.unrelated_before['conversation'][0], 1)
+            fixture = run.descriptor['garminFixture']
+            self.assertEqual(set(fixture), {'port', 'capability'})
+            self.assertEqual(fixture['port'], run.fixture.port)
+            self.assertEqual(len(fixture['capability']), 64)
+            run.renew_capability.assert_called()
+            for scenario in ('rejected-key', 'rate-limited', 'healthy'):
+                prepare_connection_scenario(run, scenario)
+                self.assertEqual(json.loads(settings.read_text())['garminApiKey'], SYNTHETIC_KEY)
+                self.assertIn('garminFixture', run.descriptor)
+            prepare_connection_scenario(run, 'missing-key')
+            self.assertNotIn('garminApiKey', json.loads(settings.read_text()))
+            self.assertNotIn('garminFixture', run.descriptor)
             with self.assertRaises(ValueError):
-                prepare_dependency_scenario(run, 'private-command')
+                prepare_connection_scenario(run, 'private-command')
             run.child = object()
             with self.assertRaisesRegex(ValueError, 'Stopped'):
-                prepare_dependency_scenario(run, 'healthy')
+                prepare_connection_scenario(run, 'healthy')
             run.child = None
+            saved = json.loads(settings.read_text())
             saved['keys'] = {'OPENAI_API_KEY': 'private-canary'}
-            (self.destination / 'config/settings-v3.json').write_text(json.dumps(saved))
+            settings.write_text(json.dumps(saved))
             with self.assertRaisesRegex(ValueError, 'synthetic-only'):
-                prepare_dependency_scenario(run, 'healthy')
+                prepare_connection_scenario(run, 'healthy')
+            saved['keys'] = {}
+            saved['garminApiKey'] = 'a-real-looking-key-from-elsewhere'
+            settings.write_text(json.dumps(saved))
+            with self.assertRaisesRegex(ValueError, 'synthetic-only'):
+                prepare_connection_scenario(run, 'healthy')
 
     def test_mixed_presentation_seeds_only_stopped_owned_synthetic_closed_state(self):
         import sqlite3
         from types import SimpleNamespace
         from unittest.mock import Mock
-        from history_connector import SENTINEL
+        from history_fixture import SYNTHETIC_KEY
         from history_smoke import prepare_mixed_sync_presentation
 
         (self.destination / 'config').mkdir(mode=0o700)
-        (self.destination / 'tokens').mkdir(mode=0o700)
-        token = self.destination / 'tokens/garmin_tokens.json'
-        token.write_bytes(SENTINEL)
-        token.chmod(0o600)
         settings = self.destination / 'config/settings-v3.json'
-        private_json(settings, {'keys': {}, 'fields': {'GARMIN_MCP_TOKEN_DIR': str(token.parent)}})
+        private_json(settings, {'keys': {}, 'fields': {}, 'garminApiKey': SYNTHETIC_KEY})
         database = self.destination / 'trainer.sqlite'
         with sqlite3.connect(database) as db:
             db.execute(
@@ -257,16 +296,15 @@ class HistoryTokenContracts(unittest.TestCase):
             json.dumps(
                 {
                     'keys': {'OPENAI_API_KEY': 'private-canary'},
-                    'fields': {'GARMIN_MCP_TOKEN_DIR': str(token.parent)},
+                    'fields': {},
+                    'garminApiKey': SYNTHETIC_KEY,
                 }
             )
         )
         with self.assertRaisesRegex(ValueError, 'Synthetic-only'):
             prepare_mixed_sync_presentation(run, 'settled')
         self.assertEqual(database.read_bytes(), before)
-        settings.write_text(
-            json.dumps({'keys': {}, 'fields': {'GARMIN_MCP_TOKEN_DIR': str(token.parent)}})
-        )
+        settings.write_text(json.dumps({'keys': {}, 'fields': {}, 'garminApiKey': SYNTHETIC_KEY}))
         database.chmod(0o644)
         with self.assertRaisesRegex(ValueError, 'private owned'):
             prepare_mixed_sync_presentation(run, 'settled')
@@ -281,21 +319,16 @@ class HistoryTokenContracts(unittest.TestCase):
     def test_automatic_transition_preparation_is_stopped_synthetic_and_settings_only(self):
         from types import SimpleNamespace
         from unittest.mock import patch
-        from history_connector import SENTINEL
+        from history_fixture import SYNTHETIC_KEY
         from history_smoke import prepare_automatic_history
 
         (self.destination / 'config').mkdir(mode=0o700)
-        (self.destination / 'tokens').mkdir(mode=0o700)
-        token = self.destination / 'tokens/garmin_tokens.json'
-        token.write_bytes(SENTINEL)
-        token.chmod(0o600)
         settings = self.destination / 'config/settings-v3.json'
         fields = {
-            'GARMIN_MCP_TOKEN_DIR': str(token.parent),
             'GARMIN_HISTORY_START_DATE': '2026-10-11',
             'DATABASE_PATH': '/owned/trainer.sqlite',
         }
-        private_json(settings, {'keys': {}, 'fields': fields})
+        private_json(settings, {'keys': {}, 'fields': fields, 'garminApiKey': SYNTHETIC_KEY})
         run = SimpleNamespace(root=self.destination, child=None, config={'port': 1})
         with patch('history_smoke.listening', return_value=True):
             with self.assertRaisesRegex(ValueError, 'Stopped'):
@@ -309,14 +342,22 @@ class HistoryTokenContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'date-limited'):
                 prepare_automatic_history(run)
             settings.unlink()
-            private_json(settings, {'keys': {'OPENAI_API_KEY': 'private-canary'}, 'fields': fields})
+            private_json(
+                settings,
+                {
+                    'keys': {'OPENAI_API_KEY': 'private-canary'},
+                    'fields': fields,
+                    'garminApiKey': SYNTHETIC_KEY,
+                },
+            )
             before = settings.read_bytes()
             with self.assertRaisesRegex(ValueError, 'Synthetic-only'):
                 prepare_automatic_history(run)
             self.assertEqual(settings.read_bytes(), before)
             settings.unlink()
-            private_json(settings, {'keys': {}, 'fields': fields})
-            token.write_bytes(b'real-looking token')
+            private_json(
+                settings, {'keys': {}, 'fields': fields, 'garminApiKey': 'real-looking-key-value'}
+            )
             with self.assertRaisesRegex(ValueError, 'Synthetic-only'):
                 prepare_automatic_history(run)
 
@@ -821,3 +862,36 @@ class HistoryTokenContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             copy_tokens(self.selection, self.destination)
         self.assertEqual(self.token.read_bytes(), original)
+
+
+class NoExternalToolsLaunch(unittest.TestCase):
+    def test_restricted_launch_denies_only_python_and_uv_tools(self):
+        import subprocess
+        from types import SimpleNamespace
+        from history_smoke import HistoryRun, NO_EXTERNAL_TOOLS_PROFILE, SANDBOX_EXEC
+
+        from unittest.mock import patch
+
+        run = SimpleNamespace(no_external_tools=False)
+        self.assertEqual(HistoryRun.launch_prefix(run), [])
+        run.no_external_tools = True
+        if not SANDBOX_EXEC.is_file():
+            # Off macOS the proof refuses rather than silently running unrestricted.
+            with self.assertRaisesRegex(ValueError, 'sandbox-exec required'):
+                HistoryRun.launch_prefix(run)
+            self.skipTest('macOS sandbox-exec unavailable')
+        self.assertEqual(
+            HistoryRun.launch_prefix(run), [str(SANDBOX_EXEC), '-p', NO_EXTERNAL_TOOLS_PROFILE]
+        )
+        with patch('history_smoke.SANDBOX_EXEC', SANDBOX_EXEC.with_name('missing-sandbox')):
+            with self.assertRaisesRegex(ValueError, 'sandbox-exec required'):
+                HistoryRun.launch_prefix(run)
+        denied = subprocess.run(
+            [*HistoryRun.launch_prefix(run), '/usr/bin/python3', '-c', 'print(1)'],
+            capture_output=True,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        allowed = subprocess.run(
+            [*HistoryRun.launch_prefix(run), '/bin/echo', 'ok'], capture_output=True
+        )
+        self.assertEqual((allowed.returncode, allowed.stdout), (0, b'ok\n'))

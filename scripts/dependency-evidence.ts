@@ -2,10 +2,6 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import {
-  GARMIN_MCP_COMMIT,
-  GARMIN_MCP_SDK_REQUIREMENT,
-} from "../src/lib/garmin/client";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
   engines?: { node?: string };
@@ -53,7 +49,7 @@ const output = argValue("--output");
 const evidence = {
   generatedAt: new Date().toISOString(),
   boundary:
-    "local single-user macOS ARM64 desktop; npm audit/connector evidence only, not Node/Rust/Python/compiled-vendor clearance or binary publication approval",
+    "local single-user macOS ARM64 desktop; npm audit evidence only, not Node/Rust/compiled-vendor clearance or binary publication approval",
   node: {
     engine: pkg.engines?.node,
     dependencyCount: Object.keys(pkg.dependencies ?? {}).length,
@@ -61,18 +57,11 @@ const evidence = {
     lockfileSha256: sha256("package-lock.json"),
     packageManager: "npm lockfile present",
   },
-  garminMcp: {
-    connector: "Taxuspt/garmin_mcp",
-    pinnedCommit: GARMIN_MCP_COMMIT,
-    mcpSdkRequirement: GARMIN_MCP_SDK_REQUIREMENT,
-    resolutionBoundary:
-      "uvx invocation includes an exact MCP SDK 1.x requirement because the pinned connector imports mcp.server.fastmcp and MCP 2.x removes that module path",
-    transport: "local stdio only",
-    authState: "presence only; token contents excluded",
-  },
-  python: {
-    boundary:
-      "uvx resolves pinned garmin_mcp and Python transitive dependencies on explicit integration use; external Python/uv distributions are not bundled",
+  garmin: {
+    access:
+      "official Garmin Personal API over HTTPS with a user-owned key; activity files decoded in-process by fit-file-parser (production npm dependency)",
+    externalTools:
+      "none: no Python, uv, uvx or Garmin connector is installed, probed or launched by the product",
     unresolvedExternalBetaBlocker:
       "Qualified license/security review, explicit residual-risk disposition and exact-source/artifact approval remain required before binary publication; this evidence does not provide legal conclusions.",
   },

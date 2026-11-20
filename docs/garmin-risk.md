@@ -1,5 +1,7 @@
-# Unofficial Garmin connector risk
+# Garmin access risk
 
-This prototype uses `Taxuspt/garmin_mcp` pinned to commit `3610be6feed93088d85b0f35aba9d7d07c2505a7` because public Garmin Developer Program pages do not expose sufficient Activity/Health endpoint detail for this private MVP.
+Garmin data is read only through Garmin's official **Personal API** (`https://personal.connectapi.garmin.com`, fixed origin, no redirects or override) with a key each user creates for their own account. Garmin documents it for individual users, not commercial applications serving multiple end users; this app is a local single-user tool and the operator-confirmed terms boundary is recorded in [redistribution](redistribution.md).
 
-Accepted risks: undocumented endpoint breakage, token expiry, rate limiting, account challenges, and future migration work. Mitigations are stdio-only local execution, a read-operation allowlist, no credentials in trainer/model context, narrowly scoped explicit transient local native Settings login with private native IPC/verified no-overwrite tokens (or retained private-terminal maintenance auth), conservative retries, checkpointed sync, and explicit user-visible failure states.
+Accepted risks: the Personal API is new and may change; a key may expire or be revoked at Garmin's discretion; rate limits are not fully documented; other devices, manual or third-party uploads, multisport, power-meter and swim activities are covered by authored tests, not verified real-world data. Mitigations: read-only requests only, a closed endpoint and failure vocabulary, bounded response sizes, memory-only bearer tokens, no key in trainer/model/SQL/HTTP/debug/raw-archive context, private native key storage, serial request pacing with cancellation and finite budgets, coverage-based day finality that never claims a verified watch upload, checkpointed sync, and explicit user-visible failure states that separate rejected keys from network, service and rate-limit failures.
+
+Older normalized rows imported by the retired unofficial connector (`garmin_mcp` source labels) stay readable history; they are not relabelled or re-imported.

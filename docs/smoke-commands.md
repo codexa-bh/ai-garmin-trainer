@@ -20,7 +20,7 @@ Build with `npm run desktop:build` first, same source/context. Authored input by
 
 `npm run smoke:history -- --scratch "$scratch" --input-file "$selection" --bundle "$bundle" --synthetic-sync`
 
-Use the [one-page build/run card](synthetic-sync-smoke.md): authored preparation, current full ordinary build and strict same-source history identity. Twelve operations exercise actual SQLite/stdio progression; separate stopped 6/14 seeding proves presentation only. No private tokens, Garmin or provider. Existing-data setup only, not blank onboarding. Inspect scenario/captures and unchanged-input/owned-shutdown results. [Scenario/bounds](smoke/sync.md#current-finite-synthetic-sync-scenario).
+Use the [one-page build/run card](synthetic-sync-smoke.md): authored preparation, current full ordinary build and strict same-source history identity. Twelve operations exercise actual SQLite progression through the product's official reader against an authored loopback Personal API, plus the old-connection upgrade rehearsal; separate stopped 6/14 seeding proves presentation only. Add `--no-external-tools` (macOS) to deny the app Python/uv/uvx. No private key, Garmin or provider. Existing-data setup only, not blank onboarding. Inspect scenario/captures and unchanged-input/owned-shutdown results. [Scenario/bounds](smoke/sync.md#current-finite-synthetic-sync-scenario).
 
 ## history-setup — Ordinary keyless fresh/existing onboarding and history limits
 
@@ -28,11 +28,11 @@ Use the [one-page build/run card](synthetic-sync-smoke.md): authored preparation
 
 Authored selection and current full ordinary build required. Exercises both genuine blank Create and populated Use existing, Finish, saved launch and optional history-limit Save/restart. Sync stays keyless idle; no account calls. Committed outputs retain their owner/lifetime. Inspect masked setup/idle captures; this is isolated synthetic-DOM, not normal singleton or trusted input. Historical `--token-input` and `--continuation-only` are **unavailable and refuse before private input access**. [Setup and separate real-service gate](smoke/sync.md#bounded-ordinary-history-setup-and-copied-token-sync).
 
-## dependency-guidance — Ordinary authored missing/broken/healthy connector presentation
+## dependency-guidance — Ordinary authored missing/rejected/rate-limited/healthy connection presentation
 
 `npm run smoke:history -- --scratch "$scratch" --input-file "$selection" --bundle "$bundle" --dependency-guidance`
 
-Current ordinary build and authored input. Three stopped-run launcher presets; one Sync each, healthy explicitly cancelled; verify offline navigation and inspected wide/narrow help. No interpreter uninstall/install, real sign-in, network or private tokens. Cannot combine synthetic-sync/private/continuation scopes. [Finite contract](smoke/sync.md#finite-dependency-guidance-evidence).
+Current ordinary build and authored input. Four stopped-run connection states against the owned fixture (no key, rejected key, rate limit, healthy); one Sync each, healthy explicitly cancelled; verify the closed stop reason, offline navigation and inspected wide/narrow connection help. No real key, network or private input. Cannot combine synthetic-sync/private/continuation scopes. [Finite contract](smoke/sync.md#finite-connection-recovery-evidence).
 
 ## composer — Ordinary keyless model choice and draft persistence
 
@@ -152,13 +152,13 @@ Use the [Windows runbook](windows.md#installed-app-scenario-and-narrow-evidence-
 
 `npm run env -- python3 scripts/desktop/ordinary_composition_example.py --scratch "$scratch" --bundle "$bundle"`
 
-Current ordinary build, same npm/tool context. Example proves Trainer → Sync → Trainer navigation, **not connector execution**. Python `Scenario` / `run_scenarios` supports source-attributed assertions and compatible authored configurations without duplicating launch/settlement. No arbitrary loader, private/paid permission or sandbox claim. [Callable contract, dependencies and deadline](smoke/protocol.md#importable-guarded-compositions).
+Current ordinary build, same npm/tool context. Example proves Trainer → Sync → Trainer navigation, **not Garmin reads**. Python `Scenario` / `run_scenarios` supports source-attributed assertions and compatible authored configurations without duplicating launch/settlement. No arbitrary loader, private/paid permission or sandbox claim. [Callable contract, dependencies and deadline](smoke/protocol.md#importable-guarded-compositions).
 
-## real-garmin — Restricted independently authorized copied-account Sync
+## real-garmin — Retired copied-token runner; no executable real-service recipe
 
 `npm run smoke:history:live -- --help`
 
-Not routine synthetic smoke. Requires current exact DB/token/settings-integrity authority and reviewed T0260 finite live envelope **before access**; flags never grant it. Two effects only, 150 attempts/180 seconds each, unknown claims consumed, exact retained-claim reconciliation only. Historical `smoke:history --token-input` is unavailable. No fresh login/original rotation/copy-back. [Independent gate](smoke/sync.md#independent-real-service-evidence-gate).
+Refuses before private input: the product no longer reads token files. Real Personal API evidence needs separately authorized current authority, an operator-entered key and a reviewed finite official-key envelope; none exists yet. Historical `smoke:history --token-input` is also unavailable. [Independent gate](smoke/sync.md#independent-real-service-evidence-gate).
 
 ## real-provider — Restricted task-bound paid/private recipes; not reusable approvals
 

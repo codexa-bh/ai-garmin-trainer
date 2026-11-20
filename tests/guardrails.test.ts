@@ -57,7 +57,7 @@ describe("direct architecture boundaries", () => {
   it.each([
     'import { value } from "@/lib/db/repository"; void value;',
     'import { value } from "../lib/db/repository"; void value;',
-    'import { value } from "@/lib/garmin/client"; void value;',
+    'import { value } from "@/lib/garmin/connection"; void value;',
     'export { value } from "@/lib/garmin/importer";',
     'export * from "@/lib/env";',
     'void import("@/lib/ai/providers");',

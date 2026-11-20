@@ -53,6 +53,17 @@ pub struct Descriptor {
     pub history_setup: Option<HistorySetup>,
     #[serde(default)]
     pub provider_smoke: Option<crate::provider_smoke::Mode>,
+    /// History runs only: the runner's owned loopback stand-in for the fixed
+    /// official Personal API origin. Never read from saved settings.
+    #[serde(default)]
+    pub garmin_fixture: Option<GarminFixture>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GarminFixture {
+    pub port: u16,
+    pub capability: String,
 }
 
 pub struct Admission {
@@ -93,6 +104,17 @@ pub fn intent(args: &[std::ffi::OsString]) -> Result<Option<PathBuf>, &'static s
 impl Descriptor {
     fn validate(&self, path: &Path) -> Result<(), &'static str> {
         if (self.provider_smoke.is_some() && self.history_setup.is_some())
+            || self
+                .garmin_fixture
+                .as_ref()
+                .map(|fixture| {
+                    self.history_setup.is_none()
+                        || fixture.port < 1024
+                        || fixture.port == self.control_port
+                        || !hex(&fixture.capability)
+                        || fixture.capability == self.capability
+                })
+                .unwrap_or(false)
             || self.schema_version != 2
             || uuid::Uuid::parse_str(&self.run_id)
                 .map(|id| id.to_string())
@@ -443,6 +465,7 @@ impl Admission {
     pub fn accepts_history_settings(&self, input: &settings::SaveInput) -> bool {
         if self.descriptor.history_setup.is_none()
             || self.confine(&input.fields).is_err()
+            || !matches!(input.garmin_key, settings::KeyUpdate::Unchanged)
             || !input
                 .keys
                 .values()
@@ -527,9 +550,6 @@ impl Admission {
             }
             if key == "GARMIN_HISTORY_START_DATE" {
                 return value.is_empty() || value == "2024-01-01";
-            }
-            if key == "GARMIN_MCP_TOKEN_DIR" {
-                return value == saved.fields.get(key).map(String::as_str).unwrap_or("");
             }
             if let Some(expected) = saved.fields.get(key) {
                 return value == expected;
@@ -630,25 +650,26 @@ impl Admission {
         {
             return Err(DENIED);
         }
-        if let Some(tokens) = fields.get("GARMIN_MCP_TOKEN_DIR").filter(|s| !s.is_empty()) {
-            if Path::new(tokens) != self.descriptor.root.join("tokens") {
-                return Err(DENIED);
-            }
-            let _ = private_store::PinnedDirectory::open(&self.descriptor.root.join("tokens"))?;
-            // Inspect metadata only. Token contents remain owned by the ordinary integration.
-            for name in ["garmin_tokens.json", "garmin_tokens.base64"] {
-                let token = self.descriptor.root.join("tokens").join(name);
-                if token.exists() {
-                    settings::private_file(&token)?;
-                }
-            }
-        }
+        // Retired connector metadata may remain inert in an authored upgrade
+        // copy; Save refuses edits to it and activation never forwards it.
         Ok(())
     }
     pub fn provider_activation(&self, path: &Path) -> Result<Vec<u8>, &'static str> {
         self.verify_settings()?;
         let Some(mode) = self.descriptor.provider_smoke else {
-            return settings::activation(path);
+            let frame = settings::activation(path)?;
+            let Some(fixture) = &self.descriptor.garmin_fixture else {
+                return Ok(frame);
+            };
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&frame).map_err(|_| DENIED)?;
+            value["garminFixture"] = serde_json::json!({
+                "origin": format!("http://127.0.0.1:{}", fixture.port),
+                "capability": fixture.capability,
+            });
+            let mut bytes = serde_json::to_vec(&value).map_err(|_| DENIED)?;
+            bytes.push(b'\n');
+            return Ok(bytes);
         };
         let (frame, capture) = crate::provider_smoke::activation(
             path,
@@ -675,6 +696,9 @@ impl Admission {
         let saved = settings::load(&self.settings())?;
         if ![2, 3].contains(&saved.version)
             || (self.descriptor.history_setup.is_some() && !saved.keys.is_empty())
+            // An isolated run may hold an authored Garmin key only with its owned
+            // fixture, so no isolated run can reach the real service.
+            || (saved.garmin_api_key.is_some() && self.descriptor.garmin_fixture.is_none())
         {
             return Err(DENIED);
         }
@@ -889,6 +913,60 @@ pin.close()
             assert!(descriptor.validate(&path).is_err());
         }
     }
+    #[test]
+    fn garmin_fixture_is_history_only_closed_and_required_for_any_saved_key() {
+        let (root, path) = fixture();
+        let mut descriptor: Descriptor = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let good = || GarminFixture {
+            port: 40000,
+            capability: "f".repeat(64),
+        };
+        descriptor.garmin_fixture = Some(good());
+        assert!(descriptor.validate(&path).is_err()); // Not a history run.
+        descriptor.history_setup = Some(HistorySetup::UseExisting);
+        assert!(descriptor.validate(&path).is_ok());
+        for bad in [
+            GarminFixture { port: 80, ..good() },
+            GarminFixture {
+                port: descriptor.control_port,
+                ..good()
+            },
+            GarminFixture {
+                capability: "short".into(),
+                ..good()
+            },
+            GarminFixture {
+                capability: descriptor.capability.clone(),
+                ..good()
+            },
+        ] {
+            descriptor.garmin_fixture = Some(bad);
+            assert!(descriptor.validate(&path).is_err());
+        }
+        // A saved key without an owned fixture is refused, so no isolated run can
+        // reach the real service; the fixture origin enters only the frame.
+        fs::remove_file(root.join("config").join("settings-v2.json")).unwrap();
+        let settings = root.join("config").join("settings-v3.json");
+        fs::write(&settings, serde_json::to_vec(&serde_json::json!({"version":3,"keys":{},"fields":{"DATABASE_PATH":root.join("trainer.sqlite")},"chatCatalog":{"version":1,"entries":[],"defaultEntryId":null},"selectionCompatibility":{"database":null,"catalog":{"version":1,"entries":[],"defaultEntryId":null}},"garminApiKey":"synthetic-history-personal-api-key"})).unwrap()).unwrap();
+        make_private(&settings);
+        assert!(Admission::admit(&path, |_| Ok(())).is_err());
+        let mut launch: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        launch["historySetup"] = serde_json::json!("use-existing");
+        launch["garminFixture"] = serde_json::json!({"port":40000,"capability":"f".repeat(64)});
+        fs::write(&path, serde_json::to_vec(&launch).unwrap()).unwrap();
+        let admitted = Admission::admit(&path, |_| Ok(())).unwrap();
+        let frame: serde_json::Value =
+            serde_json::from_slice(&admitted.provider_activation(&admitted.settings()).unwrap())
+                .unwrap();
+        assert_eq!(frame["garminKey"], "synthetic-history-personal-api-key");
+        assert_eq!(
+            frame["garminFixture"],
+            serde_json::json!({"origin":"http://127.0.0.1:40000","capability":"f".repeat(64)})
+        );
+        drop(admitted);
+        fs::remove_dir_all(root).unwrap();
+    }
     fn fixture() -> (PathBuf, PathBuf) {
         let id = uuid::Uuid::new_v4().to_string();
         let root = crate::private_fs::testing::temp_root().join(format!("ordinary-{id}"));
@@ -1019,6 +1097,7 @@ pin.close()
             keys: Default::default(),
             chat_catalog: Default::default(),
             expected_revision: "missing".into(),
+            garmin_key: Default::default(),
         };
         assert!(fresh.accepts_history_settings(&input));
         let mut bad = input;
@@ -1062,6 +1141,7 @@ pin.close()
             keys: Default::default(),
             chat_catalog: Default::default(),
             expected_revision: "synthetic".into(),
+            garmin_key: Default::default(),
         };
         input.chat_catalog = authored_catalog;
         input

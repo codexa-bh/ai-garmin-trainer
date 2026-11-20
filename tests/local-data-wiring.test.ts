@@ -4,10 +4,8 @@ import { join } from "node:path";
 import { beforeEach, expect, it, vi } from "vitest";
 import type Database from "better-sqlite3";
 import { TrainerToolExecutionContext } from "../src/lib/ai/tool-execution-context";
-import {
-  normalizeActivity,
-  normalizeDailyHealth,
-} from "../src/lib/garmin/normalize";
+import { normalizeActivity } from "../src/lib/garmin/normalize";
+import { normalizeDailyHealth } from "./legacy-normalize";
 
 beforeEach(() => {
   vi.resetModules();

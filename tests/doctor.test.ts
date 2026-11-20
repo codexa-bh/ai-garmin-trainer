@@ -1,11 +1,9 @@
-import { GARMIN_MCP_PACKAGE_URL } from "../src/lib/garmin/mcp-config";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runDoctor } from "../src/lib/diagnostics/doctor";
 import { redactDiagnosticValue } from "../src/lib/diagnostics/redaction";
-import { GARMIN_MCP_SDK_REQUIREMENT } from "../src/lib/garmin/client";
 
 const baseEnv = {
   NEXT_PUBLIC_APP_URL: "http://localhost:3000",
@@ -14,9 +12,6 @@ const baseEnv = {
     "trainer.sqlite",
   ),
   GARMIN_HISTORY_START_DATE: "2024-01-01",
-  GARMIN_MCP_COMMAND: "uvx",
-  GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} --with ${GARMIN_MCP_SDK_REQUIREMENT} garmin-mcp`,
-  GARMIN_MCP_TOKEN_DIR: mkdtempSync(join(tmpdir(), "doctor-token-")),
   AI_PROVIDER: "openai",
   AI_MODEL: "gpt-4o-mini",
   OPENAI_API_KEY: "sk-testdoctorredacted",
@@ -24,10 +19,6 @@ const baseEnv = {
 
 describe("source-beta doctor and redaction", () => {
   it("reports stable failure classes without printing secret values", () => {
-    writeFileSync(
-      join(baseEnv.GARMIN_MCP_TOKEN_DIR, "garmin_tokens.json"),
-      "{}\n",
-    );
     const report = runDoctor(baseEnv);
     const text = JSON.stringify(report);
     expect(report.checks.map((item) => item.className)).toContain(
@@ -36,68 +27,21 @@ describe("source-beta doctor and redaction", () => {
     expect(text).not.toContain("sk-testdoctorredacted");
   });
 
-  it("reports the explicit Garmin MCP SDK compatibility requirement", () => {
-    writeFileSync(
-      join(baseEnv.GARMIN_MCP_TOKEN_DIR, "garmin_tokens.json"),
-      "{}\n",
-    );
+  it("reports native-owned official Garmin access without probing Python, uvx, tokens or Garmin", () => {
     const report = runDoctor(baseEnv);
-    const garminFacts = report.facts.garmin as {
-      mcpSdkRequirement: string;
-      configuredMcpSdkConstraint: string;
-      effectiveMcpSdkConstraint: string;
-    };
-
     expect(report.checks).toContainEqual(
       expect.objectContaining({
-        id: "garmin.mcp_sdk",
+        id: "garmin.connection",
         status: "pass",
-        className: "garmin.mcp_sdk_pinned",
+        className: "garmin.native_settings_owned",
       }),
     );
-    expect(garminFacts).toMatchObject({
-      mcpSdkRequirement: GARMIN_MCP_SDK_REQUIREMENT,
-      configuredMcpSdkConstraint: "exact",
-      effectiveMcpSdkConstraint: "exact",
+    expect(report.facts.garmin).toEqual({
+      access: "official-personal-api",
+      settingsOwner: "native-desktop",
     });
-  });
-
-  it("warns when a stale local override relies on runtime MCP SDK injection", () => {
-    writeFileSync(
-      join(baseEnv.GARMIN_MCP_TOKEN_DIR, "garmin_tokens.json"),
-      "{}\n",
-    );
-    const report = runDoctor({
-      ...baseEnv,
-      GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} garmin-mcp`,
-    });
-
-    expect(report.ok).toBe(true);
-    expect(report.checks).toContainEqual(
-      expect.objectContaining({
-        id: "garmin.mcp_sdk",
-        status: "warn",
-        className: "garmin.mcp_sdk_injected",
-      }),
-    );
-  });
-
-  it("fails when a stale or incompatible MCP SDK requirement is configured", () => {
-    for (const requirement of ["mcp==1.23.1", "mcp==2.0.0"]) {
-      const report = runDoctor({
-        ...baseEnv,
-        GARMIN_MCP_ARGS: `--from ${GARMIN_MCP_PACKAGE_URL} --with ${requirement} garmin-mcp`,
-      });
-
-      expect(report.ok).toBe(false);
-      expect(report.checks).toContainEqual(
-        expect.objectContaining({
-          id: "garmin.mcp_sdk",
-          status: "fail",
-          className: "garmin.mcp_sdk_incompatible",
-        }),
-      );
-    }
+    const text = JSON.stringify(report);
+    expect(text).not.toMatch(/python|uvx|garmin_mcp|token dir/i);
   });
 
   it("fails closed for unsupported LAN/public exposure", () => {
@@ -121,10 +65,6 @@ describe("source-beta doctor and redaction", () => {
   });
 
   it("reports DeepSeek-first provider selection and OpenAI memory embedding readiness without retired keys", () => {
-    writeFileSync(
-      join(baseEnv.GARMIN_MCP_TOKEN_DIR, "garmin_tokens.json"),
-      "{}\n",
-    );
     const report = runDoctor({
       ...baseEnv,
       AI_PROVIDER: "auto",
@@ -243,19 +183,6 @@ describe("source-beta doctor and redaction", () => {
       ollamaBaseUrlLoopback: false,
     });
     expect(JSON.stringify(report)).not.toContain("https://example.com:11434");
-  });
-
-  it("rejects unrelated files and missing configuration without leaking paths", () => {
-    const dir = mkdtempSync(join(tmpdir(), "doctor-no-fallback-"));
-    writeFileSync(join(dir, "state.json"), "secret canary");
-    for (const value of [dir, "", undefined]) {
-      const report = runDoctor({ ...baseEnv, GARMIN_MCP_TOKEN_DIR: value });
-      expect(
-        report.checks.find((item) => item.id === "garmin.auth_state")?.status,
-      ).toBe("fail");
-      expect(JSON.stringify(report)).not.toContain(dir);
-      expect(JSON.stringify(report)).not.toContain("secret canary");
-    }
   });
 
   it("redacts credentials, token contents, prompts, precise GPS, and raw payload canaries", () => {

@@ -5,11 +5,6 @@
     "type": "path"
   },
   {
-    "key": "GARMIN_MCP_TOKEN_DIR",
-    "label": "Existing private Garmin token directory (optional)",
-    "type": "directory"
-  },
-  {
     "key": "GARMIN_HISTORY_START_DATE",
     "label": "Import from",
     "type": "date",
@@ -130,36 +125,6 @@
     "label": "Extraction timeout (milliseconds)",
     "default": "3000",
     "type": "number",
-    "advanced": true
-  },
-  {
-    "key": "GARMIN_MCP_COMMAND",
-    "label": "Connector uvx executable",
-    "default": "uvx",
-    "advanced": true
-  },
-  {
-    "key": "GARMIN_FIT_BASELINE_COMMAND",
-    "label": "FIT baseline uv executable",
-    "default": "uv",
-    "advanced": true
-  },
-  {
-    "key": "GARMIN_FIT_SPEED_COMMAND",
-    "label": "FIT speed uv executable",
-    "default": "uv",
-    "advanced": true
-  },
-  {
-    "key": "GARMIN_FIT_DISTANCE_COMMAND",
-    "label": "FIT distance uv executable",
-    "default": "uv",
-    "advanced": true
-  },
-  {
-    "key": "GARMIN_FIT_ALTITUDE_COMMAND",
-    "label": "FIT altitude uv executable",
-    "default": "uv",
     "advanced": true
   }
 ]

@@ -6,7 +6,6 @@ import {
 } from "./model-settings/catalog";
 import { summarySelection } from "./model-settings/summary-selection";
 import { validateChatgptConnections } from "./model-settings/chatgpt-metadata";
-import { GARMIN_MCP_DEFAULT_ARGS_STRING } from "./garmin/mcp-config";
 
 const PLACEHOLDER_SECRET_PATTERNS = [
   /^\.\.\.$/,
@@ -25,9 +24,6 @@ const optionalEnvSchema = z.object({
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional(),
   ),
-  GARMIN_MCP_COMMAND: z.string().default("uvx"),
-  GARMIN_MCP_ARGS: z.string().default(GARMIN_MCP_DEFAULT_ARGS_STRING),
-  GARMIN_MCP_TOKEN_DIR: z.string().optional(),
   AI_PROVIDER: z
     .enum(["auto", "openai", "deepseek", "ollama", "openrouter", "chatgpt"])
     .default("auto"),

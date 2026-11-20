@@ -13,14 +13,7 @@ export type SyncRunState = {
   phase?: string;
   workSummary?: string;
   failureSummary: string | null;
-  recovery:
-    | "connector"
-    | "dependency"
-    | "startup"
-    | "auth"
-    | "network"
-    | "rate-limit"
-    | null;
+  recovery: "connector" | "auth" | "network" | "rate-limit" | null;
 };
 
 export type TranscriptScrollSnapshot = {
@@ -307,7 +300,6 @@ export type SyncProgressEvent = {
   intent?: import("@/lib/garmin/sync-policy").SyncIntent;
   sync?: import("@/lib/garmin/sync-policy").SyncState;
   date?: string;
-  dependency?: "launcher-unavailable" | "startup-unknown";
   continuationAvailable?: boolean;
   type?: string;
   status?: string;

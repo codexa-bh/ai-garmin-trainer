@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  chmodSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -10,7 +8,7 @@ import {
 } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join, win32 } from "node:path";
+import { join } from "node:path";
 import Database from "better-sqlite3";
 import { activateConfiguration } from "./desktop-configuration-fixture";
 import { isCanonicalLocalPath } from "../src/lib/db/local-path";
@@ -85,65 +83,66 @@ describe("desktop local path form", () => {
   });
 });
 
-describe("desktop executable resolution", () => {
-  it("refuses relative, shell, script and non-executable selections", () => {
+describe("desktop Garmin activation", () => {
+  it("installs the key as a process capability, never environment, and searches no tool paths", () => {
     const root = directory();
     const database = join(root, "test.sqlite");
     writeFileSync(database, "authored-path");
-    for (const command of ["uv; echo unsafe", "../uv", "bin\\uv"])
-      expect(() =>
-        activateConfiguration({
-          DATABASE_PATH: database,
-          GARMIN_MCP_COMMAND: command,
-        }),
-      ).toThrow();
-    for (const name of windows
-      ? ["uv.cmd", "uv.bat", "uv.ps1"]
-      : ["uv-script"]) {
-      const script = join(root, name);
-      writeFileSync(script, windows ? "@echo off" : "#!/bin/sh\n");
-      if (!windows) chmodSync(script, 0o600);
-      // Existing paths are valid configuration, but unsupported executables
-      // must stay unavailable without preventing offline desktop startup.
-      const resolved = activateConfiguration({
-        DATABASE_PATH: database,
-        GARMIN_MCP_COMMAND: script,
-      });
-      expect(resolved.available.uvx).toBe(false);
-      expect(resolved.uvx).toBe(
-        windows
-          ? win32.join(
-              process.env.SystemRoot ?? "C:\\Windows",
-              "unavailable-trainer-tool",
-              "uvx.exe",
-            )
-          : "/unavailable-trainer-tool/uvx",
-      );
-    }
+    const key = "synthetic-garmin-key-0001";
+    const active = activateConfiguration(
+      { DATABASE_PATH: database },
+      { garminKey: key },
+    );
+    expect(active.garmin).toBe(true);
+    expect(active.envText).not.toContain(key);
+    expect(
+      active.env.filter((name) => name !== "GARMIN_HISTORY_START_DATE"),
+    ).toEqual([]);
+    // Fixed system directories only; no Homebrew/user tool search for Garmin.
+    if (!windows) expect(active.path).toBe("/usr/bin:/bin");
+    expect(activateConfiguration({ DATABASE_PATH: database }).garmin).toBe(
+      false,
+    );
   });
-  it("uses only the fixed per-user Windows uv locations, never PATH", () => {
-    const home = directory();
-    const saved = process.env.USERPROFILE;
-    try {
-      process.env.USERPROFILE = windows ? home : "C:\\Users\\synthetic";
-      const bin = join(home, ".local", "bin");
-      mkdirSync(bin, { recursive: true });
-      writeFileSync(join(bin, "uv.exe"), "synthetic");
-      const database = join(home, "test.sqlite");
-      writeFileSync(database, "authored-path");
-      const resolved = activateConfiguration({ DATABASE_PATH: database });
-      if (windows) expect(resolved.uv).toBe(join(bin, "uv.exe"));
-      else expect(resolved.uv).not.toBe(join(bin, "uv.exe")); // Unix never searches the Windows user profile.
+  it("admits only a closed loopback fixture beside the key and refuses any other shape", () => {
+    const root = directory();
+    const database = join(root, "test.sqlite");
+    writeFileSync(database, "authored-path");
+    const garminFixture = {
+      origin: "http://127.0.0.1:40000",
+      capability: "f".repeat(64),
+    };
+    const active = activateConfiguration(
+      { DATABASE_PATH: database },
+      { garminKey: "synthetic-garmin-key-0001", garminFixture },
+    );
+    expect(active.garmin).toBe(true);
+    expect(active.envText).not.toContain(garminFixture.capability);
+    for (const bad of [
+      { ...garminFixture, origin: "https://personal.connectapi.garmin.com" },
+      { ...garminFixture, origin: "http://192.168.1.2:40000" },
+      { ...garminFixture, capability: "short" },
+      { ...garminFixture, extra: true },
+    ])
       expect(() =>
-        activateConfiguration({
-          DATABASE_PATH: database,
-          GARMIN_MCP_COMMAND: "uv.cmd",
-        }),
+        activateConfiguration(
+          { DATABASE_PATH: database },
+          { garminKey: "synthetic-garmin-key-0001", garminFixture: bad },
+        ),
       ).toThrow();
-    } finally {
-      if (saved === undefined) delete process.env.USERPROFILE;
-      else process.env.USERPROFILE = saved;
-    }
+  });
+  it("refuses retired connector fields and malformed keys instead of selecting a fallback", () => {
+    const root = directory();
+    const database = join(root, "test.sqlite");
+    writeFileSync(database, "authored-path");
+    for (const field of ["GARMIN_MCP_COMMAND", "GARMIN_MCP_TOKEN_DIR"])
+      expect(() =>
+        activateConfiguration({ DATABASE_PATH: database, [field]: "/x" }),
+      ).toThrow();
+    for (const garminKey of ["short", "has space key", "x".repeat(4097), 7])
+      expect(() =>
+        activateConfiguration({ DATABASE_PATH: database }, { garminKey }),
+      ).toThrow();
   });
 });
 

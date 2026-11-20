@@ -30,7 +30,6 @@ pub struct Snapshot {
     pub id: String,
     pub eligible: bool,
     pub database: String,
-    pub tokens: String,
     pub database_committed: bool,
     pub settings_committed: bool,
 }
@@ -62,11 +61,6 @@ impl State {
                 .as_ref()
                 .map(|db| db.path.clone())
                 .unwrap_or_else(|| self.root.join("trainer.sqlite"))
-                .to_string_lossy()
-                .into_owned(),
-            tokens: self
-                .root
-                .join("garmin-tokens")
                 .to_string_lossy()
                 .into_owned(),
             database_committed: self.database.is_some(),
@@ -228,7 +222,7 @@ pub fn bundled(
         loop {
             if cancel.load(Ordering::SeqCst) || quitting.load(Ordering::SeqCst) {
                 return Err(
-                    "Setup cancelled. Already committed database, settings or tokens are retained.",
+                    "Setup cancelled. Already committed database or settings are retained.",
                 );
             }
             if Instant::now() >= deadline {
@@ -349,9 +343,7 @@ pub fn initialize(
         validate(resources, &fields, cancel, quitting)?;
         parent.verify()?;
         if cancel.load(Ordering::SeqCst) || quitting.load(Ordering::SeqCst) {
-            return Err(
-                "Setup cancelled before database publication; any independent tokens remain saved.",
-            );
+            return Err("Setup cancelled before database publication; no database was published.");
         }
         let file = stage.as_ref().ok_or("Fresh staging unavailable.")?;
         if !parent.identity(&stage_name, file)

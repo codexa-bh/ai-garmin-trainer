@@ -8,7 +8,7 @@ import {
   listActivityDetailAvailability,
   listRecentActivities,
 } from "../local-data/composition";
-import { getOptionalEnv, requireRuntimeEnv } from "../env";
+import { requireRuntimeEnv } from "../env";
 import {
   finishSyncRun,
   healthHistoryBounds,
@@ -34,41 +34,37 @@ import {
   writeGarminAthleteBaselineRefresh,
   writeGarminBodyMetricsRefresh,
 } from "../db/repository";
-import { GarminMcpClient } from "./mcp-client";
-import { verifyConnectorToken } from "./client";
-import { reviewedGarminConnector } from "./mcp-config";
-import { fetchFitBaselineWithLocalWrapper } from "./fit-baseline";
-import { fetchFitAltitudeWithLocalWrapper } from "./fit-altitude";
-import { fetchFitDistanceWithLocalWrapper } from "./fit-distance";
-import { fetchFitSpeedWithLocalWrapper } from "./fit-speed";
 import { createGarminImports } from "./sync-import";
-import { createGarminReader } from "./reader-adapter";
+import { createOfficialReader } from "./official-reader";
+import {
+  GARMIN_KEY_MISSING,
+  garminApiKey,
+  garminKeyConfigured,
+  garminTransport,
+} from "./connection";
+import { createConnectionCheck } from "./connection-check";
 import { createActivityDetailRequests } from "./detail-requests";
 import { kpiMeasurements } from "../weekly/composition";
 
 // Bind functions only: no environment validation, DB opening, clock capture or
-// connector construction until the corresponding invocation reaches that step.
+// reader construction until the corresponding invocation reaches that step.
+// The official Personal API reader is the only Garmin path; the key is read
+// from the startup capability only when a request is actually admitted.
+const createReader = (
+  control?: Parameters<typeof createOfficialReader>[0]["control"],
+) =>
+  createOfficialReader({
+    control,
+    apiKey: garminApiKey,
+    fetch: garminTransport(),
+    archive: upsertGarminRawPayload,
+  });
 const imports = createGarminImports({
   historyStartDate: () => requireRuntimeEnv().GARMIN_HISTORY_START_DATE,
   clock: () => new Date(),
   wait: (milliseconds) =>
     new Promise((resolve) => setTimeout(resolve, milliseconds)),
-  createReader: (control) =>
-    createGarminReader({
-      control,
-      connector: new GarminMcpClient(),
-      lastUsedConnector: () =>
-        reviewedGarminConnector(getOptionalEnv().GARMIN_MCP_ARGS)
-          ? new GarminMcpClient("last-used")
-          : null,
-      fit: {
-        baseline: fetchFitBaselineWithLocalWrapper,
-        altitude: fetchFitAltitudeWithLocalWrapper,
-        distance: fetchFitDistanceWithLocalWrapper,
-        speed: fetchFitSpeedWithLocalWrapper,
-      },
-      archive: upsertGarminRawPayload,
-    }),
+  createReader,
   store: {
     dataCounts,
     healthHistoryBounds,
@@ -123,7 +119,13 @@ export const {
 } = imports;
 export const isGarminSyncRunning = imports.isSyncRunning;
 export const cancelGarminSync = imports.requestCancel;
-export const verifyGarminConnection = verifyConnectorToken;
+/** Explicit user action only (one official request); never startup/summary. */
+export const verifyGarminConnection = createConnectionCheck(createReader);
+/** Local presence preflight before Sync; no network and no key readback. */
+export const garminConnectionReady = () =>
+  garminKeyConfigured()
+    ? { ok: true, detail: "Garmin Personal API key configured." }
+    : { ok: false, detail: GARMIN_KEY_MISSING };
 export const activityDetailRequests = createActivityDetailRequests({
   activityDetailCoverage,
   listActivityDetailAvailability,

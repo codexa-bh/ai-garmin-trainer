@@ -38,7 +38,7 @@ class OrdinaryIdentityTests(unittest.TestCase):
             'src-tauri/src/isolated_run.rs',
             'src-tauri/debug/smoke.js',
             'scripts/desktop/smoke_input.py',
-            'scripts/desktop/garmin_auth.py',
+            'scripts/desktop/chatgpt-oauth.mjs',
             'package-lock.json',
             'src-tauri/Cargo.lock',
             'next.config.ts',

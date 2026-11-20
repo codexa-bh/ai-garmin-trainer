@@ -3,7 +3,7 @@ import {
   lastUsedUpload,
   parseCuratedDeviceJson,
   selectPrimary,
-} from "../src/lib/garmin/primary-upload";
+} from "./legacy-normalize";
 
 const now = new Date("2026-11-16T12:00:00Z");
 const device = { device_id: 123, last_sync_time: "2026-11-16T10:00:00Z" };

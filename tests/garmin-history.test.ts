@@ -2,13 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { installSyntheticKey } from "./legacy-composition";
 import {
   HISTORY_CHECKPOINT,
   historyState,
   shiftDate,
   SYNC_LIMITS,
 } from "../src/lib/garmin/history-policy";
-import { createGarminReader } from "../src/lib/garmin/reader-adapter";
+import { createGarminReader } from "./legacy-reader-double";
 
 import {
   DISCOVERY_CHECKPOINT,
@@ -35,85 +36,82 @@ const remote = vi.hoisted(() => ({
   hang: false,
   stepsStart: "",
 }));
-vi.mock("../src/lib/garmin/client", () => ({
-  verifyConnectorToken: async () => ({ ok: true, detail: "fixture metadata" }),
-}));
-vi.mock("../src/lib/garmin/mcp-client", async (original) => ({
-  ...(await original<typeof import("../src/lib/garmin/mcp-client")>()),
-  GarminMcpClient: class {
-    async start() {}
-    close() {}
-    async callTool(name: string, args: Record<string, unknown>) {
-      remote.calls.push({ name, args });
-      if (
-        remote.bodyFailed &&
-        ["get_user_profile", "get_body_composition", "get_weigh_ins"].includes(
-          name,
+vi.mock("../src/lib/garmin/official-reader", async () =>
+  (await import("./legacy-composition")).legacyReaderModule(
+    class {
+      async start() {}
+      close() {}
+      async callTool(name: string, args: Record<string, unknown>) {
+        remote.calls.push({ name, args });
+        if (
+          remote.bodyFailed &&
+          [
+            "get_user_profile",
+            "get_body_composition",
+            "get_weigh_ins",
+          ].includes(name)
         )
-      )
-        throw new Error("body fixture read failed");
-      if (remote.cancelAt === remote.calls.length) remote.cancelled = true;
-      if (remote.advanceAt === remote.calls.length)
-        vi.setSystemTime(Date.now() + SYNC_LIMITS.milliseconds + 1);
-      if (name === "get_stats") {
-        if (remote.hang) return new Promise<string>(() => {});
-        if (remote.failure) return remote.failure;
-        return JSON.stringify(remote.stats.get(String(args.date)) ?? {});
+          throw new Error("body fixture read failed");
+        if (remote.cancelAt === remote.calls.length) remote.cancelled = true;
+        if (remote.advanceAt === remote.calls.length)
+          vi.setSystemTime(Date.now() + SYNC_LIMITS.milliseconds + 1);
+        if (name === "get_stats") {
+          if (remote.hang) return new Promise<string>(() => {});
+          if (remote.failure) return remote.failure;
+          return JSON.stringify(remote.stats.get(String(args.date)) ?? {});
+        }
+        if (name === "get_sleep_summary")
+          return JSON.stringify(remote.sleep.get(String(args.date)) ?? {});
+        if (name === "get_body_battery") return "[]";
+        if (name === "get_activities_by_date")
+          return JSON.stringify(
+            String(args.end_date) < "2026-09-08"
+              ? (remote.pages.get(Number(args.page)) ?? {
+                  activities: [],
+                  has_more: false,
+                })
+              : { activities: [], has_more: false },
+          );
+        if (name === "get_weekly_steps") {
+          // Default: long history (one positive week per read). Tests that set
+          // remote.stepsStart model an account whose data begins there.
+          const data: { week_start: string; days_with_data: number }[] = [];
+          if (!remote.stepsStart)
+            data.push({ week_start: String(args.end_date), days_with_data: 1 });
+          else
+            for (
+              let week = String(args.end_date);
+              week >= remote.stepsStart && data.length < Number(args.weeks);
+              week = shiftDate(week, -7)
+            )
+              data.push({ week_start: week, days_with_data: 7 });
+          return JSON.stringify({
+            end_date: args.end_date,
+            weeks_requested: args.weeks,
+            weeks_returned: data.length,
+            weekly_data: data,
+          });
+        }
+        if (name === "get_user_profile")
+          return '{"userData":{"weight":70,"height":180}}';
+        if (name === "get_body_composition")
+          return JSON.stringify({
+            dateWeightList: [
+              { date: "2020-01-01", weight: 90 },
+              { date: "2026-09-21", weight: 70 },
+            ].filter(
+              (row) =>
+                row.date >= String(args.start_date) &&
+                row.date <= String(args.end_date),
+            ),
+          });
+        return "{}";
       }
-      if (name === "get_sleep_summary")
-        return JSON.stringify(remote.sleep.get(String(args.date)) ?? {});
-      if (name === "get_body_battery") return "[]";
-      if (name === "get_activities_by_date")
-        return JSON.stringify(
-          String(args.end_date) < "2026-09-08"
-            ? (remote.pages.get(Number(args.page)) ?? {
-                activities: [],
-                has_more: false,
-              })
-            : { activities: [], has_more: false },
-        );
-      if (name === "get_weekly_steps") {
-        // Default: long history (one positive week per read). Tests that set
-        // remote.stepsStart model an account whose data begins there.
-        const data: { week_start: string; days_with_data: number }[] = [];
-        if (!remote.stepsStart)
-          data.push({ week_start: String(args.end_date), days_with_data: 1 });
-        else
-          for (
-            let week = String(args.end_date);
-            week >= remote.stepsStart && data.length < Number(args.weeks);
-            week = shiftDate(week, -7)
-          )
-            data.push({ week_start: week, days_with_data: 7 });
-        return JSON.stringify({
-          end_date: args.end_date,
-          weeks_requested: args.weeks,
-          weeks_returned: data.length,
-          weekly_data: data,
-        });
-      }
-      if (name === "get_user_profile")
-        return '{"userData":{"weight":70,"height":180}}';
-      if (name === "get_body_composition")
-        return JSON.stringify({
-          dateWeightList: [
-            { date: "2020-01-01", weight: 90 },
-            { date: "2026-09-21", weight: 70 },
-          ].filter(
-            (row) =>
-              row.date >= String(args.start_date) &&
-              row.date <= String(args.end_date),
-          ),
-        });
-      return "{}";
-    }
-  },
-}));
-vi.mock("../src/lib/garmin/fit-baseline", () => ({
-  fetchFitBaselineWithLocalWrapper: async () => undefined,
-}));
+    },
+  ),
+);
 let directory: string;
-beforeEach(() => {
+beforeEach(async () => {
   directory = mkdtempSync(join(tmpdir(), "garmin-history-"));
   vi.stubEnv("DATABASE_PATH", join(directory, "copy.sqlite"));
   vi.stubEnv("GARMIN_HISTORY_START_DATE", "");
@@ -133,6 +131,7 @@ beforeEach(() => {
     stepsStart: "",
   });
   vi.resetModules();
+  await installSyntheticKey();
 });
 afterEach(async () => {
   const { getDatabase } = await import("../src/lib/db/connection");

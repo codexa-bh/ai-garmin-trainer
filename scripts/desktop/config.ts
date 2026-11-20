@@ -1,13 +1,8 @@
-import { constants, accessSync, lstatSync, realpathSync } from "node:fs";
-import { delimiter, isAbsolute, join, win32 } from "node:path";
+import { delimiter, win32 } from "node:path";
 import { updateInitialEnv } from "@next/env";
-import { activationEnvironment } from "./settings";
+import { activationEnvironment, garminActivationKey } from "./settings";
 import type { NextConfig } from "next";
-import { getOptionalEnv } from "../../src/lib/env";
-import {
-  GARMIN_MCP_DEFAULT_ARGS_STRING,
-  garminMcpArgs,
-} from "../../src/lib/garmin/mcp-config";
+import { installGarminConnection } from "../../src/lib/garmin/connection";
 
 function desktopNextConfiguration(base: Record<string, unknown>): NextConfig {
   return {
@@ -35,101 +30,30 @@ export function configureDesktopNext(
   return configuration;
 }
 
-// Fixed reviewed tool locations; never the inherited PATH or a shell.
-function toolDirectories(platform: NodeJS.Platform): string[] {
-  if (platform !== "win32")
-    return ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
-  // Official per-user uv installer locations only.
-  const home = process.env.USERPROFILE;
-  return home && win32.isAbsolute(home) && /^[A-Za-z]:\\/.test(home)
-    ? [win32.join(home, ".local", "bin"), win32.join(home, ".cargo", "bin")]
-    : [];
-}
-
-function resolveExecutable(
-  command: string,
-  platform: NodeJS.Platform = process.platform,
-): string | undefined {
-  const windows = platform === "win32";
-  const absolute = windows
-    ? /^[A-Za-z]:\\/.test(command) && win32.isAbsolute(command)
-    : isAbsolute(command);
-  const candidates = absolute
-    ? [command]
-    : command.includes("/") || command.includes("\\")
-      ? []
-      : /^[A-Za-z0-9_-]+$/.test(command)
-        ? toolDirectories(platform).map((dir) =>
-            windows ? win32.join(dir, `${command}.exe`) : join(dir, command),
-          )
-        : [];
-  return candidates.find((path) => {
-    // Windows executes only real .exe images (no .cmd/.bat shell interpreters).
-    if (windows && !/\.exe$/i.test(path)) return false;
-    try {
-      accessSync(path, constants.X_OK);
-      return lstatSync(realpathSync(path)).isFile();
-    } catch {
-      return false;
-    }
-  });
-}
-
-// An absolute path that can never exist, so no inherited PATH fallback applies.
-function unavailable(tool: string): string {
-  return process.platform === "win32"
-    ? win32.join(
-        process.env.SystemRoot ?? "C:\\Windows",
-        "unavailable-trainer-tool",
-        `${tool}.exe`,
-      )
-    : `/unavailable-trainer-tool/${tool}`;
-}
-
-export function adoptConfiguration(snapshot: unknown): {
-  uv: boolean;
-  uvx: boolean;
-} {
+export function adoptConfiguration(snapshot: unknown): void {
   // Native sends a bounded private frame, never an env filename. No dotenv
   // loader is invoked; private state cannot depend on cwd or adjacent files.
   Object.assign(process.env, activationEnvironment(snapshot));
-  // GUI launches may inherit umask022. Keep backend and connector/FIT-created
-  // files private from creation (GHSA-wjhr-76vg-2hvc), not only after chmod.
-  // This owned child-process policy never changes permissions of existing files.
-  // Windows has no umask: native creates private directories with inheritable
-  // owner-only DACLs, so files created inside them are private from creation.
+  // The Garmin key is a process-owned capability, never an environment value,
+  // so no child process, framework reset or diagnostic can inherit it.
+  installGarminConnection({
+    key: garminActivationKey(snapshot),
+    fixture: garminFixture(snapshot),
+  });
+  // GUI launches may inherit umask022. Keep backend-created files private from
+  // creation (GHSA-wjhr-76vg-2hvc), not only after chmod. This owned process
+  // policy never changes permissions of existing files. Windows has no umask:
+  // native creates private directories with inheritable owner-only DACLs, so
+  // files created inside them are private from creation.
   if (process.platform !== "win32") process.umask(0o077);
-  const env = getOptionalEnv();
-  const reviewedArgs =
-    JSON.stringify(garminMcpArgs(env.GARMIN_MCP_ARGS)) ===
-    JSON.stringify(garminMcpArgs(GARMIN_MCP_DEFAULT_ARGS_STRING));
-  const uvx = reviewedArgs
-    ? resolveExecutable(env.GARMIN_MCP_COMMAND)
-    : undefined;
-  // Missing integrations do not prevent offline/persisted views. Set an absolute
-  // non-existent command so no inherited PATH fallback can choose another tool.
-  process.env.GARMIN_MCP_COMMAND = uvx ?? unavailable("uvx");
-  const uv = resolveExecutable("uv");
-  for (const key of [
-    "GARMIN_FIT_BASELINE_COMMAND",
-    "GARMIN_FIT_SPEED_COMMAND",
-    "GARMIN_FIT_DISTANCE_COMMAND",
-    "GARMIN_FIT_ALTITUDE_COMMAND",
-  ]) {
-    const configured = process.env[key];
-    process.env[key] =
-      (configured ? resolveExecutable(configured) : uv) ?? unavailable("uv");
-  }
   process.env.PATH = (
     process.platform === "win32"
       ? [
           win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32"),
           process.env.SystemRoot ?? "C:\\Windows",
         ]
-      : ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+      : ["/usr/bin", "/bin"]
   ).join(delimiter);
-  process.env.UV_PYTHON_DOWNLOADS = "never";
-  process.env.PYTHONDONTWRITEBYTECODE = "1";
   process.env.TRAINER_DESKTOP = "1";
   Object.assign(process.env, { NODE_ENV: "production" });
   // These internal control values can never be selected by the private env file.
@@ -139,5 +63,34 @@ export function adoptConfiguration(snapshot: unknown): {
   // framework config. Make the validated absolute adoption overlay that snapshot;
   // otherwise it can silently restore source defaults and create an empty DB.
   updateInitialEnv(process.env);
-  return { uv: Boolean(uv), uvx: Boolean(uvx) };
+}
+
+/**
+ * Native adds this only for an admitted isolated synthetic run (never from
+ * saved settings): an owned loopback stand-in for the official origin.
+ */
+function garminFixture(
+  snapshot: unknown,
+): { origin: string; capability: string } | undefined {
+  const frame =
+    snapshot &&
+    typeof snapshot === "object" &&
+    "version" in snapshot &&
+    snapshot.version === 4
+      ? (snapshot as { activation?: unknown }).activation
+      : snapshot;
+  if (!frame || typeof frame !== "object" || !("garminFixture" in frame))
+    return undefined;
+  const fixture = frame.garminFixture as Record<string, unknown> | null;
+  const origin = typeof fixture?.origin === "string" ? fixture.origin : "";
+  const capability =
+    typeof fixture?.capability === "string" ? fixture.capability : "";
+  if (
+    !fixture ||
+    Object.keys(fixture).length !== 2 ||
+    !/^http:\/\/127\.0\.0\.1:[1-9][0-9]{3,4}$/.test(origin) ||
+    !/^[a-f0-9]{64}$/.test(capability)
+  )
+    throw new Error("Invalid Garmin fixture.");
+  return { origin, capability };
 }

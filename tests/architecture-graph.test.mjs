@@ -45,9 +45,8 @@ const math = 'export { score } from "../pure";';
 describe("runtime architecture graph", () => {
   it.each([
     "db/repository",
-    "garmin/client",
+    "garmin/connection",
     "garmin/importer",
-    "garmin/mcp-config",
     "env",
     "ai/providers",
   ])("rejects client transitive owner %s with witness", (owner) => {
@@ -390,7 +389,7 @@ describe("bounded math pure local closure", () => {
   });
   it.each([
     'import "./db/store";',
-    'import("./garmin/client");',
+    'import("./garmin/connection");',
     'require("node:fs");',
     "import(target);",
   ])("rejects indirect math capability %s", (code) => {
@@ -399,7 +398,7 @@ describe("bounded math pure local closure", () => {
         "lib/ai/math-analysis.ts": math,
         "lib/pure.ts": code,
         "lib/db/store.ts": "export {};",
-        "lib/garmin/client.ts": "export {};",
+        "lib/garmin/connection.ts": "export {};",
       }),
     ).toMatch(/math-capability|opaque-dependency/);
   });

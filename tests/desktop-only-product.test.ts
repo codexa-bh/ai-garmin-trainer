@@ -123,17 +123,15 @@ describe("Tauri-only product launch contract", () => {
       "restart-readiness.mjs",
     ])
       expect(existsSync(join(root, "scripts", name))).toBe(false);
-    for (const name of ["doctor", "db:status", "db:migrate", "garmin:auth"])
+    for (const name of ["doctor", "db:status", "db:migrate"])
       expect(scripts[name]).toMatch(/^tsx scripts\//);
+    // Garmin access is native Settings only: no terminal sign-in command.
+    expect(scripts["garmin:auth"]).toBeUndefined();
+    expect(existsSync(join(root, "scripts/garmin-auth.ts"))).toBe(false);
   });
 
   it("keeps documented setup commands non-serving and external services operator-owned", () => {
-    for (const name of [
-      "doctor.ts",
-      "db-status.ts",
-      "migrate.ts",
-      "garmin-auth.ts",
-    ]) {
+    for (const name of ["doctor.ts", "db-status.ts", "migrate.ts"]) {
       const source = readFileSync(join(root, "scripts", name), "utf8");
       expect(source).not.toMatch(
         /next\s+(start|dev)|\.listen\(|ollama.*(?:serve|pull)/,

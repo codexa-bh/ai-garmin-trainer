@@ -1,6 +1,6 @@
 # Synthetic Sync — build/run card
 
-**Use:** authored, keyless macOS ARM64 Sync/import evidence on a task-owned ordinary app, not private Garmin/account proof. Prerequisites: [desktop toolchain](../README.md#1-install-prerequisites-and-build), compatible Pivan scratch tooling, registered Trainer task worktree and the [scenario's before-use checks](smoke/sync.md#current-finite-synthetic-sync-scenario). No running app or private settings/tokens are selected.
+**Use:** authored, keyless macOS ARM64 Sync/import evidence on a task-owned ordinary app, not private Garmin/account proof. Prerequisites: [desktop toolchain](../README.md#1-install-prerequisites-and-build), compatible Pivan scratch tooling, registered Trainer task worktree and the [scenario's before-use checks](smoke/sync.md#current-finite-synthetic-sync-scenario). No running app, private settings, key or tokens are selected.
 
 ## Prepare, build, run
 
@@ -29,7 +29,7 @@ npm run smoke:history -- --scratch "$scratch" \
   --input-file "$selection" --bundle "$bundle" --synthetic-sync
 ```
 
-Preparation emits a prepared-result record **and** resource disposition; select by the `prepared` key, not stdout line position. Default anchor is UTC today; explicit `--anchor YYYY-MM-DD` reproduces logical input, not output UUIDs or a product clock. The runner's connector path and Python shebang must be whitespace-free; use the returned canonical scratch and compatible toolchain, never aliases or rewritten arguments to bypass a refusal.
+Preparation emits a prepared-result record **and** resource disposition; select by the `prepared` key, not stdout line position. Default anchor is UTC today; explicit `--anchor YYYY-MM-DD` reproduces logical input, not output UUIDs or a product clock. Use the returned canonical scratch and compatible toolchain, never aliases or rewritten arguments to bypass a refusal.
 
 ## Read the result, not just the exit
 

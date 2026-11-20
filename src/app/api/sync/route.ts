@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  verifyGarminConnection as verifyConnectorToken,
+  garminConnectionReady,
+  verifyGarminConnection,
   runGarminSync,
   isGarminSyncRunning,
   cancelGarminSync,
@@ -8,8 +9,9 @@ import {
 } from "@/lib/garmin/composition";
 import { historicalIntentAdmitted } from "@/lib/garmin/sync-policy";
 
+/** Explicit connection check: one official request with the saved key. */
 export async function GET() {
-  const verification = await verifyConnectorToken();
+  const verification = await verifyGarminConnection();
   return NextResponse.json(verification, {
     status: verification.ok ? 200 : 409,
   });
@@ -79,7 +81,7 @@ export async function POST(request?: Request) {
       },
       { status: 409 },
     );
-  const verification = await verifyConnectorToken();
+  const verification = garminConnectionReady();
   if (!verification.ok) {
     return NextResponse.json(
       {

@@ -10,24 +10,24 @@ import {
 export function syncFailureRecovery(
   detail: string | undefined,
 ): SyncRunState["recovery"] {
-  const safeDetail = detail?.replace(
-    /^Garmin MCP exited with code (?:-?\d+|null)\. /,
-    "",
-  );
+  // Fixed official-reader vocabulary (official-error.ts / connection.ts) only;
+  // an optional trailing " (HTTP nnn)" status is the sole variable part.
+  const safeDetail = detail?.replace(/ \(HTTP \d{3}\)$/, "");
   switch (safeDetail) {
-    case "Garmin service rate-limited the request; retry later, not reauthentication.":
+    case "Garmin rate limit reached (HTTP 429); retry later.":
+    case "Garmin rate limit reached; retry later.":
       return "rate-limit";
-    case "Garmin connection or service is unavailable; authentication validity is inconclusive.":
+    case "Garmin connection failed; authentication validity is inconclusive.":
+    case "Garmin service is unavailable; authentication validity is inconclusive.":
+    case "Garmin request timed out; no successful coverage recorded.":
       return "network";
-    case "Garmin connector request failed; upstream details are withheld to protect credentials and local paths.":
+    case "Garmin protocol failure: the response was unrecognized.":
+    case "Garmin protocol failure: the response exceeded its size bound.":
+    case "Garmin sync stopped after a connection or storage failure; committed data and unresolved history are retained.":
       return "connector";
-    case "Garmin authentication could not be verified; check the configured store and perform a separate live verification before requesting reauthentication.":
-    case "Open native Settings → Connect Garmin; no alternate connection is searched.":
-    case "Configured token location must be a directory, not a symlink.":
-    case "Expected Garmin token file must be a regular file, not a symlink.":
-    case "Configured Garmin connection is unavailable. Open native Settings for explicit reconnect; no automatic login.":
-    case "Configured Garmin connection is missing. Open native Settings → Reconnect Garmin, Save and explicitly quit/reopen.":
-    case "Configured Garmin auth state is inaccessible; check file types and private permissions. No token contents were read.":
+    case "Garmin authentication failed: the Personal API key was rejected or has expired.":
+    case "Garmin authentication failed: the access token was rejected.":
+    case "Garmin authentication is not configured: add your Personal API key in native Settings, Save, then quit and reopen Trainer.":
       return "auth";
     default:
       return null;
@@ -36,18 +36,14 @@ export function syncFailureRecovery(
 
 export function syncFailureSummary(recovery: SyncRunState["recovery"]): string {
   switch (recovery) {
-    case "dependency":
-      return "The Garmin connector launcher cannot execute. Check uvx or its configured override, then explicitly retry.";
-    case "startup":
-      return "The Garmin connector could not start. Its cause, including Python availability, is unknown.";
     case "rate-limit":
-      return "Garmin rate-limited the request. Retry later, not reauthentication.";
+      return "Garmin rate-limited the request. Retry later; the key is not shown to be invalid.";
     case "network":
       return "Garmin connection or service is unavailable. Check connectivity and retry later.";
     case "auth":
-      return "Garmin authentication could not be verified. Open native Settings for connection status; no automatic login.";
+      return "Garmin did not accept the connection: the Personal API key is missing, rejected, expired or revoked.";
     case "connector":
-      return "The Garmin connector failed. The cause is not established.";
+      return "The Garmin request failed. The cause is not established.";
     default:
       return "The sync request failed. See the current-run error log for details.";
   }

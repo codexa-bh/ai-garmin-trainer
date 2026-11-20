@@ -95,6 +95,7 @@ async function setup(
             DEEPSEEK_API_KEY: "not configured",
             OPENROUTER_API_KEY: "not configured",
           },
+          garmin: "not configured",
           chatCatalog: summaryCatalog,
           saved,
           running: saved,

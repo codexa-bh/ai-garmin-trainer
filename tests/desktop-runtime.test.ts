@@ -162,7 +162,7 @@ describe("desktop reference boundary", () => {
         adoptConfiguration(JSON.parse(process.argv[1]));
         const expected=process.env.DATABASE_PATH;
         loadEnvConfig(process.cwd(),false,{info(){},error(){}},true);
-        console.log(JSON.stringify({database:process.env.DATABASE_PATH===expected,desktop:process.env.TRAINER_DESKTOP,provider:process.env.AI_PROVIDER,secretPreserved:process.env.OPENAI_API_KEY==='sentinel-private-frame',pythonBytecode:process.env.PYTHONDONTWRITEBYTECODE}));
+        console.log(JSON.stringify({database:process.env.DATABASE_PATH===expected,desktop:process.env.TRAINER_DESKTOP,provider:process.env.AI_PROVIDER,secretPreserved:process.env.OPENAI_API_KEY==='sentinel-private-frame',python:Object.keys(process.env).filter((k)=>/^(PYTHON|UV_)/.test(k))}));
       })();
     `;
     const result = execFileSync(
@@ -183,7 +183,8 @@ describe("desktop reference boundary", () => {
       desktop: "1",
       provider: "openai",
       secretPreserved: true,
-      pythonBytecode: "1",
+      // No Python/uv control variables: the product launches no such tools.
+      python: [],
     });
   });
   // POSIX creation masks; on Windows the native owner creates private

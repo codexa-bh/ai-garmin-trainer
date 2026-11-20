@@ -29,7 +29,7 @@ Discovery reads the [catalog](smoke-commands.md), never prepares/builds/launches
 ## Run and judge
 
 - Ordinary defaults full/two-instance. Feature scope requires reviewed impact/basis and named groups. Shared native/controller/admission/config/DB/process/identity/mask/UI or uncertainty needs **full plus affected features**; saved task obligations remain. [Selection contract](smoke/ownership.md#risk-selected-ordinary-feature-smoke).
-- Launch only owned nonactivating copies. No operator singleton, global input/focus, fresh login/MFA or normal config fallback. Ordinary keeps HOME unchanged; debug intentionally isolates HOME. No key read-back. The explicitly selected `summary-native-copy` exception **replaces the system clipboard** with authored text and never reads/restores prior contents.
+- Launch only owned nonactivating copies. No operator singleton, global input/focus, real Garmin key or normal config fallback. Ordinary keeps HOME unchanged; debug intentionally isolates HOME. No key read-back. The explicitly selected `summary-native-copy` exception **replaces the system clipboard** with authored text and never reads/restores prior contents.
 - Verify artifact/run/boot/backend **and hydrated renderer**, not only listener/200. Command success is action completion, not import/generation settlement. **Timeout means effect unknown, not rollback.** Stop mutations, retain failure, inspect state; only bounded read-only observation may poll.
 - Check selected assertions, original preservation, owned shutdown/endpoints/leases and separate disposition receipt. `--prepare-only` is zero launches/no pass. Saved PIDs/broad process names grant no cleanup.
 - Inspect each relied-on original PNG and record visible result/source/hash/limits. Masks hide private content; fixed presentation, actual lifecycle, trusted OS input and real services are distinct proof. No screenshot/exit-code/fixture can substitute for missing proof. macOS images stay local/uncommitted/unuploaded; Windows has its own narrow exception.
@@ -73,6 +73,7 @@ Deep links route below. Read relevant sections only for changes, diagnosis or ex
 <a id="bounded-ordinary-history-setup-and-copied-token-sync"></a>
 <a id="current-finite-synthetic-sync-scenario"></a>
 <a id="finite-dependency-guidance-evidence"></a>
+<a id="finite-connection-recovery-evidence"></a>
 <a id="independent-real-service-evidence-gate"></a>
 
 **[History setup, synthetic Sync and independent real-Garmin gate](smoke/sync.md)**

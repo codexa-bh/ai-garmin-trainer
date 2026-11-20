@@ -279,12 +279,19 @@
       byId("status")?.textContent.startsWith(
         "Settings changed since this form was loaded.",
       ) === true;
-    value.formVisible = visible(byId("auth"));
-    value.manualControlsAbsent = [
-      "GARMIN_MCP_TOKEN_DIR",
-      "destination",
-      "auth-parent",
-    ].every((id) => !byId(id));
+    value.formVisible = visible(byId("garmin-key-section"));
+    // Retired sign-in/technical controls are absent, and the private key control
+    // never holds a value in any observed or captured state.
+    value.manualControlsAbsent =
+      [
+        "GARMIN_MCP_TOKEN_DIR",
+        "GARMIN_MCP_COMMAND",
+        "email",
+        "password",
+        "mfa",
+        "destination",
+        "auth-parent",
+      ].every((id) => !byId(id)) && byId("GARMIN_API_KEY")?.value === "";
     value.notConnected =
       byId("connection-status")?.textContent.startsWith("Not connected.") ===
       true;
@@ -881,7 +888,7 @@
           : [];
         if (
           !main ||
-          /External uv\/uvx, Python/.test(main.textContent) ||
+          /uvx|Python|MFA/.test(main.textContent) ||
           !footer ||
           controls.length !== 2 ||
           controls[0] !== byId("save") ||
@@ -892,9 +899,7 @@
               el.textContent.trim() !==
                 ["Save settings", "Cancel edits"][index],
           ) ||
-          [...main.children]
-            .slice(-2)
-            .some((el) => el.tagName !== "FORM" || el.textContent.trim())
+          main.lastElementChild !== byId("settings")
         )
           throw Error("Unexpected Settings footer");
         scrollPosition = [window.scrollX, window.scrollY];
@@ -1008,13 +1013,31 @@
             "Connect for fresh Garmin data and coaching grounded in it. Configured-provider chat and saved/offline history remain available without Garmin.",
           ],
           [byId("connect"), "Connect Garmin"],
-          [byId("connect-later"), "Back"],
-          [byId("sign-in"), "Sign in and verify"],
+          [byId("connect-later"), "Back — keep saved connection"],
+          [
+            byId("garmin-key-link"),
+            "Create a Personal API key in Garmin Connect",
+          ],
           [
             byId("garmin-privacy").querySelector("summary"),
-            "Sign-in and private storage details",
+            "Key and private storage details",
           ],
         ]);
+        const steps = [...byId("garmin-key-steps").children];
+        const stepText = [
+          "Create a Personal API key in Garmin Connect.",
+          "Paste it here; it is stored privately on this device.",
+          "Save, then quit and reopen Trainer to use the new connection.",
+        ];
+        if (
+          steps.length !== 3 ||
+          steps.some(
+            (el, index) =>
+              el.tagName !== "LI" ||
+              el.textContent.replace(/\s+/g, " ").trim() !== stepText[index],
+          )
+        )
+          throw Error("Unexpected key steps");
         if (action === "capturePrivacy") {
           const disclosure = byId("garmin-privacy");
           const paragraphs = disclosure.querySelectorAll("p");
@@ -1022,11 +1045,11 @@
             throw Error("Unexpected disclosure structure");
           approved.set(
             paragraphs[0],
-            "This unofficial connector is not official OAuth. Account challenges and rate limits may prevent sign-in. Only your explicit action starts login; no automatic retries.",
+            "Uses Garmin's official Personal API with your own read-only key. Garmin decides how long a key stays valid and may revoke it; a rejected key needs a new one, not a password.",
           );
           approved.set(
             paragraphs[1],
-            "Email, password and one supported MFA code stay transient in native sign-in, never saved, logged or sent to AI. Do not enter credentials in chat.",
+            "The key is saved in owner-private plaintext app settings, not encryption, and is never shown again, logged or sent to AI. Do not enter it in chat.",
           );
           privacyOpen = disclosure.open;
           disclosure.open = true;
@@ -1039,17 +1062,25 @@
           )
             throw Error("Unexpected Garmin text");
         }
-        const labels = Array.from(byId("auth").querySelectorAll("label"));
+        // The key label caption plus its empty masked input; its live status
+        // span stays hidden (not reviewed text).
+        const label = byId("garmin-key-label");
+        const caption = label?.firstChild;
         if (
-          labels.length !== 2 ||
-          labels.some(
-            (el, index) =>
-              el.textContent.trim() !== ["Email", "Password"][index] ||
-              el.children.length !== 1 ||
-              el.firstElementChild !== byId(["email", "password"][index]),
-          )
+          !label ||
+          caption?.nodeType !== Node.TEXT_NODE ||
+          caption.textContent.trim() !== "Garmin Personal API key" ||
+          label.children.length !== 2 ||
+          label.lastElementChild !== byId("GARMIN_API_KEY")
         )
-          throw Error("Unexpected credential labels");
+          throw Error("Unexpected key label");
+        const labels = [
+          label,
+          byId("GARMIN_API_KEY"),
+          byId("garmin-key-section"),
+          byId("garmin-key-steps"),
+          ...steps,
+        ];
         if (action !== "capturePrivacy" && byId("garmin-privacy").open)
           throw Error("Disclosure must be collapsed");
         scrollPosition = [window.scrollX, window.scrollY];

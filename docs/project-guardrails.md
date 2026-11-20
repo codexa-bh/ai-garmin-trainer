@@ -224,7 +224,7 @@ The single pin file `scripts/python-quality-requirements.txt` supplies **Ruff 0.
 and **Vulture 2.16** for CI, nightly and local setup. Ruff rejects other versions.
 `npm run format:python`, `lint:python` and `deadcode:python` call the tracked-file
 runner; missing tools fail rather than silently passing. Format/lint cover every
-tracked `.py`, including tests and bundled helpers. Ruff uses Python 3.12 syntax,
+tracked `.py`, including tests and developer runners (the product bundles none). Ruff uses Python 3.12 syntax,
 single quotes, 100 columns and explicit `F`, `E4`, `E7`, `E9` rules. No additional
 rule-family coverage or Python type-checking is claimed.
 

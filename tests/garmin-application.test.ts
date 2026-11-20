@@ -6,7 +6,7 @@ import {
   FRESHNESS_CHECKPOINT,
   type LatestFreshness,
 } from "../src/lib/garmin/latest-policy";
-import { createGarminReader } from "../src/lib/garmin/reader-adapter";
+import { createGarminReader } from "./legacy-reader-double";
 import {
   DISCOVERY_CHECKPOINT,
   DISCOVERY_LIMITS,
@@ -19,10 +19,8 @@ import type {
   GarminImportPorts,
   GarminReader,
 } from "../src/lib/garmin/import-ports";
-import {
-  normalizeActivity,
-  normalizeDailyHealth,
-} from "../src/lib/garmin/normalize";
+import { normalizeActivity } from "../src/lib/garmin/normalize";
+import { normalizeDailyHealth } from "./legacy-normalize";
 import { normalizeActivityDetail } from "../src/lib/garmin/detail-normalize";
 import { normalizeGarminAthleteBaseline } from "../src/lib/garmin/athlete-normalize";
 import { normalizeGarminBodyMetrics } from "../src/lib/garmin/body-metrics-normalize";
@@ -968,7 +966,7 @@ describe("Garmin imports with supplied capabilities, no infrastructure mocks", (
       if (operation === "sync")
         expect(await f.app.runGarminSync()).toMatchObject({
           status: "failed",
-          detail: expect.stringContaining("connector or storage failure"),
+          detail: expect.stringContaining("connection or storage failure"),
         });
       if (operation === "effort")
         expect(await f.app.backfillActivityEffortFields()).toMatchObject({

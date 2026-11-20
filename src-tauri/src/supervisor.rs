@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 pub struct Service {
     child: Tree,
     pub port: u16,
-    pub tooling_available: bool,
     stopped: bool,
     nonce: String,
     pub live: crate::live_settings::LiveSettings,
@@ -24,13 +23,7 @@ struct Ready {
     kind: String,
     version: u8,
     port: Option<u16>,
-    tooling: Option<Tooling>,
     code: Option<String>,
-}
-#[derive(Deserialize)]
-struct Tooling {
-    uv: bool,
-    uvx: bool,
 }
 
 fn verify_identity(port: u16, nonce: &str) -> Result<(), &'static str> {
@@ -77,6 +70,12 @@ impl Service {
         })
         .map_err(|_| "Startup fields invalid.")?;
         let startup_fields = crate::settings::validate(resources, &fields)?;
+        let activation = if frame["version"] == 4 {
+            &frame["activation"]
+        } else {
+            &frame
+        };
+        let startup_garmin = crate::settings::garmin_fingerprint(activation["garminKey"].as_str());
         let nonce = uuid::Uuid::new_v4().to_string();
         let runtime = process_tree::runtime_directory(resources);
         let mut command = Command::new(process_tree::node(resources));
@@ -87,10 +86,9 @@ impl Service {
             .env("TRAINER_DESKTOP_NONCE", &nonce)
             .env("NODE_ENV", "production")
             .env("NEXT_TELEMETRY_DISABLED", "1")
-            .env(
-                "PATH",
-                process_tree::search_path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"),
-            )
+            // System directories only: the product needs no Homebrew/user tool
+            // (no Python, uv or uvx); bundled Node runs the backend in-process.
+            .env("PATH", process_tree::search_path("/usr/bin:/bin"))
             // Retain the write end as an ownership/liveness pipe. EOF lets the
             // backend fail closed even if the native host dies without callbacks.
             .stdin(Stdio::piped())
@@ -100,7 +98,7 @@ impl Service {
         let mut child = Tree::spawn(&mut command)
             .map_err(|_| "Bundled Node/resources missing or not executable.")?;
         // Host loss: the backend settles its exact DB leases on stdin EOF, then
-        // its own exit ends the owned tree (no orphaned connector/FIT children).
+        // its own exit ends the owned tree (no orphaned descendants).
         if child.share_ownership_with_child().is_err() {
             child.kill();
             let _ = child.wait();
@@ -143,10 +141,9 @@ impl Service {
         let mut service = Self {
             child,
             port: 0,
-            tooling_available: false,
             stopped: false,
             nonce: nonce.clone(),
-            live: crate::live_settings::LiveSettings::new(startup_fields),
+            live: crate::live_settings::LiveSettings::new(startup_fields, startup_garmin),
         };
         let result = (|| {
             let deadline = Instant::now() + Duration::from_secs(90);
@@ -176,7 +173,6 @@ impl Service {
                 .port
                 .filter(|port| *port != 0)
                 .ok_or("Backend returned no owned port.")?;
-            service.tooling_available = message.tooling.map(|t| t.uv && t.uvx).unwrap_or(false);
             verify_identity(service.port, &nonce)
         })();
         if let Err(error) = result {
@@ -338,7 +334,6 @@ mod tests {
         let mut service = Service {
             child,
             port: 0,
-            tooling_available: false,
             stopped: false,
             nonce: String::new(),
             live: Default::default(),
@@ -377,7 +372,6 @@ mod tests {
         let mut service = Service {
             child,
             port,
-            tooling_available: false,
             stopped: false,
             nonce: "owned-test".into(),
             live: Default::default(),

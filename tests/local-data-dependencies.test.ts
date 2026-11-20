@@ -26,7 +26,7 @@ const allowed = new Set([
   "garmin/types.ts",
   "garmin/detail-types.ts",
   "garmin/import-contracts.ts",
-  "garmin/dependency-error.ts",
+  "garmin/failure.ts",
   "garmin/history-policy.ts",
   "garmin/discovery-policy.ts",
   "garmin/scope-policy.ts",

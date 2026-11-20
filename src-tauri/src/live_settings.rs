@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 #[derive(Default)]
 pub struct LiveSettings {
     pub startup_fields: BTreeMap<String, String>,
+    /// Fingerprint of the Garmin key this backend started with (never the key).
+    pub startup_garmin: Option<String>,
     pub startup_revision: String,
     generation: u64,
     confirmed: u64,
@@ -92,9 +94,10 @@ fn exchange(port: u16, boot: &str, body: Option<&[u8]>) -> Result<Ack, Failure> 
     Ok(ack)
 }
 impl LiveSettings {
-    pub fn new(startup_fields: BTreeMap<String, String>) -> Self {
+    pub fn new(startup_fields: BTreeMap<String, String>, startup_garmin: Option<String>) -> Self {
         Self {
             startup_fields,
+            startup_garmin,
             ..Default::default()
         }
     }
@@ -152,7 +155,12 @@ impl LiveSettings {
         }
     }
     pub fn pending_restart(&self, settings: &Settings) -> bool {
-        self.pending_fields(&settings.fields)
+        self.pending_fields(&settings.fields) || self.pending_garmin(settings)
+    }
+    /// Garmin connection changes apply only at explicit quit/reopen.
+    pub fn pending_garmin(&self, settings: &Settings) -> bool {
+        crate::settings::garmin_fingerprint(settings.garmin_api_key.as_deref())
+            != self.startup_garmin
     }
     pub fn pending_fields(&self, saved: &BTreeMap<String, String>) -> bool {
         restart_delta(&self.startup_fields, saved, None)
@@ -199,6 +207,14 @@ mod tests {
         generation: u64,
         boot: &'static str,
     ) -> (u16, std::thread::JoinHandle<()>) {
+        endpoint_with(revision, generation, boot, |_| ())
+    }
+    fn endpoint_with(
+        revision: &'static str,
+        generation: u64,
+        boot: &'static str,
+        inspect: impl FnOnce(&[u8]) + Send + 'static,
+    ) -> (u16, std::thread::JoinHandle<()>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
@@ -229,6 +245,7 @@ mod tests {
                     }
                 }
             }
+            inspect(&bytes);
             let body = serde_json::to_string(&Ack {
                 version: 1,
                 boot: boot.into(),
@@ -326,8 +343,10 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
-        let mut live =
-            LiveSettings::new(BTreeMap::from([("MEMORY_ENABLED".into(), "false".into())]));
+        let mut live = LiveSettings::new(
+            BTreeMap::from([("MEMORY_ENABLED".into(), "false".into())]),
+            None,
+        );
         let mut settings = Settings {
             version: 3,
             fields: live.startup_fields.clone(),
@@ -335,12 +354,6 @@ mod tests {
             ..Default::default()
         };
         assert!(!live.pending_restart(&settings));
-        settings
-            .fields
-            .insert("GARMIN_FIT_BASELINE_COMMAND".into(), "uv".into());
-        settings
-            .fields
-            .insert("GARMIN_MCP_TOKEN_DIR".into(), String::new());
         settings
             .fields
             .insert("MEMORY_EMBEDDING_BASE_URL".into(), String::new());
@@ -354,5 +367,35 @@ mod tests {
             Err(Failure::Unapplied)
         ));
         assert!(!live.uncertain);
+    }
+    #[test]
+    fn garmin_key_is_startup_only_and_never_travels_on_live_apply() {
+        let key = "synthetic-garmin-live-key";
+        let mut live = LiveSettings::new(
+            BTreeMap::new(),
+            crate::settings::garmin_fingerprint(Some(key)),
+        );
+        let mut settings = Settings {
+            version: 3,
+            chat_catalog: Some(Default::default()),
+            garmin_api_key: Some(key.into()),
+            ..Default::default()
+        };
+        assert!(!live.pending_restart(&settings));
+        settings.garmin_api_key = Some("synthetic-garmin-replacement".into());
+        assert!(live.pending_garmin(&settings));
+        assert!(live.pending_restart(&settings));
+        settings.garmin_api_key = None;
+        assert!(live.pending_restart(&settings));
+        settings.garmin_api_key = Some("synthetic-garmin-replacement".into());
+        let (port, server) = endpoint_with("1-2-3", 1, "owned-boot", |body| {
+            let text = String::from_utf8_lossy(body);
+            assert!(!text.contains("synthetic-garmin"));
+            assert!(!text.contains("garmin"));
+        });
+        assert!(live.apply(port, "owned-boot", &settings, "1-2-3").is_ok());
+        server.join().unwrap();
+        // Live apply never changes what the running backend started with.
+        assert!(live.pending_garmin(&settings));
     }
 }

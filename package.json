@@ -39,7 +39,6 @@
     "ci:seed": "tsx scripts/ci/seed.ts",
     "desktop:test:native": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "doctor": "tsx scripts/doctor.ts",
-    "garmin:auth": "tsx scripts/garmin-auth.ts",
     "db:status": "tsx scripts/db-status.ts",
     "build": "next build",
     "lint": "eslint . --max-warnings=0",
