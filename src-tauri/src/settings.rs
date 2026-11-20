@@ -627,6 +627,13 @@ pub fn preview(input: &SaveInput) -> Result<Vec<u8>, &'static str> {
             next.keys.insert(slot.clone(), value.clone());
         }
     }
+    // Refuse a malformed Garmin key before first-run creates anything; the key
+    // itself never enters this validation frame.
+    if let KeyUpdate::Replace { value } = &input.garmin_key {
+        if !valid_garmin_key(value) {
+            return Err("Enter a valid Garmin Personal API key or continue without Garmin.");
+        }
+    }
     frame(&next)
 }
 pub fn activation(path: &Path) -> Result<Vec<u8>, &'static str> {
@@ -1079,6 +1086,24 @@ mod tests {
         );
         assert_eq!(saved.fields["GARMIN_MCP_COMMAND"], "uvx");
         assert_eq!(garmin_status(&saved), "configured");
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn first_run_preview_refuses_a_malformed_garmin_key_without_framing_it() {
+        let root = root();
+        let path = selected(&root);
+        let mut input = garmin(
+            &path,
+            KeyUpdate::Replace {
+                value: "has space".into(),
+            },
+        );
+        assert!(preview(&input).is_err());
+        input.garmin_key = KeyUpdate::Replace {
+            value: GARMIN_KEY.into(),
+        };
+        let frame = preview(&input).unwrap();
+        assert!(!String::from_utf8(frame).unwrap().contains(GARMIN_KEY));
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
