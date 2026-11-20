@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Explicitly authorized finite copied-token native/API evidence, never permission itself."""
+"""RETIRED copied-token native/API evidence runner: refuses before private input (T0351).
+
+Kept so its claim/disposition helpers and refusal stay tested; the product reads
+only the official Personal API with a user key, never token files.
+"""
 
 import argparse
 import contextlib
@@ -226,6 +230,14 @@ def main():
         help='Diagnosed repair only: reconcile cancelled first effect and consume only unused operation1',
     )
     args = parser.parse_args()
+    # The product no longer reads Garmin token files; a copied-token run would
+    # exercise nothing. Refuse before any private input is opened. Real-key
+    # evidence needs a separately authorized, reviewed official-key envelope.
+    parser.error(
+        'UNAVAILABLE: copied-token live evidence retired with the unofficial connector (T0351). '
+        'Real Personal API evidence needs a separately authorized official-key envelope; '
+        'no private input opened.'
+    )
     os.umask(0o077)
     scratch = private_directory(args.scratch)
     selection = private_selector(Path(args.input_file))

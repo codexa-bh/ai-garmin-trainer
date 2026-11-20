@@ -248,5 +248,32 @@ class FiniteLiveContracts(unittest.TestCase):
                 remaining_input(scratch, claim_root)
 
 
+class RetiredCopiedTokenRoute(unittest.TestCase):
+    def test_cli_refuses_before_any_private_input(self):
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).with_name('history_live.py')),
+                '--scratch',
+                '/nonexistent/scratch',
+                '--input-file',
+                '/nonexistent/input.json',
+                '--token-input',
+                '/nonexistent/tokens.json',
+                '--settings-integrity',
+                '/nonexistent/integrity.json',
+                '--bundle',
+                '/nonexistent/app',
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('UNAVAILABLE: copied-token live evidence retired', result.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -36,9 +36,9 @@ Swift read-only observer samples frontmost PID/pointer every **10 ms**, refuses 
 
 `smoke:settings --scratch … --input-file <authored-selection>` is **debug existing-installation**. `--resources-ready` requires exact same-source assembled resources or refusal. It uses nonfocused incognito local setup document/native WKWebView completion, never trainer Settings/auth/result grant.
 
-Baseline actions: `open|observe|connect|later|save|cancel|capture|captureWide|captureNarrow|captureIntro|capturePrivacy|catalogExercise|catalogEmpty|keysExercise|catalogWide|catalogNarrow|captureOpenai|captureDeepseek|captureOllama|captureOpenrouter|close`, plus finite variants below. No caller values/selectors/scripts/paths/invoke/private readback. Auth/MFA/Keychain adoption/pickers/first-run Finish refuse. Connect only opens form, no credentials/login/sync.
+Baseline actions: `open|observe|connect|later|save|cancel|capture|captureWide|captureNarrow|captureIntro|capturePrivacy|catalogExercise|catalogEmpty|keysExercise|catalogWide|catalogNarrow|captureOpenai|captureDeepseek|captureOllama|captureOpenrouter|close`, plus finite variants below. No caller values/selectors/scripts/paths/invoke/private readback. Garmin key changes, Keychain adoption, pickers and first-run Finish refuse. Connect only opens the empty key control; no key, Garmin request or sync.
 
-Baseline Save permits exact keyless copied DB/Ollama/disabled memory/automatic blank or fixed history and reviewed catalog. Reject token/keys/nondefault path/tool/model/endpoint changes except explicitly fixed variant presets. Native Save acknowledges **live catalog/key** application without backend restart; unrelated fields wait for explicit restart. Captured work and explicit choice stay unchanged.
+Baseline Save permits exact keyless copied DB/Ollama/disabled memory/automatic blank or fixed history and reviewed catalog. Reject Garmin key, provider keys, retired connector fields and nondefault path/model/endpoint changes except explicitly fixed variant presets. Native Save acknowledges **live catalog/key** application without backend restart; unrelated fields wait for explicit restart. Captured work and explicit choice stay unchanged.
 
 ### Grouped catalog and provider fields
 
@@ -57,7 +57,7 @@ Capture configured/absent, edited/pending-clear and saved/restarted at both widt
 - Garmin captures verify closed-flow Back hidden/open-flow Back visible, scroll **actual consolidated fieldset**, no reflow. Closed/open/Back-closed, repeat open/Back before Cancel/Save/restart. Configured-selection wording/preservation has separate deterministic UI tests, not native authenticated-state proof.
 - `captureWide|captureNarrow`: **1000×1000 / 420×1000**; legacy capture current viewport. Reveal verified static connection/buttons/empty labels/collapsed privacy summary. Inputs/auth results/status/others hidden; expanded disclosure/unknown nesting/overflow/ineffective mask refuses. Native finally +5-second expiry restore.
 
-These images prove only masked debug section/heading geometry, not first-run/full-window/ordinary/default-menu/trusted input. Real login/MFA stays privately operator-entered in separately arranged safe native window, outside this controller. Dependency/footer variant is in [Sync reference](sync.md#finite-dependency-guidance-evidence).
+These images prove only masked debug section/heading geometry, not first-run/full-window/ordinary/default-menu/trusted input. A real Garmin key stays privately operator-entered in a separately arranged safe native window, outside this controller. Footer variant is in [Sync reference](sync.md#finite-connection-recovery-evidence).
 
 ### Finite ChatGPT Settings presentation
 

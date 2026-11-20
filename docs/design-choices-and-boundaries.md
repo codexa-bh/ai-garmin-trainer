@@ -11,8 +11,8 @@ Application code must not quietly become the coach by embedding product-level tr
 ### Local-first and private by default
 
 - The sole supported product launcher is the macOS ARM64 Tauri app supervising its single-user loopback Next.js/Node backend; standalone browser support is retired.
-- Garmin token/connector auth state stays outside the trainer renderer. The narrowly approved desktop-only exception permits transient email/password/MFA entry in trusted local native Settings and its private native auth adapter, never the trainer/model/HTTP APIs. Provider keys stay in a native owner-private plaintext file with metadata-only UI reads. Folder `0700`/file `0600` restrict access, not encrypt it: same-user/privileged processes and backups can read it. Legacy Keychain access occurs only after explicit setup adoption; originals remain intact, with private re-entry after denial and no automatic retry.
-- The app stores normalized local data and avoids exposing secrets, filesystem paths, auth/session rows, raw FIT dumps, connector handles, or environment values to the model/trainer UI. Local native Settings shows editable non-secret DB/settings, not saved keys or token contents. Garmin connection paths remain internal compatibility state; explicit native Connect/Reconnect allocates fresh private storage and selects verified output only in draft until Save/Finish, never a running account switch.
+- The user's Garmin Personal API key stays outside the trainer renderer: it is entered only in trusted local native Settings, stored in the native owner-private settings file, passed to the owned backend as a startup capability and never exposed to the trainer/model/HTTP APIs. The app never collects Garmin email/password/MFA ([authority: T0351](https://github.com/codexa-bh/ai-garmin-trainer/blob/main/docs/garmin-auth.md)). Provider keys stay in a native owner-private plaintext file with metadata-only UI reads. Folder `0700`/file `0600` restrict access, not encrypt it: same-user/privileged processes and backups can read it. Legacy Keychain access occurs only after explicit setup adoption; originals remain intact, with private re-entry after denial and no automatic retry.
+- The app stores normalized local data and avoids exposing secrets, filesystem paths, auth/session rows, raw FIT dumps, connector handles, or environment values to the model/trainer UI. Local native Settings shows editable non-secret DB/settings, not saved keys or token contents. Old unofficial-connector paths remain inert compatibility state; a new Garmin key is a draft until Save/Finish and applies only at reopen, never a running account switch.
 - Public hosting, LAN exposure, non-loopback Ollama endpoints, multi-user tenancy, Garmin write-back, and production operations are outside the local MVP boundary.
 
 ### AI reasoning over tools, not hidden formulas
@@ -435,27 +435,27 @@ is added. See the [source/test boundary map](architecture.md#selected-activity-c
 
 ### `src/lib/garmin`
 
-Pinned local Garmin connector boundary, feature-owned import workflows and
+Official Garmin Personal API reader, feature-owned import workflows and
 normalization. `composition.ts` supplies explicit capabilities to `sync-import`,
 `baseline-import`, `detail-import` and `detail-requests`; the application closure
-contains only plain contracts and pure policy. `reader-adapter.ts` keeps MCP JSON,
-FIT process supplements and archive mechanics outside that closure. There is no
+contains only plain contracts and pure policy. `official-*.ts` keeps HTTPS,
+wire parsing, in-process FIT and archive mechanics outside that closure. There is no
 DI container, ambient dependency setter, second client per invocation or generic
 persistence interface. See the [Garmin boundary map](architecture.md#garmin-application-and-adapter-boundary)
 for exact owners, ordering/failure contracts and direct/integrated test entries.
 
 Responsibilities:
 
-- run the reviewed Garmin MCP dependency over local stdio only;
+- read the official Personal API over fixed-origin HTTPS with the user's key only;
 - import and normalize selected Garmin data into app-owned SQLite rows;
 - preserve checkpoints and detail availability;
-- archive supported raw connector/detail payloads locally only after redaction via `src/lib/garmin/raw-payload.ts` and the repository archive writer; normalized facts remain the ordinary analytics contract, not unrestricted raw archive access.
+- archive supported raw reader/detail payloads locally only after redaction via `src/lib/garmin/raw-payload.ts` and the repository archive writer; normalized facts remain the ordinary analytics contract, not unrestricted raw archive access.
 
 Non-responsibilities:
 
-- no web-exposed connector transport;
+- no alternate endpoints, redirects or connector processes;
 - no Garmin write-back;
-- no password collection in trainer/model/connector workflows; explicit transient native Settings auth is isolated in `src-tauri`/`scripts/desktop`, not this feature;
+- no password collection; key entry and storage live in native Settings (`src-tauri`), not this feature;
 - no coaching/ranking decisions.
 
 ### `src/lib/memory`
