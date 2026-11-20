@@ -559,11 +559,12 @@ describe("authored schema26 to schema27 migration", () => {
     const result = migrateDatabase(db);
     expect(result).toMatchObject({
       fromVersion: 26,
-      toVersion: 29,
+      toVersion: 30,
       applied: [
         "27:memory_survives_source_deletion",
         "28:weekly_kpi_measurements",
         "29:garmin_extra_data",
+        "30:snow_run_lift_splits",
       ],
       integrity: "ok",
     });

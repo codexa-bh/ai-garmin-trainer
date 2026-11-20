@@ -17,6 +17,7 @@ import {
   createExtraBackfill,
 } from "../src/lib/garmin/extra-backfill";
 import { createOfficialReader } from "../src/lib/garmin/official-reader";
+import { runSnowBackfill } from "../src/lib/garmin/snow-backfill";
 
 const LIMITS = {
   // Per invocation; a stop is resumable under fresh authority, never automatic.
@@ -54,6 +55,13 @@ async function readKey(): Promise<string> {
 }
 
 async function main() {
+  if (process.argv.includes("--help")) {
+    console.log(
+      "Explicit stopped-target maintenance: DATABASE_PATH=<canonical existing file> npm run backfill:garmin-extra -- --from YYYY-MM-DD --to YYYY-MM-DD [--snow-only] [--max-requests 150] [--max-seconds 600]. Key via private stdin only. --snow-only writes individual splits/coverage and a separate selection-bound checkpoint; never other extra groups or normal Sync state. Every invocation needs scoped authority, verified backup and full-selection rehearsal before primary writes.",
+    );
+    return;
+  }
+  const snowOnly = process.argv.includes("--snow-only");
   const target = process.env.DATABASE_PATH;
   if (
     !target ||
@@ -92,7 +100,10 @@ async function main() {
       throw new Error(
         "Explicit schema migration and integrity verification required before semantic backfill.",
       );
-    const store = createExtraBackfillStore(db);
+    const store = createExtraBackfillStore(
+      db,
+      snowOnly ? "garmin_snow_split_backfill" : "garmin_extra_backfill",
+    );
     const control = createBackfillControl({
       maxRequests,
       maxMs,
@@ -108,14 +119,20 @@ async function main() {
       // Maintenance never archives raw payloads.
       archive: () => undefined,
     });
-    const result = await createExtraBackfill({ store, reader }).run({
+    const operationInput = {
       startDate,
       endDate,
       // Bound to the selected file, never to key material.
-      target: createHash("sha256").update(target).digest("hex").slice(0, 32),
+      target: createHash("sha256")
+        .update(snowOnly ? `${target}|${stat.dev}|${stat.ino}` : target)
+        .digest("hex")
+        .slice(0, 32),
       schemaVersion,
       cancelled: () => cancelled,
-    });
+    };
+    const result = snowOnly
+      ? await runSnowBackfill({ ...operationInput, store, reader })
+      : await createExtraBackfill({ store, reader }).run(operationInput);
     const integrity = runIntegrityCheck(db);
     const foreignKeys = db.prepare("pragma foreign_key_check").all().length;
     console.log(

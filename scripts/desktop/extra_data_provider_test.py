@@ -47,14 +47,14 @@ def body(evidence='', tools=TOOLS):
 
 
 SCHEMA = '\n'.join(table + ' columns: date.' for table in provider.TABLES) + (
-    ' never individual runs. not yet imported.'
+    ' never individual runs. not yet imported. no-proven-lap-link.'
 )
 SQL_EVIDENCE = (
     'Tool step 2: runReadOnlySql (succeeded).\nSQL result handle extra_groups: returned 1/1 rows.\n1. '
     + json.dumps(provider.EXPECTED)
 )
 MATH_EVIDENCE = (
-    'runMathAnalysis succeeded. Math result handle hrv_margin: customFormula.\n1. {"score":11}'
+    'runMathAnalysis succeeded. Math result handle snow_km: customFormula.\n1. {"score":0.3}'
 )
 
 
@@ -69,7 +69,7 @@ class ExtraDataProviderTests(unittest.TestCase):
         self.assertEqual(sql['name'], 'runReadOnlySql')
         self.assertIn('activity_lap_hr_zone_time', json.loads(sql['arguments'])['sql'])
         math = self.call(3, SCHEMA + SQL_EVIDENCE)
-        self.assertEqual(json.loads(math['arguments'])['formula'], 'hrv_weekly_ms - hrv_low_ms')
+        self.assertEqual(json.loads(math['arguments'])['formula'], 'run_distance_meters / 1000')
         self.assertEqual(
             provider.response(4, body(SQL_EVIDENCE + MATH_EVIDENCE))['content'], provider.ANSWER
         )
@@ -77,7 +77,12 @@ class ExtraDataProviderTests(unittest.TestCase):
     def test_refuses_missing_schema_wrong_cells_math_and_extra_calls(self):
         with self.assertRaises(ValueError):
             self.call(2, 'daily_health columns: date.')
-        changed = dict(provider.EXPECTED, lap_zone2_seconds=640)
+        changed = dict(
+            provider.EXPECTED,
+            lap_zone2_seconds=640,
+            measured_runs=9,
+            snow_latest_status='populated',
+        )
         with self.assertRaises(ValueError):
             self.call(
                 3, 'runReadOnlySql succeeded SQL result handle extra_groups ' + json.dumps(changed)
@@ -139,6 +144,7 @@ class ExtraDataProviderTests(unittest.TestCase):
                 create table activity_lap (garmin_id text not null, lap_number integer not null, start_time text, primary key(garmin_id, lap_number));
                 create table activity_lap_hr_zone_time (garmin_id text not null, lap_number integer not null, bucket integer not null, zone integer, bucket_kind text not null, seconds real not null, lower_bpm integer, fetched_at integer not null, primary key(garmin_id, lap_number, bucket));
                 create table activity_split_summary (garmin_id text not null, split_type text not null, split_count integer, fetched_at integer not null, primary key(garmin_id, split_type));
+                create table activity_snow_split (garmin_id text not null, split_key text not null, message_index integer, source_order integer, split_type text check(split_type in ('run','lift')), distance_meters real, fetched_at integer not null, primary key(garmin_id,split_key));
                 create table garmin_data_coverage (data_group text not null, subject_type text not null, subject_id text not null, status text not null, reason text, updated_at integer not null, primary key(data_group, subject_type, subject_id));
                 """
             )

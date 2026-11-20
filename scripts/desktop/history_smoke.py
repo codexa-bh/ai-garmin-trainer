@@ -213,6 +213,7 @@ SYNC_OWNED_TABLES = frozenset(
         'daily_stress',
         'activity_extra_metrics',
         'activity_split_summary',
+        'activity_snow_split',
         'activity_lap_hr_zone_time',
         'garmin_data_coverage',
         'garmin_athlete_baseline',
@@ -238,6 +239,7 @@ EXTRA_EVIDENCE_TABLES = (
     'body_battery_event',
     'daily_stress',
     'activity_extra_metrics',
+    'activity_snow_split',
     'activity_lap_hr_zone_time',
     'garmin_data_coverage',
 )
@@ -732,7 +734,17 @@ class HistoryRun(OrdinaryRun):
                 'detailRows': db.execute(
                     'select count(*) from activity_detail_availability'
                 ).fetchone()[0],
-                # Aggregate counts only, never values (T0352 extra groups).
+                'snowTypes': dict(
+                    db.execute(
+                        'select split_type,count(*) from activity_snow_split group by split_type'
+                    ).fetchall()
+                ),
+                'snowCoverage': dict(
+                    db.execute(
+                        "select status,count(*) from garmin_data_coverage where data_group='snow_run_lift_splits' group by status"
+                    ).fetchall()
+                ),
+                # Aggregate counts only, never values (additional groups).
                 'extraRows': {
                     table: db.execute(f'select count(*) from {table}').fetchone()[0]
                     for table in EXTRA_EVIDENCE_TABLES
@@ -926,6 +938,9 @@ class HistoryRun(OrdinaryRun):
             )
             < 10
             or extra['activity_extra_metrics'] < 3
+            or extra['activity_snow_split'] != 4
+            or data['snowTypes'] != {'run': 2, 'lift': 2}
+            or data['snowCoverage'].get('populated') != 1
             or extra['activity_lap_hr_zone_time'] < 21
             or not extra['garmin_data_coverage']
             or first['requestCounts'].get('vo2-max', 0)

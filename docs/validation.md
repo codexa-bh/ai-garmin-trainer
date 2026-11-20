@@ -105,6 +105,9 @@ Rendered smoke contracts keep independent navigation, mode-persistence and
 privacy scenarios in separate tests under the default per-test deadline. They
 still exercise the real components and bridge; splitting cumulative render work
 does not justify extending timeouts, dropping assertions or mocking the boundary.
+Independent CLI refusal scenarios likewise keep separate default-deadline cases
+so cumulative subprocess startup does not consume one shared test deadline; each
+case still executes the real CLI and checks its refusal.
 For load-sensitive failures, run the affected file first and then the full Vitest
 suite to check behavior under normal worker concurrency. Serialized SQLite
 preservation/idempotency checks use `Buffer.equals` for exact byte equality rather
@@ -132,6 +135,10 @@ npm run build
 ```
 
 `npm run doctor`, `npm run db:status -- --json`, and dependency evidence output are allowlisted support artifacts. They report versions, schema readiness, current/migration decisions, selected chat provider readiness including loopback Ollama chat when configured, loopback readiness, and that Garmin access is the native-Settings-owned official Personal API (doctor never reads the key or contacts Garmin). Review before sharing; they must not contain credentials, the Garmin key, token contents, provider keys, provider base URLs, prompts, precise GPS streams, raw API payloads, vectors, or `.env.local` values.
+
+## Individual snow split validation
+
+`npx vitest run tests/snow-splits.test.ts tests/snow-split-storage.test.ts tests/snow-backfill.test.ts tests/official-extra-sync.test.ts tests/garmin-extra-backfill-cli.test.ts` covers authored FIT bytes (including the Python native Sync fixture), single-decode foreground persistence, explicit populated schema-29 upgrade, stable identity/reorder/refusals, preservation/coverage, full authored historical selection and independent resume/repeat/target/writer admission. Adjacent `sql-analysis`, `kpi-recipe-execution`, `local-data-wiring` and trainer instruction cases cover guarded evidence and freshness. Run current full ordinary native plus synthetic Sync and `smoke:chat --extra-data`; these are authored app wiring, not Garmin/provider semantic proof. Primary history requires separate current private/backup/full-range rehearsal/explicit-go authority under [the maintenance contract](garmin-extra-data.md).
 
 ## macOS desktop validation
 

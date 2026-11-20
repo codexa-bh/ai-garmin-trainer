@@ -1,4 +1,5 @@
 import { buildDashboardDetail } from "../local-data/dashboard-policy";
+import { snowActivityEvidence } from "./snow-split-repository";
 import {
   interpretEffortCoverage,
   interpretHealthCoverage,
@@ -1479,6 +1480,7 @@ export function getActivityDetailForAnalytics(
           hasRecovery: Boolean(availabilityRow.hasRecovery),
         }
       : null,
+    snowEvidence: snowActivityEvidence(db, garminId),
     session: parseJsonObject(availabilityRow?.sessionJson ?? null),
     derived: parseJsonObject(availabilityRow?.derivedJson ?? null),
     laps,
@@ -1676,14 +1678,17 @@ export function getActivityDashboardDetail(
        from activity_lap where garmin_id = ? order by lap_number limit 100`,
     )
     .all(garminId) as ActivityLapDetail[];
-  return buildDashboardDetail(
-    activity,
-    availability,
-    charts,
-    route,
-    laps,
-    getActivityHeartRateZoneTime(garminId, activity.durationSec),
-  );
+  return {
+    ...buildDashboardDetail(
+      activity,
+      availability,
+      charts,
+      route,
+      laps,
+      getActivityHeartRateZoneTime(garminId, activity.durationSec),
+    ),
+    snowEvidence: snowActivityEvidence(db, garminId),
+  };
 }
 
 /** @public Runtime capability passed by namespace through local-data/composition to

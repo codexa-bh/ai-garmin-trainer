@@ -10,7 +10,9 @@ ANSWER = (
     'Authored extra-data review: sleep overall 82 with GOOD deep sleep, weekly HRV 61 ms '
     'inside the Garmin baseline 50-70, sparse VO2 45.2 on one measured date, -12 Body Battery '
     'event impact, 3600 s high stress, 600 s lap zone 2 and 9 snowboard runs as a per-type '
-    'total. Not backfilled dates remain unknown, not zero.'
+    'total. Individual FIT evidence has 2 measured runs (300 m) and 2 lifts, kept separate; '
+    'latest split coverage failed, so retained rows are not a complete fresh read and split HR '
+    'is unavailable without a proven lap link. Not backfilled dates remain unknown, not zero.'
 )
 CALLS = 5
 SQL = (
@@ -25,7 +27,11 @@ SQL = (
     "(select high_seconds from daily_stress where date='2026-11-02') as high_stress_seconds, "
     "(select sum(seconds) from activity_lap_hr_zone_time where garmin_id='weekdayHike' and bucket_kind='zone' and zone=2) as lap_zone2_seconds, "
     "(select split_count from activity_split_summary where garmin_id='weekdayHike' and split_type='SKI_RUN_SPLIT') as ski_runs, "
-    "(select count(*) from garmin_data_coverage where subject_id='2026-11-01') as not_backfilled_rows"
+    "(select count(*) from garmin_data_coverage where subject_id='2026-11-01') as not_backfilled_rows, "
+    "(select count(*) from activity_snow_split where split_type='run') as measured_runs, "
+    "(select count(*) from activity_snow_split where split_type='lift') as measured_lifts, "
+    "(select sum(distance_meters) from activity_snow_split where split_type='run') as run_distance_meters, "
+    "(select status from garmin_data_coverage where data_group='snow_run_lift_splits' and subject_id='weekdayHike') as snow_latest_status"
 )
 EXPECTED = {
     'sleep_overall': 82,
@@ -40,6 +46,10 @@ EXPECTED = {
     'lap_zone2_seconds': 600,
     'ski_runs': 9,
     'not_backfilled_rows': 0,
+    'measured_runs': 2,
+    'measured_lifts': 2,
+    'run_distance_meters': 300,
+    'snow_latest_status': 'failed',
 }
 TABLES = (
     'daily_sleep_detail',
@@ -51,6 +61,7 @@ TABLES = (
     'daily_stress',
     'activity_extra_metrics',
     'activity_split_summary',
+    'activity_snow_split',
     'activity_lap_hr_zone_time',
     'garmin_data_coverage',
 )
@@ -114,6 +125,15 @@ def seed(db):
         "insert into activity_extra_metrics(garmin_id,body_battery_delta,avg_run_cadence_spm,avg_stride_length_cm,fit_avg_cadence_cpm,fetched_at) values ('weekdayHike',-9,158,98.5,79.5,1)"
     )
     db.executemany(
+        'insert into activity_snow_split(garmin_id,split_key,message_index,source_order,split_type,distance_meters,fetched_at) values (?,?,?,?,?,?,1)',
+        [
+            ('weekdayHike', 'index:' + str(i), i, i, kind, distance)
+            for i, (kind, distance) in enumerate(
+                [('run', 100), ('lift', 100), ('run', 200), ('lift', 200)]
+            )
+        ],
+    )
+    db.executemany(
         'insert into garmin_data_coverage(data_group,subject_type,subject_id,status,reason,updated_at) values (?,?,?,?,?,1)',
         [
             ('sleep', 'date', '2026-11-02', 'populated', None),
@@ -127,6 +147,7 @@ def seed(db):
             ('activity_body_battery', 'activity', 'weekdayHike', 'populated', None),
             ('running_dynamics', 'activity', 'weekdayHike', 'populated', None),
             ('snowboard_splits', 'activity', 'weekdayHike', 'populated', None),
+            ('snow_run_lift_splits', 'activity', 'weekdayHike', 'failed', 'read-failed'),
         ],
     )
 
@@ -209,7 +230,11 @@ def response(index, body):
         # Actual production schema evidence must expose every new relation.
         if not all(table + ' columns:' in evidence for table in TABLES):
             raise ValueError('Actual schema evidence missing extra relations')
-        if 'never individual runs' not in evidence or 'not yet imported' not in evidence:
+        if (
+            'never individual runs' not in evidence
+            or 'not yet imported' not in evidence
+            or 'no-proven-lap-link' not in evidence
+        ):
             raise ValueError('Actual schema meanings missing')
         name, args = 'runReadOnlySql', {'sql': SQL, 'resultName': 'extra_groups', 'maxRows': 5}
     elif index == 3:
@@ -226,13 +251,13 @@ def response(index, body):
             {
                 'inputResult': 'extra_groups',
                 'operation': 'customFormula',
-                'formula': 'hrv_weekly_ms - hrv_low_ms',
-                'outputName': 'hrv_margin',
+                'formula': 'run_distance_meters / 1000',
+                'outputName': 'snow_km',
             },
         )
     else:
         evidence = _tool_messages(body)
-        if 'Math result handle hrv_margin' not in evidence or '"score":11' not in evidence.replace(
+        if 'Math result handle snow_km' not in evidence or '"score":0.3' not in evidence.replace(
             ' ', ''
         ):
             raise ValueError('Actual math result missing')

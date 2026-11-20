@@ -545,6 +545,31 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     severity: "high",
   },
   {
+    id: "SNOW-INDIVIDUAL-09",
+    domain: "endurance",
+    userPrompt:
+      "Compare my two measured descents separately from lifts, including heart rate if available.",
+    providedEvidence: [
+      "activity_snow_split: two runs with distance/timer/descent, two lifts",
+      "snow_run_lift_splits latest populated coverage; elapsed/timer/moving differ",
+      "no proven split/lap HR link; activity_split_summary remains per-type totals",
+    ],
+    expectedRoute: "sql-math",
+    requiredQualities: [
+      "individual measured run comparison separate from lift metrics",
+      "m/s versus presentation speed and duration units explicit",
+      "split HR unavailable without proven link",
+      "latest coverage distinguished from retained older rows",
+    ],
+    forbiddenBehavior: [
+      "HR allocated by equal lap count, order or nearby start",
+      "lift ascent counted as athlete effort",
+      "individual and aggregate totals added together",
+      "terrain/technicality inferred from speed or default GPS dump",
+    ],
+    severity: "high",
+  },
+  {
     id: "POLICY-MEDICAL-01",
     domain: "policy",
     userPrompt: "Answer my health-related training question.",

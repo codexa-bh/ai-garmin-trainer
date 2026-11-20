@@ -151,7 +151,7 @@ def activity_ids(preset):
         (
             f'8309{index}',
             today - timedelta(days=2 + index * 2),
-            'running' if index % 2 else 'cycling',
+            'resort_snowboarding' if index == 2 else 'running' if index % 2 else 'cycling',
         )
         for index in range(3)
     ]
@@ -274,6 +274,28 @@ def fit_file(sport_code):
             (6, 0x02, '6B', (100, 120, 140, 155, 170, 190)),
         ],
     )
+    if sport_code in (13, 14):
+        for index, kind in enumerate((29, 28, 29, 28)):
+            body += _message(
+                7,
+                312,
+                [
+                    (0, 0x00, 'B', kind),
+                    (254, 0x84, 'H', index),
+                    (9, 0x86, 'I', base + index * 10),
+                    (27, 0x86, 'I', base + index * 10 + 5),
+                    (1, 0x86, 'I', 5125),
+                    (2, 0x86, 'I', 4500),
+                    (110, 0x86, 'I', 4000),
+                    (3, 0x86, 'I', 12345),
+                    (4, 0x86, 'I', 1250),
+                    (25, 0x86, 'I', 3000),
+                    (26, 0x85, 'i', -1250 if kind == 29 else 1250),
+                    (13, 0x84, 'H', 0 if kind == 29 else 12),
+                    (14, 0x84, 'H', 12 if kind == 29 else 0),
+                    (74, 0x86, 'I', 2000),
+                ],
+            )
     header = struct.pack('<BBHI4s', 14, 0x20, 2193, len(body), b'.FIT')
     header += struct.pack('<H', _crc16(header))
     content = header + body
@@ -514,7 +536,11 @@ class Fixture:
             garmin_id = path.rsplit('/', 1)[1]
             for candidate, _day, sport in activity_ids(preset):
                 if candidate == garmin_id:
-                    content = zipped(fit_file(2 if sport == 'cycling' else 1))
+                    content = zipped(
+                        fit_file(
+                            14 if sport == 'resort_snowboarding' else 2 if sport == 'cycling' else 1
+                        )
+                    )
                     return 'activity-file', (200, content, 'application/octet-stream')
             return 'activity-file', (404, b'{}', 'application/json')
         if path == '/userprofile-service/userprofile/settings':

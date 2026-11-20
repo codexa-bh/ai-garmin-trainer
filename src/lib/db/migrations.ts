@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 
-export const LATEST_SCHEMA_VERSION = 29;
+export const LATEST_SCHEMA_VERSION = 30;
 const SCHEMA_VERSION_KEY = "schema_version";
 
 const LEGACY_ATHLETE_BASELINE_TABLE_SQL = `create table if not exists garmin_athlete_baseline (id text primary key default 'default', fetched_at integer not null, source text not null, availability text not null, running_lactate_threshold_heart_rate_bpm integer, cycling_lactate_threshold_heart_rate_bpm integer, rowing_lactate_threshold_heart_rate_bpm integer, cycling_ftp_watts integer, cycling_ftp_measured_on text, cycling_ftp_source_stale integer, vo2_max_running real, vo2_max_cycling real, available_training_days_json text not null default '[]', preferred_long_training_days_json text not null default '[]')`;
@@ -503,6 +503,28 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     // Additive only: existing activity/health/lap facts are not rewritten and
     // absent coverage rows mean not yet backfilled.
     statements: GARMIN_EXTRA_DATA_SQL,
+  },
+  {
+    version: 30,
+    name: "snow_run_lift_splits",
+    statements: [
+      `create table activity_snow_split (
+        garmin_id text not null references activity(garmin_id) on delete cascade,
+        split_key text not null, message_index integer not null,
+        source_order integer not null, split_type text not null check(split_type in ('run','lift')),
+        start_time text, end_time text, elapsed_seconds real, timer_seconds real,
+        moving_seconds real, distance_meters real, avg_speed_mps real, max_speed_mps real,
+        avg_vertical_speed_mps real, ascent_meters real, descent_meters real,
+        start_elevation_meters real, start_lat real, start_lon real, end_lat real, end_lon real,
+        source text not null default 'garmin_official_fit', fetched_at integer not null,
+        primary key (garmin_id, split_key), unique (garmin_id, message_index)
+      )`,
+      // SQLite CHECK domains require a copy; preserve every older coverage row.
+      `alter table garmin_data_coverage rename to garmin_data_coverage_v29`,
+      `create table garmin_data_coverage (data_group text not null check(data_group in ('sleep','hrv','vo2_max','body_battery','stress','activity_body_battery','running_dynamics','snowboard_splits','lap_hr_zones','snow_run_lift_splits')), subject_type text not null check(subject_type in ('date','activity')), subject_id text not null, status text not null check(status in ('populated','empty','unavailable','failed')), reason text, updated_at integer not null, primary key (data_group, subject_type, subject_id))`,
+      `insert into garmin_data_coverage select * from garmin_data_coverage_v29`,
+      `drop table garmin_data_coverage_v29`,
+    ],
   },
 ];
 

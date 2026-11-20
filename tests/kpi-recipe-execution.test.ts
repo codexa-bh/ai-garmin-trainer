@@ -300,6 +300,21 @@ it("sees additional evidence relations in recipes and their freshness basis", as
     await import("../src/lib/ai/analytics/recipe-execution");
   const execution = createKpiRecipeExecution();
   const first = execution.basis(window);
+  db.prepare(
+    "insert into activity_snow_split(garmin_id,split_key,message_index,source_order,split_type,distance_meters,fetched_at) values ('y','index:1',1,0,'run',120,1)",
+  ).run();
+  const splitBasis = execution.basis(window);
+  expect(splitBasis).not.toBe(first);
+  db.prepare(
+    "update activity_snow_split set distance_meters=121 where garmin_id='y'",
+  ).run();
+  expect(execution.basis(window)).not.toBe(splitBasis);
+  const beforeCoverage = execution.basis(window);
+  db.prepare(
+    "insert into garmin_data_coverage values ('snow_run_lift_splits','activity','y','failed','read-failed',1)",
+  ).run();
+  expect(execution.basis(window)).not.toBe(beforeCoverage);
+  db.exec("delete from activity_snow_split; delete from garmin_data_coverage");
   // A backfilled child fact outside the window does not move this week's basis.
   db.prepare(
     "insert into activity_extra_metrics(garmin_id,body_battery_delta,fetched_at) values ('x',-5,1)",

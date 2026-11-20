@@ -79,6 +79,8 @@ export interface GarminReader {
   dailyHealth(date: string): Promise<NormalizedDailyHealth>;
   activityDetail(garminId: string): Promise<{
     recognized: boolean;
+    /** An admitted read whose original could not be decoded is not source-empty. */
+    fitFailure?: "invalid-original-file";
     detail: NormalizedActivityDetail;
     /** Lap/session dynamics and lap HR zones from the same decoded file. */
     fitExtras?: FitActivityExtras;

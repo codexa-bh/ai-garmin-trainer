@@ -31,6 +31,7 @@ export function projectDashboardOverview(
       trainingEffectLabel: label(activity.trainingEffectLabel),
     },
     heartRateZones: dashboard.heartRateZones,
+    snowEvidence: dashboard.snowEvidence,
     detail: {
       status: dashboard.detail.status,
       hasHeartRate: dashboard.detail.hasHeartRate,

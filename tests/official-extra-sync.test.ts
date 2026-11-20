@@ -225,6 +225,111 @@ const sql = (h: Awaited<ReturnType<typeof harness>>, query: string) => {
 };
 
 describe("additional Garmin groups through foreground Sync", () => {
+  it("imports interleaved individual snow runs/lifts through one foreground FIT read/decode", async () => {
+    const account = newAccount();
+    populate(account);
+    account.files.set(
+      "9002",
+      fitFor({
+        sport: 14,
+        snowSplits: [
+          {
+            index: 5,
+            type: 29,
+            start: 0,
+            end: 5,
+            distanceCm: 10025,
+            descent: 10,
+          },
+          { index: 6, type: 28, start: 6, end: 10, ascent: 10 },
+          {
+            index: 7,
+            type: 29,
+            start: 11,
+            end: 15,
+            distanceCm: 20050,
+            descent: 20,
+          },
+          { index: 8, type: 28, start: 16, end: 20, ascent: 20 },
+        ],
+      }),
+    );
+    const { default: FitParser } = await import("fit-file-parser");
+    const decode = vi.spyOn(FitParser.prototype, "parseAsync");
+    const h = await harness(account);
+    const result = await h.imports.runGarminSync(undefined, {
+      intent: "latest",
+    });
+    expect(result.status).toBe("completed");
+    expect(
+      h.db
+        .prepare(
+          "select split_type,count(*) n,sum(distance_meters) meters from activity_snow_split where garmin_id='9002' group by split_type order by split_type",
+        )
+        .all(),
+    ).toEqual([
+      { split_type: "lift", n: 2, meters: null },
+      { split_type: "run", n: 2, meters: 300.75 },
+    ]);
+    expect(
+      h.db
+        .prepare(
+          "select status from garmin_data_coverage where data_group='snow_run_lift_splits' and subject_id='9002'",
+        )
+        .get(),
+    ).toEqual({ status: "populated" });
+    const files = h.api.requests.filter((r) =>
+      r.path.includes("/download-service/files/activity/"),
+    );
+    expect(files).toHaveLength(2);
+    expect(decode).toHaveBeenCalledTimes(2);
+    decode.mockRestore();
+    const totals = sql(
+      h,
+      "select split_type,count(*) n,sum(distance_meters) meters from activity_snow_split where garmin_id='9002' group by split_type order by split_type",
+    );
+    expect(totals).toEqual([
+      { split_type: "lift", n: 2, meters: null },
+      { split_type: "run", n: 2, meters: 300.75 },
+    ]);
+    const { runMathAnalysis } = await import("../src/lib/ai/math-analysis");
+    const math = runMathAnalysis({
+      inputResult: "snow_runs",
+      operation: "customFormula",
+      formula: "meters / 1000",
+      rowsByResult: new Map([
+        ["snow_runs", totals.filter((r) => r.split_type === "run")],
+      ]),
+    });
+    expect(math.status).toBe("succeeded");
+    expect(math.rows[0].score).toBe(0.30075);
+    expect(
+      sql(
+        h,
+        "with s as (select garmin_id,count(*) n from activity_snow_split group by garmin_id), z as (select garmin_id,sum(seconds) seconds from activity_lap_hr_zone_time where bucket_kind='zone' group by garmin_id) select s.n,z.seconds from s left join z on z.garmin_id=s.garmin_id where s.garmin_id='9002'",
+      ),
+    ).toEqual([{ n: 4, seconds: null }]);
+    for (const table of ["garmin_raw_payload", "sync_checkpoint"])
+      expect(h.runReadOnlySql({ sql: `select * from ${table}` }).status).toBe(
+        "rejected",
+      );
+    const local = await import("../src/lib/local-data/composition");
+    const summary = local.getActivityDetailForAnalytics("9002").snowEvidence;
+    expect(summary).toMatchObject({
+      coverage: { status: "populated" },
+      hrAssociation: "no-proven-lap-link",
+    });
+    expect(JSON.stringify(summary)).not.toMatch(
+      /start_lat|start_lon|startTime|splitKey/,
+    );
+    // Equal counts or shifted starts do not manufacture any split HR/lap link.
+    expect(
+      h.db
+        .prepare("pragma table_info(activity_snow_split)")
+        .all()
+        .map((r: unknown) => (r as { name: string }).name),
+    ).not.toContain("lap_number");
+  });
   it("persists all eight groups end to end and answers bounded guarded SQL for each", async () => {
     const account = newAccount();
     populate(account);

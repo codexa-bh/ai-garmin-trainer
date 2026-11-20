@@ -25,6 +25,7 @@ const garminTables = [
   "daily_stress",
   "activity_extra_metrics",
   "activity_split_summary",
+  "activity_snow_split",
   "activity_lap_hr_zone_time",
   "garmin_data_coverage",
   "activity_stream_point",
@@ -68,7 +69,7 @@ const constrained: Record<string, string> = {
 // Test-only SQLite fixture: seed every exact lifecycle table, including excluded
 // domains, then compare complete rows. No primary DB, connector or env file read.
 function seed(db: Database.Database, tables: string[]) {
-  for (const table of tables) {
+  for (const table of ["activity", ...tables.filter((t) => t !== "activity")]) {
     const cols = db.prepare(`pragma table_info(${table})`).all() as Array<{
       name: string;
       type: string;
@@ -85,7 +86,9 @@ function seed(db: Database.Database, tables: string[]) {
       ...required.map((col) =>
         /int|real/i.test(col.type)
           ? 1
-          : (constrained[col.name] ?? `fixture-${col.name}`),
+          : table === "activity_snow_split" && col.name === "split_type"
+            ? "run"
+            : (constrained[col.name] ?? `fixture-${col.name}`),
       ),
     );
   }

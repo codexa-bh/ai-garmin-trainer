@@ -35,6 +35,13 @@ export function createDetailImports(
           status: "failed",
           reason: "store-failed",
         },
+        {
+          group: "snow_run_lift_splits",
+          subjectType: "activity",
+          subjectId: garminId,
+          status: "failed",
+          reason: "store-failed",
+        },
       ]);
     }
   }
@@ -162,6 +169,13 @@ export function createDetailImports(
           status: "unavailable",
           reason: "no-original-file",
         },
+        {
+          group: "snow_run_lift_splits",
+          subjectType: "activity",
+          subjectId: garminId,
+          status: fetched.fitFailure ? "failed" : "unavailable",
+          reason: fetched.fitFailure ?? "no-original-file",
+        },
       ]);
       recordActivityDetailAttempt({
         garminId,
@@ -182,6 +196,15 @@ export function createDetailImports(
         detail: unsupported.unavailableReason ?? "Activity detail unsupported.",
       };
     } catch (error) {
+      store.recordExtraCoverage?.([
+        {
+          group: "snow_run_lift_splits",
+          subjectType: "activity",
+          subjectId: garminId,
+          status: "failed",
+          reason: "read-failed",
+        },
+      ]);
       const classified = classifyDetailError(error);
       const preservedPrevious = Boolean(
         previous && ["available", "partial"].includes(previous.status),
