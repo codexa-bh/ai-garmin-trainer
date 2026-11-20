@@ -49,7 +49,8 @@ impl Config {
             Command::CaptureDebug {}
             | Command::DebugKey { .. }
             | Command::Settings { .. }
-            | Command::Health { .. } => self.ordinary.is_none(),
+            | Command::Health { .. }
+            | Command::Supplement { .. } => self.ordinary.is_none(),
             Command::Click { target }
                 if ["LLM debug traces", "First LLM trace"].contains(&target.as_str()) =>
             {
@@ -99,6 +100,23 @@ pub enum HealthAction {
     RememberRange,
     AssertRange,
     Calories,
+    CaptureWide,
+    CaptureNarrow,
+}
+/// Finite authored additional-Garmin evidence scenario (debug synthetic input only).
+#[cfg(debug_assertions)]
+#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SupplementAction {
+    HealthHrv,
+    HealthSleep,
+    HealthStress,
+    HealthBattery,
+    HealthVo2,
+    ActivitySummary,
+    ActivityLaps,
+    ActivityLapsEnd,
+    ActivitySnow,
     CaptureWide,
     CaptureNarrow,
 }
@@ -172,6 +190,10 @@ pub enum Command {
         action: HealthAction,
     },
     #[cfg(debug_assertions)]
+    Supplement {
+        action: SupplementAction,
+    },
+    #[cfg(debug_assertions)]
     CaptureDebug {},
     #[cfg(debug_assertions)]
     DebugKey {
@@ -186,6 +208,9 @@ impl Command {
             Self::CaptureDebug {}
             | Self::Health {
                 action: HealthAction::CaptureWide | HealthAction::CaptureNarrow,
+            }
+            | Self::Supplement {
+                action: SupplementAction::CaptureWide | SupplementAction::CaptureNarrow,
             } => true,
             _ => false,
         }
@@ -207,6 +232,9 @@ impl Command {
             Self::Health {
                 action: HealthAction::CaptureWide | HealthAction::CaptureNarrow,
             } => return "geometry-preserving masked actual Daily Health comparison",
+            Self::Supplement { .. } => {
+                return "sanitized actual additional-Garmin evidence subtree";
+            }
             _ => (),
         }
         if ordinary {
@@ -369,7 +397,10 @@ impl Command {
                     && ["start", "end"].contains(&edge.as_str())
             }
             #[cfg(debug_assertions)]
-            Self::CaptureDebug {} | Self::Settings { .. } | Self::Health { .. } => true,
+            Self::CaptureDebug {}
+            | Self::Settings { .. }
+            | Self::Health { .. }
+            | Self::Supplement { .. } => true,
             #[cfg(debug_assertions)]
             Self::DebugKey { key } => ["Enter", "Space"].contains(&key.as_str()),
             Self::Click { target } => {
@@ -952,6 +983,24 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                     }
                 }
         }
+        #[cfg(debug_assertions)]
+        Command::Supplement { action } => {
+            !ordinary
+                && match action {
+                    SupplementAction::CaptureWide | SupplementAction::CaptureNarrow => {
+                        exact_keys(value, &["ok", "boundary"])
+                            && value["boundary"]
+                                == "sanitized actual additional-Garmin evidence subtree"
+                    }
+                    _ => {
+                        exact_keys(value, &["ok", "action", "trustedInput"])
+                            && value["trustedInput"] == false
+                            && serde_json::to_value(action)
+                                .map(|expected| value["action"] == expected)
+                                .unwrap_or(false)
+                    }
+                }
+        }
         Command::Conversation { action } => {
             let booleans = [
                 "selectionReady",
@@ -1236,14 +1285,20 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         }
     }
     #[cfg(debug_assertions)]
-    if let Command::Health {
-        action: HealthAction::CaptureWide | HealthAction::CaptureNarrow,
-    } = &request.command
-    {
+    if matches!(
+        &request.command,
+        Command::Health {
+            action: HealthAction::CaptureWide | HealthAction::CaptureNarrow,
+        } | Command::Supplement {
+            action: SupplementAction::CaptureWide | SupplementAction::CaptureNarrow,
+        }
+    ) {
         let width = if matches!(
             request.command,
             Command::Health {
                 action: HealthAction::CaptureWide
+            } | Command::Supplement {
+                action: SupplementAction::CaptureWide
             }
         ) {
             1280.0
@@ -1524,6 +1579,54 @@ mod tests {
             &json!({"ok":true,"readyForNativeKey":true}),
             true
         ));
+    }
+    #[test]
+    fn debug_supplement_commands_stay_closed_debug_only_and_never_reach_ordinary() {
+        for action in [
+            "health-hrv",
+            "health-sleep",
+            "health-stress",
+            "health-battery",
+            "health-vo2",
+            "activity-summary",
+            "activity-laps",
+            "activity-laps-end",
+            "activity-snow",
+            "capture-wide",
+            "capture-narrow",
+        ] {
+            let command: Command =
+                serde_json::from_value(json!({"type":"supplement","action":action})).unwrap();
+            assert!(command.valid());
+            let result = if action.starts_with("capture") {
+                json!({"ok":true,"boundary":"sanitized actual additional-Garmin evidence subtree"})
+            } else {
+                json!({"ok":true,"action":action,"trustedInput":false})
+            };
+            assert!(super::safe_result(&command, &result, false));
+            assert!(!super::safe_result(&command, &result, true));
+            // Extra keys (a private value channel) and a wrong action echo are refused.
+            let mut leaked = result.clone();
+            leaked["value"] = json!("private");
+            assert!(!super::safe_result(&command, &leaked, false));
+        }
+        for bad in [
+            json!({"type":"supplement","action":"eval"}),
+            json!({"type":"supplement","action":"health-hrv","date":"2026-01-01"}),
+            json!({"type":"supplement","action":"capture-wide","width":800}),
+        ] {
+            assert!(serde_json::from_value::<Command>(bad).is_err());
+        }
+        let capture = Command::Supplement {
+            action: SupplementAction::CaptureNarrow,
+        };
+        assert!(capture.is_capture());
+        let select = Command::Supplement {
+            action: SupplementAction::HealthStress,
+        };
+        assert!(!select.is_capture());
+        let echo = json!({"ok":true,"action":"health-hrv","trustedInput":false});
+        assert!(!super::safe_result(&select, &echo, false));
     }
     #[test]
     fn debug_health_shapes_stay_closed_and_never_expand_ordinary_results() {

@@ -372,8 +372,9 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(values("Intensity minutes").slice(-2)).toEqual(["38 min", "0 min"]);
     expect(screen.queryByText(/16,824|2,200/)).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
+    // Thirteen established cards plus the three additional-evidence cards.
     expect(screen.getAllByRole("group", { name: /daily chart$/ })).toHaveLength(
-      13,
+      16,
     );
     expect(screen.queryByText(/Period average|Period total/)).toBeNull();
     expect(screen.queryByText("Complete daily health record")).toBeNull();
@@ -461,6 +462,9 @@ describe("TrainerDashboard Health dashboard", () => {
         "REM sleep",
         "Awake sleep",
         "Nap sleep",
+        "Stress breakdown",
+        "Body Battery charged and drained",
+        "VO2 max",
       ].map((title) => `${title} daily chart`),
     );
     for (const card of cards)
@@ -577,6 +581,7 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(
       within(panel).getByText(/No imported records in this range/),
     ).toBeTruthy();
+    // Seven coverage dates; supplement disclosures use plain labels, not time elements.
     expect(panel.querySelectorAll("time")).toHaveLength(7);
     expect(panel.querySelector("time")?.dateTime).toBe("2026-07-08");
     expect(next.hasAttribute("disabled")).toBe(false);

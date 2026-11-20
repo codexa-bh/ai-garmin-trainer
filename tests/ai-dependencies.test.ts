@@ -80,6 +80,7 @@ const allowed = new Set([
   "local-data/application.ts",
   "local-data/contracts.ts",
   "local-data/grounding-contracts.ts",
+  "local-data/supplement-contracts.ts",
   "local-data/dashboard-projection.ts",
   "local-data/dashboard-overview.ts",
   "local-data/activity-visuals.ts",

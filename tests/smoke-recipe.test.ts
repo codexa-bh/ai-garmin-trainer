@@ -51,7 +51,7 @@ describe("finite representative authored smoke recipe", () => {
         recipeVersion: 1,
         anchor: "2026-11-01",
         healthDays: 20,
-        activities: 8,
+        activities: 10,
         integrity: "ok",
         coverage: "ok",
       });
@@ -160,7 +160,7 @@ describe("finite representative authored smoke recipe", () => {
     try {
       expect(empty).toMatchObject({
         syntheticVariant: "empty-chat",
-        activities: 8,
+        activities: 10,
         healthDays: 20,
       });
       expect(verify(copy, "private").coverage).toBe("ok");
@@ -304,5 +304,93 @@ describe("finite representative authored smoke recipe", () => {
     expect(() =>
       recipe(root, `smoke-input-${randomUUID()}`, "2026-11-01"),
     ).toThrow();
+  });
+
+  it("authors mixed populated, zero and gap additional-Garmin evidence for Health and Activity", () => {
+    const db = new Database(":memory:");
+    try {
+      populate(db, "2026-11-01");
+      expect(verify(db, "synthetic").coverage).toBe("ok");
+      const one = (sql: string) => db.prepare(sql).get();
+      // Dates relative to the anchor: index 0 is 2026-11-01.
+      expect(
+        one(
+          "select weekly_avg_ms as w, baseline_balanced_low_ms as lo, baseline_balanced_upper_ms as hi from daily_hrv_detail where date='2026-11-01'",
+        ),
+      ).toEqual({ w: 46, lo: 40, hi: 55 });
+      // A lower-only baseline and a dateless gap exist so no band is drawn for them.
+      expect(
+        one(
+          "select baseline_balanced_upper_ms as hi from daily_hrv_detail where date='2026-10-29'",
+        ),
+      ).toEqual({ hi: null });
+      expect(
+        one(
+          "select count(*) as n from daily_hrv_detail where date='2026-10-28'",
+        ),
+      ).toEqual({ n: 0 });
+      // Measured zero versus null stays distinguishable.
+      expect(
+        one(
+          "select medium_seconds as m, high_seconds as h from daily_stress where date='2026-11-01'",
+        ),
+      ).toEqual({ m: 0, h: 3600 });
+      expect(
+        one(
+          "select high_seconds as h from daily_stress where date='2026-10-31'",
+        ),
+      ).toEqual({ h: null });
+      expect(
+        one(
+          "select charged, drained from daily_body_battery where date='2026-11-01'",
+        ),
+      ).toEqual({ charged: 0, drained: null });
+      expect(one("select count(*) as n from vo2_max_reading")).toEqual({
+        n: 4,
+      });
+      // Every coverage state is represented, including failure and source-unavailable.
+      expect(
+        db
+          .prepare(
+            "select distinct status from garmin_data_coverage order by status",
+          )
+          .all(),
+      ).toEqual([
+        { status: "empty" },
+        { status: "failed" },
+        { status: "populated" },
+        { status: "unavailable" },
+      ]);
+      // Lap zones: laps 1,2 recorded, lap 3 absent (unknown), lap 4 recorded all-zero.
+      expect(
+        db
+          .prepare(
+            "select lap_number as lap, sum(seconds) as total from activity_lap_hr_zone_time group by lap_number order by lap_number",
+          )
+          .all(),
+      ).toEqual([
+        { lap: 1, total: 600 },
+        { lap: 2, total: 600 },
+        { lap: 4, total: 0 },
+      ]);
+      expect(
+        one(
+          "select body_battery_delta as d, fit_avg_cadence_cpm as c from activity_extra_metrics where garmin_id='synthetic-run'",
+        ),
+      ).toEqual({ d: -9, c: 81.5 });
+      // Aggregate totals (12 runs) are deliberately not the five stored individual rows.
+      expect(
+        one(
+          "select split_count as n from activity_split_summary where split_type='SKI_RUN_SPLIT'",
+        ),
+      ).toEqual({ n: 12 });
+      expect(
+        one(
+          "select count(*) as n from activity_snow_split where split_type='run'",
+        ),
+      ).toEqual({ n: 3 });
+    } finally {
+      db.close();
+    }
   });
 });

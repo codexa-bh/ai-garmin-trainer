@@ -103,6 +103,8 @@ function fakeReads() {
     getActivityDashboardDetail: vi.fn(() => null),
     listRecentDailyHealth: vi.fn(() => []),
     listTrainerRecoveryPreview: vi.fn(() => []),
+    getHealthSupplements: vi.fn(() => null),
+    getActivitySupplement: vi.fn(unsupported),
     listRecentActivities: vi.fn(() => [activity]),
     listActivitiesForComparison: vi.fn(() => [activity]),
     getActivityByGarminId: vi.fn(() => activity),
@@ -132,14 +134,23 @@ describe("local-data application capabilities", () => {
     const options = { query: "  %  ", limit: NaN, offset: -1 };
     app.listActivitiesForDashboard(options);
     expect(reads.listActivitiesForDashboard).toHaveBeenCalledWith(options);
-    expect(app.healthDashboard()).toEqual({ days: [], latestDate: null });
+    expect(app.healthDashboard()).toEqual({
+      days: [],
+      latestDate: null,
+      supplements: null,
+    });
     expect(reads.listRecentDailyHealth).toHaveBeenCalledWith(366);
     const days = [
       normalizeDailyHealth("2026-09-02", {}),
       normalizeDailyHealth("2026-09-01", {}),
     ];
     vi.mocked(reads.listRecentDailyHealth).mockReturnValue(days);
-    expect(app.healthDashboard()).toEqual({ days, latestDate: "2026-09-02" });
+    expect(app.healthDashboard()).toEqual({
+      days,
+      latestDate: "2026-09-02",
+      supplements: null,
+    });
+    expect(reads.getHealthSupplements).toHaveBeenCalledExactlyOnceWith(366);
     expect(
       app.verifyActivityReference({ garminId: activity.garminId }).outcome,
     ).toBe("found");

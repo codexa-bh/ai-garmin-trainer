@@ -10,6 +10,18 @@ import {
   type HealthDashboardMode,
 } from "./contracts";
 import { dailyHealthRange, shiftHealthDate } from "./health-daily-range";
+import type { HealthSupplements } from "@/lib/local-data/supplement-contracts";
+import {
+  BodyBatteryCard,
+  hrvBand,
+  hrvDetail,
+  SleepDetailDisclosure,
+  sleepScoreDetail,
+  StressBreakdownCard,
+  SupplementCoverageDisclosure,
+  supplementIndex,
+  Vo2Card,
+} from "./health-supplements";
 function formatSleepMinutes(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "Unavailable";
   const hours = Math.floor(value / 60);
@@ -221,11 +233,13 @@ const DAILY_METRICS: Array<{
 
 function DailyComparison({
   days,
+  supplements,
   rangeEnd,
   onSelectRange,
   notice,
 }: {
   days: HealthDashboardDay[];
+  supplements?: HealthSupplements | null;
   rangeEnd: string | null;
   onSelectRange: (end: string) => void;
   notice: string;
@@ -255,6 +269,10 @@ function DailyComparison({
     key: slot.date,
     label: label(slot.date),
   }));
+  // Supplements follow the selected dates, never today's or the latest scalar.
+  const extras = supplementIndex(supplements ?? null);
+  const slotExtras = (key: string) => extras.get(key);
+  const slotKeys = slots.map((slot) => ({ key: slot.key, label: slot.label }));
   return (
     <>
       <div
@@ -339,10 +357,34 @@ function DailyComparison({
                   ? (slot) => slot.record?.hrvStatus ?? null
                   : undefined
               }
+              readoutDetail={
+                metric.title === "HRV"
+                  ? (slot) => hrvDetail(slotExtras(slot.key))
+                  : metric.title === "Sleep score"
+                    ? (slot) => sleepScoreDetail(slotExtras(slot.key))
+                    : undefined
+              }
+              band={
+                metric.title === "HRV"
+                  ? (slot) => hrvBand(slotExtras(slot.key))
+                  : undefined
+              }
+              bandLabel="Garmin baseline range"
               emptyMessage="No recorded values for these dates."
             />
           ))}
+          <StressBreakdownCard slots={slotKeys} index={extras} />
+          <BodyBatteryCard slots={slotKeys} index={extras} />
+          <Vo2Card
+            slots={slotKeys}
+            readings={(supplements?.vo2 ?? []).filter(
+              (reading) =>
+                reading.date >= range.start && reading.date <= range.end,
+            )}
+          />
         </div>
+        <SleepDetailDisclosure slots={slotKeys} index={extras} />
+        <SupplementCoverageDisclosure slots={slotKeys} index={extras} />
         <details className="health-daily-coverage">
           <summary>Source coverage and HRV status by date</summary>
           <ul>
@@ -384,11 +426,13 @@ function DailyComparison({
 
 export function HealthDashboardView({
   days,
+  supplements,
   rangeEnd,
   onSelectRange,
   notice,
 }: {
   days: HealthDashboardDay[];
+  supplements?: HealthSupplements | null;
   rangeEnd: string | null;
   onSelectRange: (end: string) => void;
   notice: string;
@@ -484,6 +528,7 @@ export function HealthDashboardView({
         {mode === "daily" ? (
           <DailyComparison
             days={days}
+            supplements={supplements}
             rangeEnd={rangeEnd}
             onSelectRange={onSelectRange}
             notice={notice}

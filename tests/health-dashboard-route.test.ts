@@ -31,8 +31,13 @@ const listRecentDailyHealth = vi.fn(() => [
   day("2026-07-20", { sleepMinutes: null, availability: "partial" }),
 ]);
 
+const getHealthSupplements = vi.fn(() => null);
 vi.mock("@/lib/db/repository", () => ({
   listRecentDailyHealth,
+}));
+vi.mock("@/lib/db/supplement-repository", () => ({
+  getHealthSupplements,
+  getActivitySupplement: vi.fn(),
 }));
 
 describe("health dashboard route", () => {
@@ -99,7 +104,9 @@ describe("health dashboard route", () => {
     for (const row of payload.days) {
       expect(Object.keys(row).sort()).toEqual([...allowedDayKeys].sort());
     }
-    expect(Object.keys(payload).sort()).toEqual(["days", "latestDate"].sort());
+    expect(Object.keys(payload).sort()).toEqual(
+      ["days", "latestDate", "supplements"].sort(),
+    );
     expect(JSON.stringify(payload)).not.toMatch(
       /token|secret|password|sqlite|env|connector|\.sqlite|payload/i,
     );

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { getActivityDashboardDetail } from "@/lib/local-data/composition";
+import {
+  activitySupplement,
+  getActivityDashboardDetail,
+} from "@/lib/local-data/composition";
 import {
   dashboardActivity,
   dashboardLap,
@@ -38,6 +41,7 @@ export async function GET(_request: Request, context: RouteContext) {
       route: dashboard.route,
       heartRateZones: dashboard.heartRateZones,
       laps: dashboard.laps.map(dashboardLap),
+      supplement: activitySupplement(garminId),
     });
   } catch (error) {
     return NextResponse.json(

@@ -73,6 +73,7 @@ export function HealthView({
         healthDashboardData.days.length > 0 ? (
           <HealthDashboardView
             days={healthDashboardData.days}
+            supplements={healthDashboardData.supplements ?? null}
             rangeEnd={healthRangeEnd}
             onSelectRange={setHealthRangeEnd}
             notice={healthRangeNotice}

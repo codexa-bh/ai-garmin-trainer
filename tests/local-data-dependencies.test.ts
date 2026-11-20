@@ -24,6 +24,9 @@ const allowed = new Set([
   "local-data/activity-policy.ts",
   "local-data/coverage-policy.ts",
   "local-data/health-policy.ts",
+  // Pure plain contracts and interpretation for the Health/Activity supplements.
+  "local-data/supplement-contracts.ts",
+  "local-data/supplement-policy.ts",
   "garmin/types.ts",
   "garmin/extra-types.ts",
   "garmin/detail-types.ts",

@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 import {
+  Area,
   Bar,
   CartesianGrid,
   ComposedChart,
@@ -37,6 +38,9 @@ export function HealthRollupChart<T extends Period>({
   emptyMessage = "Unavailable for these periods.",
   presentation = "rollup",
   pointDetail,
+  readoutDetail,
+  band,
+  bandLabel,
 }: {
   rollups: T[];
   metric: (rollup: T) => number | null;
@@ -47,6 +51,11 @@ export function HealthRollupChart<T extends Period>({
   emptyMessage?: string;
   presentation?: "rollup" | "daily";
   pointDetail?: (period: T) => string | null;
+  /** Extra context for the readout, tooltip and accessible name only, not the compact button. */
+  readoutDetail?: (period: T) => string | null;
+  /** Optional source-provided range drawn behind a line; null leaves a gap, never a guess. */
+  band?: (period: T) => { low: number; high: number } | null;
+  bandLabel?: string;
 }) {
   const readoutId = useId();
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -56,9 +65,11 @@ export function HealthRollupChart<T extends Period>({
   const data = rollups.map((period) => {
     const raw = metric(period);
     const value = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+    const range = band?.(period) ?? null;
     return {
       ...period,
       value,
+      band: range ? [range.low, range.high] : null,
       shortLabel: compactPeriod(period.key),
       valueLabel: [
         value === null ? "Unavailable" : labelForValue(value),
@@ -66,9 +77,17 @@ export function HealthRollupChart<T extends Period>({
       ]
         .filter(Boolean)
         .join(" · "),
+      fullLabel: [
+        value === null ? "Unavailable" : labelForValue(value),
+        pointDetail?.(period),
+        readoutDetail?.(period),
+      ]
+        .filter(Boolean)
+        .join(" · "),
     };
   });
   const hasValues = data.some((point) => point.value !== null);
+  const hasBand = data.some((point) => point.band !== null);
   const active = data.find((point) => point.key === activeKey) ?? data.at(-1);
   const color = kind === "line" ? "#b6a3ff" : "#49d6c8";
   const axisLabel = (value: number) =>
@@ -96,6 +115,11 @@ export function HealthRollupChart<T extends Period>({
           · {unit}
         </span>
       </div>
+      {hasValues && hasBand && bandLabel ? (
+        <p className="health-rollup-band-key">
+          <i aria-hidden="true" /> {bandLabel}
+        </p>
+      ) : null}
       {hasValues ? (
         <div className="health-rollup-plot" aria-hidden="true">
           <ResponsiveContainer
@@ -144,11 +168,23 @@ export function HealthRollupChart<T extends Period>({
                   return visible && point ? (
                     <div className="health-rollup-tooltip">
                       <span>{point.label}</span>
-                      <strong>{point.valueLabel}</strong>
+                      <strong>{point.fullLabel}</strong>
                     </div>
                   ) : null;
                 }}
               />
+              {hasBand ? (
+                <Area
+                  dataKey="band"
+                  type="linear"
+                  stroke="none"
+                  fill="#49d6c8"
+                  fillOpacity={0.16}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                  activeDot={false}
+                />
+              ) : null}
               {kind === "line" ? (
                 <Line
                   dataKey="value"
@@ -177,7 +213,7 @@ export function HealthRollupChart<T extends Period>({
       )}
       <p className="health-rollup-readout" id={readoutId} aria-live="polite">
         {active
-          ? `${active.label}: ${active.valueLabel}`
+          ? `${active.label}: ${active.fullLabel}`
           : presentation === "daily"
             ? "No dates available."
             : "No periods available."}
@@ -197,9 +233,9 @@ export function HealthRollupChart<T extends Period>({
               data-chart-state={
                 point.value === null ? "unavailable" : "available"
               }
-              aria-label={`${point.label}: ${point.valueLabel.toLowerCase()}`}
+              aria-label={`${point.label}: ${point.fullLabel.toLowerCase()}`}
               aria-describedby={readoutId}
-              title={`${point.label}: ${point.valueLabel}`}
+              title={`${point.label}: ${point.fullLabel}`}
               onPointerEnter={() => setActiveKey(point.key)}
               onFocus={() => setActiveKey(point.key)}
               onClick={() => setActiveKey(point.key)}

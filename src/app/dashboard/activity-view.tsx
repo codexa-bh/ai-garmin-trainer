@@ -32,6 +32,12 @@ import {
   numberLabel,
   finiteNumberLabel,
 } from "./formatting";
+import {
+  ActivitySupplementCoverage,
+  LapZoneCell,
+  SnowSection,
+  supplementSummary,
+} from "./activity-supplement";
 
 function isFiniteMetric(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -44,7 +50,8 @@ function elevationReadout(
 }
 
 function activityPresentation(dashboard: ActivityDashboardPayload) {
-  const { activity, charts, detail, route, heartRateZones, laps } = dashboard;
+  const { activity, charts, detail, route, heartRateZones, laps, supplement } =
+    dashboard;
   const strength = activity.sport === "strength_training";
   const field = (label: string, value: string, available: boolean) => ({
     label,
@@ -90,6 +97,9 @@ function activityPresentation(dashboard: ActivityDashboardPayload) {
       isFiniteMetric(activity.maxHeartRate),
     ),
     field("Steps", numberLabel(activity.steps), isFiniteMetric(activity.steps)),
+    // Additional Garmin evidence appears only when stored; gaps are explained by
+    // the coverage disclosure, not by a row of "Unavailable" cells.
+    ...supplementSummary(supplement).filter((item) => item.available),
   ]);
   const weightedTotal = weightedIntensityMinutes(
     activity.moderateIntensityMinutes,
@@ -216,10 +226,19 @@ function activityPresentation(dashboard: ActivityDashboardPayload) {
               (lap) => isFiniteMetric(lap.avgSpeedMps) && lap.avgSpeedMps > 0,
             ))),
     );
-  const visibleLaps = lapRows.filter(
-    (row) =>
-      !strength || lapColumns.some(({ index }) => row.cells[index] !== null),
+  // Zone evidence is keyed by stored lap number; a lap without rows stays blank.
+  const zonesByLap = new Map(
+    (supplement?.lapZones ?? []).map((zone) => [zone.lapNumber, zone]),
   );
+  const showLapZones = lapRows.some((row) => zonesByLap.has(row.lapNumber));
+  const visibleLaps = lapRows
+    .filter(
+      (row) =>
+        !strength ||
+        lapColumns.some(({ index }) => row.cells[index] !== null) ||
+        zonesByLap.has(row.lapNumber),
+    )
+    .map((row) => ({ ...row, zones: zonesByLap.get(row.lapNumber) }));
   return {
     strength,
     summary,
@@ -231,6 +250,7 @@ function activityPresentation(dashboard: ActivityDashboardPayload) {
     showRoute,
     zones,
     lapColumns,
+    showLapZones,
     visibleLaps,
   };
 }
@@ -667,6 +687,9 @@ export function ActivityView({
                 ) : null}
               </div>
             ) : null}
+            {activityDashboard.supplement ? (
+              <SnowSection supplement={activityDashboard.supplement} />
+            ) : null}
             <TerrainTable
               analysis={activityDashboard.terrainSections}
               selectedId={selectedSection?.id ?? null}
@@ -696,6 +719,9 @@ export function ActivityView({
                           {label}
                         </th>
                       ))}
+                      {presentation.showLapZones ? (
+                        <th scope="col">HR zones</th>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -705,11 +731,21 @@ export function ActivityView({
                         {presentation.lapColumns.map(({ label, index }) => (
                           <td key={label}>{lap.cells[index] ?? ""}</td>
                         ))}
+                        {presentation.showLapZones ? (
+                          <td className="lap-zone-column">
+                            <LapZoneCell lap={lap.zones} />
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            ) : null}
+            {activityDashboard.supplement ? (
+              <ActivitySupplementCoverage
+                supplement={activityDashboard.supplement}
+              />
             ) : null}
           </>
         ) : activityDashboardState === "error" ? (
