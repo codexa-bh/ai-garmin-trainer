@@ -56,7 +56,7 @@ vi.mock("@/lib/db/repository", () => ({
     f.order.push("activities");
     return [];
   },
-  listRecentDailyHealth: () => {
+  listTrainerRecoveryPreview: () => {
     f.order.push("health");
     return [];
   },

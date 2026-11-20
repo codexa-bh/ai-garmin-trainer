@@ -216,6 +216,7 @@ const groups = [
       "dashboard-policy",
       "dashboard-projection",
       "dashboard-overview",
+      "grounding-contracts",
       "health-policy",
       "heart-rate-policy",
     ],

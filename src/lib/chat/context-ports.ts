@@ -33,7 +33,7 @@ export type ChatContextPorts = {
     limit: number,
   ): Promise<RetrievedMemory[]>;
   listRecentActivities(): ContextInput["activities"];
-  listRecentDailyHealth(): ContextInput["health"];
+  listTrainerRecoveryPreview(): ContextInput["health"];
   getTrainerProfile(): ContextInput["profile"];
   getGarminAthleteBaseline(): ContextInput["athleteBaseline"];
   getGarminBodyMetrics(): ContextInput["bodyMetrics"];

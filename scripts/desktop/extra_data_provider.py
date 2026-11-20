@@ -12,7 +12,7 @@ ANSWER = (
     'event impact, 3600 s high stress, 600 s lap zone 2 and 9 snowboard runs as a per-type '
     'total. Not backfilled dates remain unknown, not zero.'
 )
-CALLS = 4
+CALLS = 5
 SQL = (
     "select (select value from daily_sleep_score_component where date='2026-11-02' and component='overall') as sleep_overall, "
     "(select qualifier from daily_sleep_score_component where date='2026-11-02' and component='deep') as deep_qualifier, "
@@ -89,12 +89,44 @@ def seed(db):
     db.execute(
         "insert into activity_split_summary(garmin_id,split_type,split_count,fetched_at) values ('weekdayHike','SKI_RUN_SPLIT',9,1)"
     )
+    # Seed the latest existing legacy day too: default preview must not discover
+    # older extra-only dates or require an operator-provided SQL query.
+    latest = db.execute('select max(date) from daily_health').fetchone()[0]
+    if not latest:
+        raise ValueError('Populated authored legacy health required')
+    db.execute(
+        "insert or replace into daily_sleep_detail(date,overall_score,overall_qualifier,fetched_at) values (?,82,'GOOD',1)",
+        (latest,),
+    )
+    db.execute(
+        'insert or replace into daily_hrv_detail(date,weekly_avg_ms,baseline_balanced_low_ms,baseline_balanced_upper_ms,fetched_at) values (?,61,50,70,1)',
+        (latest,),
+    )
+    db.execute(
+        'insert or replace into daily_body_battery(date,charged,drained,fetched_at) values (?,0,65,1)',
+        (latest,),
+    )
+    db.execute(
+        'insert or replace into daily_stress(date,high_seconds,total_seconds,fetched_at) values (?,3600,72000,1)',
+        (latest,),
+    )
+    db.execute(
+        "insert into activity_extra_metrics(garmin_id,body_battery_delta,avg_run_cadence_spm,avg_stride_length_cm,fit_avg_cadence_cpm,fetched_at) values ('weekdayHike',-9,158,98.5,79.5,1)"
+    )
     db.executemany(
         'insert into garmin_data_coverage(data_group,subject_type,subject_id,status,reason,updated_at) values (?,?,?,?,?,1)',
         [
             ('sleep', 'date', '2026-11-02', 'populated', None),
             ('vo2_max', 'date', '2026-11-02', 'empty', 'source-empty'),
             ('lap_hr_zones', 'activity', 'weekdayHike', 'populated', None),
+            *[
+                (group, 'date', latest, 'populated', None)
+                for group in ['sleep', 'hrv', 'body_battery', 'stress']
+                if latest != '2026-11-02' or group != 'sleep'
+            ],
+            ('activity_body_battery', 'activity', 'weekdayHike', 'populated', None),
+            ('running_dynamics', 'activity', 'weekdayHike', 'populated', None),
+            ('snowboard_splits', 'activity', 'weekdayHike', 'populated', None),
         ],
     )
 
@@ -115,13 +147,64 @@ def _tool_messages(body):
     return '\n'.join(carriers)
 
 
+def validate_dashboard(evidence):
+    marker = 'Dashboard values and explicit limits: '
+    if marker not in evidence:
+        raise ValueError('Actual default dashboard missing')
+    dashboard = json.JSONDecoder().raw_decode(evidence.split(marker, 1)[1].lstrip())[0]
+    extra = dashboard.get('extraEvidence', {})
+    if (
+        extra.get('bodyBatteryDelta') != -9
+        or extra.get('cadence', {}).get('activityList', {}).get('avgRunCadenceSpm') != 158
+        or extra.get('cadence', {}).get('fitSession', {}).get('avgCadenceCpm') != 79.5
+    ):
+        raise ValueError('Actual default cadence/battery missing')
+    if (
+        extra['cadence']['activityList']['avgStrideLengthCm'] != 98.5
+        or extra['cadence']['fitSession']['avgStepLengthM'] is not None
+    ):
+        raise ValueError('Actual stride/missing sensor mismatch')
+    laps = extra['laps']
+    buckets = laps['rows'][0]['heartRateZones']['buckets']
+    if (
+        laps['sourceLapCount'] != 1
+        or laps['returnedCount'] != 1
+        or [(b['bucket'], b['seconds']) for b in buckets] != [(0, 40), (2, 600)]
+    ):
+        raise ValueError('Actual default lap evidence mismatch')
+    if (
+        extra['snowboard']['rows'][0]['count'] != 9
+        or extra['coverage']['lap_hr_zones']['status'] != 'populated'
+        or extra['limits']['bucketsPerLap'] != 8
+    ):
+        raise ValueError('Actual default split/coverage/caps mismatch')
+    if any(field in dashboard for field in ['route', 'charts', 'stream', 'visualInput']):
+        raise ValueError('Private visual inputs in default numerical evidence')
+
+
 def response(index, body):
     names = [tool.get('function', {}).get('name') for tool in body.get('tools', [])]
     if index >= CALLS or 'completeTrainerTurn' in names:
         raise ValueError('Unexpected extra provider call')
     if index == 0:
-        name, args = 'describeGarminDatabase', {}
+        evidence = _tool_messages(body)
+        if not all(
+            value in evidence
+            for value in [
+                'sleep score 82/100 qualifier GOOD',
+                'weekly HRV 61 ms',
+                'baseline 50–70 ms',
+                'charged 0/drained 65',
+                'high stress 60 min',
+                'body_battery=populated',
+            ]
+        ):
+            raise ValueError('Actual default recovery context missing')
+        name, args = 'getActivityDashboard', {'garminId': 'weekdayHike'}
     elif index == 1:
+        validate_dashboard(_tool_messages(body))
+        name, args = 'describeGarminDatabase', {}
+    elif index == 2:
         evidence = _tool_messages(body)
         # Actual production schema evidence must expose every new relation.
         if not all(table + ' columns:' in evidence for table in TABLES):
@@ -129,7 +212,7 @@ def response(index, body):
         if 'never individual runs' not in evidence or 'not yet imported' not in evidence:
             raise ValueError('Actual schema meanings missing')
         name, args = 'runReadOnlySql', {'sql': SQL, 'resultName': 'extra_groups', 'maxRows': 5}
-    elif index == 2:
+    elif index == 3:
         evidence = _tool_messages(body)
         # Legacy context says "runReadOnlySql (succeeded)"; native carriers say
         # "runReadOnlySql succeeded". The result handle line is common to both.

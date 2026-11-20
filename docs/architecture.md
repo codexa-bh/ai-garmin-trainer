@@ -233,7 +233,7 @@ metrics need no duplicate SQL merely to manufacture claim references. No prose
 classifier, second judge, renamed terminal gate or automatic repair loop is added.
 `getActivityDashboard` adds one read-only numerical overview for a known imported
 ID through local-data application/composition. Shared inward summary/lap projections
-preserve the dashboard API's units, nulls and speed fallback. Complete owned HR-zone
+preserve the dashboard API's units, nulls and speed fallback. A separate known-ID normalized grounding read adds signed activity battery delta, source-distinct list/FIT cadence/stride, historical per-lap HR buckets and all five snowboard per-type aggregates, with independent group coverage and exact supplementary lap/bucket omissions (20 laps × 8 buckets). It does not change the UI dashboard DTO, producer/storage schema or image input. Complete owned HR-zone
 status/timing/boundary provenance precedes optional20-row lap/terrain sections;
 lap source totals are explicitly unknown at the100-row dashboard source cap.
 Terrain keeps its whole-analysis coverage/counts, including unsupported/partial
@@ -387,7 +387,7 @@ summary and delete HTTP routes, chat context, Garmin read composition and local
 data tools use these applications. Transport retains DTO/date serialization,
 labels, lap-speed display fallbacks, parsing and error/status behavior. Health
 retains its newest-first 366-day window; status retains its count fallback and
-read order. Reference verification preserves its existing all-summary selection,
+read order. Chat uses a separate ten-day `listTrainerRecoveryPreview` capability: only selected legacy dates receive one-to-one daily sleep score/qualifier, weekly HRV/baseline, battery charged/drained and high-stress duration plus independent group coverage. General Health reads are unchanged. The AI formatter converts high-stress seconds to minutes and keeps nightly/weekly, totals/levels and pre-event/all-day meanings distinct. The [extra-data contract](garmin-extra-data.md#default-trainer-evidence) owns units, caps and missing/backfill semantics. Reference verification preserves its existing all-summary selection,
 exact normalized-name/date/ID matching, order and ambiguity before match caps.
 
 `contracts.ts` owns read models independently of SQLite. Existing plain Garmin

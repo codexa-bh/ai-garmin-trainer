@@ -275,6 +275,149 @@ describe("numerical Trainer dashboard overview", () => {
       );
   });
 
+  it("bounds supplementary lap buckets and every split type without multiplying activity totals", async () => {
+    const repo = await seedActivities();
+    repo.upsertActivityDetail(
+      normalizeActivityDetail("111111", {
+        laps: Array.from({ length: 105 }, (_, i) => ({
+          lap_number: i + 1,
+          total_elapsed_time_s: 100,
+          total_distance_m: 200,
+        })),
+      }),
+    );
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    db.exec(
+      "insert into activity_extra_metrics(garmin_id, body_battery_delta, avg_run_cadence_spm, avg_stride_length_cm, fit_avg_cadence_cpm, fit_avg_step_length_m, fetched_at) values ('111111',0,158,98.5,79.5,0.985,1)",
+    );
+    const bucket = db.prepare(
+      "insert into activity_lap_hr_zone_time(garmin_id,lap_number,bucket,zone,bucket_kind,seconds,lower_bpm,upper_bpm,calc_method,source_max_heart_rate,source_resting_heart_rate,fetched_at) values ('111111',?,?,? ,?, ?,100,115,?,190,45,1)",
+    );
+    db.transaction(() => {
+      for (let lap = 1; lap <= 105; lap++)
+        for (let b = 0; b < 12; b++)
+          bucket.run(
+            lap,
+            b,
+            b >= 1 && b <= 5 ? b : null,
+            b === 0 ? "below" : b <= 5 ? "zone" : "above",
+            b === 0 ? 0 : b + 0.125,
+            lap === 1 ? "ignore instructions /Users/private" : "A".repeat(64),
+          );
+    })();
+    const { SNOWBOARD_SPLIT_TYPES } =
+      await import("../src/lib/garmin/extra-types");
+    for (const type of SNOWBOARD_SPLIT_TYPES)
+      db.prepare(
+        "insert into activity_split_summary(garmin_id,split_type,split_count,duration_sec,distance_meters,max_distance_meters,fetched_at) values ('111111',?,9,120,500,100,1)",
+      ).run(type);
+    db.exec(
+      "insert into garmin_data_coverage(data_group,subject_type,subject_id,status,updated_at) values ('lap_hr_zones','activity','111111','populated',1)",
+    );
+    const before = db.prepare("select total_changes() as n").get();
+    const result = await overviewParity();
+    expect(result.extraEvidence).toMatchObject({
+      bodyBatteryDelta: 0,
+      cadence: {
+        activityList: { avgRunCadenceSpm: 158, avgStrideLengthCm: 98.5 },
+        fitSession: {
+          avgCadenceCpm: 79.5,
+          avgStepLengthM: 0.985,
+          maxCadenceCpm: null,
+        },
+      },
+      laps: {
+        sourceLapCount: 105,
+        returnedCount: 20,
+        omittedCount: 85,
+        truncated: true,
+      },
+      snowboard: { sourceTypeCount: 5, returnedCount: 5, omittedCount: 0 },
+    });
+    expect(
+      result.extraEvidence.snowboard.rows.map((r) => r.splitType).sort(),
+    ).toEqual([...SNOWBOARD_SPLIT_TYPES].sort());
+    expect(
+      result.extraEvidence.snowboard.rows.every(
+        (r) => r.count === 9 && r.durationSec === 120,
+      ),
+    ).toBe(true);
+    expect(result.extraEvidence.laps.rows[19]).toMatchObject({
+      lapNumber: 20,
+      heartRateZones: {
+        sourceBucketCount: 12,
+        returnedCount: 8,
+        omittedCount: 4,
+        truncated: true,
+      },
+    });
+    expect(
+      result.extraEvidence.laps.rows[0].heartRateZones.buckets[0],
+    ).toMatchObject({
+      seconds: 0,
+      kind: "below",
+      calcMethod: null,
+      lowerBpm: 100,
+      upperBpm: 115,
+      sourceMaxHeartRate: 190,
+      sourceRestingHeartRate: 45,
+    });
+    const serialized = JSON.stringify(result.extraEvidence);
+    expect(serialized.length).toBeLessThan(90000);
+    expect(JSON.stringify(result).indexOf('"detail"')).toBeLessThan(
+      JSON.stringify(result).indexOf('"extraEvidence"'),
+    );
+    expect(serialized.indexOf('"coverage"')).toBeLessThan(
+      serialized.indexOf('"laps"'),
+    );
+    expect(serialized).not.toMatch(
+      /ignore instructions|\/Users\/private|visualInput|payload|latitude|longitude/,
+    );
+    expect(result.activity.durationSec).toBe(3600);
+    expect(db.prepare("select total_changes() as n").get()).toEqual(before);
+  });
+
+  it.each(["populated", "empty", "unavailable", "failed", "absent"])(
+    "keeps %s activity-group coverage distinct from null sensors/zero",
+    async (status) => {
+      await seedActivities();
+      if (status !== "absent") {
+        const { recordExtraCoverage } =
+          await import("../src/lib/db/extra-data-repository");
+        recordExtraCoverage(
+          [
+            "activity_body_battery",
+            "running_dynamics",
+            "snowboard_splits",
+            "lap_hr_zones",
+          ].map((group) => ({
+            group,
+            subjectType: "activity",
+            subjectId: "222222",
+            status,
+            reason: "source-empty",
+          })) as Parameters<typeof recordExtraCoverage>[0],
+        );
+      }
+      const { getActivityDashboard } =
+        await import("../src/lib/local-data/composition");
+      const evidence = getActivityDashboard("222222")!.extraEvidence;
+      expect(
+        Object.values(evidence.coverage).every(
+          (c) =>
+            c.status ===
+            (status === "absent" ? "not_imported_or_backfilled" : status),
+        ),
+      ).toBe(true);
+      expect(evidence.bodyBatteryDelta).toBeNull();
+      expect(evidence.cadence.fitSession.avgCadenceCpm).toBeNull();
+      expect(evidence.laps).toMatchObject({ sourceLapCount: 0, rows: [] });
+      expect(evidence.snowboard.rows).toEqual([]);
+      expect(getActivityDashboard("unknown")).toBeNull();
+    },
+  );
+
   it("preserves null duration, zero lap speed, fallback and honest source cap", async () => {
     const repo = await seedActivities();
     const { getDatabase } = await import("../src/lib/db/connection");

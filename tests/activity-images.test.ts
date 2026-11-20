@@ -97,6 +97,14 @@ const visualInput: ActivityVisualInput = {
 const overview = {
   activity: { garminId: "authored", durationSec: 1000 },
   heartRateZones: { status: "available" },
+  extraEvidence: {
+    bodyBatteryDelta: -9,
+    cadence: { fitSession: { avgCadenceCpm: 79.5, avgStepLengthM: null } },
+    coverage: {
+      lap_hr_zones: { status: "unavailable", reason: "stored-laps-differ" },
+    },
+    limits: { optionalLaps: 20, bucketsPerLap: 8 },
+  },
 };
 const ports = () =>
   ({
@@ -418,7 +426,10 @@ describe("locked SDK image serialization", () => {
             callId: "image-call",
             toolName: "getActivityDashboard",
             input: { garminId: "authored", panels: ["heartRate", "route"] },
-            output: "NUMERICAL_ONCE",
+            output: JSON.stringify({
+              marker: "NUMERICAL_ONCE",
+              evidence: overview,
+            }),
             images,
           },
         ],
@@ -429,6 +440,9 @@ describe("locked SDK image serialization", () => {
       expect(wire.match(/data:image\/png;base64,/g)).toHaveLength(2);
       expect(wire.match(/NUMERICAL_ONCE/g)).toHaveLength(1);
       expect(wire).toContain("image-call");
+      expect(wire).toContain("stored-laps-differ");
+      expect(wire).toContain("79.5");
+      expect(wire).not.toContain("visualInput");
       expect(wire).toContain("Current-turn route image");
       expect(wire).not.toContain("input_tokens");
       if (route === "responses") expect(requests[0].store).toBe(false);

@@ -789,7 +789,7 @@ vi.mock("@/lib/db/repository", () => ({
       trainingEffect: null,
     },
   ],
-  listRecentDailyHealth: () => [],
+  listTrainerRecoveryPreview: () => [],
   getActivityDetailForAnalytics: () => ({
     availability: null,
     laps: [],

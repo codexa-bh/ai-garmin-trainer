@@ -509,8 +509,8 @@ def api(run, method, path, body=None, expected_status=200):
 
 
 def exercise_extra_data(run, provider):
-    """Actual guarded describe/SQL/math over authored extra-data relations (T0352)."""
-    conversation = 't0352-authored-' + str(uuid.uuid4())
+    """Default context/overview plus guarded SQL/math on the exclusive authored copy."""
+    conversation = 't0356-authored-' + str(uuid.uuid4())
     value = json.loads(
         api(
             run,
@@ -518,7 +518,7 @@ def exercise_extra_data(run, provider):
             '/api/chat',
             {
                 'conversationId': conversation,
-                'message': 'Authored review of my extra Garmin recovery and activity evidence.',
+                'message': 'How is my recent recovery, and give me feedback on the known weekdayHike activity.',
                 'stream': False,
             },
         )
@@ -526,6 +526,7 @@ def exercise_extra_data(run, provider):
     if value['assistant']['content'] != extra_data_provider.ANSWER or [
         (s['tool'], s['status']) for s in value['toolSteps']
     ] != [
+        ('getActivityDashboard', 'succeeded'),
         ('describeGarminDatabase', 'succeeded'),
         ('runReadOnlySql', 'succeeded'),
         ('runMathAnalysis', 'succeeded'),
@@ -956,14 +957,22 @@ def main():
                     'conversations': ids,
                     'calls': provider.calls,
                     'captures': captures,
-                    'jsonNdjsonPersistenceContinuationRestart': True,
+                    'jsonNdjsonPersistenceContinuationRestart': not args.extra_data,
+                    'jsonPersistenceRestart': True,
                     'memoryCuration': memory_evidence,
                     'activityImageCaptures': provider.captures,
                     'selectedPanels': PANELS if args.activity_images else [],
                     'extraData': {
-                        'tools': ['describeGarminDatabase', 'runReadOnlySql', 'runMathAnalysis'],
+                        'tools': [
+                            'getActivityDashboard',
+                            'describeGarminDatabase',
+                            'runReadOnlySql',
+                            'runMathAnalysis',
+                        ],
+                        'initialRecoveryContext': True,
+                        'knownIdOverviewBeforeSql': True,
                         'sqlCells': sorted(extra_data_provider.EXPECTED),
-                        'screenshot': 'not applicable: non-visual guarded SQL/math wire proof',
+                        'screenshot': 'not applicable: non-visual default context/overview and SQL/math wire proof',
                     }
                     if args.extra_data
                     else None,

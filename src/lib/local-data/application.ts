@@ -8,6 +8,10 @@ import type {
   LocalImportSummary,
 } from "./contracts";
 import type {
+  TrainerRecoveryDay,
+  ActivityGroundingExtras,
+} from "./grounding-contracts";
+import type {
   GarminAthleteBaselineDto,
   GarminBodyMetricsDto,
   NormalizedActivity,
@@ -44,6 +48,7 @@ export function createTerrainAnalysis(
 export function createActivityDashboardEvidence(
   read: LocalDataReads["getActivityDashboardDetail"],
   terrain: ReturnType<typeof createTerrainAnalysis>,
+  readExtras: (id: string) => ActivityGroundingExtras,
 ) {
   return (id: string) => {
     const dashboard = read(id);
@@ -52,6 +57,7 @@ export function createActivityDashboardEvidence(
           overview: projectDashboardOverview(
             dashboard,
             terrain(id, DASHBOARD_OVERVIEW_ROW_LIMIT),
+            readExtras(id),
           ),
           visualInput: {
             garminId: id,
@@ -66,8 +72,9 @@ export function createActivityDashboardEvidence(
 export function createActivityDashboard(
   read: LocalDataReads["getActivityDashboardDetail"],
   terrain: ReturnType<typeof createTerrainAnalysis>,
+  readExtras: (id: string) => ActivityGroundingExtras,
 ) {
-  const capture = createActivityDashboardEvidence(read, terrain);
+  const capture = createActivityDashboardEvidence(read, terrain, readExtras);
   return (id: string) => capture(id)?.overview ?? null;
 }
 
@@ -78,6 +85,7 @@ export interface LocalDataReads {
   ): ActivityDashboardListPage;
   getActivityDashboardDetail(garminId: string): ActivityDashboardDetail | null;
   listRecentDailyHealth(limit?: number): NormalizedDailyHealth[];
+  listTrainerRecoveryPreview(): TrainerRecoveryDay[];
   listRecentActivities(limit?: number): NormalizedActivity[];
   listActivitiesForComparison(limit?: number): NormalizedActivity[];
   getActivityByGarminId(garminId: string): NormalizedActivity | null;
@@ -104,6 +112,7 @@ export function createLocalData(reads: LocalDataReads) {
       reads.listActivitiesForDashboard(options),
     getActivityDashboardDetail: (id: string) =>
       reads.getActivityDashboardDetail(id),
+    listTrainerRecoveryPreview: () => reads.listTrainerRecoveryPreview(),
     listRecentDailyHealth: (limit?: number) =>
       reads.listRecentDailyHealth(limit),
     listRecentActivities: (limit?: number) => reads.listRecentActivities(limit),

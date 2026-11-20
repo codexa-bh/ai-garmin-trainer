@@ -64,6 +64,64 @@ describe("trainer AI", () => {
     expect(context).toContain("No recovery data in supplied preview");
   });
 
+  it("bounds additive recovery text to ten days and preserves long normalized qualifiers and coverage", () => {
+    const health = Array.from({ length: 11 }, (_, i) => ({
+      date: `2026-09-${String(20 - i).padStart(2, "0")}`,
+      sleepMinutes: null,
+      sleepScore: null,
+      sleepDeepMinutes: null,
+      sleepLightMinutes: null,
+      sleepRemMinutes: null,
+      sleepAwakeMinutes: null,
+      sleepNapMinutes: null,
+      activeCalories: null,
+      restingCalories: null,
+      totalCalories: null,
+      bodyBatteryMorning: null,
+      bodyBatteryEvening: null,
+      restingHeartRate: null,
+      hrvMs: null,
+      hrvStatus: null,
+      stressAvg: null,
+      steps: null,
+      calories: null,
+      intensityMinutes: null,
+      bodyBatteryAvg: null,
+      availability: "missing" as const,
+      recovery: {
+        sleepScore: 100,
+        sleepQualifier: "A".repeat(64),
+        weeklyHrvMs: 65.123456789,
+        balancedLowMs: 50,
+        balancedUpperMs: 80,
+        batteryCharged: 0,
+        batteryDrained: null,
+        highStressSeconds: 0,
+        coverage: {
+          sleep: { status: "populated" as const, reason: null },
+          hrv: { status: "failed" as const, reason: null },
+          body_battery: { status: "empty" as const, reason: null },
+          stress: { status: "unavailable" as const, reason: null },
+        },
+      },
+    }));
+    const context = buildTrainerContext({
+      health,
+      activities: [],
+      profile: { goals: [], sports: [], preferences: {}, constraints: [] },
+      recentMessages: [],
+    });
+    const recovery = context
+      .split("Recovery (")[1]
+      .split("Recent conversation:")[0];
+    expect(recovery.length).toBeLessThan(8000);
+    expect(recovery).toContain("A".repeat(64));
+    expect(recovery).toContain("high stress 0 min");
+    expect(recovery).toContain("body_battery=empty, stress=unavailable");
+    expect(recovery).not.toContain("2026-09-10");
+    expect(recovery.match(/sleep score/g)).toHaveLength(10);
+  });
+
   it("adds explicit server current-date grounding without treating Garmin freshness as the clock", () => {
     const currentDate = new Date(2026, 7, 14, 9, 30, 0);
     const context = buildTrainerContext({

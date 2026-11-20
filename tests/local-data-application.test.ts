@@ -102,6 +102,7 @@ function fakeReads() {
     })),
     getActivityDashboardDetail: vi.fn(() => null),
     listRecentDailyHealth: vi.fn(() => []),
+    listTrainerRecoveryPreview: vi.fn(() => []),
     listRecentActivities: vi.fn(() => [activity]),
     listActivitiesForComparison: vi.fn(() => [activity]),
     getActivityByGarminId: vi.fn(() => activity),
@@ -148,6 +149,8 @@ describe("local-data application capabilities", () => {
     expect(app.getActivityDetailForAnalytics("1").stream).toEqual([]);
     expect(app.listRecentActivities(12)).toEqual([activity]);
     expect(app.listRecentDailyHealth(14)).toBe(days);
+    expect(app.listTrainerRecoveryPreview()).toEqual([]);
+    expect(reads.listTrainerRecoveryPreview).toHaveBeenCalledExactlyOnceWith();
     expect(app.listActivityDetailAvailability(3)).toEqual([]);
     expect(app.activityDetailCoverage()).toBe(counts.detailCoverage);
     expect(app.dataCounts()).toBe(counts);
