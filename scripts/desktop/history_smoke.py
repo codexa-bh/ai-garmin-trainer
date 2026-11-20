@@ -192,6 +192,49 @@ def legacy_upgrade_state(run):
     }
 
 
+# Tables a Garmin Sync may write; every other table must be logically unchanged.
+SYNC_OWNED_TABLES = frozenset(
+    (
+        'activity',
+        'daily_health',
+        'activity_detail',
+        'activity_detail_availability',
+        'activity_detail_attempt',
+        'activity_lap',
+        'activity_stream_point',
+        'activity_hr_zone_time',
+        'garmin_athlete_baseline',
+        'garmin_athlete_baseline_attempt',
+        'garmin_body_metrics',
+        'garmin_body_metric_attempt',
+        'garmin_body_weight_history',
+        'garmin_raw_payload',
+        'sync_run',
+        'sync_checkpoint',
+        # Completed Sync refreshes stored KPI measurements (T0328), nothing else weekly.
+        'weekly_kpi_measurement',
+    )
+)
+
+
+def unrelated_tables(database):
+    """Per-table logical hashes of everything Sync does not own."""
+    with contextlib.closing(readonly(database)) as db:
+        names = [
+            name
+            for (name,) in db.execute(
+                "select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name"
+            )
+            if name not in SYNC_OWNED_TABLES and not name.startswith('__')
+        ]
+        result = {}
+        for name in names:
+            quoted = '"' + name.replace('"', '""') + '"'
+            rows = sorted(repr(row) for row in db.execute('select * from ' + quoted))
+            result[name] = [len(rows), hashlib.sha256('\n'.join(rows).encode()).hexdigest()]
+        return result
+
+
 def prepare_synthetic_history(run):
     """Only stopped, owned, keyless run settings; never select private input.
 
@@ -223,6 +266,7 @@ def prepare_synthetic_history(run):
     _attach_fixture(run)
     prepare_latest_preset(run, 'known')
     run.legacy_before = legacy_upgrade_state(run)
+    run.unrelated_before = unrelated_tables(run.database)
 
 
 def synthetic_calls(run):
@@ -1052,6 +1096,9 @@ class HistoryRun(OrdinaryRun):
             or not all(legacy_after['retainedFields'].values())
         ):
             raise ValueError('Old connection metadata or token sentinel was not preserved')
+        unrelated_after = unrelated_tables(self.database)
+        if unrelated_after != self.unrelated_before:
+            raise ValueError('Sync changed data outside its owned tables')
         private_json(
             self.root / 'synthetic-sync.json',
             {
@@ -1061,6 +1108,7 @@ class HistoryRun(OrdinaryRun):
                     'after': legacy_after,
                     'claim': 'authored old connector metadata and token sentinel retained unchanged and unused; official key sync succeeded',
                 },
+                'unrelatedTablesUnchanged': sorted(unrelated_after),
                 'captures': images,
                 'settled': settled,
                 'latest': latest,
