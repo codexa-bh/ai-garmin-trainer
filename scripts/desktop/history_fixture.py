@@ -43,7 +43,9 @@ ENDPOINTS = frozenset(
 )
 TOKEN_PATH = '/personalapitoken-service/personal-api/personal-api-key/token'
 CALL_LIMIT = 2000
-LATENCY_SECONDS = 0.05
+# Matches the retired authored connector's per-call latency so actual Sync
+# progress/cancel windows stay observable; not Garmin latency.
+LATENCY_SECONDS = 0.4
 
 
 def _today():

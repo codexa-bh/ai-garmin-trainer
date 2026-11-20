@@ -637,7 +637,7 @@ class HistoryRun(OrdinaryRun):
             'totalRequests': sum(counts.values()),
             'dataBefore': before,
             'dataAfter': after,
-            'timingLimit': 'authored loopback fixture .05 seconds per HTTP request plus native observation/capture, not Garmin latency',
+            'timingLimit': 'authored loopback fixture .4 seconds per HTTP request plus native observation/capture, not Garmin latency',
         }
         private_json(self.root / ('latest-probe-' + str(uuid.uuid4()) + '.json'), evidence)
         return evidence
@@ -839,9 +839,18 @@ class HistoryRun(OrdinaryRun):
                 current = self.summary()
                 if current['outcome'] == 'failed' or current['operationAttempts'] > 150:
                     raise ValueError('Synthetic operation failed/exceeded finite evidence envelope')
-                if (index == 0 and current['batches'] >= 2) or (
-                    index == 1 and not current['active']
+                # Range reads can finish the selected scope in one batch: cancel the
+                # first operation as soon as durable health progress is observed
+                # while it is still active; settling first is a scenario failure.
+                if (
+                    index == 0
+                    and current['active']
+                    and (current['healthChecks'] or 0) > (before['healthChecks'] or 0)
                 ):
+                    break
+                if index == 0 and not current['active']:
+                    raise ValueError('First historical operation settled before cancellation')
+                if index == 1 and not current['active']:
                     break
                 time.sleep(0.25)
             else:
