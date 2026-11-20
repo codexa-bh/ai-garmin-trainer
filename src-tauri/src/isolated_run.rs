@@ -847,6 +847,45 @@ pin.close()
         std::env::set_var("TEMP", root.join("tmp"));
         std::env::set_var("TMP", root.join("tmp"));
         let admitted = Admission::admit(&root.join("launch.json"), |_| Ok(()));
+        if admitted.is_err() {
+            // Diagnose only after the original admission attempt. Preflight opens
+            // must not warm up or otherwise change the boundary being tested.
+            // Never print private paths, descriptor bytes, SIDs or raw OS errors.
+            let root_handle = crate::private_fs::walk(&root, false)
+                .expect("Python fixture root failed native traversal");
+            let root_meta = crate::private_fs::meta(&root_handle)
+                .map_err(|error| error.raw_os_error())
+                .expect("Python fixture root metadata refused (numeric OS code only)");
+            assert!(
+                root_meta.private_dir(),
+                "Python fixture root is not private"
+            );
+            assert!(
+                root_meta.exact,
+                "Python fixture root permissions are not exact"
+            );
+            assert!(
+                crate::private_fs::canonical(&root),
+                "Python fixture root spelling is not canonical"
+            );
+            assert!(
+                crate::private_fs::same_object(&root, &root_handle),
+                "Python fixture root identity changed"
+            );
+            let descriptor_handle =
+                crate::private_fs::open_at(&root_handle, "launch.json".as_ref())
+                    .map_err(|error| error.raw_os_error())
+                    .expect("Python fixture descriptor open refused (numeric OS code only)");
+            let descriptor_meta = crate::private_fs::meta(&descriptor_handle)
+                .map_err(|error| error.raw_os_error())
+                .expect("Python fixture descriptor metadata refused (numeric OS code only)");
+            assert!(
+                descriptor_meta.private_file() && descriptor_meta.exact,
+                "Python fixture descriptor is not an exact private file"
+            );
+            drop(descriptor_handle);
+            drop(root_handle);
+        }
         let accepted = admitted.is_ok();
         let backend = if accepted {
             crate::settings::activation(&root.join("config/settings-v2.json")).and_then(
