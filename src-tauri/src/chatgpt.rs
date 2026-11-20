@@ -1118,6 +1118,43 @@ mod tests {
         socket.read_to_string(&mut response).unwrap();
         response
     }
+    fn stop_and_drop_owner(mut owner: Arc<Owner>) {
+        owner.stop();
+        // Listener and request threads may still hold the owner after stop.
+        // Take sole ownership before dropping it, so lease release is synchronous.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match Arc::try_unwrap(owner) {
+                Ok(settled) => {
+                    drop(settled);
+                    break;
+                }
+                Err(active) => {
+                    assert!(Instant::now() < deadline, "owner did not settle");
+                    owner = active;
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            }
+        }
+    }
+    #[test]
+    fn stopped_owner_retains_lease_until_its_last_reference_is_dropped() {
+        let fixture = Fixture::new();
+        let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
+        let held = owner.clone();
+        let stopping = std::thread::spawn(move || stop_and_drop_owner(owner));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !held.stopped.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "owner did not stop");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(Owner::start(&fixture.0, &fixture.0).is_err());
+        assert!(!stopping.is_finished());
+        drop(held);
+        stopping.join().unwrap();
+        let reopened = Owner::start(&fixture.0, &fixture.0).unwrap();
+        stop_and_drop_owner(reopened);
+    }
     #[test]
     fn private_metadata_restart_and_host_identity_preserve_exact_registration() {
         let fixture = Fixture::new();
@@ -1135,9 +1172,7 @@ mod tests {
             assert!(!metadata.contains(secret));
         }
         assert!(metadata.contains("synthetic@example.invalid"));
-        owner.stop();
-        drop(owner);
-        std::thread::sleep(Duration::from_millis(100));
+        stop_and_drop_owner(owner);
         let reopened = Owner::start(&fixture.0, &fixture.0).unwrap();
         let store = reopened.store.lock().unwrap();
         assert_eq!(store.document.host_id, host);
@@ -1153,9 +1188,7 @@ mod tests {
         let owner = Owner::start(&fixture.0, &fixture.0).unwrap();
         assert!(Owner::start(&fixture.0, &fixture.0).is_err());
         let path = owner.path.clone();
-        owner.stop();
-        drop(owner);
-        std::thread::sleep(Duration::from_millis(100));
+        stop_and_drop_owner(owner);
         let before = crate::private_store::read(&path).unwrap();
         let mut document: Value = serde_json::from_slice(&before).unwrap();
         document["version"] = json!(999);
@@ -1425,23 +1458,7 @@ mod tests {
         let held = owner.clone();
         drop(owner);
         assert!(Owner::start(&fixture.0, &fixture.0).is_err());
-        // Listener and request threads may still hold the owner after stop.
-        // Take sole ownership before dropping it, so lease release is synchronous.
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        let mut remaining = held;
-        loop {
-            match Arc::try_unwrap(remaining) {
-                Ok(settled) => {
-                    drop(settled);
-                    break;
-                }
-                Err(active) => {
-                    assert!(std::time::Instant::now() < deadline, "owner did not settle");
-                    remaining = active;
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-            }
-        }
+        stop_and_drop_owner(held);
         let reopened = Owner::start(&fixture.0, &fixture.0).unwrap();
         assert_eq!(reopened.metadata().as_array().unwrap().len(), 1);
         assert_eq!(reopened.metadata()[0]["id"], first.id);
