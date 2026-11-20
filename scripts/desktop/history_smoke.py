@@ -180,7 +180,7 @@ def prepare_synthetic_history(run):
     # Authored synthetic key for the owned fixture only; never a real credential.
     saved['garminApiKey'] = SYNTHETIC_KEY
     saved['fields']['GARMIN_HISTORY_START_DATE'] = (
-        datetime.now(timezone.utc).date() - timedelta(days=35)
+        datetime.now(timezone.utc).date() - timedelta(days=70)
     ).isoformat()
     _publish_settings(root, saved, 'history')
     _attach_fixture(run)
@@ -742,7 +742,7 @@ class HistoryRun(OrdinaryRun):
 
         The ordinary app reads the authored loopback Personal API through its real
         HTTPS-shaped reader, FIT decoder and coverage finality. A fixed authored
-        35-day selected scope permits actual range completion; no injected cursor,
+        70-day selected scope (several 31-day range batches) permits actual range completion; no injected cursor,
         accelerated clock, UI reply or product-budget override.
         """
         images = self.sync_captures = []

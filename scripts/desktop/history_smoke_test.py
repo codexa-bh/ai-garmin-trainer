@@ -203,7 +203,7 @@ class HistoryTokenContracts(unittest.TestCase):
             self.assertEqual(prepared['garminApiKey'], SYNTHETIC_KEY)
             self.assertEqual(
                 prepared['fields']['GARMIN_HISTORY_START_DATE'],
-                (datetime.now(timezone.utc).date() - timedelta(days=35)).isoformat(),
+                (datetime.now(timezone.utc).date() - timedelta(days=70)).isoformat(),
             )
             fixture = run.descriptor['garminFixture']
             self.assertEqual(set(fixture), {'port', 'capability'})
