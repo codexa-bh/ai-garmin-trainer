@@ -31,7 +31,6 @@ export function ChatView({
   openConversationMenuItem,
   conversationMenuPosition,
   conversationMenuRef,
-  loadChatHistory,
   isChatLoading,
   startConversationRename,
   deleteConversationById,
@@ -83,7 +82,6 @@ export function ChatView({
     | undefined;
   conversationMenuPosition: { top: number; left: number } | null;
   conversationMenuRef: RefObject<HTMLDivElement | null>;
-  loadChatHistory: (showStatus?: boolean, id?: string | null) => Promise<void>;
   isChatLoading: boolean;
   startConversationRename: (
     target: Pick<ConversationSummary, "id" | "title">,
@@ -237,19 +235,6 @@ export function ChatView({
             left: conversationMenuPosition.left,
           }}
         >
-          {openConversationMenuItem.id === conversationId ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                closeConversationMenu();
-                runInBackground(loadChatHistory());
-              }}
-              disabled={isChatLoading}
-            >
-              Reload history
-            </button>
-          ) : null}
           <button
             type="button"
             role="menuitem"

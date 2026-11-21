@@ -155,6 +155,46 @@ it("a delayed bootstrap cannot undo an explicit selection made from the independ
   expect(screen.queryByText("Transcript a")).toBeNull();
 });
 
+it("loads older pages in order and preserves the transcript viewport", async () => {
+  const page = deferred();
+  const state = setup((url) => {
+    if (url.includes("cursor=older")) return page.promise;
+    if (url.includes("/a?"))
+      return Promise.resolve(json(history("a", "older")));
+  });
+  await screen.findByText("Transcript a");
+  const transcript = screen.getByRole("log", { name: "Chat transcript" });
+  let height = 1000;
+  Object.defineProperty(transcript, "scrollHeight", {
+    configurable: true,
+    get: () => height,
+  });
+  Object.defineProperty(transcript, "clientHeight", {
+    configurable: true,
+    value: 200,
+  });
+  transcript.scrollTop = 100;
+  fireEvent.scroll(transcript);
+  fireEvent.click(screen.getByRole("button", { name: "Load older messages" }));
+  height = 1400;
+  await act(async () => page.resolve(json(history("older"))));
+  await screen.findByText("Transcript older");
+  await waitFor(() => expect(transcript.scrollTop).toBe(500));
+  expect(
+    screen.queryByRole("button", { name: "Load older messages" }),
+  ).toBeNull();
+  expect(state.fetcher).toHaveBeenCalledWith(
+    expect.stringContaining("cursor=older"),
+    expect.objectContaining({ method: "GET" }),
+  );
+  expect(
+    screen
+      .getByText("Transcript older")
+      .compareDocumentPosition(screen.getByText("Transcript a")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
 it("delete-active response cannot clear or change a newer selection; deleted IDs are not restored by old history", async () => {
   const deletion = deferred();
   const oldPage = deferred();

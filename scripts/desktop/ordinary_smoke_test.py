@@ -325,20 +325,33 @@ class OrdinaryContracts(unittest.TestCase):
             ['new', 'new', 'choose-first', 'delete-second', 'new', 'delete-second', 'delete-first'],
         )
         self.assertEqual(actions.count('save-title'), 3)
-        self.assertEqual(actions.count('menu-second'), 2)
-        self.assertEqual(actions.count('menu-first'), 1)
+        self.assertEqual(actions.count('menu-second'), 6)
+        self.assertEqual(actions.count('menu-first'), 5)
         self.assertEqual(sum(c['type'] == 'owned-stop' for c in commands), 1)
         self.assertTrue(
             all(set(c) <= {'type', 'action', 'target', 'view', 'preset'} for c in commands)
         )
         captures = [c for c in commands if c['type'] == 'captureView']
         self.assertEqual(
-            [c['preset'] for c in captures], ['wide', 'wide', 'narrow', 'narrow', 'wide']
+            [c['preset'] for c in captures],
+            ['wide'] * 4 + ['narrow'] * 4 + ['wide'],
         )
         self.assertEqual(actions.count('collapse-history'), 2)
         receipt = json.loads((run.root / 'conversation-scenario.json').read_text())
         self.assertTrue(receipt['passed'])
         self.assertTrue(receipt['freshOriginAndBoot'])
+        self.assertEqual(
+            [
+                (item['state'], item['preset'])
+                for item in receipt['captures']
+                if item['state'].startswith('menu-')
+            ],
+            [
+                (f'menu-{slot}', preset)
+                for preset in ['wide', 'narrow']
+                for slot in ['first', 'second']
+            ],
+        )
         self.assertNotIn('conversationId', repr(receipt))
         self.assertEqual(self.source.read_bytes(), original)
 

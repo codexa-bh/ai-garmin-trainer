@@ -130,8 +130,7 @@ export function TrainerDashboard() {
   const weekly = useWeeklyFeature();
   const memoryFeature = useMemoryFeature({
     setStatus,
-    onChangeCommitted: (id) =>
-      id ? loadChatHistory(false, id) : Promise.resolve(),
+    onChangeCommitted: (id) => (id ? loadChatHistory(id) : Promise.resolve()),
   });
   const { loadMemories } = memoryFeature;
   const {
@@ -245,7 +244,7 @@ export function TrainerDashboard() {
     runInBackground(loadImportSummary("startup", false));
   });
   const loadConversationHistory = useEffectEvent((id: string | null) => {
-    if (id) runInBackground(loadChatHistory(false, id));
+    if (id) runInBackground(loadChatHistory(id));
     runInBackground(loadMemories(false, id));
   });
   const restoreSectionTranscript = useEffectEvent(() =>
@@ -493,7 +492,7 @@ export function TrainerDashboard() {
 
     const rect = trigger.getBoundingClientRect();
     const menuWidth = 184;
-    const menuHeight = itemId === conversationId ? 150 : 104;
+    const menuHeight = 104;
     const viewportWidth = window.innerWidth || 1024;
     const viewportHeight = window.innerHeight || 768;
     const left = Math.min(
@@ -999,7 +998,6 @@ export function TrainerDashboard() {
           openConversationMenuItem={openConversationMenuItem}
           conversationMenuPosition={conversationMenuPosition}
           conversationMenuRef={conversationMenuRef}
-          loadChatHistory={loadChatHistory}
           isChatLoading={isChatLoading}
           startConversationRename={startConversationRename}
           deleteConversationById={deleteConversationById}
