@@ -405,11 +405,22 @@ describe("activity supplement read", () => {
       descentMeters: 0,
       avgSpeedMps: null,
       maxSpeedMps: 0,
+      // Fixture splits carry no measured window: HR is unavailable, not zero.
+      heartRate: {
+        avgHeartRate: null,
+        supportSeconds: null,
+        windowSeconds: null,
+        unavailableReason: "invalid-window",
+        zones: {
+          buckets: null,
+          unavailableReason: "heart-rate-unavailable",
+        },
+      },
     });
     expect(body.supplement.snowRuns.entries[1].avgSpeedMps).toBe(0);
     expect(body.supplement.snowRuns.entries[2].timerSeconds).toBeNull();
     expect(JSON.stringify(body.supplement.snowRuns)).not.toMatch(
-      /elapsed|startTime|messageIndex|splitType|latitude|longitude|46\.1|7\.2/,
+      /elapsed|startTime|endTime|messageIndex|splitType|latitude|longitude|46\.1|7\.2/,
     );
     expect(db.serialize().equals(original)).toBe(true);
   });

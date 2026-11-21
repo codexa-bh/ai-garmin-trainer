@@ -1687,7 +1687,9 @@ export function getActivityDashboardDetail(
       laps,
       getActivityHeartRateZoneTime(garminId, activity.durationSec),
     ),
-    snowEvidence: snowActivityEvidence(db, garminId),
+    snowEvidence: snowActivityEvidence(db, garminId, {
+      splitHeartRate: true,
+    }),
   };
 }
 

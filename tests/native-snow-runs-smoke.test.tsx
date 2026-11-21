@@ -3,7 +3,10 @@ import React, { useState } from "react";
 import { readFileSync } from "node:fs";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { SnowSection } from "../src/app/dashboard/activity-supplement";
+import {
+  hidesRedundantSnowLaps,
+  SnowSection,
+} from "../src/app/dashboard/activity-supplement";
 import type {
   ActivitySupplement,
   SupplementCoverage,
@@ -25,6 +28,34 @@ const sports = {
   unsupported: "backcountry_skiing",
   preserved: "resort_skiing",
 };
+const bucket = (index: number, seconds: number) => ({
+  bucket: index,
+  kind: index === 0 ? ("below" as const) : ("zone" as const),
+  zone: index === 0 ? null : index,
+  seconds,
+  lowerBpm: index === 0 ? null : 80 + index * 20,
+  upperBpm: index === 5 ? null : 99 + index * 20,
+});
+const derived = (avg: number, seconds: number[]) => ({
+  avgHeartRate: avg,
+  supportSeconds: 200,
+  windowSeconds: 200,
+  unavailableReason: null,
+  zones: {
+    buckets: seconds.map((value, index) => bucket(index, value)),
+    unavailableReason: null,
+  },
+});
+const noWindow = {
+  avgHeartRate: null,
+  supportSeconds: null,
+  windowSeconds: null,
+  unavailableReason: "invalid-window" as const,
+  zones: {
+    buckets: null,
+    unavailableReason: "heart-rate-unavailable" as const,
+  },
+};
 function supplement(variant: Variant): ActivitySupplement {
   const unknown: SupplementCoverage = { status: "not_imported", reason: null };
   const entries =
@@ -38,6 +69,7 @@ function supplement(variant: Variant): ActivitySupplement {
             descentMeters: 340,
             avgSpeedMps: 10,
             maxSpeedMps: 17.8,
+            heartRate: derived(151, [0, 0, 60, 70, 70, 0]),
           },
           {
             splitKey: "index:4",
@@ -47,6 +79,7 @@ function supplement(variant: Variant): ActivitySupplement {
             descentMeters: 0,
             avgSpeedMps: null,
             maxSpeedMps: null,
+            heartRate: noWindow,
           },
           {
             splitKey: "index:5",
@@ -56,6 +89,7 @@ function supplement(variant: Variant): ActivitySupplement {
             descentMeters: 360,
             avgSpeedMps: 0,
             maxSpeedMps: 19.5,
+            heartRate: derived(144, [0, 0, 100, 0, 115, 0]),
           },
         ]
       : variant === "preserved"
@@ -68,6 +102,7 @@ function supplement(variant: Variant): ActivitySupplement {
               descentMeters: 0,
               avgSpeedMps: null,
               maxSpeedMps: 0,
+              heartRate: noWindow,
             },
           ]
         : [];
@@ -76,7 +111,27 @@ function supplement(variant: Variant): ActivitySupplement {
     listCadence: { avgSpm: null, maxSpm: null, strideLengthCm: null },
     fitCadence: { avgCpm: null, stepLengthM: null },
     lapZones: [],
-    snowTotals: [],
+    snowTotals:
+      variant === "populated"
+        ? [
+            {
+              splitType: "SKI_RUN_SPLIT",
+              count: 12,
+              durationSec: 3600,
+              distanceMeters: 31000,
+              bestSplitDistanceMeters: 4200,
+              maxSpeedMps: 19.5,
+            },
+            {
+              splitType: "SKI_LIFT_SPLIT",
+              count: 11,
+              durationSec: 3000,
+              distanceMeters: 8400,
+              bestSplitDistanceMeters: 1300,
+              maxSpeedMps: null,
+            },
+          ]
+        : [],
     snowRuns: {
       relevant: true,
       total: entries.length,
@@ -129,6 +184,20 @@ function Fixture() {
       </div>
       <p>Private neighboring facts</p>
       <SnowSection supplement={supplement(variant)} sport={sports[variant]} />
+      {hidesRedundantSnowLaps(supplement(variant), sports[variant]) ? null : (
+        <div className="lap-table-wrap">
+          <table>
+            <caption>Lap details</caption>
+            <tbody>
+              {[1, 2, 3].map((lap) => (
+                <tr key={lap}>
+                  <th>{lap}</th>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
@@ -199,6 +268,13 @@ it("validates all authored states, contains only boolean observations and restor
     expect(
       !!document.querySelector(".snow-run-display[data-smoke-reveal]"),
     ).toBe(!absent);
+    // Laps are gone exactly where individual runs are stored; kept otherwise,
+    // and an unrevealed lap table never enters a capture.
+    expect(!!document.querySelector(".snow-runs")).toBe(!absent);
+    expect(
+      !!document.querySelector(".lap-table-wrap table[data-smoke-reveal]"),
+    ).toBe(false);
+    expect(!!document.querySelector(".lap-table-wrap")).toBe(absent);
     expect(
       !!document.querySelector(".snow-section, .snow-runs-wrap") && absent,
     ).toBe(false);
@@ -232,6 +308,29 @@ it("validates all authored states, contains only boolean observations and restor
     ].sort(),
   );
 });
+it("opens and closes only the authored derived-zone Times disclosures", async () => {
+  render(<Fixture />);
+  const open = () =>
+    [...document.querySelectorAll(".snow-runs details")].map(
+      (node) => (node as HTMLDetailsElement).open,
+    );
+  expect((await command({ type: "snowRuns", action: "populated" })).ready).toBe(
+    true,
+  );
+  expect(open()).toEqual([false, false]);
+  expect((await command({ type: "snowRuns", action: "times" })).ready).toBe(
+    true,
+  );
+  expect(open()).toEqual([true, true]);
+  expect((await command({ type: "snowRuns", action: "times" })).ready).toBe(
+    true,
+  );
+  expect(open()).toEqual([false, false]);
+  // No disclosure to open: preserved has only an unavailable reason.
+  await command({ type: "snowRuns", action: "preserved" });
+  expect((await command({ type: "snowRuns", action: "times" })).ok).toBe(false);
+});
+
 it("checks only the authored adjacent lap table and refuses altered evidence", async () => {
   render(
     <section aria-label="AI trainer dashboard" data-renderer-ready="true">
@@ -287,6 +386,14 @@ it("refuses unknown/private controls, extra fields, debug mode, altered cells an
   expect((await command({ type: "snowRuns", action: "populated" })).ready).toBe(
     true,
   );
+  // An altered derived HR value is refused like any other altered cell.
+  const hrCell = document.querySelector(".snow-runs tbody td:nth-child(7)")!;
+  hrCell.textContent = "152";
+  expect(
+    (await command({ type: "captureView", view: "snowRuns", preset: "wide" }))
+      .ok,
+  ).toBe(false);
+  hrCell.textContent = "151";
   document.querySelector(".snow-runs tbody td")!.textContent =
     "Private substituted value";
   expect(

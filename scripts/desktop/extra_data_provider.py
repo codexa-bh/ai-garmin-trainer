@@ -11,8 +11,10 @@ ANSWER = (
     'inside the Garmin baseline 50-70, sparse VO2 45.2 on one measured date, -12 Body Battery '
     'event impact, 3600 s high stress, 600 s lap zone 2 and 9 snowboard runs as a per-type '
     'total. Individual FIT evidence has 2 measured runs (300 m) and 2 lifts, kept separate; '
-    'latest split coverage failed, so retained rows are not a complete fresh read and split HR '
-    'is unavailable without a proven lap link. Not backfilled dates remain unknown, not zero.'
+    'latest split coverage failed, so retained rows are not a complete fresh read. Split HR is '
+    'derived from stored samples inside each split window, not from lap allocation: 123 bpm '
+    'for both runs and both lifts, while split zone time is unavailable because no activity-file '
+    'zone limits are stored. Not backfilled dates remain unknown, not zero.'
 )
 CALLS = 5
 SQL = (
@@ -21,16 +23,16 @@ SQL = (
     "(select weekly_avg_ms from daily_hrv_detail where date='2026-11-02') as hrv_weekly_ms, "
     "(select baseline_balanced_low_ms from daily_hrv_detail where date='2026-11-02') as hrv_low_ms, "
     "(select baseline_balanced_upper_ms from daily_hrv_detail where date='2026-11-02') as hrv_upper_ms, "
-    "(select vo2_max_precise from vo2_max_reading where branch='generic' order by date desc limit 1) as vo2_precise, "
-    '(select count(*) from vo2_max_reading) as vo2_readings, '
+    "(select vo2_max_precise from vo2_max_reading where branch='generic' and date='2026-10-20') as vo2_precise, "
+    "(select count(*) from vo2_max_reading where date='2026-10-20') as vo2_readings, "
     "(select sum(impact) from body_battery_event where date='2026-11-02') as battery_event_impact, "
     "(select high_seconds from daily_stress where date='2026-11-02') as high_stress_seconds, "
     "(select sum(seconds) from activity_lap_hr_zone_time where garmin_id='weekdayHike' and bucket_kind='zone' and zone=2) as lap_zone2_seconds, "
     "(select split_count from activity_split_summary where garmin_id='weekdayHike' and split_type='SKI_RUN_SPLIT') as ski_runs, "
     "(select count(*) from garmin_data_coverage where subject_id='2026-11-01') as not_backfilled_rows, "
-    "(select count(*) from activity_snow_split where split_type='run') as measured_runs, "
-    "(select count(*) from activity_snow_split where split_type='lift') as measured_lifts, "
-    "(select sum(distance_meters) from activity_snow_split where split_type='run') as run_distance_meters, "
+    "(select count(*) from activity_snow_split where garmin_id='weekdayHike' and split_type='run') as measured_runs, "
+    "(select count(*) from activity_snow_split where garmin_id='weekdayHike' and split_type='lift') as measured_lifts, "
+    "(select sum(distance_meters) from activity_snow_split where garmin_id='weekdayHike' and split_type='run') as run_distance_meters, "
     "(select status from garmin_data_coverage where data_group='snow_run_lift_splits' and subject_id='weekdayHike') as snow_latest_status"
 )
 EXPECTED = {
@@ -125,16 +127,28 @@ def seed(db):
         "insert into activity_extra_metrics(garmin_id,body_battery_delta,avg_run_cadence_spm,avg_stride_length_cm,fit_avg_cadence_cpm,fetched_at) values ('weekdayHike',-9,158,98.5,79.5,1)"
     )
     db.executemany(
-        'insert into activity_snow_split(garmin_id,split_key,message_index,source_order,split_type,distance_meters,fetched_at) values (?,?,?,?,?,?,1)',
+        'insert into activity_snow_split(garmin_id,split_key,message_index,source_order,split_type,start_time,end_time,distance_meters,fetched_at) values (?,?,?,?,?,?,?,?,1)',
         [
-            ('weekdayHike', 'index:' + str(i), i, i, kind, distance)
+            # Four consecutive 100 s windows over the run copy's 10 s HR samples
+            # (constant 123 bpm, activity start 2026-11-01T00:00:00Z).
+            (
+                'weekdayHike',
+                'index:' + str(i),
+                i,
+                i,
+                kind,
+                '2026-11-01T00:%02d:%02dZ' % ((i * 100) // 60, (i * 100) % 60),
+                '2026-11-01T00:%02d:%02dZ' % (((i + 1) * 100) // 60, ((i + 1) * 100) % 60),
+                distance,
+            )
             for i, (kind, distance) in enumerate(
                 [('run', 100), ('lift', 100), ('run', 200), ('lift', 200)]
             )
         ],
     )
     db.executemany(
-        'insert into garmin_data_coverage(data_group,subject_type,subject_id,status,reason,updated_at) values (?,?,?,?,?,1)',
+        # The recipe may already cover the newest day; the authored row must win, not collide.
+        'insert or replace into garmin_data_coverage(data_group,subject_type,subject_id,status,reason,updated_at) values (?,?,?,?,?,1)',
         [
             ('sleep', 'date', '2026-11-02', 'populated', None),
             ('vo2_max', 'date', '2026-11-02', 'empty', 'source-empty'),
@@ -199,6 +213,25 @@ def validate_dashboard(evidence):
         or extra['limits']['bucketsPerLap'] != 8
     ):
         raise ValueError('Actual default split/coverage/caps mismatch')
+    split_hr = dashboard.get('snowEvidence', {}).get('splitHeartRate', {})
+    kinds = {entry['splitType']: entry for entry in split_hr.get('types', [])}
+    if (
+        sorted(kinds) != ['lift', 'run']
+        or any(
+            entry['sourceCount'] != 2
+            or entry['returnedCount'] != 2
+            or entry['omittedCount'] != 0
+            or [row['avgHeartRate'] for row in entry['rows']] != [123, 123]
+            or any(
+                row['zoneSeconds'] is not None
+                or row['zoneUnavailableReason'] != 'missing-zone-boundaries'
+                for row in entry['rows']
+            )
+            for entry in kinds.values()
+        )
+        or split_hr.get('zoneLowerBpm') is not None
+    ):
+        raise ValueError('Actual derived split HR evidence mismatch')
     if any(field in dashboard for field in ['route', 'charts', 'stream', 'visualInput']):
         raise ValueError('Private visual inputs in default numerical evidence')
 

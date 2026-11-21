@@ -1,11 +1,63 @@
 import type Database from "better-sqlite3";
 import type { SnowSplit, SnowSplitEvidence } from "../garmin/extra-types";
-import type { SnowActivityEvidence } from "../local-data/contracts";
+import type {
+  SnowActivityEvidence,
+  SnowSplitHeartRateEvidence,
+} from "../local-data/contracts";
+import { deriveActivitySplitHeartRates } from "./split-heart-rate-repository";
+
+/** Per-type rows in the trainer overview; matches its optional-row bound. */
+const SPLIT_HEART_RATE_ROW_LIMIT = 20;
+
+const SPLIT_HEART_RATE_MEANING =
+  "avgHeartRate and zoneSeconds are derived at read time from stored heart-rate samples inside each split's own measured window (duration-weighted, activity-file zone boundaries, bucket order below zone 1 then zones 1-5). They are not Garmin lap or session values and are never added to them. null with a reason is unavailable, never zero. Rows are capped per type: read sourceCount/omittedCount before generalizing across all runs or lifts.";
+
+function splitHeartRateEvidence(
+  db: Database.Database,
+  garminId: string,
+): SnowSplitHeartRateEvidence {
+  const derived = deriveActivitySplitHeartRates(db, garminId);
+  const lowerBounds =
+    derived
+      .map((split) => split.heartRate.zones.buckets)
+      .find((buckets) => buckets !== null)
+      ?.filter((bucket) => bucket.zone !== null)
+      .map((bucket) => bucket.lowerBpm as number) ?? null;
+  return {
+    meaning: SPLIT_HEART_RATE_MEANING,
+    zoneLowerBpm: lowerBounds,
+    perTypeLimit: SPLIT_HEART_RATE_ROW_LIMIT,
+    types: (["run", "lift"] as const).map((splitType) => {
+      const all = derived.filter((split) => split.splitType === splitType);
+      const rows = all.slice(0, SPLIT_HEART_RATE_ROW_LIMIT).map((split) => ({
+        splitKey: split.splitKey,
+        timerSeconds: split.timerSeconds,
+        distanceMeters: split.distanceMeters,
+        descentMeters: split.descentMeters,
+        avgHeartRate: split.heartRate.avgHeartRate,
+        supportSeconds: split.heartRate.supportSeconds,
+        hrUnavailableReason: split.heartRate.unavailableReason,
+        zoneSeconds:
+          split.heartRate.zones.buckets?.map((bucket) => bucket.seconds) ??
+          null,
+        zoneUnavailableReason: split.heartRate.zones.unavailableReason,
+      }));
+      return {
+        splitType,
+        sourceCount: all.length,
+        returnedCount: rows.length,
+        omittedCount: all.length - rows.length,
+        rows,
+      };
+    }),
+  };
+}
 
 /** No locations or source identifiers enter the ordinary activity summary. */
 export function snowActivityEvidence(
   db: Database.Database,
   garminId: string,
+  options: { splitHeartRate?: boolean } = {},
 ): SnowActivityEvidence {
   const coverage = db
     .prepare(
@@ -26,6 +78,9 @@ export function snowActivityEvidence(
   return {
     coverage: coverage ?? { status: "not_backfilled", reason: null },
     hrAssociation: "no-proven-lap-link",
+    ...(options.splitHeartRate
+      ? { splitHeartRate: splitHeartRateEvidence(db, garminId) }
+      : {}),
     types,
   };
 }

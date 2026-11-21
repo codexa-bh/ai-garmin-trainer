@@ -66,13 +66,47 @@ export type ActivityDashboardHeartRateZoneTime = {
   message: string;
 };
 
+type SnowSplitHeartRateRow = {
+  splitKey: string;
+  timerSeconds: number | null;
+  distanceMeters: number | null;
+  descentMeters: number | null;
+  /** Time-weighted over supported seconds; null when unavailable (never zero). */
+  avgHeartRate: number | null;
+  supportSeconds: number | null;
+  hrUnavailableReason: string | null;
+  /** [below zone 1, zone 1..5] seconds, or null when zones are unavailable. */
+  zoneSeconds: number[] | null;
+  zoneUnavailableReason: string | null;
+};
+
+export type SnowSplitHeartRateEvidence = {
+  meaning: string;
+  /** Activity-file zone lower bounds in bpm for zones 1–5, or null when unavailable. */
+  zoneLowerBpm: number[] | null;
+  perTypeLimit: number;
+  types: Array<{
+    splitType: "run" | "lift";
+    sourceCount: number;
+    returnedCount: number;
+    omittedCount: number;
+    rows: SnowSplitHeartRateRow[];
+  }>;
+};
+
 /** Bounded nonlocation read model, independent of vendor ingestion DTOs. */
 export type SnowActivityEvidence = {
   coverage: {
     status: "populated" | "empty" | "unavailable" | "failed" | "not_backfilled";
     reason: string | null;
   };
+  /** Splits are never linked to Garmin laps; HR below is derived from stored samples in each split's own window. */
   hrAssociation: "no-proven-lap-link";
+  /**
+   * Bounded per-split derived evidence, present only on the activity overview.
+   * Rows are in display order; omitted counts say exactly what was not returned.
+   */
+  splitHeartRate?: SnowSplitHeartRateEvidence;
   types: Array<{
     splitType: "run" | "lift";
     count: number;

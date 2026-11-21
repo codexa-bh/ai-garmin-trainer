@@ -1,6 +1,7 @@
 import type { NormalizedActivity } from "../garmin/types";
 import type { ActivityLapDetail } from "../garmin/detail-types";
 import type { ActivitySupplement } from "./supplement-contracts";
+import { projectSplitHeartRate } from "./split-heart-rate";
 
 /** Explicit nonlocation run projection; timestamps, source indexes and raw rows stay internal. */
 export function dashboardSupplement(
@@ -23,6 +24,7 @@ export function dashboardSupplement(
         descentMeters: measured(row.descentMeters),
         avgSpeedMps: measured(row.avgSpeedMps),
         maxSpeedMps: measured(row.maxSpeedMps),
+        heartRate: row.heartRate && projectSplitHeartRate(row.heartRate),
       })),
     },
   };

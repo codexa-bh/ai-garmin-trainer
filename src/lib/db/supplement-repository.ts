@@ -1,4 +1,5 @@
 import { getDatabase } from "./connection";
+import { deriveActivitySplitHeartRates } from "./split-heart-rate-repository";
 import { SNOW_ACTIVITY_SPORTS } from "../garmin/extra-types";
 import {
   ACTIVITY_LAP_LIMIT,
@@ -239,6 +240,12 @@ export function getActivitySupplement(garminId: string): ActivitySupplement {
       garminId,
       SNOW_RUN_LIST_LIMIT,
     ) as ActivitySupplement["snowRuns"]["entries"];
+  const derivedByKey = new Map(
+    deriveActivitySplitHeartRates(db, garminId).map((split) => [
+      split.splitKey,
+      split.heartRate,
+    ]),
+  );
   const coverage = db
     .prepare(
       `select subject_id as subjectId, data_group as "group", status, reason
@@ -259,7 +266,10 @@ export function getActivitySupplement(garminId: string): ActivitySupplement {
       (sport) => sport === activity?.sport,
     ),
     runTotal: runTotal.n,
-    runs,
+    runs: runs.map((run) => ({
+      ...run,
+      heartRate: derivedByKey.get(run.splitKey),
+    })),
     coverage: coverageBy(coverage).get(garminId) ?? new Map(),
   });
 }

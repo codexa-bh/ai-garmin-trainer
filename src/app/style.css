@@ -3349,8 +3349,44 @@ label {
   color: var(--muted);
 }
 
+.snow-summary-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.snow-summary-source {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.snow-summary-sep {
+  margin-left: 16px;
+  color: var(--muted);
+}
+
+.snow-hr-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+.snow-hr-unavailable {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: normal;
+}
+
+.snow-runs .lap-zone-column {
+  text-align: left;
+  min-width: 150px;
+}
+
 .snow-runs {
-  min-width: 620px;
+  min-width: 860px;
   font-variant-numeric: tabular-nums;
 }
 

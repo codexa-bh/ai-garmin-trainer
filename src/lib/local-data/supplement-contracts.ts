@@ -1,3 +1,5 @@
+import type { SplitHeartRate } from "./split-heart-rate";
+
 /**
  * Plain read-model contracts for the additional Garmin evidence shown in the
  * existing Health and Activity views. Storage rows, interpretation and UI
@@ -119,7 +121,11 @@ type SnowTypeTotal = {
   maxSpeedMps: number | null;
 };
 
-/** Individual measured run. No lift, location, timestamp or lap association. */
+/**
+ * Individual measured run. No lift, location, timestamp or lap association.
+ * `heartRate` is derived at read time from stored samples inside this run's own
+ * window; it is optional only for payloads that predate the derivation.
+ */
 export type SnowRunEntry = {
   splitKey: string;
   timerSeconds: number | null;
@@ -128,6 +134,7 @@ export type SnowRunEntry = {
   ascentMeters: number | null;
   avgSpeedMps: number | null;
   maxSpeedMps: number | null;
+  heartRate?: SplitHeartRate;
 };
 
 export type ActivitySupplement = {

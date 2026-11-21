@@ -309,6 +309,7 @@ impl Command {
                 "collapse",
                 "expand",
                 "laps",
+                "times",
             ]
             .contains(&action.as_str()),
             Self::Terrain { action } => [
@@ -2168,6 +2169,7 @@ mod tests {
             "collapse",
             "expand",
             "laps",
+            "times",
         ] {
             let command = Command::SnowRuns {
                 action: action.into(),

@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { deriveActivitySplitHeartRates } from "../src/lib/db/split-heart-rate-repository";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -389,6 +390,28 @@ describe("finite representative authored smoke recipe", () => {
           "select count(*) as n from activity_snow_split where split_type='run'",
         ),
       ).toEqual({ n: 4 });
+      // Authored derived split HR through the real read route: two supported
+      // runs, and run 4 with no measured end stays unavailable.
+      const derived = deriveActivitySplitHeartRates(db, "synthetic-snow")
+        .filter((split) => split.splitType === "run")
+        .map((split) => [
+          split.splitKey,
+          split.heartRate.avgHeartRate === null
+            ? null
+            : Math.round(split.heartRate.avgHeartRate),
+          split.heartRate.zones.buckets?.map((bucket) => bucket.seconds) ??
+            null,
+        ]);
+      expect(derived).toEqual([
+        ["index:2", 151, [0, 0, 60, 70, 70, 0]],
+        ["index:4", null, null],
+        ["index:5", 144, [0, 0, 100, 0, 115, 0]],
+      ]);
+      expect(
+        one(
+          "select count(*) as n from activity_lap where garmin_id like 'synthetic-snow%'",
+        ),
+      ).toEqual({ n: 12 });
       expect(
         db
           .prepare(

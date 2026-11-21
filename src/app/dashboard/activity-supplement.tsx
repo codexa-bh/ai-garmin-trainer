@@ -5,6 +5,7 @@ import type {
   LapZoneEvidence,
   SupplementCoverage,
 } from "@/lib/local-data/supplement-contracts";
+import type { SplitHeartRate } from "@/lib/local-data/split-heart-rate";
 import { SNOW_ACTIVITY_SPORTS } from "@/lib/garmin/extra-types";
 import { durationDetailLabel } from "./activity-charts";
 
@@ -89,21 +90,23 @@ const ZONE_COLORS = [
   "#c05cff",
 ];
 
-const bucketName = (bucket: LapZoneEvidence["buckets"][number]) =>
+type ZoneBucket = LapZoneEvidence["buckets"][number];
+
+const bucketName = (bucket: ZoneBucket) =>
   bucket.kind === "below"
     ? "Below zone 1"
     : bucket.kind === "above"
       ? "Above zone 5"
       : `Zone ${bucket.zone ?? bucket.bucket}`;
 
-const bucketRange = (bucket: LapZoneEvidence["buckets"][number]) =>
+const bucketRange = (bucket: ZoneBucket) =>
   finite(bucket.lowerBpm) || finite(bucket.upperBpm)
     ? ` (${finite(bucket.lowerBpm) ? n(bucket.lowerBpm) : "…"}–${finite(bucket.upperBpm) ? n(bucket.upperBpm) : "max"} bpm)`
     : "";
 
-/** Exact recorded times, in source bucket order; used for tooltip and screen readers. */
-function lapZoneText(lap: LapZoneEvidence): string {
-  return lap.buckets
+/** Exact times, in bucket order; used for tooltip and screen readers. */
+function zoneText(buckets: ZoneBucket[]): string {
+  return buckets
     .map(
       (bucket) =>
         `${bucketName(bucket)}${bucketRange(bucket)}: ${durationDetailLabel(bucket.seconds)}`,
@@ -111,20 +114,31 @@ function lapZoneText(lap: LapZoneEvidence): string {
     .join(" · ");
 }
 
-/** One compact proportional bar per lap; bucket times are exact in the text. */
-export function LapZoneCell({ lap }: { lap: LapZoneEvidence | undefined }) {
-  if (!lap || !lap.buckets.length) return null;
-  const total = lap.buckets.reduce((sum, bucket) => sum + bucket.seconds, 0);
-  const text = lapZoneText(lap);
+/**
+ * Presentation-only proportional bar with a native, keyboard-reachable Times
+ * disclosure. It knows nothing about where the buckets came from; the caller
+ * supplies the label and the provenance line.
+ */
+function ZoneBarCell({
+  buckets,
+  label,
+  provenance,
+}: {
+  buckets: ZoneBucket[];
+  label: string;
+  provenance: string;
+}) {
+  const total = buckets.reduce((sum, bucket) => sum + bucket.seconds, 0);
+  const text = zoneText(buckets);
   return (
     <div
       className="lap-zone-cell"
       role="group"
-      aria-label={`Lap HR zones: ${text}`}
+      aria-label={`${label}: ${text}`}
     >
       <div className="lap-zone-bar" title={text} aria-hidden="true">
         {total > 0
-          ? lap.buckets.map((bucket) =>
+          ? buckets.map((bucket) =>
               bucket.seconds > 0 ? (
                 <span
                   key={bucket.bucket}
@@ -143,7 +157,7 @@ export function LapZoneCell({ lap }: { lap: LapZoneEvidence | undefined }) {
       <details className="lap-zone-detail">
         <summary>{total > 0 ? "Times" : "All zero"}</summary>
         <ul>
-          {lap.buckets.map((bucket) => (
+          {buckets.map((bucket) => (
             <li key={bucket.bucket}>
               <i
                 aria-hidden="true"
@@ -158,39 +172,104 @@ export function LapZoneCell({ lap }: { lap: LapZoneEvidence | undefined }) {
               {bucketRange(bucket)}: {durationDetailLabel(bucket.seconds)}
             </li>
           ))}
-          <li className="lap-zone-method">
-            Recorded per lap
-            {lap.calcMethod
-              ? ` · ${lap.calcMethod.toLowerCase().replace(/_/g, " ")}`
-              : ""}
-            {finite(lap.sourceMaxHeartRate)
-              ? ` · max HR ${n(lap.sourceMaxHeartRate)} bpm`
-              : ""}
-            {finite(lap.sourceRestingHeartRate)
-              ? ` · resting HR ${n(lap.sourceRestingHeartRate)} bpm`
-              : ""}
-          </li>
+          <li className="lap-zone-method">{provenance}</li>
         </ul>
       </details>
     </div>
   );
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  SKI_RUN_SPLIT: "Runs",
-  SKI_LIFT_SPLIT: "Lifts",
-  ASCENT_SPLIT: "Ascents",
-  DESCENT_SPLIT: "Descents",
-  TRANSITION: "Transitions",
+/** One compact proportional bar per lap; bucket times are exact in the text. */
+export function LapZoneCell({ lap }: { lap: LapZoneEvidence | undefined }) {
+  if (!lap || !lap.buckets.length) return null;
+  const provenance = `Recorded per lap${
+    lap.calcMethod
+      ? ` · ${lap.calcMethod.toLowerCase().replace(/_/g, " ")}`
+      : ""
+  }${finite(lap.sourceMaxHeartRate) ? ` · max HR ${n(lap.sourceMaxHeartRate)} bpm` : ""}${
+    finite(lap.sourceRestingHeartRate)
+      ? ` · resting HR ${n(lap.sourceRestingHeartRate)} bpm`
+      : ""
+  }`;
+  return (
+    <ZoneBarCell
+      buckets={lap.buckets}
+      label="Lap HR zones"
+      provenance={provenance}
+    />
+  );
+}
+
+const HR_REASON_TEXT: Record<
+  NonNullable<SplitHeartRate["unavailableReason"]>,
+  string
+> = {
+  "invalid-window": "No measured run window",
+  "no-heart-rate-samples": "No HR samples",
+  "insufficient-samples": "Too few HR samples",
+  "significant-gap": "HR gaps too long",
+  "insufficient-support": "HR coverage too low",
 };
-const TYPE_ORDER = Object.keys(TYPE_LABEL);
+const ZONE_REASON_TEXT: Record<
+  NonNullable<SplitHeartRate["zones"]["unavailableReason"]>,
+  string
+> = {
+  "missing-zone-boundaries": "Zone limits unavailable",
+  "conflicting-zone-boundaries": "Zone limits inconsistent",
+  "heart-rate-unavailable": "Unavailable",
+};
+
+/** Derived Avg HR cell; unavailable is a dash, never a zero. */
+function RunAvgHeartRate({
+  heartRate,
+}: {
+  heartRate: SplitHeartRate | undefined;
+}) {
+  if (!finite(heartRate?.avgHeartRate)) return <>—</>;
+  return <>{n(heartRate.avgHeartRate)}</>;
+}
+
+/** Derived zone cell: bar/Times when supported, else the specific reason. */
+function RunZoneCell({ heartRate }: { heartRate: SplitHeartRate | undefined }) {
+  const buckets = heartRate?.zones.buckets;
+  if (heartRate && buckets?.length)
+    return (
+      <ZoneBarCell
+        buckets={buckets}
+        label="Run HR zones"
+        provenance="Derived from HR samples in this run · zone limits from this activity file"
+      />
+    );
+  const reason =
+    heartRate?.unavailableReason !== null && heartRate?.unavailableReason
+      ? HR_REASON_TEXT[heartRate.unavailableReason]
+      : heartRate?.zones.unavailableReason
+        ? ZONE_REASON_TEXT[heartRate.zones.unavailableReason]
+        : "Unavailable";
+  return <span className="snow-hr-unavailable">{reason}</span>;
+}
+
+/** Only runs and lifts appear in the compact summary; other stored types stay trainer-accessible. */
+const SUMMARY_PARTS = [
+  { splitType: "SKI_RUN_SPLIT", label: "Runs" },
+  { splitType: "SKI_LIFT_SPLIT", label: "Lifts" },
+] as const;
 
 const distance = (meters: number | null) =>
   finite(meters)
     ? meters >= 1000
-      ? `${n(meters / 1000, 2)} km`
+      ? `${n(meters / 1000, 1)} km`
       : `${n(meters)} m`
     : "—";
+
+/** Whole minutes, carrying into hours; sub-minute totals keep seconds. */
+function compactDuration(seconds: number | null) {
+  if (!finite(seconds) || seconds < 0) return "—";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.round(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
 
 /** Round once before decomposition, retaining tenths and carrying into minutes/hours. */
 function runTimer(seconds: number | null) {
@@ -225,9 +304,24 @@ const isSnowSport = (sport: string | null | undefined) =>
   SNOW_ACTIVITY_SPORTS.some((snowSport) => snowSport === sport);
 
 /**
- * Snow activities only, and only the parts with stored rows: per-type
- * aggregates and the individual run-only table stay separate and never render
- * empty placeholders (the coverage disclosure owns "none/unknown").
+ * Lap details are redundant only for a normalized snow sport whose individual
+ * runs are actually stored and shown (not totals, relevance or coverage), so
+ * preserved rows qualify even when the latest read failed. Everything else,
+ * including snow without runs, keeps its lap table.
+ */
+export function hidesRedundantSnowLaps(
+  supplement: ActivitySupplement | undefined,
+  sport: string | null | undefined,
+) {
+  return isSnowSport(sport) && (supplement?.snowRuns.entries.length ?? 0) > 0;
+}
+
+/**
+ * Snow activities only, and only the parts with stored rows. One source-labelled
+ * line carries the stored Garmin per-type Runs and Lifts totals (never sums of
+ * the displayed run rows); the run table shows individual measured runs with
+ * HR derived from stored samples. Absent parts render nothing, and the
+ * coverage disclosure owns "none/unknown".
  */
 export function SnowSection({
   supplement,
@@ -236,53 +330,37 @@ export function SnowSection({
   supplement: ActivitySupplement;
   sport: string | null | undefined;
 }) {
-  const totals = [...supplement.snowTotals].sort(
-    (a, b) => TYPE_ORDER.indexOf(a.splitType) - TYPE_ORDER.indexOf(b.splitType),
-  );
+  const parts = SUMMARY_PARTS.flatMap(({ splitType, label }) => {
+    const row = supplement.snowTotals.find(
+      (total) => total.splitType === splitType,
+    );
+    return row ? [{ label, row }] : [];
+  });
   const { snowRuns } = supplement;
   const runCoverage = supplement.coverage.snow_run_lift_splits;
   const hasRuns = snowRuns.entries.length > 0;
-  if (!isSnowSport(sport) || (!totals.length && !hasRuns)) return null;
+  if (!isSnowSport(sport) || (!parts.length && !hasRuns)) return null;
   return (
     <section className="snow-section" aria-label="Run and lift summary">
-      {totals.length ? (
-        <>
-          <div className="activity-effort-widget-heading">
-            <h3>Runs and lifts</h3>
-            <span>Garmin per-type totals</span>
-          </div>
-          <div className="snow-totals-wrap">
-            <table className="snow-totals">
-              <caption>Totals over the whole activity</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Type</th>
-                  <th scope="col">Count</th>
-                  <th scope="col">Total time</th>
-                  <th scope="col">Total distance</th>
-                  <th scope="col">Longest single split</th>
-                </tr>
-              </thead>
-              <tbody>
-                {totals.map((row) => (
-                  <tr key={row.splitType}>
-                    <th scope="row">
-                      {TYPE_LABEL[row.splitType] ?? row.splitType}
-                    </th>
-                    <td>{finite(row.count) ? n(row.count) : "—"}</td>
-                    <td>
-                      {finite(row.durationSec)
-                        ? durationDetailLabel(row.durationSec)
-                        : "—"}
-                    </td>
-                    <td>{distance(row.distanceMeters)}</td>
-                    <td>{distance(row.bestSplitDistanceMeters)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+      {parts.length ? (
+        <p className="snow-summary-line">
+          <span className="snow-summary-source">Garmin totals</span>
+          {parts.map(({ label, row }, index) => (
+            <span className="snow-summary-part" key={label}>
+              <strong>{label}</strong>{" "}
+              {[
+                finite(row.count) ? n(row.count) : "—",
+                compactDuration(row.durationSec),
+                distance(row.distanceMeters),
+              ].join(" · ")}
+              {index < parts.length - 1 ? (
+                <span className="snow-summary-sep" aria-hidden="true">
+                  |
+                </span>
+              ) : null}
+            </span>
+          ))}
+        </p>
       ) : null}
       {hasRuns ? (
         <div className="snow-run-display">
@@ -291,6 +369,10 @@ export function SnowSection({
               {preservedRunsWarning(runCoverage)}
             </p>
           ) : null}
+          <p className="snow-hr-note">
+            Avg HR and HR zones are derived from HR samples during each run;
+            they may differ slightly from Garmin per-lap totals.
+          </p>
           <div
             className="snow-totals-wrap snow-runs-wrap"
             role="region"
@@ -309,10 +391,13 @@ export function SnowSection({
                   <th scope="col">Run</th>
                   <th scope="col">Timer duration</th>
                   <th scope="col">Distance</th>
-                  <th scope="col">Ascent</th>
                   <th scope="col">Descent</th>
                   <th scope="col">Avg speed</th>
                   <th scope="col">Max speed</th>
+                  <th scope="col">Avg HR (bpm)</th>
+                  <th scope="col" className="lap-zone-column">
+                    HR zones
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -323,11 +408,6 @@ export function SnowSection({
                     <td>
                       {finite(entry.distanceMeters)
                         ? `${n(entry.distanceMeters / 1000, 3)} km`
-                        : "—"}
-                    </td>
-                    <td>
-                      {finite(entry.ascentMeters)
-                        ? `${n(entry.ascentMeters, 1)} m`
                         : "—"}
                     </td>
                     <td>
@@ -344,6 +424,12 @@ export function SnowSection({
                       {finite(entry.maxSpeedMps)
                         ? `${n(entry.maxSpeedMps * 3.6, 1)} km/h`
                         : "—"}
+                    </td>
+                    <td>
+                      <RunAvgHeartRate heartRate={entry.heartRate} />
+                    </td>
+                    <td className="lap-zone-column">
+                      <RunZoneCell heartRate={entry.heartRate} />
                     </td>
                   </tr>
                 ))}

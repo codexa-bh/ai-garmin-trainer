@@ -10,7 +10,36 @@ from chat_smoke import AuthoredProvider
 
 TOOLS = ['getActivityDashboard', 'describeGarminDatabase', 'runReadOnlySql', 'runMathAnalysis']
 RECOVERY = 'sleep score 82/100 qualifier GOOD; weekly HRV 61 ms; baseline 50–70 ms; charged 0/drained 65; high stress 60 min; body_battery=populated'
+
+
+def split_hr_rows(count=2, **over):
+    return [
+        {
+            'avgHeartRate': 123,
+            'zoneSeconds': None,
+            'zoneUnavailableReason': 'missing-zone-boundaries',
+            **over,
+        }
+        for _ in range(count)
+    ]
+
+
 DASHBOARD = {
+    'snowEvidence': {
+        'splitHeartRate': {
+            'zoneLowerBpm': None,
+            'types': [
+                {
+                    'splitType': kind,
+                    'sourceCount': 2,
+                    'returnedCount': 2,
+                    'omittedCount': 0,
+                    'rows': split_hr_rows(),
+                }
+                for kind in ['run', 'lift']
+            ],
+        }
+    },
     'extraEvidence': {
         'bodyBatteryDelta': -9,
         'cadence': {
@@ -31,7 +60,7 @@ DASHBOARD = {
         'snowboard': {'rows': [{'count': 9}]},
         'coverage': {'lap_hr_zones': {'status': 'populated'}},
         'limits': {'bucketsPerLap': 8},
-    }
+    },
 }
 DASHBOARD_EVIDENCE = 'Dashboard values and explicit limits: ' + json.dumps(DASHBOARD)
 
@@ -112,6 +141,21 @@ class ExtraDataProviderTests(unittest.TestCase):
             del changed['extraEvidence'][field]
             with self.assertRaises((ValueError, KeyError)):
                 self.call(1, 'Dashboard values and explicit limits: ' + json.dumps(changed))
+        for mutate in [
+            lambda d: d['snowEvidence']['splitHeartRate']['types'].pop(),
+            lambda d: d['snowEvidence']['splitHeartRate']['types'][0]['rows'][0].update(
+                avgHeartRate=None
+            ),
+            lambda d: d['snowEvidence']['splitHeartRate']['types'][1].update(omittedCount=1),
+            lambda d: d['snowEvidence']['splitHeartRate']['types'][1]['rows'][0].update(
+                zoneSeconds=[0] * 6
+            ),
+            lambda d: d['snowEvidence'].pop('splitHeartRate'),
+        ]:
+            changed = json.loads(json.dumps(DASHBOARD))
+            mutate(changed)
+            with self.assertRaises(ValueError):
+                self.call(1, 'Dashboard values and explicit limits: ' + json.dumps(changed))
         for field in ['route', 'charts', 'stream', 'visualInput']:
             with self.assertRaises(ValueError):
                 self.call(
@@ -144,7 +188,7 @@ class ExtraDataProviderTests(unittest.TestCase):
                 create table activity_lap (garmin_id text not null, lap_number integer not null, start_time text, primary key(garmin_id, lap_number));
                 create table activity_lap_hr_zone_time (garmin_id text not null, lap_number integer not null, bucket integer not null, zone integer, bucket_kind text not null, seconds real not null, lower_bpm integer, fetched_at integer not null, primary key(garmin_id, lap_number, bucket));
                 create table activity_split_summary (garmin_id text not null, split_type text not null, split_count integer, fetched_at integer not null, primary key(garmin_id, split_type));
-                create table activity_snow_split (garmin_id text not null, split_key text not null, message_index integer, source_order integer, split_type text check(split_type in ('run','lift')), distance_meters real, fetched_at integer not null, primary key(garmin_id,split_key));
+                create table activity_snow_split (garmin_id text not null, split_key text not null, message_index integer, source_order integer, split_type text check(split_type in ('run','lift')), start_time text, end_time text, distance_meters real, fetched_at integer not null, primary key(garmin_id,split_key));
                 create table garmin_data_coverage (data_group text not null, subject_type text not null, subject_id text not null, status text not null, reason text, updated_at integer not null, primary key(data_group, subject_type, subject_id));
                 """
             )
