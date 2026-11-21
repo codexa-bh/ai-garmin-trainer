@@ -134,6 +134,8 @@ await cp(
   join(cache, target.nodeRoot, "LICENSE"),
   join(resources, "NODE-LICENSE.txt"),
 );
+// The project's own MIT license, unchanged; third-party terms stay separate.
+await cp(join(root, "LICENSE"), join(resources, "FIRST-PARTY-LICENSE.txt"));
 await build({
   entryPoints: [join(root, "scripts/desktop/runtime.ts")],
   outfile: join(runtime, "runtime.cjs"),
@@ -195,7 +197,7 @@ if (
   throw new Error(
     "Packaged fresh-only initializer failed; no selected file was opened.",
   );
-// Preserve the reviewed limitations with the actual payload, not only in source docs.
+// Preserve the reviewed conditions with the actual payload, not only in source docs.
 await cp(
   join(root, "docs/redistribution.md"),
   join(resources, "REDISTRIBUTION-REVIEW.txt"),
@@ -235,7 +237,7 @@ const notices = Object.entries(lock.packages)
   .join("\n");
 await writeFile(
   join(resources, "THIRD-PARTY-NOTICES.txt"),
-  `Unsigned build. Notices are not redistribution authorization.\nNode and embedded components: see NODE-LICENSE.txt.\nActual npm/native/upstream license texts: see redistribution/NOTICES.txt.\nSources and exact input digests: see redistribution/index.json and redistribution/sources/.\nSee REDISTRIBUTION-REVIEW.txt for limited permissions, attribution, rebuild directions and remaining publication gates.\nProduction npm dependency metadata (conservative superset, not legal certification):\n${notices}\n`,
+  `Unsigned build. Notices are not redistribution authorization.\nFirst-party code and assets: MIT, see FIRST-PARTY-LICENSE.txt. Third-party components keep their own terms.\nNode and embedded components: see NODE-LICENSE.txt.\nActual npm/native/upstream license texts: see redistribution/NOTICES.txt.\nSources and exact input digests: see redistribution/index.json and redistribution/sources/.\nSee REDISTRIBUTION-REVIEW.txt for the first-party license scope, attribution, rebuild directions and remaining publication gates.\nProduction npm dependency metadata (conservative superset, not legal certification):\n${notices}\n`,
 );
 // Bind the generated notices and source corpus as well as runtime resources.
 await inventory(resources);

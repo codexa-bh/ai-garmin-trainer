@@ -1,4 +1,4 @@
-"""Assemble reviewed notices and source material, never select a project license.
+"""Assemble reviewed third-party notices and source material, never the project license.
 
 Called only by the existing resource assembler under the ordinary producer lock.
 Arbitrary archive paths are never extracted; upstream code is never executed.
@@ -279,9 +279,10 @@ def assemble(root):
     with (output / 'NOTICES.txt').open('x') as stream:
         stream.write(
             'Actual third-party license/NOTICE texts; conservative source superset.\n'
-            'Per-file licenses control; this is not a project license or legal certification.\n'
+            'Per-file licenses control; this is not legal certification.\n'
+            'First-party code and assets (MIT): see ../FIRST-PARTY-LICENSE.txt.\n'
             'Node and its embedded components: see ../NODE-LICENSE.txt.\n'
-            'Source, attribution and limited permissions: see ../REDISTRIBUTION-REVIEW.txt.\n\n'
+            'Source, attribution and rebuild directions: see ../REDISTRIBUTION-REVIEW.txt.\n\n'
         )
         for name, text in texts:
             stream.write('\n===== ' + name + ' =====\n' + text + '\n')
