@@ -68,6 +68,14 @@ async function hydrateConversations(
       onRecoverableError: recoverableError,
     });
   });
+  // The selector starts collapsed; expand it as the operator would.
+  await act(async () =>
+    fireEvent.click(
+      within(container).getByRole("button", {
+        name: "Expand conversation selector",
+      }),
+    ),
+  );
   return {
     settleList,
     settleSelection,

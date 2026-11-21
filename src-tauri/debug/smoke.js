@@ -2233,17 +2233,24 @@
       throw Error("Synthetic conversation missing/ambiguous");
     return rows[0];
   }
+  const conversationSelectorToggles = () =>
+    [
+      ...document.querySelectorAll(
+        ".conversation-sidebar .conversation-selector-toggle",
+      ),
+    ].filter(visible);
+  function conversationHistoryExpanded() {
+    const toggles = conversationSelectorToggles();
+    return (
+      toggles.length === 1 &&
+      toggles[0].getAttribute("aria-expanded") === "true"
+    );
+  }
   function conversationHistoryVisible() {
     const sidebar = document.querySelector(".conversation-sidebar");
-    if (!visible(sidebar)) return false;
+    if (!visible(sidebar) || !conversationHistoryExpanded()) return false;
     const rect = sidebar.getBoundingClientRect();
-    return (
-      rect.width >= 200 &&
-      rect.left >= 0 &&
-      rect.right <= innerWidth &&
-      (sidebar.classList.contains("open") ||
-        (innerWidth > 960 && !sidebar.closest(".sidebar-collapsed")))
-    );
+    return rect.width >= 200 && rect.left >= 0 && rect.right <= innerWidth;
   }
   function conversationObservation(action) {
     const rows = conversationRows();
@@ -2292,24 +2299,14 @@
         conversationTitle("first"),
         conversationTitle("second"),
       ].includes(document.querySelector("#conversation-rename-title")?.value),
-      historyExpanded:
-        !!document.querySelector(".conversation-sidebar.open") ||
-        (innerWidth > 960 &&
-          !document
-            .querySelector(".conversation-sidebar")
-            ?.closest(".sidebar-collapsed")),
+      historyExpanded: conversationHistoryExpanded(),
       historyFitsViewport: (() => {
         const r = document
           .querySelector(".conversation-sidebar")
           ?.getBoundingClientRect();
         return !!r && r.width >= 200 && r.left >= 0 && r.right <= innerWidth;
       })(),
-      historyToggleVisible:
-        [
-          ...document.querySelectorAll(
-            'button[aria-label="Toggle conversation history"]',
-          ),
-        ].filter(visible).length === 1,
+      historyToggleVisible: conversationSelectorToggles().length === 1,
       empty: rows.length === 0,
       firstPresent: present("first"),
       secondPresent: present("second"),
@@ -2335,9 +2332,8 @@
     conversationStage = "admission";
     const actions = [
       "observe",
-      "open-menu",
       "open-history",
-      "settle-history",
+      "collapse-history",
       "new",
       "menu-new",
       "rename-new",
@@ -2359,31 +2355,12 @@
     conversationRows();
     if (command.action === "observe")
       return conversationObservation(command.action);
-    if (command.action === "open-menu") {
-      if (innerWidth > 960) throw Error("Mobile menu only");
-      target("Menu").click();
-    } else if (command.action === "open-history") {
-      if (!conversationObservation("observe").historyExpanded)
-        target("Toggle conversation history").click();
-    } else if (command.action === "settle-history") {
-      const sidebar = document.querySelector(".conversation-sidebar");
-      if (
-        !conversationObservation("observe").historyExpanded ||
-        typeof CSSTransition === "undefined"
-      )
-        throw Error("An explicitly opened history transition is required");
-      // Nonactivating WebKit can freeze CSS transitions. Finish only this
-      // sidebar's existing finite transition at its real CSS endpoint; no
-      // style/transform override, generic animation control or geometry waiver.
-      for (const animation of sidebar.getAnimations())
-        if (
-          animation instanceof CSSTransition &&
-          animation.effect?.target === sidebar &&
-          ["transform", "width", "padding-left", "padding-right"].includes(
-            animation.transitionProperty,
-          )
-        )
-          animation.finish();
+    if (command.action === "open-history") {
+      if (!conversationHistoryExpanded())
+        target("Expand conversation selector").click();
+    } else if (command.action === "collapse-history") {
+      if (conversationHistoryExpanded())
+        target("Collapse conversation selector").click();
     } else {
       if (!conversationHistoryVisible())
         throw Error("History must be visibly open");
@@ -2477,12 +2454,32 @@
     return conversationObservation(command.action);
   }
   function revealConversations() {
-    if (!conversationHistoryVisible())
-      throw Error("Capture requires visibly open history");
+    const sidebar = document.querySelector(".conversation-sidebar");
+    const [toggle] = conversationSelectorToggles();
+    const collapsed =
+      !!toggle &&
+      toggle.getAttribute("aria-expanded") === "false" &&
+      visible(sidebar);
+    if (!conversationHistoryVisible() && !collapsed)
+      throw Error("Capture requires visibly open or collapsed selector");
     conversationRows(); // Refuse unknown/copied labels before revealing anything.
+    if (collapsed) {
+      // Only the static arrow and its identity label, never message content.
+      for (const el of [
+        toggle,
+        sidebar.querySelector(".conversation-selector-rail-label"),
+      ])
+        el?.setAttribute("data-smoke-reveal", "");
+      for (
+        let node = toggle.parentElement;
+        node && node !== document.body;
+        node = node.parentElement
+      )
+        node.setAttribute("data-smoke-reveal", "");
+      return;
+    }
     // Preserve WebKit's real scrolled compositing layer, as for table captures.
     // Only empty-text containers are revealed; every child remains masked.
-    const sidebar = document.querySelector(".conversation-sidebar");
     for (
       let node = sidebar.querySelector(".conversation-list");
       node && node !== document.body;
@@ -2506,8 +2503,9 @@
       ])
         el?.setAttribute("data-smoke-reveal", "");
     }
+    toggle.setAttribute("data-smoke-reveal", "");
     for (const el of document.querySelectorAll(
-      ".conversation-sidebar button, .sidebar-header strong, .sidebar-header .section-kicker, .conversation-list .empty-chat",
+      ".conversation-sidebar button, .conversation-selector-heading strong, .conversation-selector-heading .section-kicker, .conversation-list .empty-chat",
     ))
       if (
         [
