@@ -61,7 +61,7 @@ The approved source notes/public body retain `Status: prepared` as the historica
 
 ## Release cut runbook
 
-The standard process for a routine version/notes cut, after the same four steps the Pivan epic uses. Source, dependency, workflow or packaging implementation changes follow their normal validation and PR workflow first; do not hide them in a cut. This routes to the owners below and adds no pipeline, cache or automatic stage advance. First-release setup (source/notice corpus, limited first-party permissions, helpers) is settled and reused. A previous release's receipts, timings or summaries never qualify a new candidate.
+The standard process for a routine version/notes cut, after the same four steps the Pivan epic uses. Source, dependency, workflow or packaging implementation changes follow their normal validation and PR workflow first; do not hide them in a cut. This routes to the owners below and adds no pipeline, cache or automatic stage advance. First-release setup (source/notice corpus, first-party MIT license, helpers) is settled and reused. A previous release's receipts, timings or summaries never qualify a new candidate.
 
 ### Four steps
 

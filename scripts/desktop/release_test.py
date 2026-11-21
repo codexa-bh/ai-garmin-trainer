@@ -275,6 +275,7 @@ class PayloadTests(unittest.TestCase):
     def test_payload_requires_runtime_notices_architecture_and_declared_signing(self):
         root = self.app / 'Contents/Resources/resources'
         for name in [
+            'FIRST-PARTY-LICENSE.txt',
             'NODE-LICENSE.txt',
             'THIRD-PARTY-NOTICES.txt',
             'REDISTRIBUTION-REVIEW.txt',
@@ -330,6 +331,7 @@ class PayloadTests(unittest.TestCase):
                 shutil.rmtree(root / 'runtime/node_modules' / group)
             self.assertTrue(artifact.payload_checks(self.app, '0.1.0'))
             for required in [
+                'FIRST-PARTY-LICENSE.txt',
                 'NODE-LICENSE.txt',
                 'redistribution/index.json',
                 'redistribution/NOTICES.txt',
@@ -342,6 +344,26 @@ class PayloadTests(unittest.TestCase):
                 with self.subTest(required=required), self.assertRaises(FileNotFoundError):
                     artifact.payload_checks(self.app, '0.1.0')
                 path.write_bytes(original)
+            license_path = root / 'FIRST-PARTY-LICENSE.txt'
+            license_text = license_path.read_bytes()
+            license_path.write_bytes(b'')
+            with self.assertRaisesRegex(ValueError, 'resource/notice missing'):
+                artifact.payload_checks(self.app, '0.1.0')
+            license_path.write_bytes(b'altered license')
+            recorded = {
+                'files': [
+                    {
+                        'path': 'FIRST-PARTY-LICENSE.txt',
+                        'sha256': hashlib.sha256(license_text).hexdigest(),
+                    }
+                ]
+            }
+            with (
+                patch.object(artifact, 'provenance', return_value=recorded),
+                self.assertRaisesRegex(ValueError, 'provenance mismatch'),
+            ):
+                artifact.payload_checks(self.app, '0.1.0')
+            license_path.write_bytes(license_text)
             with patch.object(
                 artifact, 'run', return_value=subprocess.CompletedProcess([], 0, b'x86_64', b'')
             ):

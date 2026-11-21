@@ -29,6 +29,7 @@ SIGNING = 'unsigned; no Authenticode signature or verified publisher (SmartScree
 RECORD = 'release-windows-x64.json'
 X64 = 0x8664
 REQUIRED = [
+    'FIRST-PARTY-LICENSE.txt',
     'NODE-LICENSE.txt',
     'THIRD-PARTY-NOTICES.txt',
     'REDISTRIBUTION-REVIEW.txt',

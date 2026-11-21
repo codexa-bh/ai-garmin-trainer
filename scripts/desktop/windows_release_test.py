@@ -153,6 +153,41 @@ class WindowsPayloadTests(unittest.TestCase):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 windows_release.payload_checks({name: '0' * 64}, self.release, '1.2.3')
 
+    def test_first_party_license_missing_empty_or_changed_refuses(self):
+        resources = self.release / 'resources'
+        sqlite = 'runtime/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+        files = {name: b'required resource' for name in windows_release.REQUIRED}
+        files[sqlite] = pe(0x8664)
+        files['runtime/node_modules/@resvg/resvg-wasm/index_bg.wasm'] = b'rasterizer'
+        for name, data in files.items():
+            (resources / name).parent.mkdir(parents=True, exist_ok=True)
+            (resources / name).write_bytes(data)
+        payload = {
+            'resources/' + path.relative_to(resources).as_posix(): windows_package.digest(path)
+            for path in resources.rglob('*')
+            if path.is_file()
+        }
+        payload[windows_package.BINARY] = windows_package.digest(
+            self.release / windows_package.BINARY
+        )
+        name = 'resources/FIRST-PARTY-LICENSE.txt'
+        recorded = {
+            'platform': 'windows-x64',
+            'files': [{'path': 'FIRST-PARTY-LICENSE.txt', 'sha256': payload[name]}],
+        }
+        with patch('windows_release.provenance', return_value=recorded):
+            self.assertTrue(windows_release.payload_checks(payload, self.release, '1.2.3'))
+            changed = {**payload, name: '0' * 64}
+            with self.assertRaisesRegex(ValueError, 'provenance mismatch'):
+                windows_release.payload_checks(changed, self.release, '1.2.3')
+        with patch('windows_release.provenance', return_value={**recorded, 'files': []}):
+            omitted = {key: value for key, value in payload.items() if key != name}
+            with self.assertRaisesRegex(ValueError, 'resource/notice missing'):
+                windows_release.payload_checks(omitted, self.release, '1.2.3')
+            (resources / 'FIRST-PARTY-LICENSE.txt').write_bytes(b'')
+            with self.assertRaisesRegex(ValueError, 'resource/notice missing'):
+                windows_release.payload_checks(payload, self.release, '1.2.3')
+
     def test_record_shape_names_platform_signing_and_exact_installer(self):
         self.assertEqual(
             windows_release.asset_name('1.2.3'), 'Garmin-Trainer-1.2.3-windows-x64-setup.exe'

@@ -230,6 +230,7 @@ def payload_checks(app, version):
         ):
             raise ValueError('Resource provenance mismatch')
     for name in [
+        'FIRST-PARTY-LICENSE.txt',
         'NODE-LICENSE.txt',
         'THIRD-PARTY-NOTICES.txt',
         'REDISTRIBUTION-REVIEW.txt',
