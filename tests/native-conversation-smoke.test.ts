@@ -304,6 +304,7 @@ it("captures a collapsed rail revealing only the arrow and its identity label", 
     ".conversation-selector-toggle",
   )!;
   arrow.setAttribute("aria-expanded", "false");
+  arrow.innerHTML = '<svg><path d="M0 0"></path></svg>';
   const label = document.createElement("span");
   label.className = "conversation-selector-rail-label";
   label.textContent = "Conversations";
@@ -318,6 +319,9 @@ it("captures a collapsed rail revealing only the arrow and its identity label", 
     ).ok,
   ).toBe(true);
   expect(arrow.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect(arrow.querySelector("svg")!.hasAttribute("data-smoke-reveal")).toBe(
+    true,
+  );
   expect(label.hasAttribute("data-smoke-reveal")).toBe(true);
   expect(
     document.querySelector(".transcript")!.hasAttribute("data-smoke-reveal"),

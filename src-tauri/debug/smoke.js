@@ -2467,6 +2467,7 @@
       // Only the static arrow and its identity label, never message content.
       for (const el of [
         toggle,
+        ...toggle.querySelectorAll("svg, path"),
         sidebar.querySelector(".conversation-selector-rail-label"),
       ])
         el?.setAttribute("data-smoke-reveal", "");
@@ -2503,7 +2504,8 @@
       ])
         el?.setAttribute("data-smoke-reveal", "");
     }
-    toggle.setAttribute("data-smoke-reveal", "");
+    for (const el of [toggle, ...toggle.querySelectorAll("svg, path")])
+      el.setAttribute("data-smoke-reveal", "");
     for (const el of document.querySelectorAll(
       ".conversation-sidebar button, .conversation-selector-heading strong, .conversation-selector-heading .section-kicker, .conversation-list .empty-chat",
     ))
