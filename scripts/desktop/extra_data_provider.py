@@ -147,7 +147,8 @@ def seed(db):
         ],
     )
     db.executemany(
-        'insert into garmin_data_coverage(data_group,subject_type,subject_id,status,reason,updated_at) values (?,?,?,?,?,1)',
+        # The recipe may already cover the newest day; the authored row must win, not collide.
+        'insert or replace into garmin_data_coverage(data_group,subject_type,subject_id,status,reason,updated_at) values (?,?,?,?,?,1)',
         [
             ('sleep', 'date', '2026-11-02', 'populated', None),
             ('vo2_max', 'date', '2026-11-02', 'empty', 'source-empty'),
