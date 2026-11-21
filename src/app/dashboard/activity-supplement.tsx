@@ -5,6 +5,7 @@ import type {
   LapZoneEvidence,
   SupplementCoverage,
 } from "@/lib/local-data/supplement-contracts";
+import { SNOW_ACTIVITY_SPORTS } from "@/lib/garmin/extra-types";
 import { durationDetailLabel } from "./activity-charts";
 
 const GROUP_LABEL: Record<ActivitySupplementGroup, string> = {
@@ -47,21 +48,14 @@ export function supplementSummary(supplement: ActivitySupplement | undefined) {
       available: finite(supplement.bodyBatteryDelta),
     },
     {
-      label: "Cadence (Garmin list)",
+      label: "Cadence",
       value: finite(supplement.listCadence.avgSpm)
         ? `${n(supplement.listCadence.avgSpm, 1)} steps/min`
         : "Unavailable",
       available: finite(supplement.listCadence.avgSpm),
     },
     {
-      label: "Max cadence (Garmin list)",
-      value: finite(supplement.listCadence.maxSpm)
-        ? `${n(supplement.listCadence.maxSpm, 1)} steps/min`
-        : "Unavailable",
-      available: finite(supplement.listCadence.maxSpm),
-    },
-    {
-      label: "Stride length (Garmin list)",
+      label: "Stride length",
       value: finite(supplement.listCadence.strideLengthCm)
         ? `${n(supplement.listCadence.strideLengthCm, 1)} cm`
         : "Unavailable",
@@ -212,97 +206,91 @@ function runTimer(seconds: number | null) {
       : `${rest}s`;
 }
 
-function runCoverageWords(coverage: SupplementCoverage) {
-  if (
-    coverage.status === "unavailable" &&
-    coverage.reason === "unsupported-sport"
-  )
-    return "Individual measured runs are not supported for this sport.";
-  switch (coverage.status) {
-    case "populated":
-      return "No individual measured runs; stored splits may contain lifts only.";
-    case "empty":
-      return "Garmin returned no individual split data.";
-    case "unavailable":
-      return "Individual measured runs are unavailable from the source.";
-    case "failed":
-      return "The latest individual-run read failed.";
-    default:
-      return "Individual runs have not been imported (coverage unknown).";
-  }
+/** Freshness warning for preserved runs when the latest individual-run read is not a populated one. */
+function preservedRunsWarning(coverage: SupplementCoverage) {
+  const cause =
+    coverage.status === "unavailable" && coverage.reason === "unsupported-sport"
+      ? "Individual measured runs are not supported for this sport."
+      : coverage.status === "empty"
+        ? "Garmin returned no individual split data."
+        : coverage.status === "unavailable"
+          ? "Individual measured runs are unavailable from the source."
+          : coverage.status === "failed"
+            ? "The latest individual-run read failed."
+            : "Individual runs have not been imported (coverage unknown).";
+  return `${cause} Showing preserved runs; a complete fresh set is not confirmed.`;
 }
 
-/** Existing per-type aggregates stay separate from the individual run-only table. */
+const isSnowSport = (sport: string | null | undefined) =>
+  SNOW_ACTIVITY_SPORTS.some((snowSport) => snowSport === sport);
+
+/**
+ * Snow activities only, and only the parts with stored rows: per-type
+ * aggregates and the individual run-only table stay separate and never render
+ * empty placeholders (the coverage disclosure owns "none/unknown").
+ */
 export function SnowSection({
   supplement,
+  sport,
 }: {
   supplement: ActivitySupplement;
+  sport: string | null | undefined;
 }) {
   const totals = [...supplement.snowTotals].sort(
     (a, b) => TYPE_ORDER.indexOf(a.splitType) - TYPE_ORDER.indexOf(b.splitType),
   );
   const { snowRuns } = supplement;
   const runCoverage = supplement.coverage.snow_run_lift_splits;
-  const totalCoverage = supplement.coverage.snowboard_splits;
-  if (
-    !totals.length &&
-    !snowRuns.total &&
-    !snowRuns.relevant &&
-    runCoverage.status === "not_imported" &&
-    totalCoverage.status === "not_imported"
-  )
-    return null;
+  const hasRuns = snowRuns.entries.length > 0;
+  if (!isSnowSport(sport) || (!totals.length && !hasRuns)) return null;
   return (
     <section className="snow-section" aria-label="Run and lift summary">
-      <div className="activity-effort-widget-heading">
-        <h3>Runs and lifts</h3>
-        <span>Garmin per-type totals</span>
-      </div>
       {totals.length ? (
-        <div className="snow-totals-wrap">
-          <table className="snow-totals">
-            <caption>Totals over the whole activity</caption>
-            <thead>
-              <tr>
-                <th scope="col">Type</th>
-                <th scope="col">Count</th>
-                <th scope="col">Total time</th>
-                <th scope="col">Total distance</th>
-                <th scope="col">Longest single split</th>
-              </tr>
-            </thead>
-            <tbody>
-              {totals.map((row) => (
-                <tr key={row.splitType}>
-                  <th scope="row">
-                    {TYPE_LABEL[row.splitType] ?? row.splitType}
-                  </th>
-                  <td>{finite(row.count) ? n(row.count) : "—"}</td>
-                  <td>
-                    {finite(row.durationSec)
-                      ? durationDetailLabel(row.durationSec)
-                      : "—"}
-                  </td>
-                  <td>{distance(row.distanceMeters)}</td>
-                  <td>{distance(row.bestSplitDistanceMeters)}</td>
+        <>
+          <div className="activity-effort-widget-heading">
+            <h3>Runs and lifts</h3>
+            <span>Garmin per-type totals</span>
+          </div>
+          <div className="snow-totals-wrap">
+            <table className="snow-totals">
+              <caption>Totals over the whole activity</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Type</th>
+                  <th scope="col">Count</th>
+                  <th scope="col">Total time</th>
+                  <th scope="col">Total distance</th>
+                  <th scope="col">Longest single split</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="helper-text">
-          Per-type totals: {statusWords(totalCoverage)}.
-        </p>
-      )}
-      <div className="snow-run-display">
-        {snowRuns.total > 0 && runCoverage.status !== "populated" ? (
-          <p className="helper-text" role="status">
-            {runCoverageWords(runCoverage)} Showing preserved runs; a complete
-            fresh set is not confirmed.
-          </p>
-        ) : null}
-        {snowRuns.total > 0 ? (
+              </thead>
+              <tbody>
+                {totals.map((row) => (
+                  <tr key={row.splitType}>
+                    <th scope="row">
+                      {TYPE_LABEL[row.splitType] ?? row.splitType}
+                    </th>
+                    <td>{finite(row.count) ? n(row.count) : "—"}</td>
+                    <td>
+                      {finite(row.durationSec)
+                        ? durationDetailLabel(row.durationSec)
+                        : "—"}
+                    </td>
+                    <td>{distance(row.distanceMeters)}</td>
+                    <td>{distance(row.bestSplitDistanceMeters)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
+      {hasRuns ? (
+        <div className="snow-run-display">
+          {runCoverage.status !== "populated" ? (
+            <p className="helper-text" role="status">
+              {preservedRunsWarning(runCoverage)}
+            </p>
+          ) : null}
           <div
             className="snow-totals-wrap snow-runs-wrap"
             role="region"
@@ -362,13 +350,8 @@ export function SnowSection({
               </tbody>
             </table>
           </div>
-        ) : (
-          <div>
-            <h3>Snow runs</h3>
-            <p className="helper-text">{runCoverageWords(runCoverage)}</p>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : null}
     </section>
   );
 }

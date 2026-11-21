@@ -14,7 +14,7 @@ Creates exclusive synthetic SQLite/selection and provenance; no native build, ac
 
 `npm run env -- python3 scripts/desktop/snow_runs_smoke.py --scratch "$scratch" --bundle "$bundle"`
 
-Current ordinary ARM64 build and same physical source/tool environment required. Existing authored recipe flows through real SQLite/dashboard/HTTP/ActivityView: populated runs only, unknown, unsupported and preserved-after-failure states. Full two-instance baseline plus ten wide/narrow/local-scroll-end snow captures per instance; inspect originals and preservation/settlement receipts. Closed exact-cell masks, no private/service/trusted-input or installed-default-app proof. [Scenario](smoke/features.md#finite-authored-snow-runs).
+Current ordinary ARM64 build and same physical source/tool environment required. Existing authored recipe flows through real SQLite/dashboard/HTTP/ActivityView: populated and preserved-after-failure run tables, with unknown and unsupported snow activities showing no snow section. Full two-instance baseline plus ten wide/narrow/local-scroll-end snow captures per instance; inspect originals and preservation/settlement receipts. Closed exact-cell masks, no private/service/trusted-input or installed-default-app proof. [Scenario](smoke/features.md#finite-authored-snow-runs).
 
 ## ordinary — Full ordinary synthetic native regression
 

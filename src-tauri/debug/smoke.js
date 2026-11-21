@@ -241,14 +241,16 @@
       const text = region?.textContent ?? "";
       for (const expected of [
         "Body Battery change−9 points",
-        "Cadence (Garmin list)162 steps/min",
-        "Max cadence (Garmin list)176 steps/min",
-        "Stride length (Garmin list)98.5 cm",
+        "Cadence162 steps/min",
+        "Stride length98.5 cm",
         "Cadence (FIT file)81.5 cycles/min",
         "Step length (FIT file)0.99 m",
       ])
         if (!text.includes(expected))
           throw Error("Noncanonical summary refused");
+      // The stored list maximum (176) is never presented, and no list suffix remains.
+      if (/max cadence|176|Garmin list/i.test(text))
+        throw Error("Noncanonical summary refused");
     } else if (lapAction) {
       region = detail.querySelector(".lap-table-wrap");
       const rows = [...(region?.querySelectorAll("tbody tr") ?? [])];
@@ -2965,9 +2967,9 @@
     "Avg speed",
     "Max speed",
   ];
+  // Variants without stored rows must render no snow section at all.
+  const snowAbsent = ["unknown", "unsupported"];
   const snowMessages = {
-    unknown: "Individual runs have not been imported (coverage unknown).",
-    unsupported: "Individual measured runs are not supported for this sport.",
     preserved:
       "The latest individual-run read failed. Showing preserved runs; a complete fresh set is not confirmed.",
   };
@@ -2988,7 +2990,28 @@
       ),
     }));
   }
+  function snowSelected() {
+    const chosen = snowChoices().find(
+      (choice) => choice.variant === snowVariant,
+    );
+    return (
+      !!chosen &&
+      chosen.rows.length === 1 &&
+      chosen.rows[0].classList.contains("selected") &&
+      document.querySelector(".selected-activity-heading h2")?.textContent ===
+        snowNames[snowVariant]
+    );
+  }
+  // Authored absence: the exact selected activity heading, with no snow section or run table anywhere.
+  function snowAbsentAnchor() {
+    return snowAbsent.includes(snowVariant) &&
+      snowSelected() &&
+      !document.querySelector(".snow-section, .snow-run-display, .snow-runs")
+      ? document.querySelector(".selected-activity-heading")
+      : null;
+  }
   function snowRegion() {
+    if (snowAbsent.includes(snowVariant)) return null;
     const choices = snowChoices();
     const chosen = choices.find((choice) => choice.variant === snowVariant);
     if (
@@ -3002,9 +3025,8 @@
     const region = document.querySelector(".snow-run-display");
     if (!region || !visible(region)) return null;
     const table = region.querySelector("table");
-    const populated = ["populated", "preserved"].includes(snowVariant);
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    if (populated) {
+    {
       if (
         region.querySelectorAll("table").length !== 1 ||
         table.caption?.textContent.trim() !== "Snow runs" ||
@@ -3022,8 +3044,7 @@
         )
       )
         return null;
-    } else if (table || region.querySelector("h3")?.textContent !== "Snow runs")
-      return null;
+    }
     const paragraphs = [...region.querySelectorAll("p")].map((node) =>
       node.textContent.trim(),
     );
@@ -3067,14 +3088,15 @@
   }
   function snowObservation(action) {
     const region = snowRegion();
+    const anchor = region ?? snowAbsentAnchor();
     const wrap = region?.querySelector(".snow-runs-wrap");
-    const rect = region?.getBoundingClientRect();
+    const rect = anchor?.getBoundingClientRect();
     return {
       ok: true,
       action,
       trustedInput: false,
       choicesReady: snowChoices().every((choice) => choice.rows.length === 1),
-      ready: !!region,
+      ready: !!anchor,
       contained: document.documentElement.scrollWidth <= innerWidth,
       scrollable: !!wrap && wrap.scrollWidth > wrap.clientWidth,
       edgeReached:
@@ -3124,6 +3146,7 @@
       );
       const rows = [...(table?.querySelectorAll("tbody tr") ?? [])];
       const ready =
+        !document.querySelector(".snow-section") &&
         rows.length === 4 &&
         [...table.querySelectorAll("thead th")].at(-1)?.textContent ===
           "HR zones" &&
@@ -3162,7 +3185,7 @@
       snowVariant = command.action;
       chosen.rows[0].click();
     } else if (command.action !== "observe") {
-      const region = snowRegion();
+      const region = snowRegion() ?? snowAbsentAnchor();
       if (!region) throw Error("Canonical Snow runs required");
       if (["collapse", "expand"].includes(command.action)) {
         const label =
@@ -3197,7 +3220,7 @@
     return snowObservation(command.action);
   }
   function revealSnowRuns() {
-    const region = snowRegion();
+    const region = snowRegion() ?? snowAbsentAnchor();
     if (!region || !snowObservation("observe").headerVisible)
       throw Error("Visible canonical Snow runs required");
     for (const node of [region, ...region.querySelectorAll("*")])
@@ -4172,7 +4195,8 @@
     } else if (command.view === "activityLabels") {
       if (!labelElements().ready) throw Error("Unsafe Activity capture");
     } else if (command.view === "snowRuns") {
-      if (!snowRegion()) throw Error("Unsafe Snow runs capture");
+      if (!snowRegion() && !snowAbsentAnchor())
+        throw Error("Unsafe Snow runs capture");
     } else if (command.view === "terrain") {
       if (!terrainRegion()) throw Error("Unsafe Terrain capture");
     } else if (command.view === "tables") {
