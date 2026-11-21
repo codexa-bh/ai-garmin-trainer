@@ -51,7 +51,7 @@ describe("explicit-zone instants", () => {
       { timestamp: "2026-01-10T11:00:10+01:00", heartRate: 120 },
       { timestamp: "2026-01-10T10:00:00Z", heartRate: 100 },
     ]);
-    expect(samples.map((s) => s.heartRate)).toEqual([100, 120]);
+    expect(samples.samples.map((s) => s.heartRate)).toEqual([100, 120]);
   });
   it("treats DST-equivalent offsets as the same instant and refuses zone-less or invalid text", () => {
     const rows = [
@@ -74,8 +74,111 @@ describe("explicit-zone instants", () => {
       "",
     ])
       expect(
-        prepareHeartRateSamples([{ timestamp: bad, heartRate: 100 }]),
+        prepareHeartRateSamples([{ timestamp: bad, heartRate: 100 }]).samples,
       ).toEqual([]);
+  });
+});
+
+describe("activity-local UTC preparation", () => {
+  const legacy = (second: number, hr: number | null = 120) => ({
+    timestamp: at(second).replace("T", " ").replace(".000Z", ""),
+    heartRate: hr,
+  });
+  it("admits matching legacy clock once per activity, preserving explicit offset instants", () => {
+    const rows = [
+      legacy(0, null),
+      legacy(10),
+      { timestamp: "2026-01-10T11:00:20+01:00", heartRate: 140 },
+    ];
+    const prepared = prepareHeartRateSamples(rows, Date.parse(T0));
+    expect(prepared.unavailableReason).toBeNull();
+    expect(
+      deriveSplitHeartRate(prepared, win(10, 20), bounds).avgHeartRate,
+    ).toBe(120);
+  });
+  it.each([null, NaN, Infinity, Date.parse(T0) + 1])(
+    "refuses missing/invalid/mismatching start %s",
+    (start) => {
+      expect(
+        prepareHeartRateSamples([legacy(0), legacy(10)], start)
+          .unavailableReason,
+      ).toBe("unproven-sample-timezone");
+    },
+  );
+  it("accepts millisecond-precise legacy fractions only with exact equality", () => {
+    const rows = [
+      { timestamp: "2026-01-10 10:00:00.123", heartRate: 120 },
+      { timestamp: "2026-01-10T10:00:01.123", heartRate: 120 },
+    ];
+    expect(
+      prepareHeartRateSamples(rows, Date.parse(T0) + 123).unavailableReason,
+    ).toBeNull();
+    expect(
+      prepareHeartRateSamples(rows, Date.parse(T0)).unavailableReason,
+    ).toBe("unproven-sample-timezone");
+  });
+  it.each([
+    "2026-02-29 10:00:00",
+    "2026-04-31 10:00:00",
+    "2026-01-10 24:00:00",
+    "2026-01-10 10:60:00",
+    "2026-01-10 10:00:60",
+    "01/10/2026 10:00:00",
+    "2026-01-10 10:00:00.1234",
+  ])("refuses calendar/grammar-invalid legacy text %s", (timestamp) => {
+    expect(
+      prepareHeartRateSamples([{ timestamp, heartRate: 120 }], Date.parse(T0))
+        .unavailableReason,
+    ).toBe("invalid-sample-time");
+  });
+  it("accepts a leap day but rejects rolled-over explicit-zone days and window endpoints", () => {
+    const timestamp = "2024-02-29 10:00:00";
+    expect(
+      prepareHeartRateSamples(
+        [{ timestamp, heartRate: 120 }],
+        Date.parse("2024-02-29T10:00:00Z"),
+      ).unavailableReason,
+    ).toBeNull();
+    expect(
+      prepareHeartRateSamples([
+        { timestamp: "2026-02-29T10:00:00Z", heartRate: 120 },
+      ]).unavailableReason,
+    ).toBe("invalid-sample-time");
+    expect(
+      deriveSplitHeartRate(
+        prepareHeartRateSamples([]),
+        { startTime: "2026-02-29T10:00:00Z", endTime: "2026-03-01T10:00:10Z" },
+        bounds,
+      ).unavailableReason,
+    ).toBe("invalid-window");
+  });
+  it("prioritizes invalid window, then clock, then stored/window/HR availability", () => {
+    const prepared = prepareHeartRateSamples([
+      legacy(0),
+      sampleAt(5, 120),
+      sampleAt(10, 120),
+    ]);
+    expect(
+      deriveSplitHeartRate(
+        prepared,
+        { startTime: null, endTime: at(10) },
+        bounds,
+      ).unavailableReason,
+    ).toBe("invalid-window");
+    expect(
+      deriveSplitHeartRate(prepared, win(5, 10), bounds).unavailableReason,
+    ).toBe("unproven-sample-timezone");
+    expect(
+      deriveSplitHeartRate(
+        prepareHeartRateSamples([
+          sampleAt(0, 120),
+          { timestamp: null, heartRate: 120 },
+          sampleAt(10, 120),
+        ]),
+        win(0, 10),
+        bounds,
+      ).unavailableReason,
+    ).toBe("invalid-sample-time");
   });
 });
 
@@ -210,7 +313,7 @@ describe("deriveSplitHeartRate", () => {
     expect(derive([sampleAt(50, 120), sampleAt(60, 120)], 0, 10)).toMatchObject(
       {
         avgHeartRate: null,
-        unavailableReason: "no-heart-rate-samples",
+        unavailableReason: "no-window-samples",
       },
     );
     expect(derive([], 0, 10).unavailableReason).toBe("no-heart-rate-samples");
@@ -229,7 +332,7 @@ describe("deriveSplitHeartRate", () => {
     expect(result.avgHeartRate).toBeNull();
     expect(
       derive([sampleAt(0, null), sampleAt(5, null)], 0, 5).unavailableReason,
-    ).toBe("no-heart-rate-samples");
+    ).toBe("no-usable-heart-rate");
   });
 
   it("requires enough support even without one long gap", () => {
@@ -266,14 +369,23 @@ describe("deriveSplitHeartRate", () => {
       );
   });
 
-  it("ignores duplicate or zone-less sample instants", () => {
+  it("keeps the first duplicate but never bridges rejected zone-less points", () => {
     const rows = [
       sampleAt(0, 120),
       sampleAt(0, 999),
       { timestamp: "2026-01-10T10:00:05", heartRate: 50 },
       sampleAt(10, 120),
     ];
-    expect(derive(rows, 0, 10).avgHeartRate).toBe(120);
+    expect(derive(rows, 0, 10).unavailableReason).toBe(
+      "unproven-sample-timezone",
+    );
+    expect(
+      derive(
+        rows.filter((row) => row.timestamp !== "2026-01-10T10:00:05"),
+        0,
+        10,
+      ).avgHeartRate,
+    ).toBe(120);
   });
 
   it("matches the same window expressed in a different offset", () => {

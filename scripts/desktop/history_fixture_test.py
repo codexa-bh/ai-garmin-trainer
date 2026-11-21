@@ -130,6 +130,28 @@ class AuthoredPersonalApiFixture(unittest.TestCase):
         status, _ = self.request('GET', '/download-service/files/activity/999', bearer)
         self.assertEqual(status, 404)
 
+    def test_preexisting_authored_summaries_have_bounded_baseline_files_not_listed_history(
+        self,
+    ):
+        from history_fixture import AUTHORED_SUMMARY_IDS
+
+        bearer = {'Authorization': 'Bearer ' + self.token()}
+        self.assertEqual(len(AUTHORED_SUMMARY_IDS), 14)
+        self.assertFalse(AUTHORED_SUMMARY_IDS & {row[0] for row in activity_ids('known')})
+        for identity in AUTHORED_SUMMARY_IDS:
+            endpoint, (status, body, _) = self.fixture.route(
+                'GET', '/download-service/files/activity/' + identity, {}, bearer, 'known'
+            )
+            self.assertEqual((endpoint, status, body[:4]), ('activity-file', 200, b'PK\x03\x04'))
+        for prefix in ('/activity-service/activity/', '/download-service/files/activity/'):
+            self.assertEqual(
+                self.fixture.route('GET', prefix + 'synthetic-private', {}, bearer, 'known')[1][0],
+                404,
+            )
+            self.assertEqual(
+                self.fixture.route('GET', prefix + 'synthetic-run', {}, {}, 'known')[1][0], 401
+            )
+
     def test_vo2_is_sparse_dated_walking_and_range_bounded(self):
         from datetime import datetime, timedelta, timezone
 

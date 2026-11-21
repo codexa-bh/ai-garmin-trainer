@@ -52,7 +52,7 @@ describe("finite representative authored smoke recipe", () => {
         recipeVersion: 1,
         anchor: "2026-11-01",
         healthDays: 20,
-        activities: 13,
+        activities: 14,
         integrity: "ok",
         coverage: "ok",
       });
@@ -161,7 +161,7 @@ describe("finite representative authored smoke recipe", () => {
     try {
       expect(empty).toMatchObject({
         syntheticVariant: "empty-chat",
-        activities: 13,
+        activities: 14,
         healthDays: 20,
       });
       expect(verify(copy, "private").coverage).toBe("ok");
@@ -366,7 +366,7 @@ describe("finite representative authored smoke recipe", () => {
       expect(
         db
           .prepare(
-            "select lap_number as lap, sum(seconds) as total from activity_lap_hr_zone_time group by lap_number order by lap_number",
+            "select lap_number as lap, sum(seconds) as total from activity_lap_hr_zone_time where garmin_id='synthetic-run' group by lap_number order by lap_number",
           )
           .all(),
       ).toEqual([
@@ -389,7 +389,40 @@ describe("finite representative authored smoke recipe", () => {
         one(
           "select count(*) as n from activity_snow_split where split_type='run'",
         ),
-      ).toEqual({ n: 4 });
+      ).toEqual({ n: 7 });
+      const anchor = db
+        .prepare(
+          "select a.started_at, p.timestamp from activity a join activity_stream_point p on p.garmin_id=a.garmin_id where a.garmin_id='synthetic-snow' and p.elapsed_sec=0",
+        )
+        .get() as { started_at: number; timestamp: string };
+      expect(anchor.timestamp).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+      expect(Date.parse(anchor.timestamp.replace(" ", "T") + "Z")).toBe(
+        anchor.started_at,
+      );
+      expect(
+        db
+          .prepare(
+            "select distinct source from activity_hr_zone_time where garmin_id='synthetic-snow'",
+          )
+          .all(),
+      ).toEqual([{ source: "garmin_mcp" }]);
+      expect(
+        deriveActivitySplitHeartRates(db, "synthetic-snow-unproven")[0]
+          .heartRate.unavailableReason,
+      ).toBe("unproven-sample-timezone");
+      expect(
+        deriveActivitySplitHeartRates(db, "synthetic-snow-preserved").map(
+          (s) => [
+            s.heartRate.avgHeartRate,
+            s.heartRate.unavailableReason,
+            s.heartRate.zones.unavailableReason,
+          ],
+        ),
+      ).toEqual([
+        [120, null, "missing-zone-boundaries"],
+        [null, "no-window-samples", "heart-rate-unavailable"],
+        [null, "invalid-window", "heart-rate-unavailable"],
+      ]);
       // Authored derived split HR through the real read route: two supported
       // runs, and run 4 with no measured end stays unavailable.
       const derived = deriveActivitySplitHeartRates(db, "synthetic-snow")
@@ -411,7 +444,7 @@ describe("finite representative authored smoke recipe", () => {
         one(
           "select count(*) as n from activity_lap where garmin_id like 'synthetic-snow%'",
         ),
-      ).toEqual({ n: 12 });
+      ).toEqual({ n: 15 });
       expect(
         db
           .prepare(

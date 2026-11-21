@@ -29,6 +29,7 @@ from native_smoke import (
 from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 from release_artifact import candidate_preparation
+from history_fixture import AUTHORED_SUMMARY_IDS
 
 
 def setup_modes(args):
@@ -263,6 +264,68 @@ def unrelated_tables(database):
         return result
 
 
+def settle_authored_summary_details(run):
+    """Summary-only recipe rows are not activities served by the Sync fixture.
+
+    Terminal unsupported markers are authored fixture setup, not successful file
+    imports. Only the fixture's subsequently imported activities exercise detail
+    draining. Refuse anything except this exact stopped/exclusive authored copy.
+    """
+    root = _stopped_synthetic(run)
+    database = canonical(run.database)
+    info = database.stat()
+    if (
+        database != root / 'trainer.sqlite'
+        or info.st_uid != os.getuid()
+        or info.st_mode & 0o777 != 0o600
+        or info.st_nlink != 1
+    ):
+        raise ValueError('Exact private authored database required')
+    with contextlib.closing(sqlite3.connect(database)) as db:
+        ids = {row[0] for row in db.execute('select garmin_id from activity')}
+        if (
+            ids != AUTHORED_SUMMARY_IDS
+            or db.execute('select count(*) from activity_detail_availability').fetchone()[0]
+        ):
+            raise ValueError('Exact fresh authored summaries required')
+        with db:
+            # An authored zero is a present effort fact, not a claim of imported
+            # effort. Keep these summary-only rows out of unrelated enrichment;
+            # fixture activity imports still exercise the real enrichment path.
+            db.execute('update activity set training_effect=coalesce(training_effect,0)')
+            db.executemany(
+                "insert into activity_detail_availability(garmin_id,source,status,unavailable_reason) values(?,'authored_summary','unsupported','summary-only-fixture')",
+                [(identity,) for identity in sorted(ids)],
+            )
+
+
+def imported_snow_snapshot(db):
+    """Count only the fixture's imported snow activity, never retained seed rows."""
+    from history_fixture import activity_ids
+
+    identity = next(
+        identity
+        for identity, _day, sport in activity_ids('known')
+        if sport == 'resort_snowboarding'
+    )
+    types = dict(
+        db.execute(
+            'select split_type,count(*) from activity_snow_split where garmin_id=? group by split_type',
+            (identity,),
+        )
+    )
+    return {
+        'importedSnowSplits': sum(types.values()),
+        'snowTypes': types,
+        'snowCoverage': dict(
+            db.execute(
+                "select status,count(*) from garmin_data_coverage where data_group='snow_run_lift_splits' and subject_id=? group by status",
+                (identity,),
+            )
+        ),
+    }
+
+
 def prepare_synthetic_history(run):
     """Only stopped, owned, keyless run settings; never select private input.
 
@@ -293,6 +356,7 @@ def prepare_synthetic_history(run):
     _publish_settings(root, saved, 'history')
     _attach_fixture(run)
     prepare_latest_preset(run, 'known')
+    settle_authored_summary_details(run)
     run.legacy_before = legacy_upgrade_state(run)
     run.unrelated_before = unrelated_tables(run.database)
 
@@ -734,16 +798,7 @@ class HistoryRun(OrdinaryRun):
                 'detailRows': db.execute(
                     'select count(*) from activity_detail_availability'
                 ).fetchone()[0],
-                'snowTypes': dict(
-                    db.execute(
-                        'select split_type,count(*) from activity_snow_split group by split_type'
-                    ).fetchall()
-                ),
-                'snowCoverage': dict(
-                    db.execute(
-                        "select status,count(*) from garmin_data_coverage where data_group='snow_run_lift_splits' group by status"
-                    ).fetchall()
-                ),
+                **imported_snow_snapshot(db),
                 # Aggregate counts only, never values (additional groups).
                 'extraRows': {
                     table: db.execute(f'select count(*) from {table}').fetchone()[0]
@@ -938,7 +993,7 @@ class HistoryRun(OrdinaryRun):
             )
             < 10
             or extra['activity_extra_metrics'] < 3
-            or extra['activity_snow_split'] != 4
+            or data['importedSnowSplits'] != 4
             or data['snowTypes'] != {'run': 2, 'lift': 2}
             or data['snowCoverage'].get('populated') != 1
             or extra['activity_lap_hr_zone_time'] < 21

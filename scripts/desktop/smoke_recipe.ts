@@ -288,6 +288,7 @@ function populateSupplements(db: Database.Database, time: number) {
     "unknown",
     "unsupported",
     "preserved",
+    "unproven",
   ].entries())
     insertActivity.run(
       `synthetic-activity-snow-${variant}`,
@@ -392,25 +393,32 @@ function populateSupplements(db: Database.Database, time: number) {
   );
   windowEnd.run(startSec(8 * 60 + 200), "index:2");
   windowEnd.run(startSec(26 * 60 + 215), "index:5");
-  // Authored HR samples (UTC instants, 10 s cadence) inside those two windows:
+  // Actual legacy storage shape, with a genuine activity-start clock anchor,
+  // then 10 s cadence inside the two measured windows:
   // run 1 holds 130/150/170 bpm for 60/70/70 s; run 3 holds 120 for 100 s then
   // 165 for 115 s. Zone limits are the activity file's own, never today's baseline.
   const sample = db.prepare(
     "insert into activity_stream_point (garmin_id, elapsed_sec, timestamp, heart_rate) values ('synthetic-snow', ?, ?, ?)",
   );
-  let elapsed = 0;
+  const storedTime = (value: string) =>
+    value.replace("T", " ").replace(".000Z", "");
+  sample.run(0, storedTime(startSec(0)), null); // clock proof, not HR support
   const sampleRun = (
     firstSecond: number,
     lengthSec: number,
     bpm: (offset: number) => number,
   ) => {
     for (let offset = 0; offset <= lengthSec; offset += 10)
-      sample.run(elapsed++, startSec(firstSecond + offset), bpm(offset));
+      sample.run(
+        firstSecond + offset,
+        storedTime(startSec(firstSecond + offset)),
+        bpm(offset),
+      );
   };
   sampleRun(8 * 60, 200, (o) => (o < 60 ? 130 : o < 130 ? 150 : 170));
   sampleRun(26 * 60, 210, (o) => (o < 100 ? 120 : 165));
   const fileZone = db.prepare(
-    "insert into activity_hr_zone_time (garmin_id, zone, fetched_at, source, status, seconds, source_lower_bpm, source_total_seconds) values ('synthetic-snow', ?, ?, 'garmin_official_fit', 'available', 0, ?, 0)",
+    "insert into activity_hr_zone_time (garmin_id, zone, fetched_at, source, status, seconds, source_lower_bpm, source_total_seconds) values ('synthetic-snow', ?, ?, 'garmin_mcp', 'available', 0, ?, 0)",
   );
   [100, 120, 140, 160, 180].forEach((lower, index) =>
     fileZone.run(index + 1, time, lower),
@@ -425,6 +433,7 @@ function populateSupplements(db: Database.Database, time: number) {
     ["synthetic-snow-unknown", 2.5],
     ["synthetic-snow-unsupported", 3.5],
     ["synthetic-snow-preserved", 4.5],
+    ["synthetic-snow-unproven", 5.5],
   ] as const)
     for (let n = 1; n <= 3; n++)
       snowLap.run(
@@ -439,6 +448,25 @@ function populateSupplements(db: Database.Database, time: number) {
         18,
         20,
       );
+  // Complete lap-file floors establish historical zones despite MCP-only session rows.
+  for (let lapNumber = 1; lapNumber <= 3; lapNumber++)
+    [100, 120, 140, 160, 180].forEach((lower, index) =>
+      zone.run(
+        "synthetic-snow",
+        lapNumber,
+        index + 1,
+        "zone",
+        index + 1,
+        999,
+        lower,
+        index === 4 ? null : lower + 19,
+        "PERCENT_MAX_HR",
+        200,
+        50,
+        time,
+      ),
+    );
+  coverActivity("synthetic-snow", "lap_hr_zones", "populated");
   db.prepare(
     "update activity_snow_split set avg_speed_mps = 0 where garmin_id = 'synthetic-snow' and split_key = 'index:5'",
   ).run();
@@ -448,6 +476,52 @@ function populateSupplements(db: Database.Database, time: number) {
      distance_meters, descent_meters, max_speed_mps, fetched_at)
     values ('synthetic-snow-preserved', 'index:8', 8, 0, 'run', 12.5, 0, 0, 0, ?)`,
   ).run(time);
+  // Preserved rows retain the original invalid window and add two honest
+  // failures: supported HR without file limits, and no samples in the window.
+  const reasonSplit = db.prepare(`insert into activity_snow_split
+    (garmin_id, split_key, message_index, source_order, split_type, start_time, end_time,
+     timer_seconds, distance_meters, descent_meters, fetched_at)
+    values (?, ?, ?, ?, 'run', ?, ?, 10, 0, 0, ?)`);
+  const preservedAt = (second: number) =>
+    new Date(time - DAY * 4.5 + second * 1000).toISOString();
+  reasonSplit.run(
+    "synthetic-snow-preserved",
+    "index:9",
+    9,
+    1,
+    preservedAt(0),
+    preservedAt(10),
+    time,
+  );
+  reasonSplit.run(
+    "synthetic-snow-preserved",
+    "index:10",
+    10,
+    2,
+    preservedAt(50),
+    preservedAt(60),
+    time,
+  );
+  const reasonSample = db.prepare(
+    "insert into activity_stream_point(garmin_id,elapsed_sec,timestamp,heart_rate) values(?,?,?,120)",
+  );
+  reasonSample.run("synthetic-snow-preserved", 0, preservedAt(0));
+  reasonSample.run("synthetic-snow-preserved", 10, preservedAt(10));
+  const unprovenAt = (second: number) =>
+    new Date(time - DAY * 5.5 + second * 1000).toISOString();
+  reasonSplit.run(
+    "synthetic-snow-unproven",
+    "index:11",
+    11,
+    0,
+    unprovenAt(0),
+    unprovenAt(10),
+    time,
+  );
+  // First stored timestamp mismatches activity start by 1 s. Never guess/shift.
+  reasonSample.run("synthetic-snow-unproven", 0, storedTime(unprovenAt(1)));
+  reasonSample.run("synthetic-snow-unproven", 10, storedTime(unprovenAt(10)));
+  coverActivity("synthetic-snow-unproven", "snow_run_lift_splits", "populated");
   coverActivity(
     "synthetic-snow-unsupported",
     "snow_run_lift_splits",

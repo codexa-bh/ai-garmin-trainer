@@ -15,6 +15,8 @@ import type {
   SupplementCoverage,
 } from "../src/lib/local-data/supplement-contracts";
 
+import type { SplitHeartRate } from "../src/lib/local-data/split-heart-rate";
+
 const unknown: SupplementCoverage = { status: "not_imported", reason: null };
 
 function supplement(
@@ -57,7 +59,7 @@ const derivedHr = (avgHeartRate: number, seconds = [0, 0, 20, 70, 5, 0]) => ({
   },
 });
 const unavailableHr = (
-  reason: "no-heart-rate-samples" | "significant-gap",
+  reason: NonNullable<SplitHeartRate["unavailableReason"]>,
   zoneReason: "heart-rate-unavailable" = "heart-rate-unavailable",
 ) => ({
   avgHeartRate: null,
@@ -540,6 +542,54 @@ describe("Activity additional Garmin evidence", () => {
   });
 
   it.each([
+    ["unproven-sample-timezone", "HR sample time zone unproven"],
+    ["invalid-sample-time", "HR sample times unavailable"],
+    ["no-heart-rate-samples", "No stored HR samples"],
+    ["no-window-samples", "No samples in run window"],
+    ["no-usable-heart-rate", "No usable HR measurements"],
+    ["insufficient-samples", "Too few HR samples"],
+    ["significant-gap", "HR gaps too long"],
+    ["insufficient-support", "HR coverage too low"],
+  ] as const)(
+    "shows closed reason %s without raw diagnostics or a zero HR",
+    (reason, text) => {
+      render(
+        view(
+          payload(
+            {
+              supplement: supplement({
+                snowRuns: {
+                  total: 1,
+                  returned: 1,
+                  truncated: false,
+                  entries: [
+                    {
+                      splitKey: "index:8",
+                      timerSeconds: 10,
+                      distanceMeters: 0,
+                      ascentMeters: 0,
+                      descentMeters: 0,
+                      avgSpeedMps: 0,
+                      maxSpeedMps: 0,
+                      heartRate: unavailableHr(reason),
+                    },
+                  ],
+                },
+              }),
+            },
+            "alpine_skiing",
+          ),
+        ),
+      );
+      const cells = screen
+        .getByRole("table", { name: "Snow runs" })
+        .querySelector("tbody tr")!.children;
+      expect(cells[6].textContent).toBe("—");
+      expect(cells[7].textContent).toBe(text);
+    },
+  );
+
+  it.each([
     [0, "0s"],
     [0.4, "0.4s"],
     [12.5, "12.5s"],
@@ -588,7 +638,7 @@ describe("Activity additional Garmin evidence", () => {
         "—",
         "0 km/h",
         "—",
-        "No HR samples",
+        "No stored HR samples",
       ]);
       expect(screen.getByRole("status").textContent).toContain(
         "Showing preserved runs",
@@ -787,7 +837,7 @@ describe("Activity additional Garmin evidence", () => {
     expect(zones(1).textContent).toBe("HR gaps too long");
     // Avg HR can survive when only the zone limits are unavailable.
     expect(hr(2)).toBe("120");
-    expect(zones(2).textContent).toBe("Zone limits unavailable");
+    expect(zones(2).textContent).toBe("Activity zone limits unavailable");
     expect(hr(3)).toBe("—");
     expect(zones(3).textContent).toBe("Unavailable");
     // A supported all-zero derivation is a labelled bucket set, not a reason.

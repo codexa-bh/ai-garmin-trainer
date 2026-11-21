@@ -10,7 +10,7 @@ import { deriveActivitySplitHeartRates } from "./split-heart-rate-repository";
 const SPLIT_HEART_RATE_ROW_LIMIT = 20;
 
 const SPLIT_HEART_RATE_MEANING =
-  "avgHeartRate and zoneSeconds are derived at read time from stored heart-rate samples inside each split's own measured window (duration-weighted, activity-file zone boundaries, bucket order below zone 1 then zones 1-5). They are not Garmin lap or session values and are never added to them. null with a reason is unavailable, never zero. Rows are capped per type: read sourceCount/omittedCount before generalizing across all runs or lifts.";
+  "avgHeartRate and zoneSeconds are derived at read time from stored heart-rate samples inside each split's own measured window (duration-weighted, activity-file zone boundaries, bucket order below zone 1 then zones 1-5). They are not Garmin lap or session values and are never added to them. null with a closed reason is unavailable, never zero. Sample clock, no stored/in-window/usable HR, and support failures are distinct; missing/conflicting activity zone limits alone do not hide supported Avg HR. Zone-less samples need exact activity-local UTC proof. Rows are capped per type: read sourceCount/omittedCount before generalizing across all runs or lifts.";
 
 function splitHeartRateEvidence(
   db: Database.Database,

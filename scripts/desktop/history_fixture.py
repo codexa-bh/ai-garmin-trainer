@@ -144,6 +144,18 @@ def weigh_ins():
     ]
 
 
+# Pre-existing summary-only identities in the shared authored recipe. They are
+# not listed as remote history, but Sync may read one for effort/baseline refresh.
+AUTHORED_SUMMARY_IDS = frozenset(
+    [f'synthetic-{index}' for index in range(8)]
+    + ['synthetic-run', 'synthetic-snow']
+    + [
+        f'synthetic-snow-{variant}'
+        for variant in ('unknown', 'unsupported', 'preserved', 'unproven')
+    ]
+)
+
+
 def activity_ids(preset):
     """Three stable authored activities in the last week (four with new-activity)."""
     today = _today()
@@ -542,6 +554,8 @@ class Fixture:
                         )
                     )
                     return 'activity-file', (200, content, 'application/octet-stream')
+            if garmin_id in AUTHORED_SUMMARY_IDS:
+                return 'activity-file', (200, zipped(fit_file(1)), 'application/octet-stream')
             return 'activity-file', (404, b'{}', 'application/json')
         if path == '/userprofile-service/userprofile/settings':
             return 'profile-settings', ok({'availableTrainingDays': ['monday', 'thursday']})

@@ -7,8 +7,8 @@
  * totals. One implementation serves the run table and the trainer evidence.
  *
  * Conventions (each is a deliberate, tested boundary):
- * - Instants are explicit-zone ISO strings normalised to epoch milliseconds;
- *   a string without Z/offset is invalid, never read in the host timezone.
+ * - Split instants are explicit-zone ISO. Stored zone-less sample times are
+ *   UTC only with an exact activity-local first-row/start anchor; no host zone.
  * - Only samples inside [start, end] supply HR for the split. A sample supports
  *   the half-open span [its time, next sample time) clipped to the end, so a
  *   shared boundary can never acquire time twice and nothing is held past `end`.
@@ -28,7 +28,11 @@ const MAX_HEART_RATE_BPM = 300;
 
 type SplitHeartRateReason =
   | "invalid-window"
+  | "unproven-sample-timezone"
+  | "invalid-sample-time"
   | "no-heart-rate-samples"
+  | "no-window-samples"
+  | "no-usable-heart-rate"
   | "insufficient-samples"
   | "significant-gap"
   | "insufficient-support";
@@ -60,30 +64,88 @@ export type SplitHeartRate = {
   };
 };
 
-export type HeartRateSample = { at: number; heartRate: number | null };
+type HeartRateSample = { at: number; heartRate: number | null };
 export type SplitWindow = { startTime: string | null; endTime: string | null };
 
 const ZONED_ISO =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const STORED_UTC = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,3})?$/;
+
+/** Validate the written calendar before Date.parse can normalize a bad day. */
+function validCalendar(value: string): boolean {
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return (
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= days[month - 1] &&
+    Number(value.slice(11, 13)) < 24 &&
+    Number(value.slice(14, 16)) < 60 &&
+    Number(value.slice(17, 19)) < 60
+  );
+}
+
+function storedUtcMs(value: string | null | undefined): number | null {
+  if (
+    typeof value !== "string" ||
+    !STORED_UTC.test(value) ||
+    !validCalendar(value)
+  )
+    return null;
+  const at = Date.parse(value.replace(" ", "T") + "Z");
+  return Number.isFinite(at) ? at : null;
+}
+
+type ClockReason = "unproven-sample-timezone" | "invalid-sample-time";
+export type PreparedHeartRateSamples = {
+  samples: HeartRateSample[];
+  unavailableReason: ClockReason | null;
+};
 
 /** Epoch milliseconds for an explicitly zoned ISO instant; otherwise null. */
 function zonedInstantMs(value: string | null | undefined): number | null {
-  if (typeof value !== "string" || !ZONED_ISO.test(value)) return null;
+  if (
+    typeof value !== "string" ||
+    !ZONED_ISO.test(value) ||
+    !validCalendar(value)
+  )
+    return null;
   const at = Date.parse(value);
   return Number.isFinite(at) ? at : null;
 }
 
 /**
- * Sorted samples with a valid instant. Invalid HR is kept as a null sample so it
- * still ends the previous sample's hold; duplicate instants keep the first.
+ * Rows arrive in canonical storage order, before any timestamp/HR filtering.
+ * Only a valid zone-less first timestamp exactly equal to this activity's start
+ * proves the legacy UTC clock. The anchor need not have HR or lie in a split.
+ * Any rejected time conservatively refuses the activity rather than bridging
+ * through erased evidence. Explicit-zone-only streams need no anchor.
+ * Invalid HR ends the preceding hold; duplicate instants keep the first.
  */
 export function prepareHeartRateSamples(
   rows: Array<{ timestamp: string | null; heartRate: number | null }>,
-): HeartRateSample[] {
+  activityStartMs: number | null = null,
+): PreparedHeartRateSamples {
+  const anchor = storedUtcMs(rows[0]?.timestamp);
+  const provenUtc =
+    anchor !== null &&
+    Number.isFinite(activityStartMs) &&
+    anchor === activityStartMs;
   const samples: HeartRateSample[] = [];
+  let unavailableReason: ClockReason | null = null;
   for (const row of rows) {
-    const at = zonedInstantMs(row.timestamp);
-    if (at === null) continue;
+    const legacyAt = storedUtcMs(row.timestamp);
+    const at = zonedInstantMs(row.timestamp) ?? (provenUtc ? legacyAt : null);
+    if (at === null) {
+      // Timezone ambiguity outranks malformed/absent time if both occur.
+      if (legacyAt !== null) unavailableReason = "unproven-sample-timezone";
+      else unavailableReason ??= "invalid-sample-time";
+      continue;
+    }
     const bpm = row.heartRate;
     samples.push({
       at,
@@ -97,9 +159,12 @@ export function prepareHeartRateSamples(
     });
   }
   samples.sort((a, b) => a.at - b.at);
-  return samples.filter(
-    (sample, index) => index === 0 || sample.at !== samples[index - 1].at,
-  );
+  return {
+    samples: samples.filter(
+      (sample, index) => index === 0 || sample.at !== samples[index - 1].at,
+    ),
+    unavailableReason,
+  };
 }
 
 function firstIndexAtOrAfter(samples: HeartRateSample[], at: number): number {
@@ -156,7 +221,7 @@ export type ZoneBoundaryEvidence =
     };
 
 export function deriveSplitHeartRate(
-  samples: HeartRateSample[],
+  prepared: PreparedHeartRateSamples,
   window: SplitWindow,
   boundaries: ZoneBoundaryEvidence,
 ): SplitHeartRate {
@@ -165,9 +230,14 @@ export function deriveSplitHeartRate(
   if (start === null || end === null || end <= start)
     return unavailable("invalid-window", null);
   const windowSeconds = (end - start) / 1000;
+  if (prepared.unavailableReason)
+    return unavailable(prepared.unavailableReason, windowSeconds);
+  const { samples } = prepared;
+  if (!samples.length)
+    return unavailable("no-heart-rate-samples", windowSeconds);
   const first = firstIndexAtOrAfter(samples, start);
   if (first >= samples.length || samples[first].at > end)
-    return unavailable("no-heart-rate-samples", windowSeconds);
+    return unavailable("no-window-samples", windowSeconds);
 
   const inWindow: number[] = [];
   for (
@@ -180,7 +250,7 @@ export function deriveSplitHeartRate(
     (index) => samples[index].heartRate !== null,
   );
   if (!measured.length)
-    return unavailable("no-heart-rate-samples", windowSeconds);
+    return unavailable("no-usable-heart-rate", windowSeconds);
   if (measured.length < 2)
     return unavailable("insufficient-samples", windowSeconds);
 
@@ -263,6 +333,17 @@ export function resolveZoneBoundaries(input: {
     candidates.push(values);
   }
   for (const lap of input.laps) {
+    const known = lap.filter((value): value is number => value !== null);
+    if (
+      lap.length !== 5 ||
+      known.some(
+        (value, i) =>
+          !Number.isInteger(value) ||
+          value <= 0 ||
+          (i > 0 && value <= known[i - 1]),
+      )
+    )
+      return { status: "unavailable", reason: "conflicting-zone-boundaries" };
     if (lap.some((value) => value === null)) continue;
     const values = lap as number[];
     if (!strictlyAscending(values))
@@ -272,7 +353,15 @@ export function resolveZoneBoundaries(input: {
   if (!candidates.length)
     return { status: "unavailable", reason: "missing-zone-boundaries" };
   const [head, ...rest] = candidates;
-  return rest.every((values) => values.every((value, i) => value === head[i]))
+  // Incomplete lap sets cannot establish floors, but known contradictory floors
+  // cannot be discarded merely because the rest of that lap is unavailable.
+  const knownLapsAgree = input.laps.every(
+    (lap) =>
+      lap.length === 5 &&
+      lap.every((value, i) => value === null || value === head[i]),
+  );
+  return knownLapsAgree &&
+    rest.every((values) => values.every((value, i) => value === head[i]))
     ? { status: "available", lowers: head }
     : { status: "unavailable", reason: "conflicting-zone-boundaries" };
 }
