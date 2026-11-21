@@ -23,16 +23,16 @@ SQL = (
     "(select weekly_avg_ms from daily_hrv_detail where date='2026-11-02') as hrv_weekly_ms, "
     "(select baseline_balanced_low_ms from daily_hrv_detail where date='2026-11-02') as hrv_low_ms, "
     "(select baseline_balanced_upper_ms from daily_hrv_detail where date='2026-11-02') as hrv_upper_ms, "
-    "(select vo2_max_precise from vo2_max_reading where branch='generic' order by date desc limit 1) as vo2_precise, "
-    '(select count(*) from vo2_max_reading) as vo2_readings, '
+    "(select vo2_max_precise from vo2_max_reading where branch='generic' and date='2026-10-20') as vo2_precise, "
+    "(select count(*) from vo2_max_reading where date='2026-10-20') as vo2_readings, "
     "(select sum(impact) from body_battery_event where date='2026-11-02') as battery_event_impact, "
     "(select high_seconds from daily_stress where date='2026-11-02') as high_stress_seconds, "
     "(select sum(seconds) from activity_lap_hr_zone_time where garmin_id='weekdayHike' and bucket_kind='zone' and zone=2) as lap_zone2_seconds, "
     "(select split_count from activity_split_summary where garmin_id='weekdayHike' and split_type='SKI_RUN_SPLIT') as ski_runs, "
     "(select count(*) from garmin_data_coverage where subject_id='2026-11-01') as not_backfilled_rows, "
-    "(select count(*) from activity_snow_split where split_type='run') as measured_runs, "
-    "(select count(*) from activity_snow_split where split_type='lift') as measured_lifts, "
-    "(select sum(distance_meters) from activity_snow_split where split_type='run') as run_distance_meters, "
+    "(select count(*) from activity_snow_split where garmin_id='weekdayHike' and split_type='run') as measured_runs, "
+    "(select count(*) from activity_snow_split where garmin_id='weekdayHike' and split_type='lift') as measured_lifts, "
+    "(select sum(distance_meters) from activity_snow_split where garmin_id='weekdayHike' and split_type='run') as run_distance_meters, "
     "(select status from garmin_data_coverage where data_group='snow_run_lift_splits' and subject_id='weekdayHike') as snow_latest_status"
 )
 EXPECTED = {
