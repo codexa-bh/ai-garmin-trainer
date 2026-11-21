@@ -11,8 +11,10 @@ ANSWER = (
     'inside the Garmin baseline 50-70, sparse VO2 45.2 on one measured date, -12 Body Battery '
     'event impact, 3600 s high stress, 600 s lap zone 2 and 9 snowboard runs as a per-type '
     'total. Individual FIT evidence has 2 measured runs (300 m) and 2 lifts, kept separate; '
-    'latest split coverage failed, so retained rows are not a complete fresh read and split HR '
-    'is unavailable without a proven lap link. Not backfilled dates remain unknown, not zero.'
+    'latest split coverage failed, so retained rows are not a complete fresh read. Split HR is '
+    'derived from stored samples inside each split window, not from lap allocation: 123 bpm '
+    'for both runs and both lifts, while split zone time is unavailable because no activity-file '
+    'zone limits are stored. Not backfilled dates remain unknown, not zero.'
 )
 CALLS = 5
 SQL = (
@@ -125,9 +127,20 @@ def seed(db):
         "insert into activity_extra_metrics(garmin_id,body_battery_delta,avg_run_cadence_spm,avg_stride_length_cm,fit_avg_cadence_cpm,fetched_at) values ('weekdayHike',-9,158,98.5,79.5,1)"
     )
     db.executemany(
-        'insert into activity_snow_split(garmin_id,split_key,message_index,source_order,split_type,distance_meters,fetched_at) values (?,?,?,?,?,?,1)',
+        'insert into activity_snow_split(garmin_id,split_key,message_index,source_order,split_type,start_time,end_time,distance_meters,fetched_at) values (?,?,?,?,?,?,?,?,1)',
         [
-            ('weekdayHike', 'index:' + str(i), i, i, kind, distance)
+            # Four consecutive 100 s windows over the run copy's 10 s HR samples
+            # (constant 123 bpm, activity start 2026-11-01T00:00:00Z).
+            (
+                'weekdayHike',
+                'index:' + str(i),
+                i,
+                i,
+                kind,
+                '2026-11-01T00:%02d:%02dZ' % ((i * 100) // 60, (i * 100) % 60),
+                '2026-11-01T00:%02d:%02dZ' % (((i + 1) * 100) // 60, ((i + 1) * 100) % 60),
+                distance,
+            )
             for i, (kind, distance) in enumerate(
                 [('run', 100), ('lift', 100), ('run', 200), ('lift', 200)]
             )
@@ -199,6 +212,25 @@ def validate_dashboard(evidence):
         or extra['limits']['bucketsPerLap'] != 8
     ):
         raise ValueError('Actual default split/coverage/caps mismatch')
+    split_hr = dashboard.get('snowEvidence', {}).get('splitHeartRate', {})
+    kinds = {entry['splitType']: entry for entry in split_hr.get('types', [])}
+    if (
+        sorted(kinds) != ['lift', 'run']
+        or any(
+            entry['sourceCount'] != 2
+            or entry['returnedCount'] != 2
+            or entry['omittedCount'] != 0
+            or [row['avgHeartRate'] for row in entry['rows']] != [123, 123]
+            or any(
+                row['zoneSeconds'] is not None
+                or row['zoneUnavailableReason'] != 'missing-zone-boundaries'
+                for row in entry['rows']
+            )
+            for entry in kinds.values()
+        )
+        or split_hr.get('zoneLowerBpm') is not None
+    ):
+        raise ValueError('Actual derived split HR evidence mismatch')
     if any(field in dashboard for field in ['route', 'charts', 'stream', 'visualInput']):
         raise ValueError('Private visual inputs in default numerical evidence')
 

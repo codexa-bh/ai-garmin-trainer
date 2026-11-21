@@ -38,6 +38,35 @@ function supplement(
   };
 }
 
+const bucket = (index: number, seconds: number) => ({
+  bucket: index,
+  kind: index === 0 ? ("below" as const) : ("zone" as const),
+  zone: index === 0 ? null : index,
+  seconds,
+  lowerBpm: index === 0 ? null : 80 + index * 20,
+  upperBpm: index === 5 ? null : 99 + index * 20,
+});
+const derivedHr = (avgHeartRate: number, seconds = [0, 0, 20, 70, 5, 0]) => ({
+  avgHeartRate,
+  supportSeconds: 95,
+  windowSeconds: 95,
+  unavailableReason: null,
+  zones: {
+    buckets: seconds.map((value, i) => bucket(i, value)),
+    unavailableReason: null,
+  },
+});
+const unavailableHr = (
+  reason: "no-heart-rate-samples" | "significant-gap",
+  zoneReason: "heart-rate-unavailable" = "heart-rate-unavailable",
+) => ({
+  avgHeartRate: null,
+  supportSeconds: null,
+  windowSeconds: 95,
+  unavailableReason: reason,
+  zones: { buckets: null, unavailableReason: zoneReason },
+});
+
 const lap = (lapNumber: number, avgHeartRate: number | null = 140) => ({
   lapNumber,
   durationSec: 600,
@@ -332,28 +361,55 @@ describe("Activity additional Garmin evidence", () => {
       ),
     );
     const section = screen.getByLabelText("Run and lift summary");
-    const totals = within(section).getByRole("table", {
-      name: /Totals over the whole activity/,
-    });
-    const rows = Array.from(totals.querySelectorAll("tbody tr"));
-    // Runs precede lifts in a stable order regardless of read order.
-    expect(rows.map((r) => r.querySelector("th")!.textContent)).toEqual([
-      "Runs",
-      "Lifts",
-    ]);
-    expect(rows[0].textContent).toContain("51 km");
-    expect(rows[0].textContent).toContain("1.9 km");
-    expect(
-      within(totals).getByRole("columnheader", {
-        name: "Longest single split",
-      }),
-    ).toBeTruthy();
-    expect(within(section).getByText("Runs and lifts")).toBeTruthy();
-    // No individual rows: no empty Snow runs part or placeholder copy.
-    expect(section.textContent).not.toMatch(/Snow runs|not been imported/);
+    // One source-labelled compact line replaces the aggregate table; runs
+    // precede lifts regardless of read order, from stored per-type totals.
+    const line = section.querySelector(".snow-summary-line")!;
+    expect(line.textContent).toBe(
+      "Garmin totalsRuns 10 · 1h 7m · 51 km|Lifts 9 · 50m · 12 km",
+    );
+    expect(section.querySelector("table")).toBeNull();
+    expect(section.textContent).not.toMatch(
+      /Longest single split|Totals over the whole activity|Garmin per-type totals|Snow runs|not been imported/,
+    );
     expect(
       within(section).queryByRole("table", { name: /Snow runs/ }),
     ).toBeNull();
+  });
+
+  it("omits an absent type and shows missing fields as dashes while keeping true zero", () => {
+    const row = (splitType: string, over: object) => ({
+      splitType,
+      count: 0,
+      durationSec: 0,
+      distanceMeters: 0,
+      bestSplitDistanceMeters: null,
+      maxSpeedMps: null,
+      ...over,
+    });
+    const lineFor = (snowTotals: ReturnType<typeof row>[]) => {
+      const { unmount } = render(
+        view(payload({ supplement: supplement({ snowTotals }) }, "skiing")),
+      );
+      const text =
+        document.querySelector(".snow-summary-line")?.textContent ?? null;
+      unmount();
+      return text;
+    };
+    expect(
+      lineFor([row("SKI_LIFT_SPLIT", { count: 4, durationSec: 600 })]),
+    ).toBe("Garmin totalsLifts 4 · 10m · 0 m");
+    expect(
+      lineFor([
+        row("SKI_RUN_SPLIT", {
+          count: null,
+          durationSec: null,
+          distanceMeters: null,
+        }),
+      ]),
+    ).toBe("Garmin totalsRuns — · — · —");
+    // Other stored per-type rows never appear; with none of the two, no section.
+    expect(lineFor([row("ASCENT_SPLIT", { count: 3 })])).toBeNull();
+    expect(lineFor([])).toBeNull();
   });
 
   it("lists only measured run fields with nullable metrics and discloses defensive truncation", () => {
@@ -366,6 +422,7 @@ describe("Activity additional Garmin evidence", () => {
         descentMeters: 210,
         ascentMeters: 3,
         maxSpeedMps: 20,
+        heartRate: derivedHr(143.6),
       },
       {
         splitKey: "index:2",
@@ -397,9 +454,15 @@ describe("Activity additional Garmin evidence", () => {
       name: /Snow runs — showing the first 2 of 75/,
     });
     const rows = Array.from(list.querySelectorAll("tbody tr"));
-    expect(rows[0].textContent).toBe("11m 35s1.25 km3 m210 m36 km/h72 km/h");
+    // Ascent is removed; Avg HR is the derived time-weighted value.
+    expect(rows[0].children[6].textContent).toBe("144");
+    expect(
+      [...rows[0].children].slice(0, 6).map((cell) => cell.textContent),
+    ).toEqual(["1", "1m 35s", "1.25 km", "210 m", "36 km/h", "72 km/h"]);
     // Missing metrics are dashes, and a measured zero descent stays zero.
-    expect(rows[1].textContent).toBe("2——300 m0 m——");
+    expect(
+      [...rows[1].children].slice(0, 7).map((cell) => cell.textContent),
+    ).toEqual(["2", "—", "—", "0 m", "—", "—", "—"]);
     expect(
       within(list).queryByRole("columnheader", { name: "Type" }),
     ).toBeNull();
@@ -411,11 +474,17 @@ describe("Activity additional Garmin evidence", () => {
       "Run",
       "Timer duration",
       "Distance",
-      "Ascent",
       "Descent",
       "Avg speed",
       "Max speed",
+      "Avg HR (bpm)",
+      "HR zones",
     ]);
+    // Visible derived provenance; never the lap-recorded wording.
+    const section = screen.getByLabelText("Run and lift summary");
+    expect(section.textContent).toMatch(/derived from HR samples/i);
+    expect(section.textContent).toMatch(/differ slightly from Garmin per-lap/);
+    expect(section.textContent).not.toContain("Recorded per lap");
   });
 
   it("renders no snow section for any empty-run coverage state on a snow activity", () => {
@@ -490,6 +559,7 @@ describe("Activity additional Garmin evidence", () => {
         descentMeters: null,
         avgSpeedMps: null,
         maxSpeedMps: 0,
+        heartRate: unavailableHr("no-heart-rate-samples"),
       };
       render(
         view(
@@ -514,10 +584,11 @@ describe("Activity additional Garmin evidence", () => {
         "1",
         expected,
         "0 km",
-        "0.5 m",
         "—",
         "—",
         "0 km/h",
+        "—",
+        "No HR samples",
       ]);
       expect(screen.getByRole("status").textContent).toContain(
         "Showing preserved runs",
@@ -571,7 +642,7 @@ describe("Activity additional Garmin evidence", () => {
       expect(
         screen.queryByRole("heading", { name: "Runs and lifts" }),
       ).toBeNull();
-      expect(screen.queryByText("Garmin per-type totals")).toBeNull();
+      expect(document.querySelector(".snow-summary-line")).toBeNull();
       expect(
         screen
           .getByRole("table", { name: "Snow runs" })
@@ -630,7 +701,7 @@ describe("Activity additional Garmin evidence", () => {
       );
     const { rerender } = render(populated("resort_skiing"));
     // Both parts render; a lifts-only aggregate with zero values is real data.
-    expect(screen.getByRole("table", { name: /Totals over/ })).toBeTruthy();
+    expect(document.querySelector(".snow-summary-line")).toBeTruthy();
     expect(screen.getByRole("table", { name: "Snow runs" })).toBeTruthy();
     for (const sport of [
       "hiking",
@@ -647,6 +718,180 @@ describe("Activity additional Garmin evidence", () => {
     expect(screen.queryByLabelText("Run and lift summary")).toBeNull();
     rerender(populated("backcountry_snowboarding"));
     expect(screen.getByRole("table", { name: "Snow runs" })).toBeTruthy();
+  });
+
+  it("shows derived HR zones with exact Times, honest unavailable states and a valid all-zero bucket distinct", () => {
+    const entry = (key: string, heartRate: object | undefined) => ({
+      splitKey: key,
+      timerSeconds: 95,
+      distanceMeters: 1000,
+      ascentMeters: 1,
+      descentMeters: 200,
+      avgSpeedMps: 10,
+      maxSpeedMps: 20,
+      heartRate: heartRate as never,
+    });
+    render(
+      view(
+        payload(
+          {
+            supplement: supplement({
+              snowRuns: {
+                total: 4,
+                returned: 4,
+                truncated: false,
+                entries: [
+                  entry("index:1", derivedHr(150)),
+                  entry("index:2", unavailableHr("significant-gap")),
+                  entry("index:3", {
+                    ...derivedHr(120),
+                    zones: {
+                      buckets: null,
+                      unavailableReason: "missing-zone-boundaries",
+                    },
+                  }),
+                  entry("index:4", undefined),
+                ],
+              },
+              coverage: {
+                ...supplement().coverage,
+                snow_run_lift_splits: { status: "populated", reason: null },
+              },
+            }),
+          },
+          "resort_snowboarding",
+        ),
+      ),
+    );
+    const rows = Array.from(
+      screen
+        .getByRole("table", { name: /Snow runs/ })
+        .querySelectorAll("tbody tr"),
+    );
+    const hr = (i: number) => rows[i].children[6].textContent;
+    const zones = (i: number) => rows[i].children[7];
+    expect(hr(0)).toBe("150");
+    const group = zones(0).querySelector("[role=group]")!;
+    expect(group.getAttribute("aria-label")).toContain("Run HR zones");
+    expect(group.getAttribute("aria-label")).toContain(
+      "Zone 2 (120–139 bpm): 20s · Zone 3 (140–159 bpm): 1m 10s · Zone 4 (160–179 bpm): 5s · Zone 5 (180–max bpm): 0s",
+    );
+    expect(zones(0).querySelector("details summary")!.textContent).toBe(
+      "Times",
+    );
+    expect(zones(0).textContent).toContain(
+      "Derived from HR samples in this run",
+    );
+    expect(zones(0).textContent).not.toContain("Recorded per lap");
+    expect(hr(1)).toBe("—");
+    expect(zones(1).textContent).toBe("HR gaps too long");
+    // Avg HR can survive when only the zone limits are unavailable.
+    expect(hr(2)).toBe("120");
+    expect(zones(2).textContent).toBe("Zone limits unavailable");
+    expect(hr(3)).toBe("—");
+    expect(zones(3).textContent).toBe("Unavailable");
+    // A supported all-zero derivation is a labelled bucket set, not a reason.
+    cleanup();
+    render(
+      view(
+        payload(
+          {
+            supplement: supplement({
+              snowRuns: {
+                total: 1,
+                returned: 1,
+                truncated: false,
+                entries: [entry("index:1", derivedHr(0, [0, 0, 0, 0, 0, 0]))],
+              },
+            }),
+          },
+          "resort_snowboarding",
+        ),
+      ),
+    );
+    expect(
+      document
+        .querySelector(".snow-runs tbody tr")!
+        .children[7].querySelector("summary")!.textContent,
+    ).toBe("All zero");
+  });
+
+  describe("conditional lap details", () => {
+    const lapTable = () => screen.queryByRole("table", { name: "Lap details" });
+    const runs = {
+      total: 1,
+      returned: 1,
+      truncated: false,
+      entries: [
+        {
+          splitKey: "index:1",
+          timerSeconds: 30,
+          distanceMeters: 400,
+          ascentMeters: null,
+          descentMeters: null,
+          avgSpeedMps: null,
+          maxSpeedMps: null,
+        },
+      ],
+    };
+
+    it.each([
+      "populated",
+      "failed",
+      "empty",
+      "unavailable",
+      "not_imported",
+    ] as const)(
+      "hides redundant laps for normalized snow with stored runs under %s coverage",
+      (status) => {
+        render(
+          view(
+            payload(
+              {
+                supplement: supplement({
+                  snowRuns: runs,
+                  coverage: {
+                    ...supplement().coverage,
+                    snow_run_lift_splits: { status, reason: null },
+                  },
+                }),
+              },
+              "resort_snowboarding",
+            ),
+          ),
+        );
+        expect(lapTable()).toBeNull();
+        expect(screen.getByRole("table", { name: "Snow runs" })).toBeTruthy();
+        expect(!!screen.queryByRole("status")).toBe(status !== "populated");
+      },
+    );
+
+    it("keeps laps for snow without runs, totals-only, non-snow with stray runs and strength", () => {
+      const total = {
+        splitType: "SKI_RUN_SPLIT",
+        count: 3,
+        durationSec: 600,
+        distanceMeters: 3000,
+        bestSplitDistanceMeters: null,
+        maxSpeedMps: null,
+      };
+      for (const [sport, sup] of [
+        ["resort_snowboarding", supplement()],
+        ["resort_snowboarding", supplement({ snowTotals: [total] })],
+        [
+          "resort_snowboarding",
+          supplement({
+            snowRuns: { ...runs, entries: [], returned: 0, relevant: true },
+          }),
+        ],
+        ["running", supplement({ snowRuns: runs })],
+        ["strength_training", supplement({ snowRuns: runs })],
+      ] as const) {
+        render(view(payload({ supplement: sup }, sport)));
+        expect(lapTable(), `${sport}`).toBeTruthy();
+        cleanup();
+      }
+    });
   });
 
   it("lists coverage per group, with absent rows reading as unknown", () => {

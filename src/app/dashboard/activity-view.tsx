@@ -34,6 +34,7 @@ import {
 } from "./formatting";
 import {
   ActivitySupplementCoverage,
+  hidesRedundantSnowLaps,
   LapZoneCell,
   SnowSection,
   supplementSummary,
@@ -359,6 +360,12 @@ export function ActivityView({
   const presentation = activityDashboard
     ? activityPresentation(activityDashboard)
     : null;
+  const hideSnowLaps = activityDashboard
+    ? hidesRedundantSnowLaps(
+        activityDashboard.supplement,
+        activityDashboard.activity.sport,
+      )
+    : false;
   return (
     <section
       className={`activity-dashboard-panel ${activitySelectorCollapsed ? "activity-selector-collapsed" : ""}`}
@@ -710,7 +717,8 @@ export function ActivityView({
               </p>
             ) : null}
             {activityDashboard.laps.length >= 2 &&
-            presentation.visibleLaps.length ? (
+            presentation.visibleLaps.length &&
+            !hideSnowLaps ? (
               <div className="lap-table-wrap">
                 <table className="lap-table">
                   <caption>Lap details</caption>

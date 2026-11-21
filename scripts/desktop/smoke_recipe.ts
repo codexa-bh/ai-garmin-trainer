@@ -374,8 +374,9 @@ function populateSupplements(db: Database.Database, time: number) {
   const run = db.prepare(
     "insert into activity_snow_split (garmin_id, split_key, message_index, source_order, split_type, start_time, timer_seconds, distance_meters, descent_meters, ascent_meters, max_speed_mps, fetched_at) values ('synthetic-snow',?,?,?,?,?,?,?,?,?,?,?)",
   );
-  const start = (minute: number) =>
-    new Date(time - DAY * 1.5 + minute * 60_000).toISOString();
+  const startSec = (seconds: number) =>
+    new Date(time - DAY * 1.5 + seconds * 1000).toISOString();
+  const start = (minute: number) => startSec(minute * 60);
   run.run("index:1", 1, 1, "lift", start(0), 420, 1200, 0, 310, null, time);
   run.run("index:2", 2, 2, "run", start(8), 190, 2600, 340, 0, 17.8, time);
   run.run("index:3", 3, 3, "lift", start(14), 400, 1150, 0, 295, null, time);
@@ -384,6 +385,60 @@ function populateSupplements(db: Database.Database, time: number) {
   db.prepare(
     "update activity_snow_split set avg_speed_mps = 10, ascent_meters = 0.5, timer_seconds = 190.4 where garmin_id = 'synthetic-snow' and split_key = 'index:2'",
   ).run();
+  // Measured windows for the two derivable runs (200 s and 215 s); run 4 keeps no
+  // end time, so its derived HR is honestly unavailable and no end is invented.
+  const windowEnd = db.prepare(
+    "update activity_snow_split set end_time = ? where garmin_id = 'synthetic-snow' and split_key = ?",
+  );
+  windowEnd.run(startSec(8 * 60 + 200), "index:2");
+  windowEnd.run(startSec(26 * 60 + 215), "index:5");
+  // Authored HR samples (UTC instants, 10 s cadence) inside those two windows:
+  // run 1 holds 130/150/170 bpm for 60/70/70 s; run 3 holds 120 for 100 s then
+  // 165 for 115 s. Zone limits are the activity file's own, never today's baseline.
+  const sample = db.prepare(
+    "insert into activity_stream_point (garmin_id, elapsed_sec, timestamp, heart_rate) values ('synthetic-snow', ?, ?, ?)",
+  );
+  let elapsed = 0;
+  const sampleRun = (
+    firstSecond: number,
+    lengthSec: number,
+    bpm: (offset: number) => number,
+  ) => {
+    for (let offset = 0; offset <= lengthSec; offset += 10)
+      sample.run(elapsed++, startSec(firstSecond + offset), bpm(offset));
+  };
+  sampleRun(8 * 60, 200, (o) => (o < 60 ? 130 : o < 130 ? 150 : 170));
+  sampleRun(26 * 60, 210, (o) => (o < 100 ? 120 : 165));
+  const fileZone = db.prepare(
+    "insert into activity_hr_zone_time (garmin_id, zone, fetched_at, source, status, seconds, source_lower_bpm, source_total_seconds) values ('synthetic-snow', ?, ?, 'garmin_official_fit', 'available', 0, ?, 0)",
+  );
+  [100, 120, 140, 160, 180].forEach((lower, index) =>
+    fileZone.run(index + 1, time, lower),
+  );
+  // Laps on every snow variant: redundant where individual runs are stored
+  // (populated, preserved), retained where none are (unknown, unsupported).
+  const snowLap = db.prepare(
+    "insert into activity_lap (garmin_id, lap_number, start_time, duration_sec, distance_meters, avg_speed_mps, avg_heart_rate, max_heart_rate, elevation_gain_meters, elevation_loss_meters) values (?,?,?,?,?,?,?,?,?,?)",
+  );
+  for (const [id, offset] of [
+    ["synthetic-snow", 1.5],
+    ["synthetic-snow-unknown", 2.5],
+    ["synthetic-snow-unsupported", 3.5],
+    ["synthetic-snow-preserved", 4.5],
+  ] as const)
+    for (let n = 1; n <= 3; n++)
+      snowLap.run(
+        id,
+        n,
+        new Date(time - DAY * offset + (n - 1) * 1_200_000).toISOString(),
+        1200,
+        1700,
+        3.1,
+        112 + n,
+        150,
+        18,
+        20,
+      );
   db.prepare(
     "update activity_snow_split set avg_speed_mps = 0 where garmin_id = 'synthetic-snow' and split_key = 'index:5'",
   ).run();
@@ -446,6 +501,8 @@ export function verify(db: Database.Database, route: "synthetic" | "private") {
     "activity_lap",
     "activity_extra_metrics",
     "activity_lap_hr_zone_time",
+    "activity_stream_point",
+    "activity_hr_zone_time",
     "activity_split_summary",
     "activity_snow_split",
     "trainer_profile",

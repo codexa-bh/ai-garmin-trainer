@@ -35,7 +35,7 @@ class SnowRunsTests(unittest.TestCase):
         run = Run()
         snow.scenario(run)
         captures = [value for value in run.commands if value['type'] == 'captureView']
-        self.assertEqual(len(captures), 10)
+        self.assertEqual(len(captures), 11)
         self.assertTrue(all(value['view'] == 'snowRuns' for value in captures))
         self.assertEqual(run.commands[-1], {'type': 'click', 'target': 'Back to chat'})
         self.assertEqual(snow.snow_scenario().configuration, 'keyless')

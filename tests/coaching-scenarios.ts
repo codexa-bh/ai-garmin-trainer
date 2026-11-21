@@ -552,13 +552,13 @@ export const COACHING_SCENARIOS: CoachingScenario[] = [
     providedEvidence: [
       "activity_snow_split: two runs with distance/timer/descent, two lifts",
       "snow_run_lift_splits latest populated coverage; elapsed/timer/moving differ",
-      "no proven split/lap HR link; activity_split_summary remains per-type totals",
+      "no proven split/lap link; derived per-split HR comes from samples in each split window; activity_split_summary remains per-type totals",
     ],
     expectedRoute: "sql-math",
     requiredQualities: [
       "individual measured run comparison separate from lift metrics",
       "m/s versus presentation speed and duration units explicit",
-      "split HR unavailable without proven link",
+      "split HR taken from the derived per-split evidence (or stated unavailable with its reason), never from lap allocation",
       "latest coverage distinguished from retained older rows",
     ],
     forbiddenBehavior: [

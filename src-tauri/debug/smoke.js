@@ -2988,10 +2988,11 @@
     "Run",
     "Timer duration",
     "Distance",
-    "Ascent",
     "Descent",
     "Avg speed",
     "Max speed",
+    "Avg HR (bpm)",
+    "HR zones",
   ];
   // Variants without stored rows must render no snow section at all.
   const snowAbsent = ["unknown", "unsupported"];
@@ -2999,14 +3000,84 @@
     preserved:
       "The latest individual-run read failed. Showing preserved runs; a complete fresh set is not confirmed.",
   };
-  function snowRows() {
-    return snowVariant === "populated"
+  const snowNote =
+    "Avg HR and HR zones are derived from HR samples during each run; they may differ slightly from Garmin per-lap totals.";
+  const snowSummary =
+    "Garmin totalsRuns 12 · 1h 0m · 31 km|Lifts 11 · 50m · 8.4 km";
+  const zoneProvenance =
+    "Derived from HR samples in this run · zone limits from this activity file";
+  // Exact authored derivation: the first seven cells, then either the exact
+  // derived bucket text (from the activity file's own limits) or a closed reason.
+  const zoneParts = (seconds) =>
+    [
+      ["Below zone 1 (…–99 bpm)", seconds[0]],
+      ["Zone 1 (100–119 bpm)", seconds[1]],
+      ["Zone 2 (120–139 bpm)", seconds[2]],
+      ["Zone 3 (140–159 bpm)", seconds[3]],
+      ["Zone 4 (160–179 bpm)", seconds[4]],
+      ["Zone 5 (180–max bpm)", seconds[5]],
+    ].map(([name, time]) => `${name}: ${time}`);
+  const snowRunRows = () =>
+    snowVariant === "populated"
       ? [
-          ["1", "3m 10.4s", "2.6 km", "0.5 m", "340 m", "36 km/h", "64.1 km/h"],
-          ["2", "—", "—", "0 m", "0 m", "—", "—"],
-          ["3", "3m 25s", "2.9 km", "0 m", "360 m", "0 km/h", "70.2 km/h"],
+          {
+            cells: [
+              "1",
+              "3m 10.4s",
+              "2.6 km",
+              "340 m",
+              "36 km/h",
+              "64.1 km/h",
+              "151",
+            ],
+            zones: zoneParts(["0s", "0s", "1m 00s", "1m 10s", "1m 10s", "0s"]),
+          },
+          {
+            cells: ["2", "—", "—", "0 m", "—", "—", "—"],
+            reason: "No measured run window",
+          },
+          {
+            cells: [
+              "3",
+              "3m 25s",
+              "2.9 km",
+              "360 m",
+              "0 km/h",
+              "70.2 km/h",
+              "144",
+            ],
+            zones: zoneParts(["0s", "0s", "1m 40s", "0s", "1m 55s", "0s"]),
+          },
         ]
-      : [["1", "12.5s", "0 km", "—", "0 m", "—", "0 km/h"]];
+      : [
+          {
+            cells: ["1", "12.5s", "0 km", "0 m", "—", "0 km/h", "—"],
+            reason: "No measured run window",
+          },
+        ];
+  const zoneCellText = (row) =>
+    row.zones ? `Times${row.zones.join("")}${zoneProvenance}` : row.reason;
+  const snowExpectedText = () =>
+    [
+      snowVariant === "populated" ? snowSummary : "",
+      snowVariant === "populated" ? "" : snowMessages[snowVariant],
+      snowNote,
+      "Snow runs",
+      ...snowHeaders,
+      ...snowRunRows().flatMap((row) => [...row.cells, zoneCellText(row)]),
+    ].join("");
+  // Laps are redundant where individual runs are stored and kept where not.
+  function snowLapTables() {
+    return [...document.querySelectorAll("table")].filter(
+      (table) => table.caption?.textContent.trim() === "Lap details",
+    );
+  }
+  function snowLapsOk() {
+    const tables = snowLapTables();
+    return snowAbsent.includes(snowVariant)
+      ? tables.length === 1 &&
+          tables[0].querySelectorAll("tbody tr").length === 3
+      : tables.length === 0;
   }
   function snowChoices() {
     return Object.entries(snowNames).map(([variant, name]) => ({
@@ -3032,7 +3103,8 @@
   function snowAbsentAnchor() {
     return snowAbsent.includes(snowVariant) &&
       snowSelected() &&
-      !document.querySelector(".snow-section, .snow-run-display, .snow-runs")
+      !document.querySelector(".snow-section, .snow-run-display, .snow-runs") &&
+      snowLapsOk()
       ? document.querySelector(".selected-activity-heading")
       : null;
   }
@@ -3048,68 +3120,74 @@
         snowNames[snowVariant]
     )
       return null;
-    const region = document.querySelector(".snow-run-display");
-    if (!region || !visible(region)) return null;
-    const table = region.querySelector("table");
+    const region = document.querySelector(".snow-section");
+    if (!region || !visible(region) || !snowLapsOk()) return null;
+    const display = region.querySelector(".snow-run-display");
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    {
-      if (
-        region.querySelectorAll("table").length !== 1 ||
-        table.caption?.textContent.trim() !== "Snow runs" ||
-        !same(
-          [...table.querySelectorAll("thead th")].map(
-            (cell) => cell.textContent,
-          ),
-          snowHeaders,
-        ) ||
-        !same(
-          [...table.querySelectorAll("tbody tr")].map((row) =>
-            [...row.cells].map((cell) => cell.textContent),
-          ),
-          snowRows(),
-        )
-      )
-        return null;
-    }
-    const paragraphs = [...region.querySelectorAll("p")].map((node) =>
-      node.textContent.trim(),
-    );
+    const table = display?.querySelector("table");
     if (
+      !display ||
       !same(
-        paragraphs,
-        snowVariant === "populated" ? [] : [snowMessages[snowVariant]],
+        [...region.children].map((node) => node.className),
+        snowVariant === "populated"
+          ? ["snow-summary-line", "snow-run-display"]
+          : ["snow-run-display"],
+      ) ||
+      display.querySelectorAll("table").length !== 1 ||
+      table.caption?.textContent.trim() !== "Snow runs" ||
+      !same(
+        [...table.querySelectorAll("thead th")].map((cell) => cell.textContent),
+        snowHeaders,
       )
     )
       return null;
-    const leaves = new Set([
-      "Snow runs",
-      ...snowHeaders,
-      ...snowRows().flat(),
-      snowMessages[snowVariant],
-    ]);
-    for (const node of region.querySelectorAll("*")) {
+    const expected = snowRunRows();
+    const rows = [...table.querySelectorAll("tbody tr")];
+    if (rows.length !== expected.length) return null;
+    for (const [index, row] of rows.entries()) {
+      const want = expected[index];
+      const cells = [...row.children];
+      const zone = cells[7];
+      const group = zone?.querySelector("[role=group]");
       if (
-        ![
-          "DIV",
-          "TABLE",
-          "CAPTION",
-          "THEAD",
-          "TBODY",
-          "TR",
-          "TH",
-          "TD",
-          "P",
-          "H3",
-        ].includes(node.tagName) ||
-        (node.children.length === 0 && !leaves.has(node.textContent.trim())) ||
-        (node.children.length > 0 &&
-          [...node.childNodes].some(
-            (child) =>
-              child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
-          ))
+        cells.length !== 8 ||
+        !same(
+          cells.slice(0, 7).map((cell) => cell.textContent),
+          want.cells,
+        ) ||
+        zone.textContent !== zoneCellText(want) ||
+        (want.zones
+          ? group?.getAttribute("aria-label") !==
+              `Run HR zones: ${want.zones.join(" · ")}` ||
+            zone.querySelector("summary")?.textContent !== "Times"
+          : !!group)
       )
         return null;
     }
+    // Every allowed element class, and no text beyond the exact authored text.
+    const tags = new Set([
+      "DIV",
+      "TABLE",
+      "CAPTION",
+      "THEAD",
+      "TBODY",
+      "TR",
+      "TH",
+      "TD",
+      "P",
+      "STRONG",
+      "SPAN",
+      "DETAILS",
+      "SUMMARY",
+      "UL",
+      "LI",
+      "I",
+    ]);
+    if (
+      region.textContent !== snowExpectedText() ||
+      [...region.querySelectorAll("*")].some((node) => !tags.has(node.tagName))
+    )
+      return null;
     return region;
   }
   function snowObservation(action) {
@@ -3145,6 +3223,7 @@
         "collapse",
         "expand",
         "laps",
+        "times",
         ...Object.keys(snowNames),
       ].includes(command.action)
     )
@@ -3213,6 +3292,18 @@
     } else if (command.action !== "observe") {
       const region = snowRegion() ?? snowAbsentAnchor();
       if (!region) throw Error("Canonical Snow runs required");
+      if (command.action === "times") {
+        // Real toggles of the authored derived-zone disclosures only.
+        const summaries = [
+          ...region.querySelectorAll(".snow-runs details > summary"),
+        ].filter(visible);
+        if (!summaries.length)
+          throw Error("Authored Times disclosure required");
+        for (const summary of summaries) summary.click();
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        if (!snowRegion()) throw Error("Canonical Snow runs required");
+        return snowObservation(command.action);
+      }
       if (["collapse", "expand"].includes(command.action)) {
         const label =
           command.action === "collapse"

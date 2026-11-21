@@ -27,6 +27,8 @@ const allowed = new Set([
   // Pure plain contracts and interpretation for the Health/Activity supplements.
   "local-data/supplement-contracts.ts",
   "local-data/supplement-policy.ts",
+  // Pure read-time split heart-rate derivation shared by the run table and trainer.
+  "local-data/split-heart-rate.ts",
   "garmin/types.ts",
   "garmin/extra-types.ts",
   "garmin/detail-types.ts",

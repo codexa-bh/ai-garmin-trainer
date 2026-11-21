@@ -408,6 +408,10 @@ exact normalized-name/date/ID matching, order and ambiguity before match caps.
 contracts (including stage-2 `HealthCoverage`) remain authoritative, not copied.
 `health-policy.ts` owns nullish merging and clock-supplied trailing/refresh
 criteria; `heart-rate-policy.ts` owns Garmin-total versus local-stream timing;
+`split-heart-rate.ts` is the one pure read-time derivation of a run's/lift's
+duration-weighted Avg HR and zone time from stored samples in its own window
+(read through `db/split-heart-rate-repository.ts`, never persisted, never linked
+to laps) for both the Activity run table and trainer evidence;
 `activity-policy.ts`, `coverage-policy.ts` and `dashboard-policy.ts` own reference,
 paging and selected-row interpretation. T0190 chart/route calculations remain
 unchanged. The repository keeps proven SQL predicates, aggregate queries,
