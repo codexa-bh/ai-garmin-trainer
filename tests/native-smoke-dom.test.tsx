@@ -1387,7 +1387,22 @@ describe("native-installed rendered smoke boundary", () => {
         bodyBatteryEvening: null,
         availability: "complete",
       }) as HealthDashboardDay;
-    function Health({ calories = false }: { calories?: boolean }) {
+    // The authored recipe's relation: REM 85, Deep 65, recorded = Light + 165.
+    const authoredSleep = (date: string, light: number | null) =>
+      ({
+        ...record(date),
+        sleepRemMinutes: light === null ? null : 85,
+        sleepDeepMinutes: light === null ? null : 65,
+        sleepLightMinutes: light,
+        sleepMinutes: light === null ? null : light + 165,
+      }) as HealthDashboardDay;
+    function Health({
+      calories = false,
+      sleep,
+    }: {
+      calories?: boolean;
+      sleep?: HealthDashboardDay[];
+    }) {
       const [end, setEnd] = useState<string | null>(null);
       return (
         <>
@@ -1395,26 +1410,28 @@ describe("native-installed rendered smoke boundary", () => {
           <section className="health-dashboard-panel">
             <HealthDashboardView
               days={
-                calories
-                  ? [
-                      [1700, 400, 2100],
-                      [1700, 400, null],
-                      [null, null, 1800],
-                      [null, null, null],
-                      [1700, null, 1900],
-                      [0, 0, 0],
-                      [1700, 400, 2150],
-                    ].map(([resting, active, total], index) => ({
-                      ...record(`2026-07-${15 + index}`),
-                      restingCalories: resting,
-                      activeCalories: active,
-                      totalCalories: total,
-                      calories: null,
-                    }))
-                  : [
-                      { ...record("2026-07-21"), availability: "partial" },
-                      record("2026-06-01"),
-                    ]
+                sleep
+                  ? sleep
+                  : calories
+                    ? [
+                        [1700, 400, 2100],
+                        [1700, 400, null],
+                        [null, null, 1800],
+                        [null, null, null],
+                        [1700, null, 1900],
+                        [0, 0, 0],
+                        [1700, 400, 2150],
+                      ].map(([resting, active, total], index) => ({
+                        ...record(`2026-07-${15 + index}`),
+                        restingCalories: resting,
+                        activeCalories: active,
+                        totalCalories: total,
+                        calories: null,
+                      }))
+                    : [
+                        { ...record("2026-07-21"), availability: "partial" },
+                        record("2026-06-01"),
+                      ]
               }
               rangeEnd={end}
               onSelectRange={setEnd}
@@ -1424,6 +1441,12 @@ describe("native-installed rendered smoke boundary", () => {
         </>
       );
     }
+    const authoredDays = () => [
+      ...[255, 256, null, 258, 259, 260, 261].map((light, index) =>
+        authoredSleep(`2026-07-${15 + index}`, light),
+      ),
+      authoredSleep("2026-06-20", 250),
+    ];
     // Keep real rendered navigation, mode persistence and privacy checks within
     // independent deadlines rather than accumulating their work in one test.
     it("drives finite range navigation and detects a changed remembered range", async () => {
@@ -1529,6 +1552,60 @@ describe("native-installed rendered smoke boundary", () => {
       ).toBe(false);
       expect(
         (await command({ type: "health", action: "calories" })).result.ok,
+      ).toBe(false);
+    });
+
+    it.each(["daily", "weekly", "monthly"])(
+      "reveals only canonical authored Sleep stages in %s after exact shared readout assertions",
+      async (mode) => {
+        render(<Health sleep={authoredDays()} />);
+        await command({ type: "health", action: mode });
+        const card = document.querySelector(".health-sleep-chart")!;
+        const unexpected = document.createElement("b");
+        unexpected.textContent = "unexpected private descendant";
+        card.append(unexpected);
+        expect(
+          (await command({ type: "health", action: "sleep" })).result.ok,
+        ).toBe(true);
+        expect(
+          (await command({ type: "health", action: "capture-wide" })).result.ok,
+        ).toBe(true);
+        for (const selector of [
+          ".health-sleep-legend span",
+          ".health-sleep-breakdown dd",
+          ".recharts-bar-rectangle path",
+          "svg",
+        ])
+          expect(
+            getComputedStyle(card.querySelector(selector)!).visibility,
+          ).toBe("visible");
+        expect(
+          getComputedStyle(card.querySelector("svg text")!).visibility,
+        ).toBe("hidden");
+        expect(getComputedStyle(unexpected).visibility).toBe("hidden");
+        expect(getComputedStyle(screen.getByTestId("outside")).visibility).toBe(
+          "hidden",
+        );
+        smoke.__trainerSmokeRestore();
+        card
+          .querySelector("button")!
+          .setAttribute("aria-label", "noncanonical private value");
+        expect(
+          (await command({ type: "health", action: "capture-narrow" })).result
+            .ok,
+        ).toBe(false);
+        expect(
+          (await command({ type: "health", action: "sleep" })).result.ok,
+        ).toBe(false);
+      },
+    );
+
+    it("refuses private-looking Sleep stages that break the authored relation", async () => {
+      const days = authoredDays();
+      days[6] = { ...days[6], sleepMinutes: 999 };
+      render(<Health sleep={days} />);
+      expect(
+        (await command({ type: "health", action: "sleep" })).result.ok,
       ).toBe(false);
     });
 
