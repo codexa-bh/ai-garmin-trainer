@@ -14,19 +14,27 @@ import type {
 
 const source = readFileSync("src-tauri/debug/smoke.js", "utf8");
 const invoke = vi.fn();
-const variants = ["populated", "unknown", "unsupported", "preserved"] as const;
+const variants = [
+  "populated",
+  "unknown",
+  "unsupported",
+  "preserved",
+  "unproven",
+] as const;
 type Variant = (typeof variants)[number];
 const names = {
   populated: "Fictional snow day",
   unknown: "Fictional snow unknown",
   unsupported: "Fictional snow unsupported",
   preserved: "Fictional snow preserved",
+  unproven: "Fictional snow unproven",
 };
 const sports = {
   populated: "resort_snowboarding",
   unknown: "resort_skiing",
   unsupported: "backcountry_skiing",
   preserved: "resort_skiing",
+  unproven: "resort_skiing",
 };
 const bucket = (index: number, seconds: number) => ({
   bucket: index,
@@ -95,6 +103,36 @@ function supplement(variant: Variant): ActivitySupplement {
       : variant === "preserved"
         ? [
             {
+              splitKey: "index:9",
+              timerSeconds: 10,
+              distanceMeters: 0,
+              ascentMeters: null,
+              descentMeters: 0,
+              avgSpeedMps: null,
+              maxSpeedMps: null,
+              heartRate: {
+                ...derived(120, []),
+                zones: {
+                  buckets: null,
+                  unavailableReason: "missing-zone-boundaries" as const,
+                },
+              },
+            },
+            {
+              splitKey: "index:10",
+              timerSeconds: 10,
+              distanceMeters: 0,
+              ascentMeters: null,
+              descentMeters: 0,
+              avgSpeedMps: null,
+              maxSpeedMps: null,
+              heartRate: {
+                ...noWindow,
+                windowSeconds: 10,
+                unavailableReason: "no-window-samples" as const,
+              },
+            },
+            {
               splitKey: "index:8",
               timerSeconds: 12.5,
               distanceMeters: 0,
@@ -105,7 +143,24 @@ function supplement(variant: Variant): ActivitySupplement {
               heartRate: noWindow,
             },
           ]
-        : [];
+        : variant === "unproven"
+          ? [
+              {
+                splitKey: "index:11",
+                timerSeconds: 10,
+                distanceMeters: 0,
+                ascentMeters: null,
+                descentMeters: 0,
+                avgSpeedMps: null,
+                maxSpeedMps: null,
+                heartRate: {
+                  ...noWindow,
+                  windowSeconds: 10,
+                  unavailableReason: "unproven-sample-timezone" as const,
+                },
+              },
+            ]
+          : [];
   return {
     bodyBatteryDelta: null,
     listCadence: { avgSpm: null, maxSpm: null, strideLengthCm: null },
@@ -145,7 +200,7 @@ function supplement(variant: Variant): ActivitySupplement {
       lap_hr_zones: unknown,
       snowboard_splits: unknown,
       snow_run_lift_splits:
-        variant === "populated"
+        variant === "populated" || variant === "unproven"
           ? { status: "populated", reason: null }
           : variant === "preserved"
             ? { status: "failed", reason: "fit-download" }

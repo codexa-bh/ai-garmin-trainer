@@ -3385,6 +3385,13 @@ label {
   min-width: 150px;
 }
 
+/* Keep open Times/provenance readable at the right edge of the local scroller.
+   Inherited table nowrap otherwise makes this cell wider than a narrow viewport. */
+.snow-runs .lap-zone-cell {
+  width: 260px;
+  white-space: normal;
+}
+
 .snow-runs {
   min-width: 860px;
   font-variant-numeric: tabular-nums;

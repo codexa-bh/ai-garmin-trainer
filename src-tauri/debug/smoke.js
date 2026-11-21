@@ -2983,6 +2983,7 @@
     unknown: "Fictional snow unknown",
     unsupported: "Fictional snow unsupported",
     preserved: "Fictional snow preserved",
+    unproven: "Fictional snow unproven",
   };
   const snowHeaders = [
     "Run",
@@ -3049,18 +3050,33 @@
             zones: zoneParts(["0s", "0s", "1m 40s", "0s", "1m 55s", "0s"]),
           },
         ]
-      : [
-          {
-            cells: ["1", "12.5s", "0 km", "0 m", "—", "0 km/h", "—"],
-            reason: "No measured run window",
-          },
-        ];
+      : snowVariant === "preserved"
+        ? [
+            {
+              cells: ["1", "10s", "0 km", "0 m", "—", "—", "120"],
+              reason: "Activity zone limits unavailable",
+            },
+            {
+              cells: ["2", "10s", "0 km", "0 m", "—", "—", "—"],
+              reason: "No samples in run window",
+            },
+            {
+              cells: ["3", "12.5s", "0 km", "0 m", "—", "0 km/h", "—"],
+              reason: "No measured run window",
+            },
+          ]
+        : [
+            {
+              cells: ["1", "10s", "0 km", "0 m", "—", "—", "—"],
+              reason: "HR sample time zone unproven",
+            },
+          ];
   const zoneCellText = (row) =>
     row.zones ? `Times${row.zones.join("")}${zoneProvenance}` : row.reason;
   const snowExpectedText = () =>
     [
       snowVariant === "populated" ? snowSummary : "",
-      snowVariant === "populated" ? "" : snowMessages[snowVariant],
+      snowMessages[snowVariant] ?? "",
       snowNote,
       "Snow runs",
       ...snowHeaders,

@@ -205,7 +205,11 @@ const HR_REASON_TEXT: Record<
   string
 > = {
   "invalid-window": "No measured run window",
-  "no-heart-rate-samples": "No HR samples",
+  "unproven-sample-timezone": "HR sample time zone unproven",
+  "invalid-sample-time": "HR sample times unavailable",
+  "no-heart-rate-samples": "No stored HR samples",
+  "no-window-samples": "No samples in run window",
+  "no-usable-heart-rate": "No usable HR measurements",
   "insufficient-samples": "Too few HR samples",
   "significant-gap": "HR gaps too long",
   "insufficient-support": "HR coverage too low",
@@ -214,8 +218,8 @@ const ZONE_REASON_TEXT: Record<
   NonNullable<SplitHeartRate["zones"]["unavailableReason"]>,
   string
 > = {
-  "missing-zone-boundaries": "Zone limits unavailable",
-  "conflicting-zone-boundaries": "Zone limits inconsistent",
+  "missing-zone-boundaries": "Activity zone limits unavailable",
+  "conflicting-zone-boundaries": "Activity zone limits inconsistent",
   "heart-rate-unavailable": "Unavailable",
 };
 

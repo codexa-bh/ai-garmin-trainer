@@ -37,17 +37,17 @@ function storedZoneBoundaries(db: Database.Database, garminId: string) {
     zone: number;
     lower: number | null;
   }>;
-  const session =
-    sessionRows.length === 5 &&
-    sessionRows.every((row, index) => row.zone === index + 1)
-      ? sessionRows.map((row) => row.lower)
-      : null;
+  const session = sessionRows.length
+    ? [1, 2, 3, 4, 5].map(
+        (zone) => sessionRows.find((row) => row.zone === zone)?.lower ?? null,
+      )
+    : null;
   const lapRows = db
     .prepare(
       `select lap_number as lapNumber, bucket, lower_bpm as lower
        from activity_lap_hr_zone_time
        where garmin_id = ? and bucket between 1 and 5
-         and lap_number in (select lap_number from activity_lap where garmin_id = ? order by lap_number limit 100)
+         and lap_number in (select lap_number from activity_lap where garmin_id = ?)
        order by lap_number, bucket`,
     )
     .all(garminId, garminId) as Array<{
@@ -92,16 +92,27 @@ export function deriveActivitySplitHeartRates(
     descentMeters: number | null;
   }>;
   if (!splits.length) return [];
+  // The raw activity repository writes Date.getTime() milliseconds (despite the
+  // Drizzle timestamp annotation). Preserve that convention, never guess units.
+  // Read only this activity; no later/foreign anchor.
+  const activity = db
+    .prepare("select started_at as startedAt from activity where garmin_id = ?")
+    .get(garminId) as { startedAt: number } | undefined;
+  const activityStartMs =
+    activity && Number.isSafeInteger(activity.startedAt)
+      ? activity.startedAt
+      : null;
   const samples = prepareHeartRateSamples(
     db
       .prepare(
         `select timestamp, heart_rate as heartRate from activity_stream_point
-         where garmin_id = ? and timestamp is not null order by elapsed_sec`,
+         where garmin_id = ? order by elapsed_sec`,
       )
       .all(garminId) as Array<{
       timestamp: string | null;
       heartRate: number | null;
     }>,
+    activityStartMs,
   );
   const boundaries = storedZoneBoundaries(db, garminId);
   return splits.map(({ startTime, endTime, ...split }) => ({

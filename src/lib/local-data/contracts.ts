@@ -15,6 +15,7 @@ import type {
   ActivityDashboardRoute,
 } from "../analytics/activity-dashboard-calculations";
 import type { HealthCoverage } from "../garmin/import-contracts";
+import type { SplitHeartRate } from "./split-heart-rate";
 type ActivityDashboardListItem = NormalizedActivity & {
   detailStatus: ActivityDetailStatus | null;
 };
@@ -74,10 +75,10 @@ type SnowSplitHeartRateRow = {
   /** Time-weighted over supported seconds; null when unavailable (never zero). */
   avgHeartRate: number | null;
   supportSeconds: number | null;
-  hrUnavailableReason: string | null;
+  hrUnavailableReason: SplitHeartRate["unavailableReason"];
   /** [below zone 1, zone 1..5] seconds, or null when zones are unavailable. */
   zoneSeconds: number[] | null;
-  zoneUnavailableReason: string | null;
+  zoneUnavailableReason: SplitHeartRate["zones"]["unavailableReason"];
 };
 
 export type SnowSplitHeartRateEvidence = {

@@ -183,7 +183,17 @@ class HistoryTokenContracts(unittest.TestCase):
         with sqlite3.connect(database) as db:
             db.execute('create table conversation(value text)')
             db.execute("insert into conversation values ('authored canary')")
-            db.execute('create table activity(value text)')
+            from history_smoke import AUTHORED_SUMMARY_IDS
+
+            db.execute('create table activity(garmin_id text,training_effect real)')
+            db.executemany(
+                'insert into activity(garmin_id) values(?)',
+                [(identity,) for identity in AUTHORED_SUMMARY_IDS],
+            )
+            db.execute(
+                'create table activity_detail_availability(garmin_id text,source text,status text,unavailable_reason text)'
+            )
+        database.chmod(0o600)
         run = SimpleNamespace(
             root=self.destination,
             database=database,
@@ -195,6 +205,89 @@ class HistoryTokenContracts(unittest.TestCase):
         )
         self.addCleanup(lambda: run.fixture and run.fixture.stop())
         return run
+
+    def test_imported_snow_counts_cannot_be_satisfied_or_contaminated_by_retained_seed_rows(self):
+        import sqlite3
+        from history_smoke import imported_snow_snapshot
+
+        with sqlite3.connect(':memory:') as db:
+            db.execute('create table activity_snow_split(garmin_id text,split_type text)')
+            db.execute(
+                'create table garmin_data_coverage(data_group text,subject_id text,status text)'
+            )
+            db.executemany(
+                'insert into activity_snow_split values(?,?)', [('synthetic-snow', 'run')] * 9
+            )
+            db.execute(
+                "insert into garmin_data_coverage values('snow_run_lift_splits','synthetic-snow','populated')"
+            )
+            self.assertEqual(
+                imported_snow_snapshot(db),
+                {'importedSnowSplits': 0, 'snowTypes': {}, 'snowCoverage': {}},
+            )
+            db.executemany(
+                'insert into activity_snow_split values(?,?)',
+                [('83092', 'run')] * 2 + [('83092', 'lift')] * 2,
+            )
+            db.execute(
+                "insert into garmin_data_coverage values('snow_run_lift_splits','83092','populated')"
+            )
+            self.assertEqual(
+                imported_snow_snapshot(db),
+                {
+                    'importedSnowSplits': 4,
+                    'snowTypes': {'run': 2, 'lift': 2},
+                    'snowCoverage': {'populated': 1},
+                },
+            )
+
+    def test_summary_only_setup_is_exact_stopped_private_and_never_a_detail_import(self):
+        import sqlite3
+        from unittest.mock import patch
+        from history_smoke import settle_authored_summary_details, AUTHORED_SUMMARY_IDS
+
+        run = self._fixture_run()
+        before = run.database.read_bytes()
+        with patch('history_smoke.listening', return_value=False):
+            run.child = object()
+            with self.assertRaisesRegex(ValueError, 'Stopped'):
+                settle_authored_summary_details(run)
+            self.assertEqual(run.database.read_bytes(), before)
+            run.child = None
+            run.database.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, 'private authored'):
+                settle_authored_summary_details(run)
+            run.database.chmod(0o600)
+            with sqlite3.connect(run.database) as db:
+                db.execute("insert into activity(garmin_id) values('foreign-activity')")
+            with self.assertRaisesRegex(ValueError, 'fresh authored'):
+                settle_authored_summary_details(run)
+            with sqlite3.connect(run.database) as db:
+                self.assertEqual(
+                    db.execute('select count(*) from activity_detail_availability').fetchone()[0], 0
+                )
+                db.execute("delete from activity where garmin_id='foreign-activity'")
+            settle_authored_summary_details(run)
+            with sqlite3.connect(run.database) as db:
+                self.assertEqual(
+                    db.execute(
+                        'select status,count(*) from activity_detail_availability group by status'
+                    ).fetchall(),
+                    [('unsupported', len(AUTHORED_SUMMARY_IDS))],
+                )
+                self.assertEqual(
+                    db.execute('select value from conversation').fetchall(), [('authored canary',)]
+                )
+                self.assertEqual(
+                    db.execute('select count(*) from activity where training_effect=0').fetchone()[
+                        0
+                    ],
+                    len(AUTHORED_SUMMARY_IDS),
+                )
+            after = run.database.read_bytes()
+            with self.assertRaisesRegex(ValueError, 'fresh authored'):
+                settle_authored_summary_details(run)
+            self.assertEqual(run.database.read_bytes(), after)
 
     def test_connection_presets_are_stopped_synthetic_only_and_bind_the_owned_fixture(self):
         from unittest.mock import patch
