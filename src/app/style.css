@@ -1086,8 +1086,55 @@ body::before {
 .health-calories-context {
   color: var(--muted);
 }
-.health-calories-chart .health-rollup-value {
+.health-calories-chart .health-rollup-value,
+.health-sleep-chart .health-rollup-value {
   justify-content: center;
+}
+.health-sleep-legend,
+.health-sleep-legend > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.health-sleep-legend {
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  font-size: 12px;
+}
+.health-sleep-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+.health-sleep-rem {
+  background: #b6a3ff;
+}
+.health-sleep-deep {
+  background: #5b8def;
+}
+.health-sleep-light {
+  background: #49d6c8;
+}
+.health-sleep-breakdown {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+.health-sleep-breakdown > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.health-sleep-breakdown dd {
+  margin: 0;
+  font-weight: 600;
+}
+.health-sleep-context {
+  color: var(--muted);
+}
+.health-sleep-chart .health-rollup-value[aria-pressed="true"] {
+  border-color: #49d6c8;
 }
 .health-rollup-grid .health-rollup-value[aria-pressed="true"] {
   border-color: #49d6c8;

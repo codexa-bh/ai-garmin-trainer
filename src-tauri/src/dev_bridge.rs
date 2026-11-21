@@ -101,6 +101,7 @@ pub enum HealthAction {
     RememberRange,
     AssertRange,
     Calories,
+    Sleep,
     CaptureWide,
     CaptureNarrow,
 }
@@ -1540,6 +1541,7 @@ mod tests {
             "remember-range",
             "assert-range",
             "calories",
+            "sleep",
             "capture-wide",
             "capture-narrow",
         ] {

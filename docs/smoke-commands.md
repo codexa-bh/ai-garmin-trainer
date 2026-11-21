@@ -88,7 +88,7 @@ Builds/verifies production resources and debug host; no prebuilt ordinary bundle
 
 ## health — Debug synthetic Daily/Weekly/Monthly Health comparison
 
-Add `--health-comparison` to `smoke:native`. Authored default supplies missing/partial/zero dates; private input needs exact authority and eligible coverage. May omit fixed rows only on new owned copies when the historical page has no gap, recorded separately. Captures preserve masks; authored Calories alone has exact finite unmasking. Inspect values/layout limitations. No ordinary artifact or real-service certification. [Health contract](smoke/settings.md#finite-daily-health-comparison-scenario).
+Add `--health-comparison` to `smoke:native`. Authored default supplies missing/partial/zero dates; private input needs exact authority and eligible coverage. May omit fixed rows only on new owned copies when the historical page has no gap, recorded separately. Captures preserve masks; authored Calories (Daily) and Sleep stages (all three modes) alone have exact finite unmasking. Inspect values/layout limitations. No ordinary artifact or real-service certification. [Health contract](smoke/settings.md#finite-daily-health-comparison-scenario).
 
 ## settings — Debug keyless Settings/catalog/provider-field presentation
 
