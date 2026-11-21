@@ -1,5 +1,32 @@
 import type { NormalizedActivity } from "../garmin/types";
 import type { ActivityLapDetail } from "../garmin/detail-types";
+import type { ActivitySupplement } from "./supplement-contracts";
+
+/** Explicit nonlocation run projection; timestamps, source indexes and raw rows stay internal. */
+export function dashboardSupplement(
+  supplement: ActivitySupplement,
+): ActivitySupplement {
+  const measured = (value: number | null) =>
+    typeof value === "number" && Number.isFinite(value) ? value : null;
+  return {
+    ...supplement,
+    snowRuns: {
+      relevant: supplement.snowRuns.relevant,
+      total: supplement.snowRuns.total,
+      returned: supplement.snowRuns.returned,
+      truncated: supplement.snowRuns.truncated,
+      entries: supplement.snowRuns.entries.map((row) => ({
+        splitKey: row.splitKey,
+        timerSeconds: measured(row.timerSeconds),
+        distanceMeters: measured(row.distanceMeters),
+        ascentMeters: measured(row.ascentMeters),
+        descentMeters: measured(row.descentMeters),
+        avgSpeedMps: measured(row.avgSpeedMps),
+        maxSpeedMps: measured(row.maxSpeedMps),
+      })),
+    },
+  };
+}
 
 /** Shared numerical display semantics; no route, storage or UI dependency. */
 export function dashboardActivity(activity: NormalizedActivity) {

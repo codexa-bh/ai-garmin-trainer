@@ -63,6 +63,7 @@ impl Config {
             | Command::Memory { .. }
             | Command::Tables { .. }
             | Command::Terrain { .. }
+            | Command::SnowRuns { .. }
             | Command::ActivityLabels { .. }
             | Command::WeeklyKpis { .. } => self.ordinary.is_some(),
             Command::Input { value, .. } | Command::Assert { value, .. }
@@ -175,6 +176,9 @@ pub enum Command {
     Terrain {
         action: String,
     },
+    SnowRuns {
+        action: String,
+    },
     ActivityLabels {
         action: String,
     },
@@ -264,6 +268,7 @@ impl Command {
                     "memory",
                     "tables",
                     "terrain",
+                    "snowRuns",
                     "activityLabels",
                     "weeklyKpis",
                 ]
@@ -292,6 +297,19 @@ impl Command {
             Self::ActivityLabels { action } => {
                 ["observe", "strength", "gravel", "hiking", "list"].contains(&action.as_str())
             }
+            Self::SnowRuns { action } => [
+                "observe",
+                "populated",
+                "unknown",
+                "unsupported",
+                "preserved",
+                "start",
+                "end",
+                "collapse",
+                "expand",
+                "laps",
+            ]
+            .contains(&action.as_str()),
             Self::Terrain { action } => [
                 "observe",
                 "supported",
@@ -1139,6 +1157,23 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
         }
         Command::ActivityLabels { action } => {
             let booleans = ["choicesReady", "ready", "contained"];
+            let mut keys = vec!["ok", "action", "trustedInput"];
+            keys.extend(booleans);
+            ordinary
+                && exact_keys(value, &keys)
+                && value["action"].as_str() == Some(action)
+                && value["trustedInput"] == false
+                && booleans.iter().all(|key| value[*key].is_boolean())
+        }
+        Command::SnowRuns { action } => {
+            let booleans = [
+                "choicesReady",
+                "ready",
+                "contained",
+                "scrollable",
+                "edgeReached",
+                "headerVisible",
+            ];
             let mut keys = vec!["ok", "action", "trustedInput"];
             keys.extend(booleans);
             ordinary
@@ -2118,6 +2153,53 @@ mod tests {
             json!({"type":"weeklyKpis","action":"current","selector":"body"})
         )
         .is_err());
+    }
+    #[test]
+    fn snow_runs_are_closed_ordinary_boolean_only() {
+        for action in [
+            "observe",
+            "populated",
+            "unknown",
+            "unsupported",
+            "preserved",
+            "start",
+            "end",
+            "collapse",
+            "expand",
+            "laps",
+        ] {
+            let command = Command::SnowRuns {
+                action: action.into(),
+            };
+            assert!(command.valid());
+            assert!(!config().permits(&command));
+            let result = json!({"ok":true,"action":action,"trustedInput":false,"choicesReady":true,"ready":true,"contained":true,"scrollable":false,"edgeReached":true,"headerVisible":true});
+            assert!(super::safe_result(&command, &result, true));
+            assert!(!safe_result(&command, &result));
+            for (key, value) in [
+                ("private", json!("secret")),
+                ("ready", json!("secret")),
+                ("action", json!("stale")),
+                ("trustedInput", json!(true)),
+            ] {
+                let mut invalid = result.clone();
+                invalid[key] = value;
+                assert!(!super::safe_result(&command, &invalid, true));
+            }
+        }
+        assert!(!Command::SnowRuns {
+            action: "eval".into()
+        }
+        .valid());
+        assert!(serde_json::from_value::<Command>(
+            json!({"type":"snowRuns","action":"populated","selector":"body"})
+        )
+        .is_err());
+        assert!(Command::CaptureView {
+            view: "snowRuns".into(),
+            preset: "narrow".into()
+        }
+        .valid());
     }
     #[test]
     fn activity_labels_are_closed_ordinary_boolean_only() {

@@ -119,15 +119,14 @@ type SnowTypeTotal = {
   maxSpeedMps: number | null;
 };
 
-/** Delivered individual measured run/lift. Locations are never selected. */
+/** Individual measured run. No lift, location, timestamp or lap association. */
 export type SnowRunEntry = {
   splitKey: string;
-  splitType: "run" | "lift";
-  startTime: string | null;
   timerSeconds: number | null;
   distanceMeters: number | null;
   descentMeters: number | null;
   ascentMeters: number | null;
+  avgSpeedMps: number | null;
   maxSpeedMps: number | null;
 };
 
@@ -145,6 +144,8 @@ export type ActivitySupplement = {
   lapZones: LapZoneEvidence[];
   snowTotals: SnowTypeTotal[];
   snowRuns: {
+    /** Optional only for older payloads; current readers always provide it. */
+    relevant?: boolean;
     total: number;
     returned: number;
     truncated: boolean;
@@ -153,7 +154,7 @@ export type ActivitySupplement = {
   coverage: Record<ActivitySupplementGroup, SupplementCoverage>;
 };
 
-/** Bound for the individual run/lift list; omission is disclosed, never silent. */
-export const SNOW_RUN_LIST_LIMIT = 60;
+/** Matches the FIT split admission bound; defensive omission is disclosed. */
+export const SNOW_RUN_LIST_LIMIT = 2_000;
 /** Matches the existing lap read bound so lap-zone rows cannot outgrow laps. */
 export const ACTIVITY_LAP_LIMIT = 100;

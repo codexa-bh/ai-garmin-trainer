@@ -1,4 +1,5 @@
 import { getDatabase } from "./connection";
+import { SNOW_ACTIVITY_SPORTS } from "../garmin/extra-types";
 import {
   ACTIVITY_LAP_LIMIT,
   ACTIVITY_SUPPLEMENT_GROUPS,
@@ -217,19 +218,22 @@ export function getActivitySupplement(garminId: string): ActivitySupplement {
        from activity_split_summary where garmin_id = ? order by split_type`,
     )
     .all(garminId) as ActivitySupplement["snowTotals"];
+  const activity = db
+    .prepare("select sport from activity where garmin_id = ?")
+    .get(garminId) as { sport: string } | undefined;
   const runTotal = db
     .prepare(
-      "select count(*) as n from activity_snow_split where garmin_id = ?",
+      "select count(*) as n from activity_snow_split where garmin_id = ? and split_type = 'run'",
     )
     .get(garminId) as { n: number };
   const runs = db
     .prepare(
-      `select split_key as splitKey, split_type as splitType, start_time as startTime,
+      `select split_key as splitKey,
               timer_seconds as timerSeconds, distance_meters as distanceMeters,
               descent_meters as descentMeters, ascent_meters as ascentMeters,
-              max_speed_mps as maxSpeedMps
-       from activity_snow_split where garmin_id = ?
-       order by start_time is null, start_time, message_index limit ?`,
+              avg_speed_mps as avgSpeedMps, max_speed_mps as maxSpeedMps
+       from activity_snow_split where garmin_id = ? and split_type = 'run'
+       order by start_time is null, start_time, message_index, split_key limit ?`,
     )
     .all(
       garminId,
@@ -251,6 +255,9 @@ export function getActivitySupplement(garminId: string): ActivitySupplement {
       calcMethod: closedCode(row.calcMethod),
     })),
     totals,
+    snowActivity: SNOW_ACTIVITY_SPORTS.some(
+      (sport) => sport === activity?.sport,
+    ),
     runTotal: runTotal.n,
     runs,
     coverage: coverageBy(coverage).get(garminId) ?? new Map(),

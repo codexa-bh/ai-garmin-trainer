@@ -10,6 +10,12 @@ Read the [playbook](dev-bridge.md) once. Below, `$scratch` is the allocator-retu
 
 Creates exclusive synthetic SQLite/selection and provenance; no native build, account or personal input. `npm ci` required. Select the stdout JSON record with `prepared`, then use `<prepared>/selection.json`; resource disposition is a separate record. Pass task root, not evidence/disposable child. Optional private input requires current exact grant/provenance; never discover it. Prepared output survives immediate exit, not scheduled expiry. Preparation alone proves no app behavior. [Input contract](smoke-inputs.md).
 
+## snow-runs — Ordinary authored individual snow run table and coverage
+
+`npm run env -- python3 scripts/desktop/snow_runs_smoke.py --scratch "$scratch" --bundle "$bundle"`
+
+Current ordinary ARM64 build and same physical source/tool environment required. Existing authored recipe flows through real SQLite/dashboard/HTTP/ActivityView: populated runs only, unknown, unsupported and preserved-after-failure states. Full two-instance baseline plus ten wide/narrow/local-scroll-end snow captures per instance; inspect originals and preservation/settlement receipts. Closed exact-cell masks, no private/service/trusted-input or installed-default-app proof. [Scenario](smoke/features.md#finite-authored-snow-runs).
+
 ## ordinary — Full ordinary synthetic native regression
 
 `npm run smoke:ordinary -- --scratch "$scratch" --bundle "$bundle"`

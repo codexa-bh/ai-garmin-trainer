@@ -326,19 +326,18 @@ describe("Activity additional Garmin evidence", () => {
       }),
     ).toBeTruthy();
     expect(section.textContent).toContain(
-      "Individual runs and lifts: not imported (unknown). Totals above are not individual entries.",
+      "Individual runs have not been imported (coverage unknown).",
     );
     expect(
       within(section).queryByRole("table", { name: /Individual runs/ }),
     ).toBeNull();
   });
 
-  it("lists delivered individual runs in start order with nullable metrics and discloses truncation", () => {
+  it("lists only measured run fields with nullable metrics and discloses defensive truncation", () => {
     const entries = [
       {
         splitKey: "index:1",
-        splitType: "run" as const,
-        startTime: "2026-01-01T10:00:00Z",
+        avgSpeedMps: 10,
         timerSeconds: 95,
         distanceMeters: 1250,
         descentMeters: 210,
@@ -347,8 +346,7 @@ describe("Activity additional Garmin evidence", () => {
       },
       {
         splitKey: "index:2",
-        splitType: "lift" as const,
-        startTime: null,
+        avgSpeedMps: null,
         timerSeconds: null,
         distanceMeters: null,
         descentMeters: 0,
@@ -373,12 +371,28 @@ describe("Activity additional Garmin evidence", () => {
       ),
     );
     const list = screen.getByRole("table", {
-      name: /Individual runs and lifts, in start order — showing the first 2 of 75/,
+      name: /Snow runs — showing the first 2 of 75/,
     });
     const rows = Array.from(list.querySelectorAll("tbody tr"));
-    expect(rows[0].textContent).toBe("1Run1m 35s1.25 km210 m72 km/h");
+    expect(rows[0].textContent).toBe("11m 35s1.25 km3 m210 m36 km/h72 km/h");
     // Missing metrics are dashes, and a measured zero descent stays zero.
-    expect(rows[1].textContent).toBe("2Lift——0 m—");
+    expect(rows[1].textContent).toBe("2——300 m0 m——");
+    expect(
+      within(list).queryByRole("columnheader", { name: "Type" }),
+    ).toBeNull();
+    expect(
+      within(list)
+        .getAllByRole("columnheader")
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      "Run",
+      "Timer duration",
+      "Distance",
+      "Ascent",
+      "Descent",
+      "Avg speed",
+      "Max speed",
+    ]);
   });
 
   it("states unavailable and failed run coverage instead of an empty list", () => {
@@ -401,13 +415,152 @@ describe("Activity additional Garmin evidence", () => {
       const text = screen.getByLabelText("Run and lift summary").textContent;
       expect(text).toContain(
         status === "failed"
-          ? "read failed"
+          ? "latest individual-run read failed"
           : status === "unavailable"
-            ? "source unavailable"
-            : "Garmin returned none",
+            ? "unavailable from the source"
+            : "Garmin returned no individual split data",
       );
       cleanup();
     }
+  });
+
+  it.each([
+    [0, "0s"],
+    [0.4, "0.4s"],
+    [12.5, "12.5s"],
+    [59.96, "1m 0s"],
+    [3599.96, "1h 0m 0s"],
+    [3661.2, "1h 1m 1.2s"],
+    [null, "—"],
+    [Infinity, "—"],
+  ])(
+    "shows one run and rounds timer %s with correct carry",
+    (timerSeconds, expected) => {
+      const entry = {
+        splitKey: "index:8",
+        timerSeconds,
+        distanceMeters: 0,
+        ascentMeters: 0.5,
+        descentMeters: null,
+        avgSpeedMps: null,
+        maxSpeedMps: 0,
+      };
+      render(
+        view(
+          payload({
+            supplement: supplement({
+              snowRuns: {
+                total: 1,
+                returned: 1,
+                truncated: false,
+                entries: [entry],
+              },
+            }),
+          }),
+        ),
+      );
+      const table = screen.getByRole("table", { name: "Snow runs" });
+      const row = table.querySelector("tbody tr")!;
+      expect([...row.children].map((cell) => cell.textContent)).toEqual([
+        "1",
+        expected,
+        "0 km",
+        "0.5 m",
+        "—",
+        "—",
+        "0 km/h",
+      ]);
+      expect(screen.getByRole("status").textContent).toContain(
+        "Showing preserved runs",
+      );
+    },
+  );
+
+  it.each([
+    "not_imported",
+    "failed",
+    "empty",
+    "unavailable",
+    "populated",
+  ] as const)(
+    "keeps preserved rows inspectable without upgrading latest %s coverage",
+    (status) => {
+      const entry = {
+        splitKey: "index:1",
+        timerSeconds: 20,
+        distanceMeters: 900,
+        ascentMeters: null,
+        descentMeters: null,
+        avgSpeedMps: null,
+        maxSpeedMps: null,
+      };
+      render(
+        view(
+          payload({
+            supplement: supplement({
+              snowRuns: {
+                total: 1,
+                returned: 1,
+                truncated: false,
+                entries: [entry],
+              },
+              coverage: {
+                ...supplement().coverage,
+                snow_run_lift_splits: {
+                  status,
+                  reason: "/private/untrusted-text",
+                },
+              },
+            }),
+          }),
+        ),
+      );
+      expect(
+        screen
+          .getByRole("table", { name: "Snow runs" })
+          .querySelectorAll("tbody tr"),
+      ).toHaveLength(1);
+      expect(!!screen.queryByRole("status")).toBe(status !== "populated");
+      expect(document.body.textContent).not.toContain(
+        "/private/untrusted-text",
+      );
+    },
+  );
+
+  it("distinguishes lifts-only, unknown snow, unsupported and irrelevant activities when selection changes", () => {
+    const { rerender } = render(view(payload({ supplement: supplement() })));
+    expect(screen.queryByText("Snow runs")).toBeNull();
+    const selected = (
+      status: SupplementCoverage["status"],
+      reason: string | null = null,
+    ) =>
+      view(
+        payload(
+          {
+            supplement: supplement({
+              snowRuns: {
+                relevant: true,
+                total: 0,
+                returned: 0,
+                truncated: false,
+                entries: [],
+              },
+              coverage: {
+                ...supplement().coverage,
+                snow_run_lift_splits: { status, reason },
+              },
+            }),
+          },
+          "backcountry_skiing",
+        ),
+      );
+    rerender(selected("not_imported"));
+    expect(screen.getByText(/coverage unknown/)).toBeTruthy();
+    rerender(selected("populated"));
+    expect(screen.getByText(/lifts only/)).toBeTruthy();
+    rerender(selected("unavailable", "unsupported-sport"));
+    expect(screen.getByText(/not supported for this sport/)).toBeTruthy();
+    expect(screen.queryByRole("table", { name: "Snow runs" })).toBeNull();
   });
 
   it("lists coverage per group, with absent rows reading as unknown", () => {

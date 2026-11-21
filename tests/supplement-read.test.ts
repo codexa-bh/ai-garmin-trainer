@@ -234,6 +234,7 @@ describe("activity supplement read", () => {
     expect(result.bodyBatteryDelta).toBeNull();
     expect(result.lapZones).toEqual([]);
     expect(result.snowRuns).toEqual({
+      relevant: true,
       total: 0,
       returned: 0,
       truncated: false,
@@ -298,7 +299,7 @@ describe("activity supplement read", () => {
     expect(JSON.stringify(result)).not.toContain("999");
   });
 
-  it("separates per-type totals from individual runs and bounds the run list with disclosed omission", async () => {
+  it("separates per-type totals from all individual runs, excludes lifts and does not inherit a 100-row cap", async () => {
     const { db, read } = await open();
     const id = activity(db);
     db.prepare(
@@ -309,14 +310,14 @@ describe("activity supplement read", () => {
       `insert into activity_snow_split (garmin_id, split_key, message_index, source_order, split_type, start_time, timer_seconds, distance_meters, descent_meters, start_lat, start_lon, fetched_at)
        values (?, ?, ?, ?, ?, ?, ?, ?, ?, 46.5, 7.5, 1)`,
     );
-    for (let i = 0; i < 65; i++)
+    for (let i = 0; i < 250; i++)
       run.run(
         id,
         `index:${i}`,
         i,
         i,
         i % 2 ? "lift" : "run",
-        `2026-01-01T10:${String(i).padStart(2, "0")}:00Z`,
+        new Date(Date.UTC(2026, 0, 1, 10, i)).toISOString(),
         60 + i,
         500 + i,
         i % 2 ? 0 : 120,
@@ -333,17 +334,109 @@ describe("activity supplement read", () => {
       },
     ]);
     expect(result.snowRuns).toMatchObject({
-      total: 65,
-      returned: 60,
-      truncated: true,
+      total: 125,
+      returned: 125,
+      truncated: false,
     });
-    expect(result.snowRuns.entries[0].splitKey).toBe("index:0");
+    expect(result.snowRuns.entries.map((row) => row.splitKey)).toEqual(
+      Array.from({ length: 125 }, (_, i) => `index:${i * 2}`),
+    );
     // The individual list never carries locations.
     expect(JSON.stringify(result.snowRuns)).not.toMatch(
       /"(start|end)?(Lat|Lon)[A-Za-z]*"|46\.5|7\.5/i,
     );
-    // Totals (70) are never added to or confused with the stored individual entries (65).
+    // Totals (70) are never added to or confused with individual run entries (125).
     expect(result.snowRuns.total).not.toBe(result.snowTotals[0].count);
+  });
+
+  it("orders measured runs deterministically, preserves original data and serializes only measured display fields", async () => {
+    const { db, read } = await open();
+    const id = activity(db);
+    const other = activity(db, "other");
+    const insert = db.prepare(`insert into activity_snow_split
+      (garmin_id, split_key, message_index, source_order, split_type, start_time,
+       timer_seconds, elapsed_seconds, distance_meters, ascent_meters, descent_meters,
+       avg_speed_mps, max_speed_mps, start_lat, start_lon, fetched_at)
+      values (?, ?, ?, ?, ?, ?, ?, 900, 1000, 0.5, 0, ?, 0, 46.1, 7.2, 1)`);
+    insert.run(id, "index:9", 9, 0, "run", null, null, null);
+    insert.run(id, "index:4", 4, 1, "run", "2026-01-01T10:00:00Z", 12.5, 0);
+    insert.run(id, "index:2", 2, 2, "run", "2026-01-01T10:00:00Z", 59.96, null);
+    insert.run(id, "index:1", 1, 3, "lift", "2026-01-01T09:00:00Z", 500, 99);
+    insert.run(other, "index:1", 1, 0, "run", null, 500, 99);
+    cover(
+      db,
+      "snow_run_lift_splits",
+      "activity",
+      id,
+      "failed",
+      "private arbitrary /path",
+    );
+    const original = db.serialize();
+    db.pragma("query_only = ON");
+    expect(read.getActivitySupplement("a1' OR 1=1 --").snowRuns.total).toBe(0);
+    const route =
+      await import("../src/app/api/activities/[garminId]/dashboard/route");
+    const response = await route.GET(
+      new Request("http://local.test/dashboard"),
+      { params: { garminId: id } },
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.supplement.coverage.snow_run_lift_splits).toEqual({
+      status: "failed",
+      reason: null,
+    });
+    expect(body.supplement.snowRuns).toMatchObject({
+      relevant: true,
+      total: 3,
+      returned: 3,
+      truncated: false,
+    });
+    expect(
+      body.supplement.snowRuns.entries.map(
+        (row: { splitKey: string }) => row.splitKey,
+      ),
+    ).toEqual(["index:2", "index:4", "index:9"]);
+    expect(body.supplement.snowRuns.entries[0]).toEqual({
+      splitKey: "index:2",
+      timerSeconds: 59.96,
+      distanceMeters: 1000,
+      ascentMeters: 0.5,
+      descentMeters: 0,
+      avgSpeedMps: null,
+      maxSpeedMps: 0,
+    });
+    expect(body.supplement.snowRuns.entries[1].avgSpeedMps).toBe(0);
+    expect(body.supplement.snowRuns.entries[2].timerSeconds).toBeNull();
+    expect(JSON.stringify(body.supplement.snowRuns)).not.toMatch(
+      /elapsed|startTime|messageIndex|splitType|latitude|longitude|46\.1|7\.2/,
+    );
+    expect(db.serialize().equals(original)).toBe(true);
+  });
+
+  it("uses normalized sport and independent coverage, never activity names or ordinary lap status", async () => {
+    const { db, read } = await open();
+    const id = activity(db);
+    const other = activity(db, "other");
+    db.prepare(
+      "update activity set sport = 'running', name = 'ski lift run' where garmin_id = ?",
+    ).run(other);
+    expect(read.getActivitySupplement(other).snowRuns.relevant).toBe(false);
+    expect(read.getActivitySupplement(id).snowRuns.relevant).toBe(true);
+    db.prepare(
+      "update activity set sport = 'backcountry_skiing' where garmin_id = ?",
+    ).run(id);
+    for (const status of ["empty", "unavailable", "failed", "populated"]) {
+      db.prepare("delete from garmin_data_coverage").run();
+      cover(db, "snow_run_lift_splits", "activity", id, status);
+      const result = read.getActivitySupplement(id);
+      expect(result.coverage.snow_run_lift_splits.status).toBe(status);
+      expect(result.snowRuns).toMatchObject({
+        relevant: true,
+        total: 0,
+        entries: [],
+      });
+    }
   });
 
   it("reports populated individual-run coverage independently of aggregate coverage", async () => {
