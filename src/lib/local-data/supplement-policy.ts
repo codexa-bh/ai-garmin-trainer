@@ -165,6 +165,7 @@ export function interpretActivitySupplement(input: {
     sourceRestingHeartRate: number | null;
   }>;
   totals: ActivitySupplement["snowTotals"];
+  snowActivity?: boolean;
   runTotal: number;
   runs: SnowRunEntry[];
   coverage: ReadonlyMap<string, SupplementCoverage>;
@@ -207,6 +208,12 @@ export function interpretActivitySupplement(input: {
     lapZones: [...laps.values()],
     snowTotals: input.totals,
     snowRuns: {
+      relevant:
+        input.snowActivity === true ||
+        input.runTotal > 0 ||
+        input.totals.length > 0 ||
+        input.coverage.has("snow_run_lift_splits") ||
+        input.coverage.has("snowboard_splits"),
       total: input.runTotal,
       returned: input.runs.length,
       truncated:

@@ -51,7 +51,7 @@ describe("finite representative authored smoke recipe", () => {
         recipeVersion: 1,
         anchor: "2026-11-01",
         healthDays: 20,
-        activities: 10,
+        activities: 13,
         integrity: "ok",
         coverage: "ok",
       });
@@ -160,7 +160,7 @@ describe("finite representative authored smoke recipe", () => {
     try {
       expect(empty).toMatchObject({
         syntheticVariant: "empty-chat",
-        activities: 10,
+        activities: 13,
         healthDays: 20,
       });
       expect(verify(copy, "private").coverage).toBe("ok");
@@ -388,7 +388,28 @@ describe("finite representative authored smoke recipe", () => {
         one(
           "select count(*) as n from activity_snow_split where split_type='run'",
         ),
-      ).toEqual({ n: 3 });
+      ).toEqual({ n: 4 });
+      expect(
+        db
+          .prepare(
+            "select status from garmin_data_coverage where subject_id = 'synthetic-snow-preserved'",
+          )
+          .get(),
+      ).toEqual({ status: "failed" });
+      expect(
+        db
+          .prepare(
+            "select reason from garmin_data_coverage where subject_id = 'synthetic-snow-unsupported'",
+          )
+          .get(),
+      ).toEqual({ reason: "unsupported-sport" });
+      expect(
+        db
+          .prepare(
+            "select count(*) as n from garmin_data_coverage where subject_id = 'synthetic-snow-unknown'",
+          )
+          .get(),
+      ).toEqual({ n: 0 });
     } finally {
       db.close();
     }

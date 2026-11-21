@@ -284,6 +284,24 @@ function populateSupplements(db: Database.Database, time: number) {
     160,
     null,
   );
+  for (const [index, variant] of [
+    "unknown",
+    "unsupported",
+    "preserved",
+  ].entries())
+    insertActivity.run(
+      `synthetic-activity-snow-${variant}`,
+      `synthetic-snow-${variant}`,
+      `Fictional snow ${variant}`,
+      variant === "unsupported" ? "backcountry_skiing" : "resort_skiing",
+      time - DAY * (2.5 + index),
+      3600,
+      5000,
+      300,
+      null,
+      null,
+      null,
+    );
   const lap = db.prepare(
     "insert into activity_lap (garmin_id, lap_number, start_time, duration_sec, distance_meters, avg_speed_mps, avg_heart_rate, max_heart_rate, elevation_gain_meters, elevation_loss_meters) values (?,?,?,?,?,?,?,?,?,?)",
   );
@@ -363,6 +381,30 @@ function populateSupplements(db: Database.Database, time: number) {
   run.run("index:3", 3, 3, "lift", start(14), 400, 1150, 0, 295, null, time);
   run.run("index:4", 4, 4, "run", start(22), null, null, 0, 0, null, time);
   run.run("index:5", 5, 5, "run", start(26), 205, 2900, 360, 0, 19.5, time);
+  db.prepare(
+    "update activity_snow_split set avg_speed_mps = 10, ascent_meters = 0.5, timer_seconds = 190.4 where garmin_id = 'synthetic-snow' and split_key = 'index:2'",
+  ).run();
+  db.prepare(
+    "update activity_snow_split set avg_speed_mps = 0 where garmin_id = 'synthetic-snow' and split_key = 'index:5'",
+  ).run();
+  db.prepare(
+    `insert into activity_snow_split
+    (garmin_id, split_key, message_index, source_order, split_type, timer_seconds,
+     distance_meters, descent_meters, max_speed_mps, fetched_at)
+    values ('synthetic-snow-preserved', 'index:8', 8, 0, 'run', 12.5, 0, 0, 0, ?)`,
+  ).run(time);
+  coverActivity(
+    "synthetic-snow-unsupported",
+    "snow_run_lift_splits",
+    "unavailable",
+    "unsupported-sport",
+  );
+  coverActivity(
+    "synthetic-snow-preserved",
+    "snow_run_lift_splits",
+    "failed",
+    "fit-download",
+  );
   coverActivity("synthetic-snow", "snowboard_splits", "populated");
   coverActivity("synthetic-snow", "snow_run_lift_splits", "populated");
 }

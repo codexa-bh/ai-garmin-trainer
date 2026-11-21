@@ -3258,7 +3258,12 @@ label {
   margin: 0;
 }
 
+.snow-section {
+  min-width: 0;
+}
+
 .snow-totals-wrap {
+  min-width: 0;
   max-width: 100%;
   overflow-x: auto;
 }
@@ -3286,6 +3291,16 @@ label {
 
 .snow-totals thead th {
   color: var(--muted);
+}
+
+.snow-runs {
+  min-width: 620px;
+  font-variant-numeric: tabular-nums;
+}
+
+.snow-runs td,
+.snow-runs thead th:not(:first-child) {
+  text-align: right;
 }
 
 .activity-supplement-coverage li {

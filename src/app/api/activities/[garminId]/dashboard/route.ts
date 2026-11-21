@@ -6,6 +6,7 @@ import {
 import {
   dashboardActivity,
   dashboardLap,
+  dashboardSupplement,
 } from "@/lib/local-data/dashboard-projection";
 
 type RouteContext = {
@@ -41,7 +42,7 @@ export async function GET(_request: Request, context: RouteContext) {
       route: dashboard.route,
       heartRateZones: dashboard.heartRateZones,
       laps: dashboard.laps.map(dashboardLap),
-      supplement: activitySupplement(garminId),
+      supplement: dashboardSupplement(activitySupplement(garminId)),
     });
   } catch (error) {
     return NextResponse.json(

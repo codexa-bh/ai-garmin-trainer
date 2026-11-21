@@ -198,10 +198,41 @@ const distance = (meters: number | null) =>
       : `${n(meters)} m`
     : "—";
 
-/**
- * Snowboard/ski per-type totals and, when delivered individual data exists, the
- * bounded run/lift list. Totals are aggregates: the list is never derived from them.
- */
+/** Round once before decomposition, retaining tenths and carrying into minutes/hours. */
+function runTimer(seconds: number | null) {
+  if (!finite(seconds) || seconds < 0) return "—";
+  const tenths = Math.round(seconds * 10);
+  const hours = Math.floor(tenths / 36_000);
+  const minutes = Math.floor((tenths % 36_000) / 600);
+  const rest = n((tenths % 600) / 10, 1);
+  return hours
+    ? `${hours}h ${minutes}m ${rest}s`
+    : minutes
+      ? `${minutes}m ${rest}s`
+      : `${rest}s`;
+}
+
+function runCoverageWords(coverage: SupplementCoverage) {
+  if (
+    coverage.status === "unavailable" &&
+    coverage.reason === "unsupported-sport"
+  )
+    return "Individual measured runs are not supported for this sport.";
+  switch (coverage.status) {
+    case "populated":
+      return "No individual measured runs; stored splits may contain lifts only.";
+    case "empty":
+      return "Garmin returned no individual split data.";
+    case "unavailable":
+      return "Individual measured runs are unavailable from the source.";
+    case "failed":
+      return "The latest individual-run read failed.";
+    default:
+      return "Individual runs have not been imported (coverage unknown).";
+  }
+}
+
+/** Existing per-type aggregates stay separate from the individual run-only table. */
 export function SnowSection({
   supplement,
 }: {
@@ -216,6 +247,7 @@ export function SnowSection({
   if (
     !totals.length &&
     !snowRuns.total &&
+    !snowRuns.relevant &&
     runCoverage.status === "not_imported" &&
     totalCoverage.status === "not_imported"
   )
@@ -263,59 +295,80 @@ export function SnowSection({
           Per-type totals: {statusWords(totalCoverage)}.
         </p>
       )}
-      {snowRuns.total > 0 ? (
-        <div className="snow-totals-wrap">
-          <table className="snow-totals snow-runs">
-            <caption>
-              Individual runs and lifts, in start order
-              {snowRuns.truncated
-                ? ` — showing the first ${snowRuns.returned} of ${snowRuns.total}`
-                : ""}
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">#</th>
-                <th scope="col">Type</th>
-                <th scope="col">Timer</th>
-                <th scope="col">Distance</th>
-                <th scope="col">Descent</th>
-                <th scope="col">Max speed</th>
-              </tr>
-            </thead>
-            <tbody>
-              {snowRuns.entries.map((entry, index) => (
-                <tr key={entry.splitKey}>
-                  <td>{index + 1}</td>
-                  <th scope="row">
-                    {entry.splitType === "run" ? "Run" : "Lift"}
-                  </th>
-                  <td>
-                    {finite(entry.timerSeconds)
-                      ? durationDetailLabel(entry.timerSeconds)
-                      : "—"}
-                  </td>
-                  <td>{distance(entry.distanceMeters)}</td>
-                  <td>
-                    {finite(entry.descentMeters)
-                      ? `${n(entry.descentMeters)} m`
-                      : "—"}
-                  </td>
-                  <td>
-                    {finite(entry.maxSpeedMps)
-                      ? `${n(entry.maxSpeedMps * 3.6, 1)} km/h`
-                      : "—"}
-                  </td>
+      <div className="snow-run-display">
+        {snowRuns.total > 0 && runCoverage.status !== "populated" ? (
+          <p className="helper-text" role="status">
+            {runCoverageWords(runCoverage)} Showing preserved runs; a complete
+            fresh set is not confirmed.
+          </p>
+        ) : null}
+        {snowRuns.total > 0 ? (
+          <div
+            className="snow-totals-wrap snow-runs-wrap"
+            role="region"
+            aria-label="Snow runs table"
+            tabIndex={0}
+          >
+            <table className="snow-totals snow-runs">
+              <caption>
+                Snow runs
+                {snowRuns.truncated
+                  ? ` — showing the first ${snowRuns.returned} of ${snowRuns.total}`
+                  : ""}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Run</th>
+                  <th scope="col">Timer duration</th>
+                  <th scope="col">Distance</th>
+                  <th scope="col">Ascent</th>
+                  <th scope="col">Descent</th>
+                  <th scope="col">Avg speed</th>
+                  <th scope="col">Max speed</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <p className="helper-text">
-          Individual runs and lifts: {statusWords(runCoverage)}. Totals above
-          are not individual entries.
-        </p>
-      )}
+              </thead>
+              <tbody>
+                {snowRuns.entries.map((entry, index) => (
+                  <tr key={entry.splitKey}>
+                    <th scope="row">{index + 1}</th>
+                    <td>{runTimer(entry.timerSeconds)}</td>
+                    <td>
+                      {finite(entry.distanceMeters)
+                        ? `${n(entry.distanceMeters / 1000, 3)} km`
+                        : "—"}
+                    </td>
+                    <td>
+                      {finite(entry.ascentMeters)
+                        ? `${n(entry.ascentMeters, 1)} m`
+                        : "—"}
+                    </td>
+                    <td>
+                      {finite(entry.descentMeters)
+                        ? `${n(entry.descentMeters, 1)} m`
+                        : "—"}
+                    </td>
+                    <td>
+                      {finite(entry.avgSpeedMps)
+                        ? `${n(entry.avgSpeedMps * 3.6, 1)} km/h`
+                        : "—"}
+                    </td>
+                    <td>
+                      {finite(entry.maxSpeedMps)
+                        ? `${n(entry.maxSpeedMps * 3.6, 1)} km/h`
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div>
+            <h3>Snow runs</h3>
+            <p className="helper-text">{runCoverageWords(runCoverage)}</p>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
