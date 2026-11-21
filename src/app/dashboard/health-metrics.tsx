@@ -3,6 +3,7 @@ import { finiteNumberLabel } from "./formatting";
 import { useState } from "react";
 import { HealthRollupChart } from "../health-rollup-chart";
 import { DailyCaloriesChart } from "../daily-calories-chart";
+import { SleepStagesChart } from "../sleep-stages-chart";
 import {
   SLEEP_DETAIL_SOURCE_LIMITED,
   SLEEP_STAGE_FIELDS,
@@ -175,8 +176,13 @@ function hasFiniteRollupMetric(
   });
 }
 
-function hasSleepStageRollup(rollups: HealthRollup[]): boolean {
-  return SLEEP_STAGE_FIELDS.some(([, field]) =>
+// Deep, Light and REM are stacked in SleepStagesChart; these stay scalar charts.
+const SEPARATE_SLEEP_FIELDS = SLEEP_STAGE_FIELDS.filter(
+  ([label]) => label === "Awake" || label === "Nap",
+);
+
+function hasSeparateSleepRollup(rollups: HealthRollup[]): boolean {
+  return SEPARATE_SLEEP_FIELDS.some(([, field]) =>
     hasFiniteRollupMetric(rollups, (rollup) => rollup[field]),
   );
 }
@@ -188,13 +194,6 @@ const DAILY_METRICS: Array<{
   value: (day: HealthDashboardDay) => number | null;
   format?: (value: number) => string;
 }> = [
-  {
-    title: "Sleep duration",
-    unit: "min",
-    kind: "line",
-    value: (day) => day.sleepMinutes,
-    format: formatSleepMinutes,
-  },
   {
     title: "Sleep score",
     unit: "score",
@@ -222,7 +221,7 @@ const DAILY_METRICS: Array<{
     unit: "min",
     value: (day) => day.intensityMinutes,
   },
-  ...SLEEP_STAGE_FIELDS.map(([label, field]) => ({
+  ...SEPARATE_SLEEP_FIELDS.map(([label, field]) => ({
     title: `${label} sleep`,
     unit: "min",
     kind: "line" as const,
@@ -340,6 +339,18 @@ function DailyComparison({
                 : null,
             }))}
           />
+          <SleepStagesChart
+            presentation="daily"
+            formatDuration={formatSleepMinutes}
+            points={slots.map((slot) => ({
+              key: slot.key,
+              label: slot.label,
+              rem: slot.record?.sleepRemMinutes ?? null,
+              deep: slot.record?.sleepDeepMinutes ?? null,
+              light: slot.record?.sleepLightMinutes ?? null,
+              recordedDuration: slot.record?.sleepMinutes ?? null,
+            }))}
+          />
           {DAILY_METRICS.map((metric) => (
             <HealthRollupChart
               key={metric.title}
@@ -455,7 +466,7 @@ export function HealthDashboardView({
   const rollups = rollupMode
     ? allRollups.slice(rollupWindowStart, rollupWindowEnd)
     : [];
-  const hasAnySleepStageRollup = hasSleepStageRollup(rollups);
+  const hasSeparateSleep = hasSeparateSleepRollup(rollups);
   const canBrowseOlder =
     rollupMode !== null && clampedRollupPage < maxRollupPage;
   const canBrowseNewer = rollupMode !== null && clampedRollupPage > 0;
@@ -569,13 +580,17 @@ export function HealthDashboardView({
               </div>
             </div>
             <div className="health-rollup-grid">
-              <HealthRollupChart
-                rollups={rollups}
-                title="Sleep duration daily avg"
-                kind="line"
-                unit="min"
-                metric={(rollup) => rollup.sleepMinutes}
-                formatValue={formatSleepRollupMinutesPerDay}
+              <SleepStagesChart
+                presentation="rollup"
+                formatDuration={formatSleepRollupMinutesPerDay}
+                points={rollups.map((rollup) => ({
+                  key: rollup.key,
+                  label: rollup.label,
+                  rem: rollup.sleepRemMinutes,
+                  deep: rollup.sleepDeepMinutes,
+                  light: rollup.sleepLightMinutes,
+                  recordedDuration: rollup.sleepMinutes,
+                }))}
               />
               <HealthRollupChart
                 rollups={rollups}
@@ -585,27 +600,19 @@ export function HealthDashboardView({
                 metric={(rollup) => rollup.sleepScore}
                 emptyMessage="Source sleep scores are unavailable for these periods."
               />
-              {hasAnySleepStageRollup ? (
-                SLEEP_STAGE_FIELDS.map(([label, field]) => (
-                  <HealthRollupChart
-                    key={field}
-                    rollups={rollups}
-                    title={`${label} sleep daily avg`}
-                    kind="line"
-                    unit="min"
-                    metric={(rollup) => rollup[field]}
-                    formatValue={formatSleepRollupMinutesPerDay}
-                  />
-                ))
-              ) : (
-                <div className="health-rollup-chart empty-state">
-                  <strong>Sleep stages</strong>
-                  <p>
-                    Source sleep-stage durations are unavailable for these
-                    periods.
-                  </p>
-                </div>
-              )}
+              {hasSeparateSleep
+                ? SEPARATE_SLEEP_FIELDS.map(([label, field]) => (
+                    <HealthRollupChart
+                      key={field}
+                      rollups={rollups}
+                      title={`${label} sleep daily avg`}
+                      kind="line"
+                      unit="min"
+                      metric={(rollup) => rollup[field]}
+                      formatValue={formatSleepRollupMinutesPerDay}
+                    />
+                  ))
+                : null}
               <HealthRollupChart
                 rollups={rollups}
                 title="Steps"

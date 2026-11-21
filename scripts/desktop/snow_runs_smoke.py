@@ -55,7 +55,8 @@ def snow_scenario():
         'keyless',
         (
             'real authored selected-activity run-only cells and measured units',
-            'unknown and unsupported absence plus latest-failed preserved rows',
+            'unknown and unsupported snow activities show no snow section; latest-failed preserved rows stay; '
+            'unrelated running activity shows none',
             'wide/narrow reachability and local scroll edges without page overflow',
             'activity selection/collapse/expand and Back to chat preserved',
         ),

@@ -345,6 +345,7 @@ export const backendRoles = Object.fromEntries(
 export const presentationModules = new Set([
   "app/daily-calories-chart.tsx",
   "app/health-rollup-chart.tsx",
+  "app/sleep-stages-chart.tsx",
   "app/mobile-navigation-sheet.tsx",
   "app/trainer-dashboard.tsx",
   "app/layout.tsx",

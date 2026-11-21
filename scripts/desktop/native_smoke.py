@@ -445,6 +445,12 @@ class Run:
             },
         )
 
+    def health_captures(self):
+        return {
+            size: self.command({'type': 'health', 'action': 'capture-' + size})
+            for size in ['narrow', 'wide']
+        }
+
     def health_scenario(self, synthetic_calories=False):
         self.wait(lambda o: o['healthReady'], 'Daily seven-date chart readiness')
         # Fail honestly if the selected input cannot exercise real range browsing.
@@ -477,12 +483,23 @@ class Run:
         self.command({'type': 'click', 'target': 'Health'})
         self.wait(lambda o: o['healthReady'], 'Health return')
         self.command({'type': 'health', 'action': 'assert-range'})
+        images = {}
         if synthetic_calories:
             self.command({'type': 'health', 'action': 'calories'})
-        images = {
-            size: self.command({'type': 'health', 'action': 'capture-' + size})
-            for size in ['narrow', 'wide']
-        }
+            images['calories'] = self.health_captures()
+            # Each authored card is revealed alone; Sleep stages are checked in every mode.
+            for mode in ['daily', 'weekly', 'monthly']:
+                self.command({'type': 'health', 'action': mode})
+                self.wait(
+                    lambda o: o['healthMode'] == mode and o['healthReady'] == (mode == 'daily'),
+                    'Health tab ' + mode,
+                )
+                self.command({'type': 'health', 'action': 'sleep'})
+                images['sleep-' + mode] = self.health_captures()
+            self.command({'type': 'health', 'action': 'daily'})
+            self.wait(lambda o: o['healthMode'] == 'daily' and o['healthReady'], 'Daily return')
+        else:
+            images['default'] = self.health_captures()
         self.command({'type': 'health', 'action': 'latest'})
         self.wait(
             lambda o: o['healthReady'] and not o['healthLatestEnabled'], 'Explicit Latest reset'
@@ -495,7 +512,8 @@ class Run:
                 'missingDateAndPartialObserved': True,
                 'captures': images,
                 'syntheticCalories': synthetic_calories,
-                'limit': 'Only explicitly checked canonical authored Calories can reveal components/legend/shared readout/date controls; axes and other source content remain masked. Synthetic DOM selection is not trusted input. Missing-date provenance is in health-preparation.json; image inspection remains required.',
+                'syntheticSleep': synthetic_calories,
+                'limit': 'Only explicitly checked canonical authored Calories (Daily) or Sleep stages (Daily, Weekly, Monthly) can reveal components/legend/shared readout/date or period controls, one card per capture; axes and other source content remain masked. Synthetic DOM selection is not trusted input. Missing-date provenance is in health-preparation.json; image inspection remains required.',
             },
         )
 

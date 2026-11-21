@@ -688,7 +688,10 @@ export function ActivityView({
               </div>
             ) : null}
             {activityDashboard.supplement ? (
-              <SnowSection supplement={activityDashboard.supplement} />
+              <SnowSection
+                supplement={activityDashboard.supplement}
+                sport={activityDashboard.activity.sport}
+              />
             ) : null}
             <TerrainTable
               analysis={activityDashboard.terrainSections}
