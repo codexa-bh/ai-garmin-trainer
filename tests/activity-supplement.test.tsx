@@ -179,9 +179,10 @@ describe("Activity additional Garmin evidence", () => {
     );
     const text = stats();
     expect(text).toContain("Body Battery change−12 points");
-    expect(text).toContain("Cadence (Garmin list)158 steps/min");
-    expect(text).toContain("Max cadence (Garmin list)171.5 steps/min");
-    expect(text).toContain("Stride length (Garmin list)104.5 cm");
+    expect(text).toContain("Cadence158 steps/min");
+    expect(text).toContain("Stride length104.5 cm");
+    // The list maximum stays stored but is never presented.
+    expect(text).not.toMatch(/max cadence|171\.5|Garmin list/i);
     // FIT cadence stays in its own unit and is not doubled or merged with the list value.
     expect(text).toContain("Cadence (FIT file)79.5 cycles/min");
     expect(text).toContain("Step length (FIT file)1.04 m");
@@ -197,6 +198,28 @@ describe("Activity additional Garmin evidence", () => {
     );
     expect(stats()).toContain("Body Battery change0 points");
     expect(stats()).not.toMatch(/cadence|stride/i);
+    rerender(
+      view(
+        payload({
+          supplement: supplement({
+            listCadence: { avgSpm: 0, maxSpm: 0, strideLengthCm: 61.54 },
+          }),
+        }),
+      ),
+    );
+    expect(stats()).toContain("Cadence0 steps/min");
+    expect(stats()).toContain("Stride length61.5 cm");
+    expect(stats()).not.toMatch(/max cadence/i);
+    rerender(
+      view(
+        payload({
+          supplement: supplement({
+            listCadence: { avgSpm: null, maxSpm: 231, strideLengthCm: null },
+          }),
+        }),
+      ),
+    );
+    expect(stats()).not.toMatch(/cadence|stride|231/i);
     rerender(view(payload({ supplement: supplement() })));
     expect(stats()).not.toMatch(/Body Battery change|cadence|stride/i);
   });
@@ -325,11 +348,11 @@ describe("Activity additional Garmin evidence", () => {
         name: "Longest single split",
       }),
     ).toBeTruthy();
-    expect(section.textContent).toContain(
-      "Individual runs have not been imported (coverage unknown).",
-    );
+    expect(within(section).getByText("Runs and lifts")).toBeTruthy();
+    // No individual rows: no empty Snow runs part or placeholder copy.
+    expect(section.textContent).not.toMatch(/Snow runs|not been imported/);
     expect(
-      within(section).queryByRole("table", { name: /Individual runs/ }),
+      within(section).queryByRole("table", { name: /Snow runs/ }),
     ).toBeNull();
   });
 
@@ -395,32 +418,55 @@ describe("Activity additional Garmin evidence", () => {
     ]);
   });
 
-  it("states unavailable and failed run coverage instead of an empty list", () => {
-    for (const status of ["failed", "unavailable", "empty"] as const) {
-      render(
-        view(
-          payload(
-            {
-              supplement: supplement({
-                coverage: {
-                  ...supplement().coverage,
-                  snow_run_lift_splits: { status, reason: null },
-                },
-              }),
-            },
-            "resort_snowboarding",
+  it("renders no snow section for any empty-run coverage state on a snow activity", () => {
+    for (const status of [
+      "failed",
+      "unavailable",
+      "empty",
+      "populated",
+      "not_imported",
+    ] as const) {
+      for (const relevant of [true, false]) {
+        render(
+          view(
+            payload(
+              {
+                supplement: supplement({
+                  snowRuns: {
+                    relevant,
+                    total: 0,
+                    returned: 0,
+                    truncated: false,
+                    entries: [],
+                  },
+                  coverage: {
+                    ...supplement().coverage,
+                    snowboard_splits: { status, reason: null },
+                    snow_run_lift_splits: {
+                      status,
+                      reason: "unsupported-sport",
+                    },
+                  },
+                }),
+              },
+              "resort_snowboarding",
+            ),
           ),
-        ),
-      );
-      const text = screen.getByLabelText("Run and lift summary").textContent;
-      expect(text).toContain(
-        status === "failed"
-          ? "latest individual-run read failed"
-          : status === "unavailable"
-            ? "unavailable from the source"
-            : "Garmin returned no individual split data",
-      );
-      cleanup();
+        );
+        expect(screen.queryByLabelText("Run and lift summary")).toBeNull();
+        const withoutDisclosure = document.body.cloneNode(true) as HTMLElement;
+        withoutDisclosure
+          .querySelector(".activity-supplement-coverage")
+          ?.remove();
+        expect(withoutDisclosure.textContent).not.toMatch(
+          /Runs and lifts|Snow runs|per-type totals|not been imported|coverage unknown/i,
+        );
+        // The separate disclosure still reports the truthful coverage.
+        expect(
+          document.querySelector(".activity-supplement-coverage"),
+        ).toBeTruthy();
+        cleanup();
+      }
     }
   });
 
@@ -447,16 +493,19 @@ describe("Activity additional Garmin evidence", () => {
       };
       render(
         view(
-          payload({
-            supplement: supplement({
-              snowRuns: {
-                total: 1,
-                returned: 1,
-                truncated: false,
-                entries: [entry],
-              },
-            }),
-          }),
+          payload(
+            {
+              supplement: supplement({
+                snowRuns: {
+                  total: 1,
+                  returned: 1,
+                  truncated: false,
+                  entries: [entry],
+                },
+              }),
+            },
+            "alpine_skiing",
+          ),
         ),
       );
       const table = screen.getByRole("table", { name: "Snow runs" });
@@ -496,25 +545,33 @@ describe("Activity additional Garmin evidence", () => {
       };
       render(
         view(
-          payload({
-            supplement: supplement({
-              snowRuns: {
-                total: 1,
-                returned: 1,
-                truncated: false,
-                entries: [entry],
-              },
-              coverage: {
-                ...supplement().coverage,
-                snow_run_lift_splits: {
-                  status,
-                  reason: "/private/untrusted-text",
+          payload(
+            {
+              supplement: supplement({
+                snowRuns: {
+                  total: 1,
+                  returned: 1,
+                  truncated: false,
+                  entries: [entry],
                 },
-              },
-            }),
-          }),
+                coverage: {
+                  ...supplement().coverage,
+                  snow_run_lift_splits: {
+                    status,
+                    reason: "/private/untrusted-text",
+                  },
+                },
+              }),
+            },
+            "skate_skiing",
+          ),
         ),
       );
+      // Runs-only: no empty per-type totals heading or helper.
+      expect(
+        screen.queryByRole("heading", { name: "Runs and lifts" }),
+      ).toBeNull();
+      expect(screen.queryByText("Garmin per-type totals")).toBeNull();
       expect(
         screen
           .getByRole("table", { name: "Snow runs" })
@@ -527,40 +584,69 @@ describe("Activity additional Garmin evidence", () => {
     },
   );
 
-  it("distinguishes lifts-only, unknown snow, unsupported and irrelevant activities when selection changes", () => {
-    const { rerender } = render(view(payload({ supplement: supplement() })));
-    expect(screen.queryByText("Snow runs")).toBeNull();
-    const selected = (
-      status: SupplementCoverage["status"],
-      reason: string | null = null,
-    ) =>
+  it("admits snow by normalized sport only and follows selection snow→non-snow→snow", () => {
+    const totalRow = {
+      splitType: "SKI_LIFT_SPLIT",
+      count: 0,
+      durationSec: 0,
+      distanceMeters: null,
+      bestSplitDistanceMeters: null,
+      maxSpeedMps: null,
+    };
+    const runEntry = {
+      splitKey: "index:1",
+      timerSeconds: 30,
+      distanceMeters: 400,
+      ascentMeters: null,
+      descentMeters: null,
+      avgSpeedMps: null,
+      maxSpeedMps: null,
+    };
+    const populated = (sport: string, name: string | null = null) =>
       view(
         payload(
           {
             supplement: supplement({
+              snowTotals: [totalRow],
               snowRuns: {
                 relevant: true,
-                total: 0,
-                returned: 0,
+                total: 1,
+                returned: 1,
                 truncated: false,
-                entries: [],
+                entries: [runEntry],
               },
               coverage: {
                 ...supplement().coverage,
-                snow_run_lift_splits: { status, reason },
+                snowboard_splits: { status: "populated", reason: null },
+                snow_run_lift_splits: { status: "populated", reason: null },
               },
             }),
+            ...(name
+              ? { activity: { ...payload().activity, sport, name } }
+              : {}),
           },
-          "backcountry_skiing",
+          sport,
         ),
       );
-    rerender(selected("not_imported"));
-    expect(screen.getByText(/coverage unknown/)).toBeTruthy();
-    rerender(selected("populated"));
-    expect(screen.getByText(/lifts only/)).toBeTruthy();
-    rerender(selected("unavailable", "unsupported-sport"));
-    expect(screen.getByText(/not supported for this sport/)).toBeTruthy();
-    expect(screen.queryByRole("table", { name: "Snow runs" })).toBeNull();
+    const { rerender } = render(populated("resort_skiing"));
+    // Both parts render; a lifts-only aggregate with zero values is real data.
+    expect(screen.getByRole("table", { name: /Totals over/ })).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Snow runs" })).toBeTruthy();
+    for (const sport of [
+      "hiking",
+      "walking",
+      "running",
+      "cycling",
+      "strength_training",
+    ]) {
+      rerender(populated(sport));
+      expect(screen.queryByLabelText("Run and lift summary")).toBeNull();
+    }
+    // A snow-looking title does not admit an unrecognized sport.
+    rerender(populated("hiking", "Powder day snowboard"));
+    expect(screen.queryByLabelText("Run and lift summary")).toBeNull();
+    rerender(populated("backcountry_snowboarding"));
+    expect(screen.getByRole("table", { name: "Snow runs" })).toBeTruthy();
   });
 
   it("lists coverage per group, with absent rows reading as unknown", () => {

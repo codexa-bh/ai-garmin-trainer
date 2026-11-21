@@ -37,9 +37,8 @@ export function TrainerDashboard() {
     message:
       "Ready. Local trainer is available; verify the connector when needed.",
   });
-  const [isConversationDrawerOpen, setIsConversationDrawerOpen] =
+  const [conversationSelectorExpanded, setConversationSelectorExpanded] =
     useState(false);
-  const [desktopSidebarExpanded, setDesktopSidebarExpanded] = useState(false);
   const [openConversationMenuId, setOpenConversationMenuId] = useState<
     string | null
   >(null);
@@ -69,7 +68,7 @@ export function TrainerDashboard() {
     null,
   );
   const restoreTranscriptOnSectionReturnRef = useRef(false);
-  const conversationButtonRef = useRef<HTMLButtonElement>(null);
+  const conversationSelectorToggleRef = useRef<HTMLButtonElement>(null);
   const activityDashboardButtonRef = useRef<HTMLButtonElement>(null);
   const activityDashboardCloseRef = useRef<HTMLButtonElement>(null);
   const activityDashboardReturnFocusRef = useRef(false);
@@ -91,7 +90,6 @@ export function TrainerDashboard() {
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const conversationMenuRef = useRef<HTMLDivElement>(null);
   const mainMenuToggleRef = useRef<HTMLButtonElement>(null);
-  const conversationDrawerCloseRef = useRef<HTMLButtonElement>(null);
   const {
     healthDashboardData,
     healthDashboardState,
@@ -214,8 +212,6 @@ export function TrainerDashboard() {
     debugTraceMessages,
   } = useChatFeature({
     setStatus,
-    setIsConversationDrawerOpen,
-    conversationButtonRef,
     rememberTranscriptFollowIntent,
     forceNextScrollRef,
     transcriptRef,
@@ -319,19 +315,11 @@ export function TrainerDashboard() {
         closePlanFromKeyboard();
         return;
       }
-      if (activityDashboardOpen) {
-        closeActivityDashboard();
-        return;
-      }
-      if (isConversationDrawerOpen) {
-        setIsConversationDrawerOpen(false);
-        focusMainNavigationControl(conversationButtonRef);
-      }
+      if (activityDashboardOpen) closeActivityDashboard();
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    isConversationDrawerOpen,
     openConversationMenuId,
     renameTarget,
     activityDashboardOpen,
@@ -344,9 +332,6 @@ export function TrainerDashboard() {
   useEffect(() => {
     if (settingsOpen) settingsCloseRef.current?.focus();
   }, [settingsOpen]);
-  useEffect(() => {
-    if (isConversationDrawerOpen) conversationDrawerCloseRef.current?.focus();
-  }, [isConversationDrawerOpen]);
   useEffect(() => {
     if (activityDashboardOpen) {
       activityDashboardCloseRef.current?.focus();
@@ -463,16 +448,11 @@ export function TrainerDashboard() {
     ref.current?.focus();
   }
 
-  function toggleConversationHistory() {
-    setIsMainMenuOpen(false);
-    const isMobileViewport =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(max-width: 960px)").matches;
-    if (isMobileViewport) {
-      setIsConversationDrawerOpen(true);
-    } else {
-      setDesktopSidebarExpanded((expanded) => !expanded);
-    }
+  function toggleConversationSelector() {
+    closeConversationMenu();
+    setConversationSelectorExpanded((expanded) => !expanded);
+    // Hidden controls leave the tab order; keep focus on the persistent arrow.
+    conversationSelectorToggleRef.current?.focus();
   }
 
   function openSyncFromNavigation() {
@@ -533,12 +513,6 @@ export function TrainerDashboard() {
   function closeSettingsSheet() {
     setSettingsOpen(false);
     focusMainNavigationControl(settingsButtonRef);
-  }
-
-  function closeConversationDrawer() {
-    closeConversationMenu();
-    setIsConversationDrawerOpen(false);
-    focusMainNavigationControl(conversationButtonRef);
   }
 
   function transcriptIsNearBottom(): boolean {
@@ -700,7 +674,7 @@ export function TrainerDashboard() {
 
   return (
     <section
-      className={`dashboard-shell ${desktopSidebarExpanded ? "" : "sidebar-collapsed"} ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""} ${syncOpen ? "sync-view-active" : ""} ${healthDashboardOpen ? "health-dashboard-active" : ""}`}
+      className={`dashboard-shell ${activityDashboardOpen ? "activity-dashboard-active" : ""} ${trainingPlanOpen ? "training-plan-active" : ""} ${syncOpen ? "sync-view-active" : ""} ${healthDashboardOpen ? "health-dashboard-active" : ""}`}
       aria-label="AI trainer dashboard"
     >
       {!activityDashboardOpen &&
@@ -714,16 +688,6 @@ export function TrainerDashboard() {
             </h1>
           </div>
           <nav className="app-nav" aria-label="Main navigation">
-            <button
-              type="button"
-              className="chrome-button sidebar-toggle"
-              onClick={toggleConversationHistory}
-              ref={conversationButtonRef}
-              aria-label="Toggle conversation history"
-              aria-expanded={desktopSidebarExpanded || isConversationDrawerOpen}
-            >
-              Conversations
-            </button>
             <button
               type="button"
               className="chrome-button"
@@ -800,20 +764,9 @@ export function TrainerDashboard() {
               open={isMainMenuOpen}
               onDismiss={() => {
                 setIsMainMenuOpen(false);
-                focusMainNavigationControl(conversationButtonRef);
+                mainMenuToggleRef.current?.focus();
               }}
             >
-              <button
-                type="button"
-                className="app-menu-item"
-                onClick={toggleConversationHistory}
-                aria-label="Toggle conversation history"
-                aria-expanded={
-                  desktopSidebarExpanded || isConversationDrawerOpen
-                }
-              >
-                Conversations
-              </button>
               <button
                 type="button"
                 className="app-menu-item"
@@ -1030,9 +983,9 @@ export function TrainerDashboard() {
       !healthDashboardOpen ? (
         <ChatView
           modelSettings={modelSettings}
-          conversationDrawerCloseRef={conversationDrawerCloseRef}
-          isConversationDrawerOpen={isConversationDrawerOpen}
-          closeConversationDrawer={closeConversationDrawer}
+          conversationSelectorExpanded={conversationSelectorExpanded}
+          toggleConversationSelector={toggleConversationSelector}
+          conversationSelectorToggleRef={conversationSelectorToggleRef}
           runInBackground={runInBackground}
           startNewChat={startNewChat}
           conversationRows={conversationRows}

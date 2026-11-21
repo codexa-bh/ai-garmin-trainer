@@ -223,7 +223,15 @@ function stubViewport(matches: boolean) {
   );
 }
 
+async function expandConversationSelector() {
+  const toggle = await screen.findByRole("button", {
+    name: /conversation selector$/,
+  });
+  if (toggle.getAttribute("aria-expanded") === "false") fireEvent.click(toggle);
+}
+
 async function openConversationMenu(title: string) {
+  await expandConversationSelector();
   fireEvent.click(
     await screen.findByRole("button", {
       name: `Conversation options for "${title}"`,
@@ -1281,7 +1289,6 @@ describe("TrainerDashboard Profile hydration", () => {
       name: "Main navigation",
     });
     const expectedTopbarButtons = [
-      "Toggle conversation history",
       "Activities",
       "Health",
       "Training Plan",
@@ -1301,7 +1308,6 @@ describe("TrainerDashboard Profile hydration", () => {
         button.textContent?.trim(),
       ),
     ).toEqual([
-      "Conversations",
       "Activities",
       "Health",
       "Training Plan",
@@ -1365,7 +1371,6 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(menuToggle.getAttribute("aria-expanded")).toBe("true");
     const menu = screen.getByRole("dialog", { name: "Main menu" });
     const menuItems = [
-      "Toggle conversation history",
       "Activities",
       "Health",
       "Training Plan",
@@ -1383,7 +1388,6 @@ describe("TrainerDashboard Profile hydration", () => {
         button.textContent?.trim(),
       ),
     ).toEqual([
-      "Conversations",
       "Activities",
       "Health",
       "Training Plan",
@@ -1492,18 +1496,6 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Menu" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Menu" }));
-    fireEvent.click(
-      within(screen.getByRole("dialog", { name: "Main menu" })).getByRole(
-        "button",
-        { name: "Toggle conversation history" },
-      ),
-    );
-    expect(document.activeElement).toBe(
-      within(
-        screen.getByRole("complementary", { name: "Conversation history" }),
-      ).getByRole("button", { name: "Close" }),
-    );
   });
 
   it("renders the minimal chat shell and reachable grouped settings disclosure", async () => {
@@ -1526,16 +1518,24 @@ describe("TrainerDashboard Profile hydration", () => {
     const { container } = render(React.createElement(TrainerDashboard));
 
     const conversationToggle = screen.getByRole("button", {
-      name: "Toggle conversation history",
+      name: "Expand conversation selector",
     });
-    const shell = container.querySelector(".dashboard-shell");
+    const workspace = container.querySelector(".chat-workspace");
     expect(conversationToggle.getAttribute("aria-expanded")).toBe("false");
-    expect(shell?.classList.contains("sidebar-collapsed")).toBe(true);
+    expect(
+      workspace?.classList.contains("conversation-selector-collapsed"),
+    ).toBe(true);
 
     fireEvent.click(conversationToggle);
 
-    expect(conversationToggle.getAttribute("aria-expanded")).toBe("true");
-    expect(shell?.classList.contains("sidebar-collapsed")).toBe(false);
+    expect(
+      screen
+        .getByRole("button", { name: "Collapse conversation selector" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(
+      workspace?.classList.contains("conversation-selector-collapsed"),
+    ).toBe(false);
     expect(
       screen.getByRole("heading", { name: "Garmin AI Trainer" }),
     ).toBeTruthy();
@@ -4462,7 +4462,7 @@ describe("TrainerDashboard activity charts", () => {
     );
     expect(css).not.toContain(".activity-selector-toggle-label");
     expect(css).toMatch(
-      /\.activity-selector-toggle\s*\{[\s\S]*?width: 36px;[\s\S]*?height: 36px;/,
+      /\.activity-selector-toggle(?:,\s*\.conversation-selector-toggle)?\s*\{[\s\S]*?width: 36px;[\s\S]*?height: 36px;/,
     );
     expect(css).toMatch(
       /\.activity-selector-collapsed \.activity-selector-heading\s*\{\s*display: none;\s*}/,
@@ -5511,6 +5511,7 @@ describe("TrainerDashboard memory and new chat", () => {
 
     render(React.createElement(TrainerDashboard));
 
+    await expandConversationSelector();
     await screen.findByRole("button", {
       name: 'Conversation options for "Active plan"',
     });
@@ -5707,6 +5708,7 @@ describe("TrainerDashboard memory and new chat", () => {
     render(React.createElement(TrainerDashboard));
 
     expect(await screen.findByText("Active visible transcript")).toBeTruthy();
+    await expandConversationSelector();
     const trigger = await screen.findByRole("button", {
       name: 'Conversation options for "Previous climb chat"',
     });
@@ -5721,7 +5723,7 @@ describe("TrainerDashboard memory and new chat", () => {
       /:not\(\.conversation-menu-trigger\) \{\s*padding: var\(--navigation-button-padding, 10px 14px\);/,
     );
     expect(css).toMatch(
-      /:not\(\.conversation-menu-trigger\) \{\s*padding: var\(--navigation-button-padding, 9px 11px\);/,
+      /:not\(\s*\.conversation-menu-trigger\s*\) \{\s*padding: var\(--navigation-button-padding, 9px 11px\);/,
     );
 
     fireEvent.click(trigger);
@@ -6044,6 +6046,7 @@ describe("TrainerDashboard memory and new chat", () => {
     render(React.createElement(TrainerDashboard));
 
     expect(await screen.findByText("Old visible transcript")).toBeTruthy();
+    await expandConversationSelector();
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     await waitFor(() => {
       expect(screen.queryByText("Old visible transcript")).toBeNull();

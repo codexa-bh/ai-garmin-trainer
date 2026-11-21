@@ -116,7 +116,7 @@ beforeEach(() => {
   vi.stubGlobal("innerWidth", 1280);
   vi.stubGlobal("innerHeight", 850);
   document.body.innerHTML =
-    '<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="conversation-sidebar"><button id="new">New chat</button><div class="conversation-list"></div></aside><div class="transcript">private copied transcript</div>';
+    '<section aria-label="AI trainer dashboard" data-renderer-ready="true"></section><aside class="conversation-sidebar"><button class="conversation-selector-toggle" aria-label="Collapse conversation selector" aria-expanded="true"></button><button id="new">New chat</button><div class="conversation-list"></div></aside><div class="transcript">private copied transcript</div>';
   document.getElementById("new")!.onclick = () => {
     document
       .querySelectorAll(".conversation-select")
@@ -250,26 +250,39 @@ it("refuses debug/prehydration/private/extra/hidden/disabled or ambiguous target
     (await command({ type: "conversation", action: "choose-first" })).ok,
   ).toBe(false);
 });
-it("refuses clipped or collapsed history until a rendered history toggle opens it", async () => {
+it("refuses collapsed or clipped history until the local arrow expands it and can collapse it again", async () => {
   const sidebar = document.querySelector<HTMLElement>(".conversation-sidebar")!;
-  const wrapper = document.createElement("div");
-  wrapper.className = "sidebar-collapsed";
-  sidebar.before(wrapper);
-  wrapper.append(sidebar);
-  expect(
-    (await command({ type: "conversation", action: "observe" })).historyVisible,
-  ).toBe(false);
+  const arrow = sidebar.querySelector<HTMLButtonElement>(
+    ".conversation-selector-toggle",
+  )!;
+  const setExpanded = (expanded: boolean) => {
+    arrow.setAttribute("aria-expanded", String(expanded));
+    arrow.setAttribute(
+      "aria-label",
+      expanded
+        ? "Collapse conversation selector"
+        : "Expand conversation selector",
+    );
+  };
+  arrow.onclick = () =>
+    setExpanded(arrow.getAttribute("aria-expanded") !== "true");
+  setExpanded(false);
+  const collapsed = await command({ type: "conversation", action: "observe" });
+  expect(collapsed.historyVisible).toBe(false);
+  expect(collapsed.historyExpanded).toBe(false);
+  expect(collapsed.historyToggleVisible).toBe(true);
   expect((await command({ type: "conversation", action: "new" })).ok).toBe(
     false,
   );
-  const toggle = document.createElement("button");
-  toggle.setAttribute("aria-label", "Toggle conversation history");
-  toggle.onclick = () => wrapper.classList.remove("sidebar-collapsed");
-  document.body.append(toggle);
   expect(
     (await command({ type: "conversation", action: "open-history" }))
       .historyVisible,
   ).toBe(true);
+  expect(
+    (await command({ type: "conversation", action: "collapse-history" }))
+      .historyExpanded,
+  ).toBe(false);
+  setExpanded(true);
   vi.spyOn(sidebar, "getBoundingClientRect").mockReturnValue({
     width: 0,
     height: 700,
@@ -285,56 +298,36 @@ it("refuses clipped or collapsed history until a rendered history toggle opens i
     false,
   );
 });
-it("settles only the opened sidebar's existing finite CSS transitions without overriding layout or visibility", async () => {
+it("captures a collapsed rail revealing only the arrow and its identity label", async () => {
   const sidebar = document.querySelector<HTMLElement>(".conversation-sidebar")!;
-  let left = -385;
-  vi.spyOn(sidebar, "getBoundingClientRect").mockImplementation(() => ({
-    width: 350,
-    height: 700,
-    top: 0,
-    bottom: 700,
-    left,
-    right: left + 350,
-    x: left,
-    y: 0,
-    toJSON: () => ({}),
-  }));
-  vi.stubGlobal("innerWidth", 420);
-  class Transition {
-    effect: { target: Element };
-    transitionProperty: string;
-    finish = vi.fn(() => {
-      left = 0;
-    });
-    constructor(target: Element, property: string) {
-      this.effect = { target };
-      this.transitionProperty = property;
-    }
-  }
-  vi.stubGlobal("CSSTransition", Transition);
-  const drawer = new Transition(sidebar, "transform");
-  const other = new Transition(document.body, "transform");
-  const opacity = new Transition(sidebar, "opacity");
-  Object.defineProperty(sidebar, "getAnimations", {
-    value: () => [drawer, other, opacity],
-    configurable: true,
-  });
+  const arrow = sidebar.querySelector<HTMLElement>(
+    ".conversation-selector-toggle",
+  )!;
+  arrow.setAttribute("aria-expanded", "false");
+  arrow.innerHTML = '<svg><path d="M0 0"></path></svg>';
+  const label = document.createElement("span");
+  label.className = "conversation-selector-rail-label";
+  label.textContent = "Conversations";
+  sidebar.append(label);
   expect(
-    (await command({ type: "conversation", action: "settle-history" })).ok,
-  ).toBe(false);
-  sidebar.classList.add("open");
-  expect(
-    (await command({ type: "conversation", action: "observe" })).historyVisible,
-  ).toBe(false);
-  const style = sidebar.getAttribute("style");
-  expect(
-    (await command({ type: "conversation", action: "settle-history" }))
-      .historyVisible,
+    (
+      await command({
+        type: "captureView",
+        view: "conversation",
+        preset: "wide",
+      })
+    ).ok,
   ).toBe(true);
-  expect(drawer.finish).toHaveBeenCalledOnce();
-  expect(other.finish).not.toHaveBeenCalled();
-  expect(opacity.finish).not.toHaveBeenCalled();
-  expect(sidebar.getAttribute("style")).toBe(style);
+  expect(arrow.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect(arrow.querySelector("svg")!.hasAttribute("data-smoke-reveal")).toBe(
+    true,
+  );
+  expect(label.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect(
+    document.querySelector(".transcript")!.hasAttribute("data-smoke-reveal"),
+  ).toBe(false);
+  smoke.__trainerSmokeRestore();
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
 });
 it("reveals only run-synthetic history labels, masks copied dates/transcript without reflow and restores on failure", async () => {
   document

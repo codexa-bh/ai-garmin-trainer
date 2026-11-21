@@ -247,6 +247,22 @@ function expectRollupEmptyState(panel: HTMLElement, title: string) {
   expect(within(card as HTMLElement).queryByRole("img")).toBeNull();
 }
 
+function expectSleepStagesChart(panel: HTMLElement) {
+  const chart = within(panel).getByRole("group", {
+    name: "Sleep stages rollup chart",
+  });
+  expect(chart.querySelector(".health-rollup-plot")).toBeTruthy();
+  expect(
+    chart.querySelectorAll('[data-chart-state="available"]').length,
+  ).toBeGreaterThan(0);
+  expect(
+    within(chart).getByLabelText("Sleep stages period values"),
+  ).toBeTruthy();
+  const readout = chart.querySelector(".health-rollup-readout");
+  for (const term of ["REM", "Deep", "Light", "Recorded duration"])
+    expect(readout?.textContent).toContain(term);
+}
+
 function baseFetchMock() {
   return vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
     const url = String(input);
@@ -340,10 +356,23 @@ describe("TrainerDashboard Health dashboard", () => {
       within(screen.getByLabelText(`${title} daily values`))
         .getAllByRole("button")
         .map((button) => button.querySelector("strong")?.textContent);
-    expect(values("Sleep duration").slice(-2)).toEqual(["Unavailable", "0 m"]);
+    expect(
+      within(screen.getByLabelText("Sleep stages daily values"))
+        .getAllByRole("button")
+        .slice(-2)
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "July 20, 2026: REM: 1 h 36 m · Deep: 1 h 14 m · Light: 4 h 4 m · Recorded duration: Unavailable",
+      "July 21, 2026: REM: 1 h 36 m · Deep: 0 m · Light: 4 h 4 m · Recorded duration: 0 m · Stage sum 5 h 40 m; differs from recorded duration.",
+    ]);
+    for (const title of [
+      "Sleep duration",
+      "Deep sleep",
+      "Light sleep",
+      "REM sleep",
+    ])
+      expect(screen.queryByLabelText(`${title} daily values`)).toBeNull();
     expect(values("Sleep score").slice(-2)).toEqual(["86", "Unavailable"]);
-    expect(values("Deep sleep").slice(-2)).toEqual(["1 h 14 m", "0 m"]);
-    expect(values("Light sleep").slice(-2)).toEqual(["4 h 4 m", "4 h 4 m"]);
     expect(values("Awake sleep").slice(-2)).toEqual(["30 m", "30 m"]);
     expect(values("Nap sleep").slice(-2)).toEqual(["0 m", "Unavailable"]);
     const calories = within(
@@ -372,9 +401,9 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(values("Intensity minutes").slice(-2)).toEqual(["38 min", "0 min"]);
     expect(screen.queryByText(/16,824|2,200/)).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
-    // Thirteen established cards plus the three additional-evidence cards.
+    // One combined sleep card replaces four; plus the three additional-evidence cards.
     expect(screen.getAllByRole("group", { name: /daily chart$/ })).toHaveLength(
-      16,
+      13,
     );
     expect(screen.queryByText(/Period average|Period total/)).toBeNull();
     expect(screen.queryByText("Complete daily health record")).toBeNull();
@@ -407,7 +436,7 @@ describe("TrainerDashboard Health dashboard", () => {
     fireEvent.keyDown(monthly, { key: "Home" });
     expect(document.activeElement).toBe(daily);
     expect(
-      screen.getByRole("group", { name: "Sleep duration daily chart" }),
+      screen.getByRole("group", { name: "Sleep stages daily chart" }),
     ).toBeTruthy();
   });
 
@@ -450,16 +479,13 @@ describe("TrainerDashboard Health dashboard", () => {
     expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual(
       [
         "Calories",
-        "Sleep duration",
+        "Sleep stages",
         "Sleep score",
         "Steps",
         "Resting HR",
         "HRV",
         "Stress avg",
         "Intensity minutes",
-        "Deep sleep",
-        "Light sleep",
-        "REM sleep",
         "Awake sleep",
         "Nap sleep",
         "Stress breakdown",
@@ -528,11 +554,11 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
 
     for (const [title, value] of [
-      ["Sleep duration", "7 h 24 m"],
+      [
+        "Sleep stages",
+        "REM: 1 h 36 m · Deep: 1 h 14 m · Light: 4 h 4 m · Recorded duration: 7 h 24 m · Stage sum 6 h 54 m; differs from recorded duration.",
+      ],
       ["Sleep score", "86"],
-      ["Deep sleep", "1 h 14 m"],
-      ["Light sleep", "4 h 4 m"],
-      ["REM sleep", "1 h 36 m"],
       ["Awake sleep", "30 m"],
       ["Nap sleep", "0 m"],
       ["Resting HR", "52 bpm"],
@@ -706,19 +732,25 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
     fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
     expect(within(panel).getByText("Weekly Health rollups")).toBeTruthy();
-    expect(within(panel).getByText("Sleep duration daily avg")).toBeTruthy();
+    const sleepStages = within(panel).getByRole("group", {
+      name: "Sleep stages rollup chart",
+    });
+    expect(sleepStages).toBeTruthy();
     expect(within(panel).getByText("Sleep score avg")).toBeTruthy();
-    expect(within(panel).getByText("Deep sleep daily avg")).toBeTruthy();
-    expect(within(panel).getAllByText("6 h 57 m/day").length).toBeGreaterThan(
-      0,
-    );
     expect(within(panel).getAllByText("82 avg").length).toBeGreaterThan(0);
-    expect(within(panel).getAllByText("1 h 7 m/day").length).toBeGreaterThan(0);
+    for (const title of [
+      "Sleep duration daily avg",
+      "Deep sleep daily avg",
+      "Light sleep daily avg",
+      "REM sleep daily avg",
+    ])
+      expect(within(panel).queryByText(title)).toBeNull();
     expect(
-      within(panel).getByRole("button", {
-        name: /Week of July 20, 2026: 6 h 57 m\/day/,
+      within(sleepStages).getByRole("button", {
+        name: /Week of July 20, 2026: REM: .*\/day · Deep: 1 h 7 m\/day · Light: .*\/day · Recorded duration: 6 h 57 m\/day/,
       }),
     ).toBeTruthy();
+    expect(within(panel).getByText("Awake sleep daily avg")).toBeTruthy();
     expect(within(panel).queryByText("417 min")).toBeNull();
     expect(within(panel).getByText("Total calories")).toBeTruthy();
     expect(within(panel).getByText("Intensity minutes")).toBeTruthy();
@@ -726,7 +758,7 @@ describe("TrainerDashboard Health dashboard", () => {
       0,
     );
     expect(within(panel).getAllByText("4,415 kcal").length).toBeGreaterThan(0);
-    expectRollupChartGraphics(panel, "Sleep duration daily avg");
+    expectSleepStagesChart(panel);
     expectRollupChartGraphics(panel, "Steps");
     expectRollupChartGraphics(panel, "Total calories");
     expectRollupChartGraphics(panel, "Intensity minutes");
@@ -766,7 +798,7 @@ describe("TrainerDashboard Health dashboard", () => {
       0,
     );
     expect(within(panel).getAllByText("6,895 kcal").length).toBeGreaterThan(0);
-    expectRollupChartGraphics(panel, "Sleep duration daily avg");
+    expectSleepStagesChart(panel);
     expectRollupChartGraphics(panel, "Steps");
     expectRollupChartGraphics(panel, "Total calories");
     expectRollupChartGraphics(panel, "Intensity minutes");
@@ -909,17 +941,43 @@ describe("TrainerDashboard Health dashboard", () => {
     const panel = await openHealthDashboard();
     fireEvent.click(within(panel).getByRole("tab", { name: "Weekly" }));
 
-    expectRollupChartGraphics(panel, "Sleep duration daily avg");
+    // Recorded duration stays visible when no stage stack is available.
+    const duration = within(panel).getByRole("group", {
+      name: "Sleep stages rollup chart",
+    });
+    expect(duration.classList.contains("empty-state")).toBe(false);
+    expect(duration.querySelector(".health-rollup-plot")).toBeNull();
+    expect(
+      within(duration)
+        .getAllByRole("button")
+        .every((button) =>
+          button.getAttribute("aria-label")?.includes("Recorded duration: "),
+        ),
+    ).toBe(true);
+    expect(duration.textContent).toContain("No complete stage breakdowns");
     expectRollupChartGraphics(panel, "Steps");
     expectRollupEmptyState(panel, "Sleep score avg");
-    expectRollupEmptyState(panel, "Sleep stages");
+    expect(within(panel).queryByText("Awake sleep daily avg")).toBeNull();
 
     fireEvent.click(within(panel).getByRole("tab", { name: "Monthly" }));
 
-    expectRollupChartGraphics(panel, "Sleep duration daily avg");
+    // Recorded duration stays visible when no stage stack is available.
+    const monthlyStages = within(panel).getByRole("group", {
+      name: "Sleep stages rollup chart",
+    });
+    expect(monthlyStages.classList.contains("empty-state")).toBe(false);
+    expect(monthlyStages.querySelector(".health-rollup-plot")).toBeNull();
+    expect(
+      within(monthlyStages)
+        .getAllByRole("button")
+        .every((button) =>
+          button.getAttribute("aria-label")?.includes("Recorded duration: "),
+        ),
+    ).toBe(true);
+    expect(monthlyStages.textContent).toContain("No complete stage breakdowns");
     expectRollupChartGraphics(panel, "Steps");
     expectRollupEmptyState(panel, "Sleep score avg");
-    expectRollupEmptyState(panel, "Sleep stages");
+    expect(within(panel).queryByText("Awake sleep daily avg")).toBeNull();
   });
 
   it("renders weekly and monthly chart marks separately from sparse unavailable periods", async () => {

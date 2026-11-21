@@ -30,13 +30,13 @@ Search synced activities and inspect available normalized detail. This crop show
 
 ### Daily Health
 
-![Daily Health showing sleep duration and stages, calories, resting heart rate, HRV, stress, steps, and intensity minutes](docs/screenshots/health-daily.png)
+![Daily Health showing sleep stages and recorded duration, calories, resting heart rate, HRV, stress, steps, and intensity minutes](docs/screenshots/health-daily.png)
 
 Browse imported daily health records; coverage and values depend on what Garmin provides. Today's values are not necessarily final.
 
 ### Monthly Health
 
-![Monthly Health rollups showing sleep duration, sleep score, and deep-sleep averages from February through September](docs/screenshots/health-monthly.png)
+![Monthly Health rollups showing sleep score and averages from February through September](docs/screenshots/health-monthly.png)
 
 Compare period averages with labeled charts and per-period values. Weekly rollups are available in the same view.
 
@@ -179,6 +179,13 @@ source values available by pointing to, focusing or tapping the date buttons.
 Calories combines resting (below) and active in one stack with a shared exact
 breakdown and independent recorded total. Incomplete breakdowns omit the stack;
 known values remain available, and differing component sums are explicit.
+Sleep stages combine REM (bottom), Deep and Light (top) in one absolute-duration
+stacked-bar card in Daily, Weekly and Monthly, with a shared exact readout that
+shows the independently recorded sleep duration. The order is a display choice,
+not a ranking of sleep quality. Weekly/Monthly show each stage's existing daily
+average over its own available days. An incomplete breakdown omits the stack,
+known values stay readable and a differing stage sum is stated, never reconciled;
+Awake, Nap and sleep score remain separate charts.
 Collapsed per-date details preserve source coverage and categorical HRV context;
 gaps are not interpolated or filled with zero. Weekly/Monthly calculations and their bounded imported input remain unchanged.
 

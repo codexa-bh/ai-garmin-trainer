@@ -58,6 +58,7 @@
   }
   let rememberedHealthRange = null;
   let syntheticCalories = false;
+  let syntheticSleep = false;
 
   // Authored additional-Garmin evidence (finite recipe in smoke_recipe.ts). Every
   // action recomputes the exact authored text from the DOM and refuses on any
@@ -240,14 +241,16 @@
       const text = region?.textContent ?? "";
       for (const expected of [
         "Body Battery change−9 points",
-        "Cadence (Garmin list)162 steps/min",
-        "Max cadence (Garmin list)176 steps/min",
-        "Stride length (Garmin list)98.5 cm",
+        "Cadence162 steps/min",
+        "Stride length98.5 cm",
         "Cadence (FIT file)81.5 cycles/min",
         "Step length (FIT file)0.99 m",
       ])
         if (!text.includes(expected))
           throw Error("Noncanonical summary refused");
+      // The stored list maximum (176) is never presented, and no list suffix remains.
+      if (/max cadence|176|Garmin list/i.test(text))
+        throw Error("Noncanonical summary refused");
     } else if (lapAction) {
       region = detail.querySelector(".lap-table-wrap");
       const rows = [...(region?.querySelectorAll("tbody tr") ?? [])];
@@ -333,16 +336,13 @@
 
   const dailyChartTitles = [
     "Calories",
-    "Sleep duration",
+    "Sleep stages",
     "Sleep score",
     "Steps",
     "Resting HR",
     "HRV",
     "Stress avg",
     "Intensity minutes",
-    "Deep sleep",
-    "Light sleep",
-    "REM sleep",
     "Awake sleep",
     "Nap sleep",
     // Additional Garmin evidence cards; each still carries every selected date.
@@ -399,6 +399,87 @@
       card.querySelectorAll(".recharts-bar-rectangle path").length < 4
     )
       throw Error("Noncanonical/private Calories refused");
+    return { card, buttons, expected };
+  }
+  const healthMode = () =>
+    document
+      .querySelector('.health-mode-controls [aria-selected="true"]')
+      ?.textContent.trim()
+      .toLowerCase();
+  // Closed authored recipe only, in any of the three modes. Each date or period is
+  // either wholly Unavailable or REM 85 m, Deep 65 m and a recorded duration of
+  // Light + 165 m, so the stage sum is always 15 m below the recorded duration.
+  // Private data cannot satisfy this. Returns the exact expected shared readout.
+  function canonicalSleep() {
+    const mode = healthMode();
+    const rollup = mode === "weekly" || mode === "monthly";
+    const cards = [...document.querySelectorAll(".health-sleep-chart")].filter(
+      visible,
+    );
+    const card = cards[0];
+    const buttons = [...(card?.querySelectorAll("button") ?? [])];
+    const minutes = (text) => {
+      const match = /^(?:(\d+) h)?(?: ?(\d+) m)?(?:\/day)?$/.exec(text);
+      return match && (match[1] || match[2])
+        ? Number(match[1] ?? 0) * 60 + Number(match[2] ?? 0)
+        : null;
+    };
+    const format = (total) => {
+      const hours = Math.floor(total / 60);
+      const rest = total % 60;
+      const text =
+        hours > 0
+          ? rest > 0
+            ? `${hours} h ${rest} m`
+            : `${hours} h`
+          : `${rest} m`;
+      return rollup ? `${text}/day` : text;
+    };
+    const expected = buttons.map((button) => {
+      const match =
+        /^(.+): REM: (.+) · Deep: (.+) · Light: (.+) · Recorded duration: (.+?)(?: · (.+))?$/.exec(
+          button.getAttribute("aria-label") ?? "",
+        );
+      if (!match) return null;
+      const [, date, rem, deep, light, recorded, context] = match;
+      const blank = [rem, deep, light, recorded].every(
+        (v) => v === "Unavailable",
+      );
+      const l = minutes(light);
+      const authored =
+        minutes(rem) === 85 &&
+        minutes(deep) === 65 &&
+        l !== null &&
+        minutes(recorded) === l + 165 &&
+        context ===
+          `Stage sum ${format(l + 150)}; differs from recorded duration.`;
+      return blank && context === "Stage breakdown incomplete; no stack shown."
+        ? {
+            blank,
+            readout: `${date}LightUnavailableDeepUnavailableREMUnavailableRecorded durationUnavailable${context}`,
+          }
+        : authored
+          ? {
+              blank,
+              readout: `${date}Light${light}Deep${deep}REM${rem}Recorded duration${recorded}${context}`,
+            }
+          : null;
+    });
+    if (
+      cards.length !== 1 ||
+      card.getAttribute("aria-label") !==
+        `Sleep stages ${rollup ? "rollup" : "daily"} chart` ||
+      !(rollup
+        ? buttons.length >= 1 && buttons.length <= 8
+        : buttons.length === 7) ||
+      expected.some((item) => item === null) ||
+      !expected.some((item) => !item.blank) ||
+      card.querySelector(".health-sleep-legend")?.textContent !==
+        "LightDeepREM" ||
+      card.querySelectorAll(".recharts-bar").length !== 3 ||
+      card.querySelectorAll(".recharts-bar-rectangle path").length < 3
+    )
+      throw Error("Noncanonical/private Sleep stages refused");
     return { card, buttons, expected };
   }
   const healthComparison = () => {
@@ -2233,17 +2314,24 @@
       throw Error("Synthetic conversation missing/ambiguous");
     return rows[0];
   }
+  const conversationSelectorToggles = () =>
+    [
+      ...document.querySelectorAll(
+        ".conversation-sidebar .conversation-selector-toggle",
+      ),
+    ].filter(visible);
+  function conversationHistoryExpanded() {
+    const toggles = conversationSelectorToggles();
+    return (
+      toggles.length === 1 &&
+      toggles[0].getAttribute("aria-expanded") === "true"
+    );
+  }
   function conversationHistoryVisible() {
     const sidebar = document.querySelector(".conversation-sidebar");
-    if (!visible(sidebar)) return false;
+    if (!visible(sidebar) || !conversationHistoryExpanded()) return false;
     const rect = sidebar.getBoundingClientRect();
-    return (
-      rect.width >= 200 &&
-      rect.left >= 0 &&
-      rect.right <= innerWidth &&
-      (sidebar.classList.contains("open") ||
-        (innerWidth > 960 && !sidebar.closest(".sidebar-collapsed")))
-    );
+    return rect.width >= 200 && rect.left >= 0 && rect.right <= innerWidth;
   }
   function conversationObservation(action) {
     const rows = conversationRows();
@@ -2292,24 +2380,14 @@
         conversationTitle("first"),
         conversationTitle("second"),
       ].includes(document.querySelector("#conversation-rename-title")?.value),
-      historyExpanded:
-        !!document.querySelector(".conversation-sidebar.open") ||
-        (innerWidth > 960 &&
-          !document
-            .querySelector(".conversation-sidebar")
-            ?.closest(".sidebar-collapsed")),
+      historyExpanded: conversationHistoryExpanded(),
       historyFitsViewport: (() => {
         const r = document
           .querySelector(".conversation-sidebar")
           ?.getBoundingClientRect();
         return !!r && r.width >= 200 && r.left >= 0 && r.right <= innerWidth;
       })(),
-      historyToggleVisible:
-        [
-          ...document.querySelectorAll(
-            'button[aria-label="Toggle conversation history"]',
-          ),
-        ].filter(visible).length === 1,
+      historyToggleVisible: conversationSelectorToggles().length === 1,
       empty: rows.length === 0,
       firstPresent: present("first"),
       secondPresent: present("second"),
@@ -2335,9 +2413,8 @@
     conversationStage = "admission";
     const actions = [
       "observe",
-      "open-menu",
       "open-history",
-      "settle-history",
+      "collapse-history",
       "new",
       "menu-new",
       "rename-new",
@@ -2359,31 +2436,12 @@
     conversationRows();
     if (command.action === "observe")
       return conversationObservation(command.action);
-    if (command.action === "open-menu") {
-      if (innerWidth > 960) throw Error("Mobile menu only");
-      target("Menu").click();
-    } else if (command.action === "open-history") {
-      if (!conversationObservation("observe").historyExpanded)
-        target("Toggle conversation history").click();
-    } else if (command.action === "settle-history") {
-      const sidebar = document.querySelector(".conversation-sidebar");
-      if (
-        !conversationObservation("observe").historyExpanded ||
-        typeof CSSTransition === "undefined"
-      )
-        throw Error("An explicitly opened history transition is required");
-      // Nonactivating WebKit can freeze CSS transitions. Finish only this
-      // sidebar's existing finite transition at its real CSS endpoint; no
-      // style/transform override, generic animation control or geometry waiver.
-      for (const animation of sidebar.getAnimations())
-        if (
-          animation instanceof CSSTransition &&
-          animation.effect?.target === sidebar &&
-          ["transform", "width", "padding-left", "padding-right"].includes(
-            animation.transitionProperty,
-          )
-        )
-          animation.finish();
+    if (command.action === "open-history") {
+      if (!conversationHistoryExpanded())
+        target("Expand conversation selector").click();
+    } else if (command.action === "collapse-history") {
+      if (conversationHistoryExpanded())
+        target("Collapse conversation selector").click();
     } else {
       if (!conversationHistoryVisible())
         throw Error("History must be visibly open");
@@ -2477,12 +2535,33 @@
     return conversationObservation(command.action);
   }
   function revealConversations() {
-    if (!conversationHistoryVisible())
-      throw Error("Capture requires visibly open history");
+    const sidebar = document.querySelector(".conversation-sidebar");
+    const [toggle] = conversationSelectorToggles();
+    const collapsed =
+      !!toggle &&
+      toggle.getAttribute("aria-expanded") === "false" &&
+      visible(sidebar);
+    if (!conversationHistoryVisible() && !collapsed)
+      throw Error("Capture requires visibly open or collapsed selector");
     conversationRows(); // Refuse unknown/copied labels before revealing anything.
+    if (collapsed) {
+      // Only the static arrow and its identity label, never message content.
+      for (const el of [
+        toggle,
+        ...toggle.querySelectorAll("svg, path"),
+        sidebar.querySelector(".conversation-selector-rail-label"),
+      ])
+        el?.setAttribute("data-smoke-reveal", "");
+      for (
+        let node = toggle.parentElement;
+        node && node !== document.body;
+        node = node.parentElement
+      )
+        node.setAttribute("data-smoke-reveal", "");
+      return;
+    }
     // Preserve WebKit's real scrolled compositing layer, as for table captures.
     // Only empty-text containers are revealed; every child remains masked.
-    const sidebar = document.querySelector(".conversation-sidebar");
     for (
       let node = sidebar.querySelector(".conversation-list");
       node && node !== document.body;
@@ -2506,8 +2585,10 @@
       ])
         el?.setAttribute("data-smoke-reveal", "");
     }
+    for (const el of [toggle, ...toggle.querySelectorAll("svg, path")])
+      el.setAttribute("data-smoke-reveal", "");
     for (const el of document.querySelectorAll(
-      ".conversation-sidebar button, .sidebar-header strong, .sidebar-header .section-kicker, .conversation-list .empty-chat",
+      ".conversation-sidebar button, .conversation-selector-heading strong, .conversation-selector-heading .section-kicker, .conversation-list .empty-chat",
     ))
       if (
         [
@@ -2886,9 +2967,9 @@
     "Avg speed",
     "Max speed",
   ];
+  // Variants without stored rows must render no snow section at all.
+  const snowAbsent = ["unknown", "unsupported"];
   const snowMessages = {
-    unknown: "Individual runs have not been imported (coverage unknown).",
-    unsupported: "Individual measured runs are not supported for this sport.",
     preserved:
       "The latest individual-run read failed. Showing preserved runs; a complete fresh set is not confirmed.",
   };
@@ -2909,7 +2990,28 @@
       ),
     }));
   }
+  function snowSelected() {
+    const chosen = snowChoices().find(
+      (choice) => choice.variant === snowVariant,
+    );
+    return (
+      !!chosen &&
+      chosen.rows.length === 1 &&
+      chosen.rows[0].classList.contains("selected") &&
+      document.querySelector(".selected-activity-heading h2")?.textContent ===
+        snowNames[snowVariant]
+    );
+  }
+  // Authored absence: the exact selected activity heading, with no snow section or run table anywhere.
+  function snowAbsentAnchor() {
+    return snowAbsent.includes(snowVariant) &&
+      snowSelected() &&
+      !document.querySelector(".snow-section, .snow-run-display, .snow-runs")
+      ? document.querySelector(".selected-activity-heading")
+      : null;
+  }
   function snowRegion() {
+    if (snowAbsent.includes(snowVariant)) return null;
     const choices = snowChoices();
     const chosen = choices.find((choice) => choice.variant === snowVariant);
     if (
@@ -2923,9 +3025,8 @@
     const region = document.querySelector(".snow-run-display");
     if (!region || !visible(region)) return null;
     const table = region.querySelector("table");
-    const populated = ["populated", "preserved"].includes(snowVariant);
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-    if (populated) {
+    {
       if (
         region.querySelectorAll("table").length !== 1 ||
         table.caption?.textContent.trim() !== "Snow runs" ||
@@ -2943,8 +3044,7 @@
         )
       )
         return null;
-    } else if (table || region.querySelector("h3")?.textContent !== "Snow runs")
-      return null;
+    }
     const paragraphs = [...region.querySelectorAll("p")].map((node) =>
       node.textContent.trim(),
     );
@@ -2988,14 +3088,15 @@
   }
   function snowObservation(action) {
     const region = snowRegion();
+    const anchor = region ?? snowAbsentAnchor();
     const wrap = region?.querySelector(".snow-runs-wrap");
-    const rect = region?.getBoundingClientRect();
+    const rect = anchor?.getBoundingClientRect();
     return {
       ok: true,
       action,
       trustedInput: false,
       choicesReady: snowChoices().every((choice) => choice.rows.length === 1),
-      ready: !!region,
+      ready: !!anchor,
       contained: document.documentElement.scrollWidth <= innerWidth,
       scrollable: !!wrap && wrap.scrollWidth > wrap.clientWidth,
       edgeReached:
@@ -3045,6 +3146,7 @@
       );
       const rows = [...(table?.querySelectorAll("tbody tr") ?? [])];
       const ready =
+        !document.querySelector(".snow-section") &&
         rows.length === 4 &&
         [...table.querySelectorAll("thead th")].at(-1)?.textContent ===
           "HR zones" &&
@@ -3083,7 +3185,7 @@
       snowVariant = command.action;
       chosen.rows[0].click();
     } else if (command.action !== "observe") {
-      const region = snowRegion();
+      const region = snowRegion() ?? snowAbsentAnchor();
       if (!region) throw Error("Canonical Snow runs required");
       if (["collapse", "expand"].includes(command.action)) {
         const label =
@@ -3118,7 +3220,7 @@
     return snowObservation(command.action);
   }
   function revealSnowRuns() {
-    const region = snowRegion();
+    const region = snowRegion() ?? snowAbsentAnchor();
     if (!region || !snowObservation("observe").headerVisible)
       throw Error("Visible canonical Snow runs required");
     for (const node of [region, ...region.querySelectorAll("*")])
@@ -4093,7 +4195,8 @@
     } else if (command.view === "activityLabels") {
       if (!labelElements().ready) throw Error("Unsafe Activity capture");
     } else if (command.view === "snowRuns") {
-      if (!snowRegion()) throw Error("Unsafe Snow runs capture");
+      if (!snowRegion() && !snowAbsentAnchor())
+        throw Error("Unsafe Snow runs capture");
     } else if (command.view === "terrain") {
       if (!terrainRegion()) throw Error("Unsafe Terrain capture");
     } else if (command.view === "tables") {
@@ -4557,9 +4660,37 @@
           el.click();
           return { ok: true, action: command.action, trustedInput: false };
         }
-        const comparison = healthComparison();
+        if (command.action === "sleep") {
+          // One authored card is revealed per capture: selecting Sleep replaces Calories.
+          syntheticSleep = false;
+          syntheticCalories = false;
+          const { card, buttons, expected } = canonicalSleep();
+          for (const [index, button] of buttons.entries()) {
+            button.dispatchEvent(new Event("pointerover", { bubbles: true }));
+            button.focus({ preventScroll: true });
+            button.click();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            if (
+              card.querySelector(".health-rollup-readout")?.textContent !==
+              expected[index].readout
+            )
+              throw Error("Synthetic shared Sleep readout failed");
+          }
+          // Reveal the newest available date or period, as the user would first see it.
+          const last = expected.findLastIndex((item) => !item.blank);
+          buttons[last].click();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          syntheticSleep = true;
+          return { ok: true, action: command.action, trustedInput: false };
+        }
+        const authoredRollup =
+          syntheticSleep &&
+          ["capture-wide", "capture-narrow"].includes(command.action) &&
+          healthMode() !== "daily";
+        const comparison = authoredRollup ? null : healthComparison();
         if (command.action === "calories") {
           syntheticCalories = false;
+          syntheticSleep = false;
           const { card, buttons, expected } = canonicalCalories(comparison);
           for (const [index, button] of buttons.entries()) {
             button.dispatchEvent(new Event("pointerover", { bubbles: true }));
@@ -4618,6 +4749,51 @@
           {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}
           .health-dashboard-panel [role="status"]::after, .health-dashboard-panel #health-daily-help::after
           {content:"Masked"; visibility:visible !important; position:absolute; inset:12px; color:var(--muted)}`;
+        if (authoredRollup)
+          // Weekly/Monthly: same placeholders for every period readout and button.
+          style.textContent += `
+          .health-rollup-browser, .health-rollup-browser button {visibility:visible !important}
+          .health-rollup-view .health-rollup-readout, .health-rollup-view .health-rollup-value {position:relative}
+          .health-rollup-view .health-rollup-readout::after, .health-rollup-view .health-rollup-value::after
+          {content:"Masked"; visibility:visible !important; position:absolute; inset:0; color:var(--muted)}`;
+        if (syntheticSleep) {
+          const { card, buttons, expected } = canonicalSleep();
+          const selected = buttons.findIndex(
+            (button) => button.getAttribute("aria-pressed") === "true",
+          );
+          if (
+            selected < 0 ||
+            card.querySelector(".health-rollup-readout")?.textContent !==
+              expected[selected].readout
+          )
+            throw Error("Canonical Sleep selection changed");
+          // Only known Sleep stages descendants are visible; unexpected content stays hidden.
+          style.textContent += `
+            .health-sleep-chart .health-sleep-legend,
+            .health-sleep-chart .health-sleep-legend > span,
+            .health-sleep-chart .health-sleep-legend > span > i,
+            .health-sleep-chart .health-rollup-plot svg,
+            .health-sleep-chart .recharts-bar-rectangle path,
+            .health-sleep-chart .health-rollup-readout,
+            .health-sleep-chart .health-rollup-readout > span,
+            .health-sleep-chart .health-sleep-breakdown dt,
+            .health-sleep-chart .health-sleep-breakdown dd,
+            .health-sleep-chart .health-sleep-context,
+            .health-sleep-chart button > span {visibility:visible !important}
+            .health-sleep-chart .health-rollup-readout::after,
+            .health-sleep-chart .health-rollup-value::after {content:none !important}`;
+          // Keep real geometry, scrolling only user-scrollable Health ancestors.
+          for (let node = card.parentElement; node; node = node.parentElement) {
+            if (
+              ["auto", "scroll"].includes(getComputedStyle(node).overflowY) &&
+              node.scrollHeight > node.clientHeight
+            )
+              node.scrollTop +=
+                card.getBoundingClientRect().top -
+                node.getBoundingClientRect().top -
+                8;
+          }
+        }
         if (syntheticCalories) {
           const { card, buttons, expected } = canonicalCalories(comparison);
           const selected = buttons.findIndex(

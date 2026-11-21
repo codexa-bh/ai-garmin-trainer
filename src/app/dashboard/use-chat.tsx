@@ -20,8 +20,6 @@ import { useActiveConversation } from "../use-active-conversation";
 
 export function useChatFeature({
   setStatus,
-  setIsConversationDrawerOpen,
-  conversationButtonRef,
   rememberTranscriptFollowIntent,
   forceNextScrollRef,
   transcriptRef,
@@ -33,8 +31,6 @@ export function useChatFeature({
   messageInputRef,
 }: {
   setStatus: Dispatch<SetStateAction<Status>>;
-  setIsConversationDrawerOpen: Dispatch<SetStateAction<boolean>>;
-  conversationButtonRef: RefObject<HTMLButtonElement | null>;
   rememberTranscriptFollowIntent: () => void;
   forceNextScrollRef: RefObject<boolean>;
   transcriptRef: RefObject<HTMLDivElement | null>;
@@ -318,8 +314,6 @@ export function useChatFeature({
     }
     if (deletedIdsRef.current.has(id)) return;
     applySelection(id);
-    setIsConversationDrawerOpen(false);
-    conversationButtonRef.current?.focus();
     await persistSelection(id);
   }
 

@@ -110,6 +110,9 @@ async function setup(stream: boolean, waitForReply = true) {
   );
   vi.stubGlobal("fetch", fetchMock);
   const view = render(<TrainerDashboard />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Expand conversation selector" }),
+  );
   await screen.findByRole("button", {
     name: 'Conversation options for "Plan a trail run"',
   });

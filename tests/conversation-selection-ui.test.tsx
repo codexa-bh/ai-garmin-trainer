@@ -78,6 +78,9 @@ function setup(
   );
   vi.stubGlobal("fetch", fetcher);
   render(<TrainerDashboard />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Expand conversation selector" }),
+  );
   return { fetcher, saved: () => saved, writes };
 }
 async function choose(id: string) {
