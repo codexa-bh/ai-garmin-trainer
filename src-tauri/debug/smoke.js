@@ -2284,7 +2284,7 @@
   // T0250 finite conversation scenario: only this run's two synthetic labels.
   const conversationTitle = (slot) =>
     `T0250-${slot}-${globalThis.__trainerOrdinaryIsolated?.runId.replaceAll("-", "")}`;
-  function conversationRows() {
+  function conversationRows(allowPendingSelection = false) {
     if (!globalThis.__trainerOrdinaryIsolated || observe().view !== "Trainer")
       throw Error("Ordinary Trainer only");
     const rows = [...document.querySelectorAll(".conversation-item")];
@@ -2296,6 +2296,10 @@
             conversationTitle("first"),
             conversationTitle("second"),
             "New chat",
+            ...(allowPendingSelection &&
+            row.querySelector('.conversation-select[aria-current="true"]')
+              ? ["Trainer chat"]
+              : []),
           ].includes(
             row.querySelector(".conversation-select > span")?.textContent,
           ),
@@ -2334,7 +2338,7 @@
     return rect.width >= 200 && rect.left >= 0 && rect.right <= innerWidth;
   }
   function conversationObservation(action) {
-    const rows = conversationRows();
+    const rows = conversationRows(true);
     const selected = (title) =>
       rows.some(
         (row) =>
@@ -2433,9 +2437,9 @@
       !actions.includes(command.action)
     )
       throw Error("Unsupported conversation fields/action");
-    conversationRows();
     if (command.action === "observe")
       return conversationObservation(command.action);
+    conversationRows();
     if (command.action === "open-history") {
       if (!conversationHistoryExpanded())
         target("Expand conversation selector").click();
@@ -2544,6 +2548,28 @@
     if (!conversationHistoryVisible() && !collapsed)
       throw Error("Capture requires visibly open or collapsed selector");
     conversationRows(); // Refuse unknown/copied labels before revealing anything.
+    const menus = document.querySelectorAll(
+      '.conversation-menu-floating[role="menu"]',
+    );
+    if (menus.length) {
+      if (collapsed || menus.length !== 1 || !conversationMenu?.row.isConnected)
+        throw Error("Unexpected conversation menu");
+      const menu = menus[0];
+      const items = [...menu.children];
+      if (
+        items.length !== 2 ||
+        items.some(
+          (item, index) =>
+            item.tagName !== "BUTTON" ||
+            item.getAttribute("role") !== "menuitem" ||
+            item.textContent.trim() !== ["Rename", "Delete"][index] ||
+            item.children.length !== 0,
+        )
+      )
+        throw Error("Unexpected conversation menu content");
+      menu.setAttribute("data-smoke-reveal", "");
+      items.forEach((item) => item.setAttribute("data-smoke-reveal", ""));
+    }
     if (collapsed) {
       // Only the static arrow and its identity label, never message content.
       for (const el of [

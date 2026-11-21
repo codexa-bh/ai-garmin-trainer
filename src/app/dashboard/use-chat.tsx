@@ -317,13 +317,11 @@ export function useChatFeature({
     await persistSelection(id);
   }
 
-  async function loadChatHistory(showStatus = true, id = conversationId) {
+  async function loadChatHistory(id: string) {
     if (!id || id !== selectedIdRef.current || deletedIdsRef.current.has(id))
       return;
     const requestId = chatHistoryRequestRef.current + 1;
     chatHistoryRequestRef.current = requestId;
-    if (showStatus)
-      setStatus({ kind: "busy", message: "Chat: loading local history…" });
     try {
       const response = await fetch(conversationUrl(id), { method: "GET" });
       if (!mountedRef.current || chatHistoryRequestRef.current !== requestId)
@@ -346,12 +344,7 @@ export function useChatFeature({
       setLlmDebugTracesEnabled(payload.llmDebugTracesEnabled === true);
       setHistoryCursor(payload.nextCursor ?? null);
       setLastFailedMessage("");
-      if (!showStatus) forceNextScrollRef.current = true;
-      if (showStatus)
-        setStatus({
-          kind: "ok",
-          message: `Chat: loaded ${nextMessages.length} messages from the local conversation.`,
-        });
+      forceNextScrollRef.current = true;
     } catch (error) {
       if (mountedRef.current && chatHistoryRequestRef.current === requestId)
         setStatus({

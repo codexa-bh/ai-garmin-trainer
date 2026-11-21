@@ -5262,6 +5262,11 @@ describe("TrainerDashboard memory and new chat", () => {
     expect(discard).toHaveBeenCalledOnce();
     expect(editBox.isConnected).toBe(true);
     expect(editBox.value).toBe("Prefers sunrise hikes");
+    const historyRequestsBeforeSave = fetchMock.mock.calls.filter(
+      ([input, init]) =>
+        String(input).startsWith("/api/conversations/default?") &&
+        init?.method === "GET",
+    ).length;
     fireEvent.click(screen.getByRole("button", { name: "Save summary" }));
     await waitFor(() =>
       expect(patchedBody).toMatchObject({
@@ -5270,6 +5275,15 @@ describe("TrainerDashboard memory and new chat", () => {
         action: "edit-summary",
         text: "Prefers sunrise hikes",
       }),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input, init]) =>
+            String(input).startsWith("/api/conversations/default?") &&
+            init?.method === "GET",
+        ).length,
+      ).toBeGreaterThan(historyRequestsBeforeSave),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Close memory" }));
@@ -5341,6 +5355,9 @@ describe("TrainerDashboard memory and new chat", () => {
 
     expect(await screen.findByText("Active visible transcript")).toBeTruthy();
     await openConversationMenu("Active plan");
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["Rename", "Delete"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
     const titleInput = screen.getByLabelText(
       "Conversation title",
@@ -5440,6 +5457,9 @@ describe("TrainerDashboard memory and new chat", () => {
 
     expect(await screen.findByText("Active visible transcript")).toBeTruthy();
     await openConversationMenu("Previous climb chat");
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["Rename", "Delete"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(patchBodies).toEqual([]);
@@ -5538,13 +5558,7 @@ describe("TrainerDashboard memory and new chat", () => {
       (screen.getByRole("menuitem", { name: "Delete" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
-    expect(
-      (
-        screen.getByRole("menuitem", {
-          name: "Reload history",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(2);
     stream.close();
     await screen.findByRole("button", { name: "Send" });
   });
@@ -6199,62 +6213,6 @@ describe("TrainerDashboard transcript scrolling", () => {
     expect(css.match(/\.dashboard-shell \{[^}]+\}/)?.[0]).toContain(
       "height: 100dvh",
     );
-  });
-
-  it("does not yank passive history reloads when the user has scrolled up", async () => {
-    const initialMessages = [
-      {
-        id: "assistant-1",
-        role: "assistant",
-        content: "Initial local answer",
-        createdAt: "2026-07-17T12:00:00Z",
-      },
-    ];
-    const reloadedMessages = [
-      ...initialMessages,
-      {
-        id: "assistant-2",
-        role: "assistant",
-        content: "Passive later answer",
-        createdAt: "2026-07-17T12:01:00Z",
-      },
-    ];
-    let chatGets = 0;
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "/api/conversations/selection")
-        return selectionResponse(init);
-      if (url === "/api/profile") return jsonResponse(profile([]));
-      if (
-        url.startsWith("/api/chat") ||
-        (url.startsWith("/api/conversations/") && init?.method === "GET")
-      ) {
-        chatGets += 1;
-        return jsonResponse({
-          ...emptyChat,
-          messages: chatGets === 1 ? initialMessages : reloadedMessages,
-          contextWindow: chatGets === 1 ? 1 : 2,
-        });
-      }
-      return jsonResponse({ ok: true });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(React.createElement(TrainerDashboard));
-
-    expect(await screen.findByText("Initial local answer")).toBeTruthy();
-    const transcript = screen.getByRole("log", { name: "Chat transcript" });
-    setTranscriptMetrics(transcript, {
-      scrollHeight: 1000,
-      clientHeight: 200,
-      scrollTop: 100,
-    });
-    fireEvent.scroll(transcript);
-
-    await clickConversationMenuItem("Trainer chat", "Reload history");
-
-    expect(await screen.findByText("Passive later answer")).toBeTruthy();
-    expect(transcript.scrollTop).toBe(100);
   });
 
   it("forces the latest turn into view when the user sends a message", async () => {

@@ -542,6 +542,14 @@ class OrdinaryRun(Run):
             self.conversation_open_history()
             image = self.command({'type': 'captureView', 'view': 'conversation', 'preset': preset})
             images.append({'state': 'restored-first', 'preset': preset, **image})
+            for slot in ['first', 'second']:
+                self.command({'type': 'conversation', 'action': f'menu-{slot}'})
+                self.capture_state = f'menu-{slot}'
+                image = self.command(
+                    {'type': 'captureView', 'view': 'conversation', 'preset': preset}
+                )
+                images.append({'state': f'menu-{slot}', 'preset': preset, **image})
+                self.command({'type': 'conversation', 'action': f'menu-{slot}'})
             self.conversation_collapse_history()
             self.capture_state = 'restored-first-collapsed'
             image = self.command({'type': 'captureView', 'view': 'conversation', 'preset': preset})

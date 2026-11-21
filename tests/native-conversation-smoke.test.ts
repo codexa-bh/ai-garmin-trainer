@@ -39,8 +39,10 @@ function row(title: string, selected = false) {
     choose.setAttribute("aria-current", "true");
   };
   menu.onclick = () => {
+    document.querySelector('[role="menu"]')?.remove();
     const choices = document.createElement("div");
     choices.setAttribute("role", "menu");
+    choices.className = "conversation-menu-floating";
     const rename = document.createElement("button");
     rename.setAttribute("role", "menuitem");
     rename.textContent = "Rename";
@@ -328,6 +330,70 @@ it("captures a collapsed rail revealing only the arrow and its identity label", 
   ).toBe(false);
   smoke.__trainerSmokeRestore();
   expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+});
+it("reveals only the fixed two-action synthetic menu and rejects unknown content", async () => {
+  document
+    .querySelector(".conversation-list")!
+    .append(row(first, true), row(second));
+  expect(
+    (await command({ type: "conversation", action: "menu-first" })).ok,
+  ).toBe(true);
+  expect(
+    (
+      await command({
+        type: "captureView",
+        view: "conversation",
+        preset: "wide",
+      })
+    ).ok,
+  ).toBe(true);
+  const menu = document.querySelector('[role="menu"]')!;
+  expect(menu.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect([...menu.children].map((item) => item.textContent)).toEqual([
+    "Rename",
+    "Delete",
+  ]);
+  smoke.__trainerSmokeRestore();
+  menu.append(document.createElement("button"));
+  expect(
+    (
+      await command({
+        type: "captureView",
+        view: "conversation",
+        preset: "wide",
+      })
+    ).ok,
+  ).toBe(false);
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+});
+it("observes but cannot act on or reveal the transient selected placeholder", async () => {
+  document
+    .querySelector(".conversation-list")!
+    .append(row("Trainer chat", true));
+  expect((await command({ type: "conversation", action: "observe" })).ok).toBe(
+    true,
+  );
+  expect((await command({ type: "conversation", action: "new" })).ok).toBe(
+    false,
+  );
+  expect(
+    (
+      await command({
+        type: "captureView",
+        view: "conversation",
+        preset: "wide",
+      })
+    ).ok,
+  ).toBe(false);
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+});
+it("reports bounded admission diagnostics for an unknown conversation row", async () => {
+  document.querySelector(".conversation-list")!.append(row("unknown"));
+  const result = await command({ type: "conversation", action: "observe" });
+  expect(result).toEqual({
+    ok: false,
+    error: "Conversation action failed at admission",
+  });
 });
 it("reveals only run-synthetic history labels, masks copied dates/transcript without reflow and restores on failure", async () => {
   document
