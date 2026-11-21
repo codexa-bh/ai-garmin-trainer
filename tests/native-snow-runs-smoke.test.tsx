@@ -19,6 +19,12 @@ const names = {
   unsupported: "Fictional snow unsupported",
   preserved: "Fictional snow preserved",
 };
+const sports = {
+  populated: "resort_snowboarding",
+  unknown: "resort_skiing",
+  unsupported: "backcountry_skiing",
+  preserved: "resort_skiing",
+};
 function supplement(variant: Variant): ActivitySupplement {
   const unknown: SupplementCoverage = { status: "not_imported", reason: null };
   const entries =
@@ -122,7 +128,7 @@ function Fixture() {
         <h2>{names[variant]}</h2>
       </div>
       <p>Private neighboring facts</p>
-      <SnowSection supplement={supplement(variant)} />
+      <SnowSection supplement={supplement(variant)} sport={sports[variant]} />
     </section>
   );
 }
@@ -187,9 +193,18 @@ it("validates all authored states, contains only boolean observations and restor
       preset: "wide",
     });
     expect(result.ok).toBe(true);
+    const absent = variant === "unknown" || variant === "unsupported";
+    // Rows exist only for populated/preserved; the others must show no snow section
+    // and reveal only the exact selected activity heading.
     expect(
-      document.querySelector(".snow-run-display[data-smoke-reveal]"),
-    ).toBeTruthy();
+      !!document.querySelector(".snow-run-display[data-smoke-reveal]"),
+    ).toBe(!absent);
+    expect(
+      !!document.querySelector(".snow-section, .snow-runs-wrap") && absent,
+    ).toBe(false);
+    expect(
+      !!document.querySelector(".selected-activity-heading[data-smoke-reveal]"),
+    ).toBe(absent);
     expect(
       [...document.querySelectorAll("p[data-smoke-reveal]")].some((node) =>
         node.textContent?.includes("Private neighboring"),
