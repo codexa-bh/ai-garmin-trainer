@@ -101,6 +101,9 @@ async function setup() {
   );
   vi.stubGlobal("fetch", fetchMock);
   render(<TrainerDashboard />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Expand conversation selector" }),
+  );
   await screen.findByText(oldMessage.content);
   fireEvent.change(screen.getByLabelText("Message"), {
     target: { value: "Plan tomorrow" },

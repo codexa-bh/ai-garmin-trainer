@@ -332,7 +332,10 @@ class OrdinaryContracts(unittest.TestCase):
             all(set(c) <= {'type', 'action', 'target', 'view', 'preset'} for c in commands)
         )
         captures = [c for c in commands if c['type'] == 'captureView']
-        self.assertEqual([c['preset'] for c in captures], ['wide', 'narrow', 'wide'])
+        self.assertEqual(
+            [c['preset'] for c in captures], ['wide', 'wide', 'narrow', 'narrow', 'wide']
+        )
+        self.assertEqual(actions.count('collapse-history'), 2)
         receipt = json.loads((run.root / 'conversation-scenario.json').read_text())
         self.assertTrue(receipt['passed'])
         self.assertTrue(receipt['freshOriginAndBoot'])

@@ -451,16 +451,18 @@ class OrdinaryRun(Run):
     def conversation_open_history(self):
         ui = self.command({'type': 'conversation', 'action': 'observe'})
         if not ui['historyVisible']:
+            if not ui['historyToggleVisible']:
+                raise ValueError('Local conversation selector arrow is not visible')
             if not ui['historyExpanded']:
-                if not ui['historyToggleVisible']:
-                    self.command({'type': 'conversation', 'action': 'open-menu'})
-                    self.conversation_wait(
-                        lambda ui, db: ui['historyToggleVisible'], 'mobile history toggle'
-                    )
                 self.command({'type': 'conversation', 'action': 'open-history'})
-                self.conversation_wait(lambda ui, db: ui['historyExpanded'], 'history open intent')
-            self.command({'type': 'conversation', 'action': 'settle-history'})
             self.conversation_wait(lambda ui, db: ui['historyVisible'], 'visible history')
+
+    def conversation_collapse_history(self):
+        self.command({'type': 'conversation', 'action': 'collapse-history'})
+        self.conversation_wait(
+            lambda ui, db: ui['historyToggleVisible'] and not ui['historyExpanded'],
+            'collapsed history rail',
+        )
 
     def conversation_create(self, slot):
         if slot not in ['first', 'second']:
@@ -540,6 +542,11 @@ class OrdinaryRun(Run):
             self.conversation_open_history()
             image = self.command({'type': 'captureView', 'view': 'conversation', 'preset': preset})
             images.append({'state': 'restored-first', 'preset': preset, **image})
+            self.conversation_collapse_history()
+            self.capture_state = 'restored-first-collapsed'
+            image = self.command({'type': 'captureView', 'view': 'conversation', 'preset': preset})
+            images.append({'state': 'restored-first-collapsed', 'preset': preset, **image})
+            self.capture_state = 'restored-first'
         self.command({'type': 'setViewport', 'preset': 'wide'})
         self.conversation_delete('second')
         self.conversation_wait(

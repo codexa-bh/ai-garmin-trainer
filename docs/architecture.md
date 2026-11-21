@@ -102,7 +102,12 @@ and cross-feature refresh wiring. Mobile navigation composes
 [`mobile-navigation-sheet.tsx`](../src/app/mobile-navigation-sheet.tsx), whose
 native dialog owns modality, focus trapping, dismissal and breakpoint cleanup
 (`tests/mobile-navigation-sheet.test.tsx`). The shell retains destination focus
-handoffs, including the extracted chat drawer's close-button ref.
+handoffs. Chat conversation selection is panel-local: `ChatView` renders an
+Activities-style selector (arrow-only circular toggle, collapsed rail/band
+identity label and a `hidden` body) beside or, at <=960px, above the transcript.
+The shell owns only its transient expanded state (collapsed at startup), closes any
+open row menu on toggle and keeps focus on the always-visible arrow; no main
+navigation entry, drawer or backdrop exists.
 Every feature hook is called unconditionally in
 the persistent shell. Hiding a view does **not** unmount its state/request owner or
 restart startup fetches. Views retain the prior conditional mounting and DOM/CSS

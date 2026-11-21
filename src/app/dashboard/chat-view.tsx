@@ -15,9 +15,9 @@ import type { useModelSettings } from "./use-model-settings";
 
 export function ChatView({
   modelSettings,
-  conversationDrawerCloseRef,
-  isConversationDrawerOpen,
-  closeConversationDrawer,
+  conversationSelectorExpanded,
+  toggleConversationSelector,
+  conversationSelectorToggleRef,
   runInBackground,
   startNewChat,
   conversationRows,
@@ -62,9 +62,9 @@ export function ChatView({
   cancelChat,
 }: {
   modelSettings: ReturnType<typeof useModelSettings>;
-  conversationDrawerCloseRef: RefObject<HTMLButtonElement | null>;
-  isConversationDrawerOpen: boolean;
-  closeConversationDrawer: () => void;
+  conversationSelectorExpanded: boolean;
+  toggleConversationSelector: () => void;
+  conversationSelectorToggleRef: RefObject<HTMLButtonElement | null>;
   runInBackground: (work: Promise<unknown>) => void;
   startNewChat: () => Promise<void>;
   conversationRows: (
@@ -116,93 +116,116 @@ export function ChatView({
   submitChat: (text: string) => Promise<void>;
   cancelChat: () => void;
 }) {
+  const conversationSelectorLabel = conversationSelectorExpanded
+    ? "Collapse conversation selector"
+    : "Expand conversation selector";
   return (
-    <div className="chat-workspace">
-      <aside
-        className={`conversation-sidebar ${isConversationDrawerOpen ? "open" : ""}`}
-        aria-label="Conversation history"
-      >
-        <div className="sidebar-header">
-          <div>
+    <div
+      className={`chat-workspace ${conversationSelectorExpanded ? "" : "conversation-selector-collapsed"}`}
+    >
+      <aside className="conversation-sidebar" aria-label="Conversation history">
+        <div className="conversation-selector-header">
+          <div
+            className="conversation-selector-heading"
+            hidden={!conversationSelectorExpanded}
+          >
             <p className="section-kicker">History</p>
             <strong>Conversations</strong>
           </div>
           <button
             type="button"
-            className="chrome-button drawer-close"
-            ref={conversationDrawerCloseRef}
-            onClick={closeConversationDrawer}
+            className="conversation-selector-toggle"
+            ref={conversationSelectorToggleRef}
+            onClick={toggleConversationSelector}
+            aria-expanded={conversationSelectorExpanded}
+            aria-controls="conversation-selector-body"
+            aria-label={conversationSelectorLabel}
+            title={conversationSelectorLabel}
           >
-            Close
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path
+                d="M10.5 3 5.5 8l5 5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </button>
         </div>
-        <button
-          type="button"
-          className="primary-action"
-          onClick={() => runInBackground(startNewChat())}
-        >
-          New chat
-        </button>
+        {conversationSelectorExpanded ? null : (
+          <span className="conversation-selector-rail-label">
+            Conversations
+          </span>
+        )}
         <div
-          className="conversation-list"
-          role="list"
-          aria-label="Saved conversations"
+          className="conversation-selector-body"
+          id="conversation-selector-body"
+          hidden={!conversationSelectorExpanded}
         >
-          {conversationRows.length ? (
-            conversationRows.map((item) => (
-              <div
-                role="listitem"
-                className={`conversation-item ${item.id === conversationId ? "active" : ""}`}
-                key={item.id}
-              >
-                <button
-                  type="button"
-                  className="conversation-select"
-                  onClick={() => {
-                    closeConversationMenu();
-                    runInBackground(selectConversation(item.id));
-                  }}
-                  aria-current={item.id === conversationId ? "true" : undefined}
+          <button
+            type="button"
+            className="primary-action"
+            onClick={() => runInBackground(startNewChat())}
+          >
+            New chat
+          </button>
+          <div
+            className="conversation-list"
+            role="list"
+            aria-label="Saved conversations"
+          >
+            {conversationRows.length ? (
+              conversationRows.map((item) => (
+                <div
+                  role="listitem"
+                  className={`conversation-item ${item.id === conversationId ? "active" : ""}`}
+                  key={item.id}
                 >
-                  <span>{item.title}</span>
-                  <small>{dateLabel(item.updatedAt)}</small>
-                </button>
-                <div className="conversation-menu-wrap">
                   <button
                     type="button"
-                    className="conversation-menu-trigger"
-                    data-conversation-menu-id={item.id}
-                    aria-label={`Conversation options for "${item.title}"`}
-                    aria-haspopup="menu"
-                    aria-expanded={openConversationMenuId === item.id}
-                    aria-controls={
-                      openConversationMenuId === item.id
-                        ? "conversation-row-menu"
-                        : undefined
-                    }
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleConversationMenu(item.id, event.currentTarget);
+                    className="conversation-select"
+                    onClick={() => {
+                      closeConversationMenu();
+                      runInBackground(selectConversation(item.id));
                     }}
+                    aria-current={
+                      item.id === conversationId ? "true" : undefined
+                    }
                   >
-                    ⋯
+                    <span>{item.title}</span>
+                    <small>{dateLabel(item.updatedAt)}</small>
                   </button>
+                  <div className="conversation-menu-wrap">
+                    <button
+                      type="button"
+                      className="conversation-menu-trigger"
+                      data-conversation-menu-id={item.id}
+                      aria-label={`Conversation options for "${item.title}"`}
+                      aria-haspopup="menu"
+                      aria-expanded={openConversationMenuId === item.id}
+                      aria-controls={
+                        openConversationMenuId === item.id
+                          ? "conversation-row-menu"
+                          : undefined
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleConversationMenu(item.id, event.currentTarget);
+                      }}
+                    >
+                      ⋯
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))
-          ) : (
-            <p className="empty-chat">No saved conversations yet.</p>
-          )}
+              ))
+            ) : (
+              <p className="empty-chat">No saved conversations yet.</p>
+            )}
+          </div>
         </div>
       </aside>
-      {isConversationDrawerOpen ? (
-        <button
-          type="button"
-          className="drawer-backdrop"
-          aria-label="Close conversation drawer"
-          onClick={closeConversationDrawer}
-        />
-      ) : null}
       {openConversationMenuItem && conversationMenuPosition ? (
         <div
           id="conversation-row-menu"

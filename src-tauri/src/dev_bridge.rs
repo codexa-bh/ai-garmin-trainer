@@ -328,9 +328,8 @@ impl Command {
             }
             Self::Conversation { action } => [
                 "observe",
-                "open-menu",
                 "open-history",
-                "settle-history",
+                "collapse-history",
                 "new",
                 "menu-new",
                 "rename-new",
@@ -2292,9 +2291,8 @@ mod tests {
     fn finite_conversation_contract_rejects_private_fields_and_debug_mode() {
         for action in [
             "observe",
-            "open-menu",
             "open-history",
-            "settle-history",
+            "collapse-history",
             "new",
             "menu-new",
             "rename-new",

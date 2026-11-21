@@ -74,8 +74,6 @@ it.each(
     const { result } = renderHook(() =>
       useChatFeature({
         setStatus: vi.fn(),
-        setIsConversationDrawerOpen: vi.fn(),
-        conversationButtonRef: createRef(),
         rememberTranscriptFollowIntent: vi.fn(),
         forceNextScrollRef: { current: false },
         transcriptRef: createRef(),
