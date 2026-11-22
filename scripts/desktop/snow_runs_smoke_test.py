@@ -42,6 +42,20 @@ class SnowRunsTests(unittest.TestCase):
         self.assertEqual(run.commands[-1], {'type': 'click', 'target': 'Back to chat'})
         self.assertEqual(snow.snow_scenario().configuration, 'keyless')
 
+    def test_compact_selection_preserves_every_non_capture_action(self):
+        full = Run()
+        snow.scenario(full)
+        for first, count in [(True, 4), (False, 0)]:
+            run = Run()
+            run.snow_hr_compact_captures = True
+            run.snow_hr_capture_instance = first
+            snow.scenario(run)
+            self.assertEqual(len([c for c in run.commands if c['type'] == 'captureView']), count)
+            self.assertEqual(
+                [c for c in run.commands if c['type'] != 'captureView'],
+                [c for c in full.commands if c['type'] != 'captureView'],
+            )
+
     def test_failure_stops_before_capture_and_never_retries_mutations(self):
         run = Run(contained=False)
         with self.assertRaises(ValueError):

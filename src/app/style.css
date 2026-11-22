@@ -3374,6 +3374,22 @@ label {
   font-size: 12px;
 }
 
+.snow-runs .snow-hr-result {
+  width: 260px;
+  text-align: left;
+  white-space: normal;
+}
+
+.snow-hr-coverage {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.snow-hr-gap {
+  display: block;
+}
+
 .snow-hr-unavailable {
   color: var(--muted);
   font-size: 11px;

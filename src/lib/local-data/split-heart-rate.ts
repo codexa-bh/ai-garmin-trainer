@@ -15,9 +15,9 @@
  * - A sample is held for at most MAX_HOLD_SECONDS (same bridge as the existing
  *   file-boundary zone estimate). Missing/invalid HR, or a longer span, is
  *   unsupported time, never zero or interpolated.
- * - Any contiguous unsupported stretch over MAX_HOLD_SECONDS, or total support
- *   under MIN_SUPPORT_FRACTION of the window, makes the whole result
- *   unavailable: no partial result is presented as whole-split HR.
+ * - Total support under MIN_SUPPORT_FRACTION makes the result unavailable.
+ *   Otherwise averages and zones describe supported time only; duration coverage
+ *   and a long-gap warning disclose missing time without filling it.
  */
 
 const MAX_HOLD_SECONDS = 30;
@@ -34,7 +34,6 @@ type SplitHeartRateReason =
   | "no-window-samples"
   | "no-usable-heart-rate"
   | "insufficient-samples"
-  | "significant-gap"
   | "insufficient-support";
 
 type SplitZoneReason =
@@ -57,6 +56,8 @@ export type SplitHeartRate = {
   /** Seconds of the window that stored samples support; null when unavailable. */
   supportSeconds: number | null;
   windowSeconds: number | null;
+  /** Unknown until window, clock and minimum measurements are admitted. */
+  hasLongGap: boolean | null;
   unavailableReason: SplitHeartRateReason | null;
   zones: {
     buckets: SplitZoneBucket[] | null;
@@ -185,6 +186,7 @@ const unavailable = (
   avgHeartRate: null,
   supportSeconds: null,
   windowSeconds,
+  hasLongGap: null,
   unavailableReason: reason,
   zones: { buckets: null, unavailableReason: "heart-rate-unavailable" },
 });
@@ -262,13 +264,12 @@ export function deriveSplitHeartRate(
   let longestUnsupportedMs = 0;
   for (const index of inWindow) {
     const sample = samples[index];
-    longestUnsupportedMs = Math.max(longestUnsupportedMs, sample.at - cursor);
-    cursor = Math.max(cursor, sample.at);
     if (sample.heartRate === null) continue;
     const next = samples[index + 1]?.at ?? end;
     const spanEnd = Math.min(end, next);
     const spanSeconds = (spanEnd - sample.at) / 1000;
     if (spanSeconds <= 0 || spanSeconds > MAX_HOLD_SECONDS) continue;
+    longestUnsupportedMs = Math.max(longestUnsupportedMs, sample.at - cursor);
     weighted += sample.heartRate * spanSeconds;
     support += spanSeconds;
     if (lowers)
@@ -276,15 +277,18 @@ export function deriveSplitHeartRate(
     cursor = spanEnd;
   }
   longestUnsupportedMs = Math.max(longestUnsupportedMs, end - cursor);
-  if (longestUnsupportedMs / 1000 > MAX_HOLD_SECONDS)
-    return unavailable("significant-gap", windowSeconds);
+  const hasLongGap = longestUnsupportedMs / 1000 > MAX_HOLD_SECONDS;
   if (support / windowSeconds < MIN_SUPPORT_FRACTION)
-    return unavailable("insufficient-support", windowSeconds);
+    return {
+      ...unavailable("insufficient-support", windowSeconds),
+      hasLongGap,
+    };
 
   return {
     avgHeartRate: weighted / support,
     supportSeconds: support,
     windowSeconds,
+    hasLongGap,
     unavailableReason: null,
     zones: lowers
       ? { buckets: zoneBuckets(bucketSeconds, lowers), unavailableReason: null }
@@ -377,6 +381,7 @@ export function projectSplitHeartRate(value: SplitHeartRate): SplitHeartRate {
     avgHeartRate: finite(value.avgHeartRate),
     supportSeconds: finite(value.supportSeconds),
     windowSeconds: finite(value.windowSeconds),
+    hasLongGap: typeof value.hasLongGap === "boolean" ? value.hasLongGap : null,
     unavailableReason: value.unavailableReason,
     zones: {
       unavailableReason: value.zones.unavailableReason,

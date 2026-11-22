@@ -52,6 +52,7 @@ const derivedHr = (avgHeartRate: number, seconds = [0, 0, 20, 70, 5, 0]) => ({
   avgHeartRate,
   supportSeconds: 95,
   windowSeconds: 95,
+  hasLongGap: false,
   unavailableReason: null,
   zones: {
     buckets: seconds.map((value, i) => bucket(i, value)),
@@ -65,6 +66,7 @@ const unavailableHr = (
   avgHeartRate: null,
   supportSeconds: null,
   windowSeconds: 95,
+  hasLongGap: null,
   unavailableReason: reason,
   zones: { buckets: null, unavailableReason: zoneReason },
 });
@@ -485,7 +487,9 @@ describe("Activity additional Garmin evidence", () => {
     // Visible derived provenance; never the lap-recorded wording.
     const section = screen.getByLabelText("Run and lift summary");
     expect(section.textContent).toMatch(/derived from HR samples/i);
-    expect(section.textContent).toMatch(/differ slightly from Garmin per-lap/);
+    expect(section.textContent).toMatch(
+      /separate from Garmin lap and session totals/,
+    );
     expect(section.textContent).not.toContain("Recorded per lap");
   });
 
@@ -548,7 +552,6 @@ describe("Activity additional Garmin evidence", () => {
     ["no-window-samples", "No samples in run window"],
     ["no-usable-heart-rate", "No usable HR measurements"],
     ["insufficient-samples", "Too few HR samples"],
-    ["significant-gap", "HR gaps too long"],
     ["insufficient-support", "HR coverage too low"],
   ] as const)(
     "shows closed reason %s without raw diagnostics or a zero HR",
@@ -791,10 +794,16 @@ describe("Activity additional Garmin evidence", () => {
                 returned: 4,
                 truncated: false,
                 entries: [
-                  entry("index:1", derivedHr(150)),
-                  entry("index:2", unavailableHr("significant-gap")),
+                  entry("index:1", {
+                    ...derivedHr(150),
+                    windowSeconds: 118.75,
+                    hasLongGap: true,
+                  }),
+                  entry("index:2", unavailableHr("insufficient-support")),
                   entry("index:3", {
                     ...derivedHr(120),
+                    windowSeconds: 118.75,
+                    hasLongGap: true,
                     zones: {
                       buckets: null,
                       unavailableReason: "missing-zone-boundaries",
@@ -821,7 +830,7 @@ describe("Activity additional Garmin evidence", () => {
     const hr = (i: number) => rows[i].children[6].textContent;
     const zones = (i: number) => rows[i].children[7];
     expect(hr(0)).toBe("150");
-    const group = zones(0).querySelector("[role=group]")!;
+    const group = zones(0).querySelector(".lap-zone-cell[role=group]")!;
     expect(group.getAttribute("aria-label")).toContain("Run HR zones");
     expect(group.getAttribute("aria-label")).toContain(
       "Zone 2 (120–139 bpm): 20s · Zone 3 (140–159 bpm): 1m 10s · Zone 4 (160–179 bpm): 5s · Zone 5 (180–max bpm): 0s",
@@ -834,10 +843,22 @@ describe("Activity additional Garmin evidence", () => {
     );
     expect(zones(0).textContent).not.toContain("Recorded per lap");
     expect(hr(1)).toBe("—");
-    expect(zones(1).textContent).toBe("HR gaps too long");
+    expect(zones(1).textContent).toBe("HR coverage too low");
     // Avg HR can survive when only the zone limits are unavailable.
     expect(hr(2)).toBe("120");
-    expect(zones(2).textContent).toBe("Activity zone limits unavailable");
+    expect(zones(2).textContent).toContain("Activity zone limits unavailable");
+    for (const i of [0, 2]) {
+      expect(zones(i).textContent).toContain(
+        "HR measured 1m 35s of 1m 58.8s · partial",
+      );
+      expect(zones(i).textContent).toContain("HR gaps; supported time only");
+      expect(
+        zones(i).querySelector('[aria-label="Run HR support"]'),
+      ).toBeTruthy();
+    }
+    expect(zones(0).querySelector("details")!.textContent).toContain(
+      "supported HR time only, not the full run",
+    );
     expect(hr(3)).toBe("—");
     expect(zones(3).textContent).toBe("Unavailable");
     // A supported all-zero derivation is a labelled bucket set, not a reason.

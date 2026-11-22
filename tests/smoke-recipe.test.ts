@@ -436,7 +436,7 @@ describe("finite representative authored smoke recipe", () => {
             null,
         ]);
       expect(derived).toEqual([
-        ["index:2", 151, [0, 0, 60, 70, 70, 0]],
+        ["index:2", 154, [0, 0, 40, 50, 70, 0]],
         ["index:4", null, null],
         ["index:5", 144, [0, 0, 100, 0, 115, 0]],
       ]);

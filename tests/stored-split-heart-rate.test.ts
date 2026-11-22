@@ -95,7 +95,7 @@ describe("schema-30 stored snow history", () => {
     expect(result[1].heartRate.zones.buckets?.map((b) => b.seconds)).toEqual([
       0, 0, 0, 0, 10, 0,
     ]);
-    expect(result[2].heartRate.unavailableReason).toBe("significant-gap");
+    expect(result[2].heartRate.unavailableReason).toBe("insufficient-support");
     expect(getActivitySupplement("a").snowRuns.entries[0].heartRate).toEqual(
       result[0].heartRate,
     );
@@ -112,6 +112,72 @@ describe("schema-30 stored snow history", () => {
     expect(() => db.prepare("update activity set started_at=1").run()).toThrow(
       /readonly/,
     );
+  });
+
+  it("admits exact 80% stored run and lift support with stationary samples and no writes", () => {
+    const db = seed();
+    db.prepare("delete from activity_stream_point").run();
+    db.prepare("delete from activity_snow_split").run();
+    const point = db.prepare(
+      "insert into activity_stream_point(garmin_id,elapsed_sec,timestamp,heart_rate,speed_mps) values('a',?,?,?,0)",
+    );
+    for (let second = 0; second <= 400; second += 20) {
+      if (second === 60 || second === 260) continue;
+      point.run(second, stored(second), second < 200 ? 100 : 170);
+    }
+    const split = db.prepare(
+      "insert into activity_snow_split(garmin_id,split_key,message_index,source_order,split_type,start_time,end_time,fetched_at) values('a',?,?,?,?,?,?,1)",
+    );
+    split.run("run", 0, 0, "run", at(0), at(200));
+    split.run("lift", 1, 1, "lift", at(200), at(400));
+    const before = db.serialize();
+    db.pragma("query_only=ON");
+    const results = deriveActivitySplitHeartRates(db, "a");
+    expect(results.map((s) => s.heartRate.avgHeartRate)).toEqual([100, 170]);
+    for (const result of results) {
+      expect(result.heartRate).toMatchObject({
+        supportSeconds: 160,
+        windowSeconds: 200,
+        hasLongGap: true,
+      });
+      expect(
+        result.heartRate.zones.buckets?.reduce((n, b) => n + b.seconds, 0),
+      ).toBe(160);
+    }
+    expect(getActivitySupplement("a").snowRuns.entries[0].heartRate).toEqual(
+      results[0].heartRate,
+    );
+    const evidence = snowActivityEvidence(db, "a", {
+      splitHeartRate: true,
+    }).splitHeartRate!;
+    expect(evidence.types.map((t) => t.rows[0].avgHeartRate)).toEqual([
+      100, 170,
+    ]);
+    for (const type of evidence.types) {
+      expect(type.rows[0]).toMatchObject({
+        supportSeconds: 160,
+        windowSeconds: 200,
+        hasLongGap: true,
+      });
+      expect(Object.keys(type.rows[0]).sort()).toEqual([
+        "avgHeartRate",
+        "descentMeters",
+        "distanceMeters",
+        "hasLongGap",
+        "hrUnavailableReason",
+        "splitKey",
+        "supportSeconds",
+        "timerSeconds",
+        "windowSeconds",
+        "zoneSeconds",
+        "zoneUnavailableReason",
+      ]);
+    }
+    expect(evidence.meaning).toContain("supported time only");
+    expect(JSON.stringify(evidence)).not.toMatch(
+      /2026-|timestamp|speed_mps|elapsed_sec/,
+    );
+    expect(db.serialize().equals(before)).toBe(true);
   });
 
   it.each([null, "bad", "2026-01-10 09:00:00", "2026-02-30 10:00:00"])(

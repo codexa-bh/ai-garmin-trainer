@@ -75,6 +75,9 @@ type SnowSplitHeartRateRow = {
   /** Time-weighted over supported seconds; null when unavailable (never zero). */
   avgHeartRate: number | null;
   supportSeconds: number | null;
+  /** Measured window denominator, not timer/moving duration. */
+  windowSeconds: number | null;
+  hasLongGap: boolean | null;
   hrUnavailableReason: SplitHeartRate["unavailableReason"];
   /** [below zone 1, zone 1..5] seconds, or null when zones are unavailable. */
   zoneSeconds: number[] | null;

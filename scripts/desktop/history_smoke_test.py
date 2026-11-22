@@ -40,6 +40,18 @@ class HistoryTokenContracts(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_finite_snow_sync_capture_selection_is_explicit_and_default_unchanged(self):
+        run = HistoryRun.__new__(HistoryRun)
+        calls = []
+        run.command = lambda command: calls.append(command) or {'ok': True}
+        self.assertEqual(run.synthetic_sync_capture('wide'), {'ok': True})
+        self.assertEqual(calls, [{'type': 'captureView', 'view': 'sync', 'preset': 'wide'}])
+        run.snow_hr_no_sync_captures = True
+        self.assertTrue(run.synthetic_sync_capture('narrow')['captureOmitted'])
+        self.assertEqual(len(calls), 1)
+        with self.assertRaises(ValueError):
+            run.synthetic_sync_capture('private')
+
     def test_history_observer_reuses_already_held_candidate_preparation_lock(self):
         import history_smoke as history
         import sqlite3
@@ -592,6 +604,7 @@ class HistoryTokenContracts(unittest.TestCase):
                 side_effect=lambda: {'after': dict(state), 'historyBytesPreserved': True}
             ),
         )
+        run.synthetic_sync_capture = lambda preset: HistoryRun.synthetic_sync_capture(run, preset)
         with patch('history_smoke.prepare_automatic_history') as prepare:
             result = HistoryRun.automatic_discovery(run)
         prepare.assert_called_once_with(run)

@@ -801,6 +801,13 @@ class OrdinaryRun(Run):
                         },
                     )
                     raise
+                # Finite Snow HR review: still exercise every view/viewport;
+                # retain one baseline native capture per isolated instance.
+                if getattr(self, 'snow_hr_compact_captures', False) and (view, preset) != (
+                    'trainer',
+                    'wide',
+                ):
+                    continue
                 self.capture_state = view
                 result = self.command({'type': 'captureView', 'view': view, 'preset': preset})
                 images.append(
@@ -1339,12 +1346,25 @@ def run_scenarios(
     task_id=None,
     anchor=None,
     timeout=600,
+    snow_hr_compact_captures=False,
 ):
     """Importable guarded authored-synthetic execution; callers own only scenario intent."""
     if type(full) is not bool or type(prepare_only) is not bool:
         raise ValueError('Explicit boolean full/prepare_only intent required')
     scenarios = tuple(scenarios)
     args, plan = composition_plan(scenarios, impact, impact_basis, full)
+    if type(snow_hr_compact_captures) is not bool or (
+        snow_hr_compact_captures
+        and (not full or tuple(s.label for s in scenarios) != ('snow-runs',))
+    ):
+        raise ValueError('Compact Snow HR captures require full baseline plus only snow-runs')
+    args.snow_hr_compact_captures = snow_hr_compact_captures
+    if snow_hr_compact_captures:
+        plan['captures'] = {
+            'selected': 'trainer wide per instance; first instance Snow populated wide closed/open Times, narrow-right open Times, preserved wide',
+            'omitted': 'other baseline PNGs, other Snow states/edges and duplicate second-instance Snow PNGs; all scenario assertions/viewports still execute',
+            'authority': 'explicit task capture-only selection; no scenario/security/isolation waiver',
+        }
     args.prepare_only = prepare_only
     print(json.dumps({'executionPlan': plan}), flush=True)
     with composition_lifetime(timeout):
@@ -1637,6 +1657,8 @@ def execute_ordinary(
                     raise ValueError('Run copy changed final-DMG payload modes/metadata')
             receipt['groupOutcomes'][-1]['run'] = str(runs[-1].root)
             runs[-1].before_start = verify_current
+            runs[-1].snow_hr_compact_captures = getattr(args, 'snow_hr_compact_captures', False)
+            runs[-1].snow_hr_capture_instance = index == 0
             if args.summary_engine:
                 from summary_smoke import prepare_summary
 
