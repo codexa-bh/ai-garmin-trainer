@@ -2978,6 +2978,7 @@
   }
   // Exact authored snow recipe only; no caller identity, selectors, values or read-back.
   let snowVariant = null;
+  let snowNavigation = false;
   const snowNames = {
     populated: "Fictional snow day",
     unknown: "Fictional snow unknown",
@@ -3233,6 +3234,64 @@
       headerVisible: !!rect && rect.top >= 0 && rect.top < innerHeight - 40,
     };
   }
+  // Only exact authored cards are exposed, never caller-provided text or selectors.
+  function snowNavigationLeaves() {
+    const expected = [
+      ["Fictional lap run", "running", "6.40 km · 40m"],
+      ["Fictional snow day", "resort snowboarding", "31.00 km · 4h 00m"],
+      ["Fictional snow unknown", "resort skiing", "— · 1h 00m"],
+    ];
+    const leaves = [];
+    for (const [name, sport, metric] of expected) {
+      const rows = [...document.querySelectorAll(".activity-list-item")].filter(
+        (row) => row.querySelector("strong")?.textContent === name,
+      );
+      if (rows.length !== 1 || !visible(rows[0])) return null;
+      const row = rows[0];
+      const title = row.querySelector("strong");
+      const small = row.querySelector("small");
+      const spans = [...row.children];
+      const value = spans[1];
+      if (
+        spans.length !== 2 ||
+        !title ||
+        title.children.length ||
+        !small ||
+        small.children.length ||
+        !new RegExp(`^\\d{4}-\\d{2}-\\d{2} · ${sport}$`).test(
+          small.textContent,
+        ) ||
+        !value ||
+        value.children.length ||
+        value.textContent !== metric
+      )
+        return null;
+      leaves.push(title, small, value);
+    }
+    return leaves;
+  }
+  function revealSnowNavigation() {
+    const leaves = snowNavigationLeaves();
+    if (!leaves || !snowSelected())
+      throw Error("Canonical snow navigation required");
+    for (const leaf of leaves) {
+      leaf.setAttribute("data-smoke-reveal", "");
+      for (
+        let node = leaf.parentElement;
+        node && node !== document.body;
+        node = node.parentElement
+      ) {
+        if (
+          [...node.childNodes].some(
+            (child) =>
+              child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+          )
+        )
+          throw Error("Private direct navigation ancestor refused");
+        node.setAttribute("data-smoke-reveal", "");
+      }
+    }
+  }
   let snowEnd = false;
   async function snowAction(command) {
     if (
@@ -3240,6 +3299,10 @@
       Object.keys(command).sort().join(",") !== "action,type" ||
       ![
         "observe",
+        "navigation",
+        "search",
+        "clearSearch",
+        "page",
         "start",
         "end",
         "collapse",
@@ -3251,6 +3314,90 @@
     )
       throw Error("Unsupported Snow runs action");
     restore();
+    if (command.action === "page") {
+      const list = document.querySelector(
+        '.activity-list[aria-label="Synced activities"]',
+      );
+      const input = document.querySelector(
+        '.activity-search-field input[type="search"]',
+      );
+      if (
+        !visible(list) ||
+        !input ||
+        input.value ||
+        !snowSelected() ||
+        document.querySelectorAll(".activity-list-item").length !== 100
+      )
+        throw Error("Canonical first activity page required");
+      list.scrollTop = list.scrollHeight;
+      list.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await waitFor(() => {
+        const rows = [...list.querySelectorAll(".activity-list-item")].filter(
+          (row) =>
+            row.querySelector("strong")?.textContent ===
+            "Fictional paged resort",
+        );
+        return (
+          rows.length === 1 &&
+          rows[0].lastElementChild?.textContent === "1.23 km · 1h 00m" &&
+          !rows[0].classList.contains("selected")
+        );
+      }, "Authored appended resort page");
+      list.scrollTop = 0;
+      snowNavigation = false;
+      return snowObservation(command.action);
+    }
+    if (["search", "clearSearch"].includes(command.action)) {
+      const input = document.querySelector(
+        '.activity-search-field input[type="search"]',
+      );
+      const searching = command.action === "search";
+      if (
+        !visible(input) ||
+        input.disabled ||
+        input.value !== (searching ? "" : "Fictional snow") ||
+        !snowSelected()
+      )
+        throw Error("Canonical snow search required");
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      ).set.call(input, searching ? "Fictional snow" : "");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await waitFor(() => {
+        const names = [
+          ...document.querySelectorAll(".activity-list-item strong"),
+        ].map((node) => node.textContent);
+        return (
+          snowChoices().every((choice) => choice.rows.length === 1) &&
+          (searching
+            ? names.length === 5 && !names.includes("Fictional lap run")
+            : names.includes("Fictional lap run"))
+        );
+      }, "Authored search results");
+      snowNavigation = false;
+      return snowObservation(command.action);
+    }
+    if (command.action === "navigation") {
+      if (!snowSelected() || !snowNavigationLeaves())
+        throw Error("Canonical snow navigation required");
+      const leaves = snowNavigationLeaves();
+      const target = leaves[snowVariant === "unknown" ? 6 : 3].closest(
+        ".activity-list-item",
+      );
+      const list = target.closest(".activity-list");
+      if (!list) throw Error("Authored navigation list required");
+      list.scrollTop +=
+        target.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      const rect = target.getBoundingClientRect();
+      const bounds = list.getBoundingClientRect();
+      if (rect.top < bounds.top || rect.bottom > bounds.bottom)
+        throw Error("Selected authored navigation card is clipped");
+      snowNavigation = true;
+      return snowObservation(command.action);
+    }
+    snowNavigation = false;
     if (command.action === "laps") {
       const choices = [
         ...document.querySelectorAll(".activity-list-item"),
@@ -4334,7 +4481,11 @@
     } else if (command.view === "activityLabels") {
       if (!labelElements().ready) throw Error("Unsafe Activity capture");
     } else if (command.view === "snowRuns") {
-      if (!snowRegion() && !snowAbsentAnchor())
+      if (
+        snowNavigation
+          ? !snowNavigationLeaves() || !snowSelected()
+          : !snowRegion() && !snowAbsentAnchor()
+      )
         throw Error("Unsafe Snow runs capture");
     } else if (command.view === "terrain") {
       if (!terrainRegion()) throw Error("Unsafe Terrain capture");
@@ -4347,6 +4498,12 @@
       const goals = target("Goals", "textarea");
       if (!sentinel(goals.value) || !observe().profileSaved)
         throw Error("Capture requires saved synthetic Goals");
+    }
+    if (command.view === "trainer") {
+      const title = document.querySelector(".app-brand .app-title");
+      const rect = title?.getBoundingClientRect();
+      if (!visible(title) || !rect || rect.top < 0 || rect.bottom > innerHeight)
+        throw Error("Trainer title outside viewport");
     }
     restore();
     if (command.view === "profile") profileLayers();
@@ -4389,6 +4546,28 @@
     )) {
       if (visible(el) && labels.has(el.textContent.trim()))
         el.setAttribute("data-smoke-reveal", "");
+    }
+    if (command.view === "trainer") {
+      const ancestors = new Set();
+      for (const leaf of document.querySelectorAll("[data-smoke-reveal]")) {
+        for (
+          let node = leaf.parentElement;
+          node && node !== document.body;
+          node = node.parentElement
+        ) {
+          if (
+            [...node.childNodes].some(
+              (child) =>
+                child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+            )
+          ) {
+            restore();
+            throw Error("Private direct Trainer ancestor refused");
+          }
+          ancestors.add(node);
+        }
+      }
+      for (const node of ancestors) node.setAttribute("data-smoke-reveal", "");
     }
     if (command.view === "profile") {
       const goals = target("Goals", "textarea");
@@ -4582,7 +4761,10 @@
     if (command.view === "tables") revealTables();
     if (command.view === "ordinary-chat") revealOrdinaryChat();
     if (command.view === "terrain") revealTerrain();
-    if (command.view === "snowRuns") revealSnowRuns();
+    if (command.view === "snowRuns") {
+      if (snowNavigation) revealSnowNavigation();
+      else revealSnowRuns();
+    }
     if (command.view === "activityLabels") revealActivityLabels();
     if (command.view === "weeklyKpis") revealWeeklyKpis();
     const style = document.createElement("style");

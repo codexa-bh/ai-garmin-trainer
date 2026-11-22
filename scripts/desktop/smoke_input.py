@@ -250,7 +250,9 @@ def arguments(parser):
     )
 
 
-def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
+def prepare(
+    scratch, args, scenario, *, synthetic_empty_chat=False, synthetic_snow_navigation=False
+):
     scratch = private_directory(scratch)
     if not re.fullmatch(r'T\d{4,}|local', args.task_id):
         raise ValueError('Consuming task identity required')
@@ -258,6 +260,11 @@ def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
         raise ValueError('Unknown smoke scenario')
     if type(synthetic_empty_chat) is not bool or (synthetic_empty_chat and scenario != 'ordinary'):
         raise ValueError('Empty-chat synthetic input is ordinary-conversation only')
+    if type(synthetic_snow_navigation) is not bool or (
+        synthetic_snow_navigation
+        and (scenario != 'ordinary' or synthetic_empty_chat or args.input_file)
+    ):
+        raise ValueError('Snow navigation input requires exclusive ordinary synthetic preparation')
     root = scratch / ('prepared-' + str(uuid.uuid4()))
     grant_check = None
     if args.input_file:
@@ -357,7 +364,11 @@ def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
         )
         result = recipe_command(
             [
-                'create-empty-chat' if synthetic_empty_chat else 'create',
+                'create-empty-chat'
+                if synthetic_empty_chat
+                else 'create-snow-navigation'
+                if synthetic_snow_navigation
+                else 'create',
                 str(allocation),
                 'smoke-input-' + str(uuid.uuid4()),
                 anchor,
@@ -381,6 +392,10 @@ def prepare(scratch, args, scenario, *, synthetic_empty_chat=False):
             if result.get('syntheticVariant') != 'empty-chat':
                 raise ValueError('Exact empty-chat authored variant required')
             details['syntheticVariant'] = 'empty-chat'
+        if synthetic_snow_navigation:
+            if result.get('syntheticVariant') != 'snow-navigation':
+                raise ValueError('Exact snow-navigation authored variant required')
+            details['syntheticVariant'] = 'snow-navigation'
     private_json(root / 'selection.json', {'database': str(prepared)})
     provenance = {
         'schemaVersion': 1,

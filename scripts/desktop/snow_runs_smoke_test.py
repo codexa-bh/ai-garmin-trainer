@@ -38,6 +38,7 @@ class SnowRunsTests(unittest.TestCase):
         self.assertEqual(len(captures), 15)
         self.assertEqual(sum(value.get('action') == 'unproven' for value in run.commands), 1)
         self.assertEqual(sum(value.get('action') == 'times' for value in run.commands), 2)
+        self.assertEqual(sum(value.get('action') == 'navigation' for value in run.commands), 4)
         self.assertTrue(all(value['view'] == 'snowRuns' for value in captures))
         self.assertEqual(run.commands[-1], {'type': 'click', 'target': 'Back to chat'})
         self.assertEqual(snow.snow_scenario().configuration, 'keyless')
@@ -45,7 +46,7 @@ class SnowRunsTests(unittest.TestCase):
     def test_compact_selection_preserves_every_non_capture_action(self):
         full = Run()
         snow.scenario(full)
-        for first, count in [(True, 4), (False, 0)]:
+        for first, count in [(True, 8), (False, 0)]:
             run = Run()
             run.snow_hr_compact_captures = True
             run.snow_hr_capture_instance = first

@@ -28,6 +28,7 @@ export async function GET(request: Request) {
         startedAt: activity.startedAt.toISOString(),
         durationSec: activity.durationSec,
         distanceMeters: activity.distanceMeters,
+        snowRunDistanceMeters: activity.snowRunDistanceMeters,
         elevationGainMeters: activity.elevationGainMeters,
         avgHeartRate: activity.avgHeartRate,
         detailStatus: activity.detailStatus,

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import React, { useState } from "react";
+import { flushSync } from "react-dom";
 import { readFileSync } from "node:fs";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -219,21 +220,65 @@ function supplement(variant: Variant): ActivitySupplement {
     },
   };
 }
-function Fixture() {
+function Fixture({ paged = false }: { paged?: boolean }) {
+  const [appended, setAppended] = useState(false);
   const [variant, setVariant] = useState<Variant>("populated");
   const [collapsed, collapse] = useState(false);
+  const [query, setQuery] = useState("");
   return (
     <section aria-label="AI trainer dashboard" data-renderer-ready="true">
-      <div className="activity-list" hidden={collapsed}>
-        {variants.map((item) => (
-          <button
-            key={item}
-            className={`activity-list-item ${item === variant ? "selected" : ""}`}
-            onClick={() => setVariant(item)}
-          >
-            <strong>{names[item]}</strong>
+      <label className="activity-search-field">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
+      <div
+        className="activity-list"
+        aria-label="Synced activities"
+        hidden={collapsed}
+        onScroll={() => flushSync(() => setAppended(true))}
+      >
+        {variants
+          .filter((item) => names[item].includes(query))
+          .map((item) => (
+            <button
+              key={item}
+              className={`activity-list-item ${item === variant ? "selected" : ""}`}
+              onClick={() => setVariant(item)}
+            >
+              <span>
+                <strong>{names[item]}</strong>
+                <small>2026-01-01 · {sports[item].replaceAll("_", " ")}</small>
+              </span>
+              <span>
+                {item === "populated" ? "31.00 km · 4h 00m" : "— · 1h 00m"}
+              </span>
+            </button>
+          ))}
+        {paged &&
+          !query &&
+          Array.from({ length: 94 }, (_, index) => (
+            <button className="activity-list-item" key={index}>
+              <strong>Filler {index}</strong>
+            </button>
+          ))}
+        {paged && appended && !query && (
+          <button className="activity-list-item">
+            <strong>Fictional paged resort</strong>
+            <span>1.23 km · 1h 00m</span>
           </button>
-        ))}
+        )}
+        {!query && (
+          <button className="activity-list-item">
+            <span>
+              <strong>Fictional lap run</strong>
+              <small>2026-01-01 · running</small>
+            </span>
+            <span>6.40 km · 40m</span>
+          </button>
+        )}
       </div>
       <button
         aria-label={
@@ -372,6 +417,75 @@ it("validates all authored states, contains only boolean observations and restor
     ].sort(),
   );
 });
+it("reveals only canonical authored navigation and restores or refuses altered metrics", async () => {
+  render(<Fixture />);
+  expect((await command({ type: "snowRuns", action: "populated" })).ready).toBe(
+    true,
+  );
+  expect(
+    (await command({ type: "snowRuns", action: "navigation" })).ready,
+  ).toBe(true);
+  expect(
+    (await command({ type: "captureView", view: "snowRuns", preset: "wide" }))
+      .ok,
+  ).toBe(true);
+  expect(
+    document.querySelectorAll(".activity-list-item [data-smoke-reveal]").length,
+  ).toBeGreaterThan(0);
+  expect(
+    document.querySelector(".snow-run-display[data-smoke-reveal]"),
+  ).toBeNull();
+  (
+    window as unknown as { __trainerSmokeRestore: () => void }
+  ).__trainerSmokeRestore();
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  const metric = [...document.querySelectorAll(".activity-list-item")].find(
+    (row) => row.textContent?.includes("Fictional snow day"),
+  )!.lastElementChild!;
+  metric.textContent = "private value";
+  expect(
+    (await command({ type: "captureView", view: "snowRuns", preset: "wide" }))
+      .ok,
+  ).toBe(false);
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+});
+
+it("admits paging only from the canonical first page and checks the appended resort", async () => {
+  render(<Fixture paged />);
+  expect((await command({ type: "snowRuns", action: "populated" })).ready).toBe(
+    true,
+  );
+  expect(
+    (await command({ type: "snowRuns", action: "page", offset: 100 })).ok,
+  ).toBe(false);
+  expect(await command({ type: "snowRuns", action: "page" })).toMatchObject({
+    ready: true,
+  });
+  expect((await command({ type: "snowRuns", action: "page" })).ok).toBe(false);
+});
+
+it("searches and restores only the fixed authored query", async () => {
+  render(<Fixture />);
+  expect((await command({ type: "snowRuns", action: "populated" })).ready).toBe(
+    true,
+  );
+  expect(
+    (await command({ type: "snowRuns", action: "search", query: "private" }))
+      .ok,
+  ).toBe(false);
+  expect((await command({ type: "snowRuns", action: "search" })).ready).toBe(
+    true,
+  );
+  expect(document.querySelectorAll(".activity-list-item")).toHaveLength(5);
+  expect((await command({ type: "snowRuns", action: "search" })).ok).toBe(
+    false,
+  );
+  expect(
+    (await command({ type: "snowRuns", action: "clearSearch" })).ready,
+  ).toBe(true);
+  expect(document.querySelectorAll(".activity-list-item")).toHaveLength(6);
+});
+
 it("opens and closes only the authored derived-zone Times disclosures", async () => {
   render(<Fixture />);
   const open = () =>

@@ -567,20 +567,35 @@ export function listActivitiesForDashboard(
     .get(...params) as { count: number };
   const rows = db
     .prepare(
-      `select a.${activitySelectColumns.replaceAll(", ", ", a.")}, d.status as detailStatus
+      `select a.${activitySelectColumns.replaceAll(", ", ", a.")}, d.status as detailStatus,
+              s.run_distance as snowRunDistanceMeters
        from activity a
        left join activity_detail_availability d on d.garmin_id = a.garmin_id
+       left join (select garmin_id as run_garmin_id, distance_meters as run_distance
+                  from activity_split_summary where split_type = 'SKI_RUN_SPLIT') s
+         on s.run_garmin_id = a.garmin_id
        ${where}
        order by a.started_at desc
        limit ? offset ?`,
     )
     .all(...params, safeLimit, safeOffset) as Array<
-    ActivityRow & { detailStatus: ActivityDetailStatus | null }
+    ActivityRow & {
+      detailStatus: ActivityDetailStatus | null;
+      snowRunDistanceMeters: number | null;
+    }
   >;
   const nextOffset =
     safeOffset + rows.length < total.count ? safeOffset + rows.length : null;
   return {
-    activities: rows.map((row) => normalizeActivityRow(row)),
+    activities: rows.map((row) => ({
+      ...normalizeActivityRow(row),
+      snowRunDistanceMeters:
+        typeof row.snowRunDistanceMeters === "number" &&
+        Number.isFinite(row.snowRunDistanceMeters) &&
+        row.snowRunDistanceMeters >= 0
+          ? row.snowRunDistanceMeters
+          : null,
+    })),
     nextOffset,
     totalApprox: total.count,
     limit: safeLimit,

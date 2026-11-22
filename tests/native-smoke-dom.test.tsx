@@ -979,6 +979,9 @@ describe("native-installed rendered smoke boundary", () => {
     vi.stubGlobal("innerHeight", 850);
     render(
       <>
+        <div className="app-brand">
+          <span className="app-title">Garmin AI Trainer</span>
+        </div>
         <nav>
           <button>Sync</button>
         </nav>
@@ -1004,6 +1007,14 @@ describe("native-installed rendered smoke boundary", () => {
     expect(JSON.stringify(result)).not.toContain("private transcript");
     smoke.__trainerSmokeRestore();
     expect(style?.isConnected).toBe(false);
+    const nav = screen.getByRole("button", { name: "Sync" }).parentElement!;
+    nav.append(document.createTextNode("private direct text"));
+    expect(
+      (await command({ type: "captureView", view: "trainer", preset: "wide" }))
+        .result.ok,
+    ).toBe(false);
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+    nav.lastChild!.remove();
     invoke.mockRejectedValueOnce(new Error("permission refused"));
     await command({ type: "captureView", view: "trainer", preset: "wide" });
     expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();

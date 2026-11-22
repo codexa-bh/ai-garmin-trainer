@@ -194,6 +194,32 @@ class InputTests(unittest.TestCase):
                 prepare(self.root, self.args, 'native', synthetic_empty_chat=True)
             launch.assert_not_called()
 
+    def test_snow_navigation_variant_is_only_ordinary_synthetic(self):
+        with patch('smoke_input.authorize', side_effect=AssertionError('no private route')):
+            baseline = prepare(self.root, self.args, 'ordinary')
+            variant = prepare(self.root, self.args, 'ordinary', synthetic_snow_navigation=True)
+            baseline.verify_current()
+            variant.verify_current()
+            self.assertEqual(variant.provenance['syntheticVariant'], 'snow-navigation')
+            for item, expected in [(baseline, 14), (variant, 114)]:
+                with contextlib.closing(readonly(item.database)) as db:
+                    self.assertEqual(
+                        db.execute('select count(*) from activity').fetchone()[0], expected
+                    )
+            with self.assertRaises(ValueError):
+                prepare(self.root, self.args, 'native', synthetic_snow_navigation=True)
+            with self.assertRaises(ValueError):
+                prepare(
+                    self.root,
+                    self.args,
+                    'ordinary',
+                    synthetic_snow_navigation=True,
+                    synthetic_empty_chat=True,
+                )
+            self.args.input_file = '/not-opened'
+            with self.assertRaises(ValueError):
+                prepare(self.root, self.args, 'ordinary', synthetic_snow_navigation=True)
+
     def test_valid_standing_grant_reuses_across_tasks_preserves_original_and_rechecks_revocation_before_boot(
         self,
     ):

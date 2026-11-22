@@ -42,6 +42,19 @@ def scenario(run):
         run.command({'type': 'setViewport', 'preset': 'wide'})
         run.command({'type': 'snowRuns', 'action': variant})
         snow_wait(run, variant)
+        if variant == 'populated':
+            for action in ['page', 'search', 'clearSearch']:
+                if not run.command({'type': 'snowRuns', 'action': action})['ready']:
+                    raise ValueError('Authored search or restoration failed')
+        if variant in ['populated', 'unknown']:
+            for preset in ['wide', 'narrow']:
+                run.command({'type': 'setViewport', 'preset': preset})
+                navigation = run.command({'type': 'snowRuns', 'action': 'navigation'})
+                if not all(navigation[key] for key in ['ready', 'contained']):
+                    raise ValueError('Authored navigation readiness/containment failed')
+                if getattr(run, 'snow_hr_capture_instance', False):
+                    run.command({'type': 'captureView', 'view': 'snowRuns', 'preset': preset})
+            run.command({'type': 'setViewport', 'preset': 'wide'})
         run.command({'type': 'snowRuns', 'action': 'collapse'})
         for preset, edge in [('wide', 'start'), ('narrow', 'start'), ('narrow', 'end')]:
             if edge == 'end' and variant in ['unknown', 'unsupported']:
@@ -94,11 +107,14 @@ def snow_scenario():
             'proven stored UTC with MCP-only session rows and lap-file limits; unproven timezone, '
             'no-window-samples and missing activity zone limits remain honest',
             'wide/narrow HR/Times/reason reachability and local scroll edges without page overflow',
+            'resort navigation uses stored runs or dash with duration; adjacent run distance remains unchanged',
+            'fixed search, restored list and appended unselected resort page preserve navigation values',
             'activity selection/collapse/expand and Back to chat preserved',
         ),
-        '15 geometry-preserving masked own-WebView captures per instance; exact authored run '
-        'cells/derived HR/zone text, compact totals line and messages only, private neighbors hidden; synthetic DOM, not '
-        'trusted input, real Garmin or normal-installed-app proof',
+        '15 Snow detail captures per instance plus four first-instance navigation captures; '
+        'exact authored cells, totals and card metrics only, private neighbors hidden; compact '
+        'selection is recorded separately. Synthetic DOM, not trusted input, real Garmin or '
+        'normal-installed-app proof',
     )
 
 

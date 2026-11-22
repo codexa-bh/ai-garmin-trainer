@@ -127,7 +127,11 @@ Body Battery charged/drained) arrives in the same `/api/health-dashboard` payloa
 from `db/supplement-repository.ts` (independent child reads on their real keys,
 bounded to the daily window) through `local-data/supplement-policy.ts`, and follows
 the selected seven dates; the Activity route adds one explicit `supplement`
-projection per activity. Presentation is `health-supplements.tsx` and
+projection per activity. The paged Activity list separately projects the stored
+`SKI_RUN_SPLIT` distance for navigation without changing session distance or
+loading detail per row. Only resort skiing and snowboarding cards use that value;
+missing or invalid run distance is a dash, while duration and other sports retain
+their session values. Presentation is `health-supplements.tsx` and
 `activity-supplement.tsx` plus an optional band on the existing chart wrapper. The
 trainer's `grounding-contracts.ts` reads are separate and unchanged. See
 [Visibility in Health and Activity](garmin-extra-data.md#visibility-in-health-and-activity).

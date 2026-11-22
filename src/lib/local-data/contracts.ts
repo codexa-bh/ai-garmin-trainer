@@ -18,6 +18,7 @@ import type { HealthCoverage } from "../garmin/import-contracts";
 import type { SplitHeartRate } from "./split-heart-rate";
 type ActivityDashboardListItem = NormalizedActivity & {
   detailStatus: ActivityDetailStatus | null;
+  snowRunDistanceMeters: number | null;
 };
 
 export type ActivityEffortCoverage = {
