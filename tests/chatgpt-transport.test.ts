@@ -700,6 +700,54 @@ it.each([false, true])(
     }
   },
 );
+it("cancels a pending poll before final verification and ignores its late failure", async () => {
+  vi.useFakeTimers();
+  try {
+    let rejectPoll!: (error: Error) => void;
+    let releaseResponse!: () => void;
+    let pollSignal: AbortSignal | undefined;
+    let currents = 0;
+    const credential = vi.fn(
+      async (
+        operation: string,
+        _id: string,
+        _epoch: number,
+        signal: AbortSignal,
+      ) => {
+        if (operation === "credential") return { accessToken: privateMarker };
+        currents += 1;
+        if (currents === 1) {
+          pollSignal = signal;
+          await new Promise<void>((_, reject) => {
+            rejectPoll = reject;
+          });
+        }
+        return {};
+      },
+    );
+    const network = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+      return sse(events());
+    });
+    const result = createTrainerGeneration(
+      chatgptModel(admission, undefined, network, credential),
+    )(question);
+    await vi.advanceTimersByTimeAsync(1000);
+    releaseResponse();
+    const output = await result;
+    expect(output.text).toBe(answer);
+    expect(pollSignal?.aborted).toBe(true);
+    expect(currents).toBe(2);
+    rejectPoll(Error(privateMarker));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(network).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it.each(["x".repeat(129), "req safe", "req\tbad"])(
   "rejects the entire invalid request id rather than accepting a truncated prefix: %s",
   async (id) => {

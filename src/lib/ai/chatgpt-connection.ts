@@ -73,6 +73,8 @@ export function chatgptConnection(
       connection.models.some((m) => m.slug === model),
   );
 }
+class NativeWireError extends Error {}
+
 function nativeBrokerRequest(
   descriptor: Descriptor,
   body: string,
@@ -117,7 +119,7 @@ function nativeBrokerRequest(
         }
       },
     );
-    pending.once("error", refuse);
+    pending.once("error", () => reject(new NativeWireError()));
     pending.end(body);
   });
 }
@@ -137,8 +139,10 @@ export async function nativeChatgptCredential(
       signal,
       AbortSignal.timeout(operation === "credential" ? 55000 : 5000),
     ]);
-    response = await (transport
-      ? transport(`http://127.0.0.1:${descriptor.port}/credential`, {
+    if (transport) {
+      response = await transport(
+        `http://127.0.0.1:${descriptor.port}/credential`,
+        {
           method: "POST",
           redirect: "error",
           headers: {
@@ -147,8 +151,21 @@ export async function nativeChatgptCredential(
           },
           body,
           signal: deadline,
-        })
-      : nativeBrokerRequest(descriptor, body, deadline));
+        },
+      );
+    } else {
+      try {
+        response = await nativeBrokerRequest(descriptor, body, deadline);
+      } catch (error) {
+        if (
+          operation !== "current" ||
+          !(error instanceof NativeWireError) ||
+          deadline.aborted
+        )
+          throw error;
+        response = await nativeBrokerRequest(descriptor, body, deadline);
+      }
+    }
   } catch {
     throw new Error("chatgpt_connection_unavailable");
   }

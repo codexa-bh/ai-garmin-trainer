@@ -587,6 +587,8 @@ function chatgptFetch(
       init.signal ?? AbortSignal.timeout(180000),
     ]);
     let polling = false;
+    let stopped = false;
+    let pollController: AbortController | undefined;
     const current = () => {
       if (signal.aborted)
         throw (
@@ -615,9 +617,16 @@ function chatgptFetch(
     const timer = setInterval(() => {
       if (polling) return;
       polling = true;
-      credential("current", admission.registrationId, admission.epoch, signal)
+      pollController = new AbortController();
+      const pollSignal = AbortSignal.any([signal, pollController.signal]);
+      credential(
+        "current",
+        admission.registrationId,
+        admission.epoch,
+        pollSignal,
+      )
         .catch(() => {
-          if (signal.aborted) return;
+          if (signal.aborted || stopped) return;
           invalidation = failure(
             new ChatgptRequestError("connection_invalidated"),
             "native_poll",
@@ -628,7 +637,12 @@ function chatgptFetch(
           polling = false;
         });
     }, 1000);
-    const stop = () => clearInterval(timer);
+    const stop = () => {
+      stopped = true;
+      clearInterval(timer);
+      pollController?.abort();
+      signal.removeEventListener("abort", stop);
+    };
     signal.addEventListener("abort", stop, { once: true });
     try {
       const response = await transport("https://api.openai.com/v1/responses", {
@@ -715,6 +729,7 @@ function chatgptFetch(
           try {
             const next = await reader.read();
             if (next.done) {
+              stop();
               try {
                 await credential(
                   "current",

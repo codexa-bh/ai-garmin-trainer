@@ -1,5 +1,7 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { migrateDatabase } from "../src/lib/db/migrations";
 import {
@@ -31,6 +33,7 @@ import { stopSummaryLifetime } from "../src/lib/memory/summary-lifetime";
 import { summaryImportInspection } from "../src/lib/db/summary-import";
 import type { SummaryRebuildInspection } from "../src/lib/memory/summary-controls";
 let db: Database.Database;
+let useNativeWire = false;
 vi.mock("../src/lib/db/connection", () => ({ getDatabase: () => db }));
 // This suite deliberately models native responses and provider streams. Actual
 // Node/native HTTP framing and browser-header denial live in native-wire tests.
@@ -47,7 +50,7 @@ vi.mock("../src/lib/ai/chatgpt-connection", async (importOriginal) => {
         args[1],
         args[2],
         args[3],
-        args[4] ?? fetch,
+        useNativeWire ? undefined : (args[4] ?? fetch),
       ),
   };
 });
@@ -204,6 +207,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   stopSummaryLifetime();
+  useNativeWire = false;
   db.close();
   delete owner.__trainerLiveConfigurationV1;
   delete owner.__trainerSummaryLifetimeV1;
@@ -740,6 +744,70 @@ async function persistedTurn(conversationId: string) {
   const stored = listRecentChatMessages(conversationId);
   return { result, stored, assistant: stored.at(-1)! };
 }
+it("recovers a real wire disconnect during an original tool turn without duplicate effects", async () => {
+  let currents = 0;
+  let credentials = 0;
+  const server = createServer((request, reply) => {
+    let body = "";
+    request.on("data", (chunk: Buffer) => {
+      body += chunk.toString();
+    });
+    request.on("end", () => {
+      const parsed = JSON.parse(body);
+      expect(request.headers["x-chatgpt-owner"]).toBe(capability);
+      expect(parsed.registrationId).toBe(registrationId);
+      expect(parsed.epoch).toBe(1);
+      if (parsed.operation === "current" && ++currents === 1) {
+        request.socket.destroy();
+        return;
+      }
+      if (parsed.operation === "credential") credentials += 1;
+      reply.writeHead(200, {
+        "content-type": "application/json",
+        connection: "close",
+      });
+      reply.end(
+        JSON.stringify(
+          parsed.operation === "current"
+            ? { current: true }
+            : { accessToken: "authored-native-token", epoch: 1 },
+        ),
+      );
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    delete owner.__trainerChatgptOwnerV1;
+    initializeChatgptOwner({
+      version: 1,
+      port: (server.address() as AddressInfo).port,
+      capability,
+      connections,
+    });
+    useNativeWire = true;
+    initializeLiveConfiguration(boot);
+    modelSettings.save({ modelId: entry.id });
+    const upstream = routeUpstream(() => {
+      const item = { ...wireCall(), id: "fc_1" };
+      return wire([{ item }], [item]);
+    });
+    const { result, stored } = await persistedTurn("wire-recovery-chat");
+    expect(result.toolSteps).toEqual([
+      expect.objectContaining({ tool: "getSyncStatus", status: "succeeded" }),
+    ]);
+    expect(result.progressCounters?.modelCalls).toBe(2);
+    expect(upstream.bodies).toHaveLength(2);
+    expect(upstream.syncStatus.mock.calls).toEqual([["call_1"]]);
+    expect(
+      stored.filter((message) => message.role === "assistant"),
+    ).toHaveLength(1);
+    expect(credentials).toBe(2);
+    expect(currents).toBe(3);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 it.each([
   ["id-less", (call: WireItem) => ({ ...call }), true],
   ["identified", (call: WireItem) => ({ ...call, id: "fc_1" }), true],
