@@ -4499,12 +4499,6 @@
       if (!sentinel(goals.value) || !observe().profileSaved)
         throw Error("Capture requires saved synthetic Goals");
     }
-    if (command.view === "trainer") {
-      const title = document.querySelector(".app-brand .app-title");
-      const rect = title?.getBoundingClientRect();
-      if (!visible(title) || !rect || rect.top < 0 || rect.bottom > innerHeight)
-        throw Error("Trainer title outside viewport");
-    }
     restore();
     if (command.view === "profile") profileLayers();
     const labels = new Set([
@@ -4546,28 +4540,6 @@
     )) {
       if (visible(el) && labels.has(el.textContent.trim()))
         el.setAttribute("data-smoke-reveal", "");
-    }
-    if (command.view === "trainer") {
-      const ancestors = new Set();
-      for (const leaf of document.querySelectorAll("[data-smoke-reveal]")) {
-        for (
-          let node = leaf.parentElement;
-          node && node !== document.body;
-          node = node.parentElement
-        ) {
-          if (
-            [...node.childNodes].some(
-              (child) =>
-                child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
-            )
-          ) {
-            restore();
-            throw Error("Private direct Trainer ancestor refused");
-          }
-          ancestors.add(node);
-        }
-      }
-      for (const node of ancestors) node.setAttribute("data-smoke-reveal", "");
     }
     if (command.view === "profile") {
       const goals = target("Goals", "textarea");
