@@ -14,7 +14,13 @@ const owner = process as typeof process & { __trainerChatgptOwnerV1?: unknown };
 let server: Server | undefined;
 let url: string;
 let accepted = 0;
-async function broker(responseBody?: string | ((operation: string) => string)) {
+async function broker(
+  responseBody?: string | ((operation: string) => string),
+  drops: { operation: string; count: number } = { operation: "", count: 0 },
+  status = 200,
+  onCurrent?: () => void,
+) {
+  let dropped = 0;
   delete owner.__trainerChatgptOwnerV1;
   accepted = 0;
   server = createServer((request, response) => {
@@ -49,6 +55,11 @@ async function broker(responseBody?: string | ((operation: string) => string)) {
       expect(value.registrationId).toBe(registrationId);
       expect(value.epoch).toBe(1);
       accepted += 1;
+      if (value.operation === drops.operation && dropped < drops.count) {
+        dropped += 1;
+        request.socket.destroy();
+        return;
+      }
       const output =
         (typeof responseBody === "function"
           ? responseBody(value.operation)
@@ -58,12 +69,13 @@ async function broker(responseBody?: string | ((operation: string) => string)) {
             ? { current: true }
             : { accessToken: "authored-native-token", epoch: 1 },
         );
-      response.writeHead(200, {
+      response.writeHead(status, {
         "content-type": "application/json",
         "content-length": Buffer.byteLength(output),
         connection: "close",
       });
       response.end(output);
+      if (value.operation === "current") onCurrent?.();
     });
   });
   await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
@@ -122,6 +134,130 @@ it("the actual private wire retains response bounds and cancellation before admi
   ).rejects.toThrow("chatgpt_connection_unavailable");
   expect(accepted).toBe(1);
 });
+it("recovers a transient currentness wire disconnect without replaying generation", async () => {
+  await broker(undefined, { operation: "current", count: 1 });
+  const item = {
+    type: "message",
+    id: "msg_1",
+    role: "assistant",
+    status: "completed",
+    content: [
+      { type: "output_text", text: "Original answer", annotations: [] },
+    ],
+  };
+  const events = [
+    {
+      type: "response.created",
+      response: { id: "resp_1", created_at: 1, model: "gpt-6.1-sol" },
+    },
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { type: "message", id: "msg_1" },
+    },
+    {
+      type: "response.output_text.delta",
+      item_id: "msg_1",
+      delta: "Original answer",
+    },
+    { type: "response.output_item.done", output_index: 0, item },
+    {
+      type: "response.completed",
+      response: {
+        status: "completed",
+        output: [item],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+    },
+  ];
+  const network = vi.fn(
+    async () =>
+      new Response(
+        events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+        { headers: { "content-type": "text/event-stream" } },
+      ),
+  );
+  const result = await createTrainerGeneration(
+    chatgptModel(
+      { registrationId, epoch: 1, model: "gpt-6.1-sol" },
+      undefined,
+      network,
+    ),
+  )({ purpose: "planner", system: "Policy", prompt: "Question" });
+  expect(result.text).toBe("Original answer");
+  expect(network).toHaveBeenCalledTimes(1);
+  expect(accepted).toBe(3);
+});
+it("recovers a dropped poll while the upstream is idle, then verifies final currentness", async () => {
+  let dropped!: () => void;
+  const observed = new Promise<void>((resolve) => {
+    dropped = resolve;
+  });
+  await broker(undefined, { operation: "current", count: 1 }, 200, dropped);
+  const network = vi.fn(async () => {
+    await observed;
+    return new Response(
+      'data: {"type":"response.created","response":{"id":"resp_1","created_at":1,"model":"gpt-6.1-sol"}}\n\ndata: {"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
+      { headers: { "content-type": "text/event-stream" } },
+    );
+  });
+  await createTrainerGeneration(
+    chatgptModel(
+      { registrationId, epoch: 1, model: "gpt-6.1-sol" },
+      undefined,
+      network,
+    ),
+  )({ purpose: "planner", system: "Policy", prompt: "Question" });
+  expect(network).toHaveBeenCalledTimes(1);
+  expect(accepted).toBe(4);
+});
+it("keeps concurrent current checks independently bound when one wire drops", async () => {
+  await broker(undefined, { operation: "current", count: 1 });
+  const checks = Array.from({ length: 4 }, () =>
+    nativeChatgptCredential(
+      "current",
+      registrationId,
+      1,
+      AbortSignal.timeout(2000),
+    ),
+  );
+  await expect(Promise.all(checks)).resolves.toEqual([{}, {}, {}, {}]);
+  expect(accepted).toBe(5);
+});
+it("does not turn an authoritative refusal after a dropped current check into success", async () => {
+  await broker(
+    JSON.stringify({ code: "chatgpt_connection_unavailable", connections: [] }),
+    { operation: "current", count: 1 },
+    409,
+  );
+  await expect(
+    nativeChatgptCredential(
+      "current",
+      registrationId,
+      1,
+      AbortSignal.timeout(2000),
+    ),
+  ).rejects.toThrow("chatgpt_connection_unavailable");
+  expect(accepted).toBe(2);
+});
+it.each([
+  { operation: "credential" as const, count: 1, expected: 1 },
+  { operation: "current" as const, count: 2, expected: 2 },
+])(
+  "bounds wire recovery for $operation",
+  async ({ operation, count, expected }) => {
+    await broker(undefined, { operation, count });
+    await expect(
+      nativeChatgptCredential(
+        operation,
+        registrationId,
+        1,
+        AbortSignal.timeout(2000),
+      ),
+    ).rejects.toThrow("chatgpt_connection_unavailable");
+    expect(accepted).toBe(expected);
+  },
+);
 it.each(["credential", "current"])(
   "actual native wire %s refusal survives locked SDK without raw detail or replay",
   async (failedOperation) => {
