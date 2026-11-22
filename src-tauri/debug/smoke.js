@@ -3002,11 +3002,11 @@
       "The latest individual-run read failed. Showing preserved runs; a complete fresh set is not confirmed.",
   };
   const snowNote =
-    "Avg HR and HR zones are derived from HR samples during each run; they may differ slightly from Garmin per-lap totals.";
+    "Avg HR and HR zones use supported HR time during each run, not missing time. These derived values are separate from Garmin lap and session totals.";
   const snowSummary =
     "Garmin totalsRuns 12 · 1h 0m · 31 km|Lifts 11 · 50m · 8.4 km";
   const zoneProvenance =
-    "Derived from HR samples in this run · zone limits from this activity file";
+    "Derived from HR samples in this run · supported HR time only, not the full run · zone limits from this activity file";
   // Exact authored derivation: the first seven cells, then either the exact
   // derived bucket text (from the activity file's own limits) or a closed reason.
   const zoneParts = (seconds) =>
@@ -3029,9 +3029,11 @@
               "340 m",
               "36 km/h",
               "64.1 km/h",
-              "151",
+              "154",
             ],
-            zones: zoneParts(["0s", "0s", "1m 00s", "1m 10s", "1m 10s", "0s"]),
+            coverage:
+              "HR measured 2m 40s of 3m 20s · partialHR gaps; supported time only",
+            zones: zoneParts(["0s", "0s", "40s", "50s", "1m 10s", "0s"]),
           },
           {
             cells: ["2", "—", "—", "0 m", "—", "—", "—"],
@@ -3047,6 +3049,7 @@
               "70.2 km/h",
               "144",
             ],
+            coverage: "HR measured 3m 35s of 3m 35s",
             zones: zoneParts(["0s", "0s", "1m 40s", "0s", "1m 55s", "0s"]),
           },
         ]
@@ -3054,6 +3057,8 @@
         ? [
             {
               cells: ["1", "10s", "0 km", "0 m", "—", "—", "120"],
+              coverage:
+                "HR measured 2m 40s of 3m 20s · partialHR gaps; supported time only",
               reason: "Activity zone limits unavailable",
             },
             {
@@ -3072,7 +3077,8 @@
             },
           ];
   const zoneCellText = (row) =>
-    row.zones ? `Times${row.zones.join("")}${zoneProvenance}` : row.reason;
+    (row.coverage ?? "") +
+    (row.zones ? `Times${row.zones.join("")}${zoneProvenance}` : row.reason);
   const snowExpectedText = () =>
     [
       snowVariant === "populated" ? snowSummary : "",
@@ -3164,7 +3170,7 @@
       const want = expected[index];
       const cells = [...row.children];
       const zone = cells[7];
-      const group = zone?.querySelector("[role=group]");
+      const group = zone?.querySelector(".lap-zone-cell[role=group]");
       if (
         cells.length !== 8 ||
         !same(
@@ -3174,7 +3180,7 @@
         zone.textContent !== zoneCellText(want) ||
         (want.zones
           ? group?.getAttribute("aria-label") !==
-              `Run HR zones: ${want.zones.join(" · ")}` ||
+              `Run HR zones · supported HR time only: ${want.zones.join(" · ")}` ||
             zone.querySelector("summary")?.textContent !== "Times"
           : !!group)
       )

@@ -10,7 +10,7 @@ import { deriveActivitySplitHeartRates } from "./split-heart-rate-repository";
 const SPLIT_HEART_RATE_ROW_LIMIT = 20;
 
 const SPLIT_HEART_RATE_MEANING =
-  "avgHeartRate and zoneSeconds are derived at read time from stored heart-rate samples inside each split's own measured window (duration-weighted, activity-file zone boundaries, bucket order below zone 1 then zones 1-5). They are not Garmin lap or session values and are never added to them. null with a closed reason is unavailable, never zero. Sample clock, no stored/in-window/usable HR, and support failures are distinct; missing/conflicting activity zone limits alone do not hide supported Avg HR. Zone-less samples need exact activity-local UTC proof. Rows are capped per type: read sourceCount/omittedCount before generalizing across all runs or lifts.";
+  "avgHeartRate and zoneSeconds are derived at read time from stored heart-rate samples inside each split's own measured window (duration-weighted, activity-file zone boundaries, bucket order below zone 1 then zones 1-5). Averages use supported time only; zone seconds sum to supportSeconds, not windowSeconds. Coverage is supportSeconds/windowSeconds (measured window, not timer/moving time), admitted at >=80% without rounding. hasLongGap flags unsupported stretches over 30 seconds even when values are available; gaps are never filled or extrapolated. They are not Garmin lap or session values and are never added to them. null with a closed reason is unavailable, never zero. Sample clock, no stored/in-window/usable HR, and support failures are distinct; missing/conflicting activity zone limits alone do not hide supported Avg HR. Zone-less samples need exact activity-local UTC proof. Rows are capped per type: read sourceCount/omittedCount before generalizing across all runs or lifts.";
 
 function splitHeartRateEvidence(
   db: Database.Database,
@@ -36,6 +36,8 @@ function splitHeartRateEvidence(
         descentMeters: split.descentMeters,
         avgHeartRate: split.heartRate.avgHeartRate,
         supportSeconds: split.heartRate.supportSeconds,
+        windowSeconds: split.heartRate.windowSeconds,
+        hasLongGap: split.heartRate.hasLongGap,
         hrUnavailableReason: split.heartRate.unavailableReason,
         zoneSeconds:
           split.heartRate.zones.buckets?.map((bucket) => bucket.seconds) ??

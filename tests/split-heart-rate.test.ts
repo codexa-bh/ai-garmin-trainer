@@ -279,7 +279,62 @@ describe("deriveSplitHeartRate", () => {
     expect(result.avgHeartRate).toBeCloseTo((120 * 4 + 140 * 4) / 8, 6);
   });
 
-  it("refuses significant gaps instead of presenting a partial result", () => {
+  it.each([199.999, 200, 200.001])(
+    "admits long-gap coverage using unrounded durations (window %s)",
+    (end) => {
+      const rows = [0, 20, 40, 80, 100, 120, 140, 160, 180, end]
+        .filter((s) => s <= end)
+        .map((s) => sampleAt(s, s < 80 ? 100 : 160));
+      const result = derive(rows, 0, end);
+      if (end < 200) {
+        expect(result.avgHeartRate).toBeNull();
+        expect(result.unavailableReason).toBe("insufficient-support");
+      } else {
+        expect(result.avgHeartRate).toBeCloseTo(
+          (40 * 100 + (end - 80) * 160) / (end - 40),
+          6,
+        );
+        expect(result.supportSeconds).toBeCloseTo(end - 40, 6);
+        expect(result.windowSeconds).toBe(end);
+        expect(result.hasLongGap).toBe(true);
+        expect(secondsOf(result)?.reduce((a, b) => a + b, 0)).toBeCloseTo(
+          end - 40,
+          6,
+        );
+      }
+    },
+  );
+
+  it.each(["leading", "middle", "trailing", "null-chain", "multiple"])(
+    "discloses %s gaps without filling any rejected span",
+    (kind) => {
+      const rows = Array.from({ length: 51 }, (_, i) => sampleAt(i * 10, 120))
+        .filter((_, i) =>
+          kind === "leading"
+            ? i >= 4
+            : kind === "trailing"
+              ? i <= 46
+              : kind === "middle"
+                ? i <= 10 || i >= 14
+                : kind === "multiple"
+                  ? i <= 10 || (i >= 14 && i <= 30) || i >= 34
+                  : true,
+        )
+        .map((row, i) =>
+          kind === "null-chain" && i >= 10 && i < 14
+            ? { ...row, heartRate: null }
+            : row,
+        );
+      const result = derive(rows, 0, 500);
+      const support = kind === "multiple" ? 420 : 460;
+      expect(result.avgHeartRate).toBe(120);
+      expect(result.supportSeconds).toBe(support);
+      expect(result.hasLongGap).toBe(true);
+      expect(secondsOf(result)?.reduce((a, b) => a + b, 0)).toBe(support);
+    },
+  );
+
+  it("refuses low support rather than filling significant gaps", () => {
     const middle = derive(
       [
         sampleAt(0, 120),
@@ -292,7 +347,7 @@ describe("deriveSplitHeartRate", () => {
     );
     expect(middle).toMatchObject({
       avgHeartRate: null,
-      unavailableReason: "significant-gap",
+      unavailableReason: "insufficient-support",
     });
     expect(middle.zones.buckets).toBeNull();
   });
@@ -303,7 +358,7 @@ describe("deriveSplitHeartRate", () => {
     ).toBe(120);
     expect(
       derive([sampleAt(0, 120), sampleAt(31, 120)], 0, 31).unavailableReason,
-    ).toBe("significant-gap");
+    ).toBe("insufficient-support");
   });
 
   it("refuses a lone sample and a window without samples", () => {
@@ -461,6 +516,7 @@ describe("projectSplitHeartRate", () => {
     expect(JSON.stringify(projected)).not.toContain("2026-");
     expect(Object.keys(projected).sort()).toEqual([
       "avgHeartRate",
+      "hasLongGap",
       "supportSeconds",
       "unavailableReason",
       "windowSeconds",

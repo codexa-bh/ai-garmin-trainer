@@ -939,6 +939,14 @@ class HistoryRun(OrdinaryRun):
             'backendOnly': True,
         }
 
+    def synthetic_sync_capture(self, preset):
+        """Finite capture-only opt-out for unrelated Sync images in Snow HR review."""
+        if preset not in ('wide', 'narrow'):
+            raise ValueError('Only authored Sync viewports are supported')
+        if getattr(self, 'snow_hr_no_sync_captures', False):
+            return {'captureOmitted': True, 'reason': 'Snow HR review; no Sync image proof claimed'}
+        return self.command({'type': 'captureView', 'view': 'sync', 'preset': preset})
+
     def synthetic_sync(self):
         """Official-path latest refreshes and two explicit historical operations.
 
@@ -1025,7 +1033,7 @@ class HistoryRun(OrdinaryRun):
                 images.append(
                     {
                         'scenario': f'historical-entry-{index}-{preset}',
-                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                        **self.synthetic_sync_capture(preset),
                     }
                 )
             self.command({'type': 'setViewport', 'preset': 'wide'})
@@ -1045,7 +1053,7 @@ class HistoryRun(OrdinaryRun):
                 images.append(
                     {
                         'scenario': f'busy-expanded-{index}-{preset}',
-                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                        **self.synthetic_sync_capture(preset),
                     }
                 )
             self.command({'type': 'setViewport', 'preset': 'wide'})
@@ -1058,7 +1066,7 @@ class HistoryRun(OrdinaryRun):
             images.append(
                 {
                     'scenario': f'busy-disclosure-retained-{index}',
-                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': 'wide'}),
+                    **self.synthetic_sync_capture('wide'),
                 }
             )
             self.command({'type': 'sync', 'action': 'details'})
@@ -1090,7 +1098,7 @@ class HistoryRun(OrdinaryRun):
                 images.append(
                     {
                         'scenario': f'synthetic-{index}-history-{preset}',
-                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                        **self.synthetic_sync_capture(preset),
                     }
                 )
             if index == 0:
@@ -1185,7 +1193,7 @@ class HistoryRun(OrdinaryRun):
             images.append(
                 {
                     'scenario': f'completed-range-latest-{preset}',
-                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    **self.synthetic_sync_capture(preset),
                 }
             )
         self.command({'type': 'sync', 'action': 'details'})
@@ -1194,7 +1202,7 @@ class HistoryRun(OrdinaryRun):
             images.append(
                 {
                     'scenario': f'technical-details-expanded-{preset}',
-                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    **self.synthetic_sync_capture(preset),
                 }
             )
         discovery = self.automatic_discovery()
@@ -1218,7 +1226,7 @@ class HistoryRun(OrdinaryRun):
                 images.append(
                     {
                         'scenario': f'mixed-latest-{outcome}-history-blocked-{preset}',
-                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                        **self.synthetic_sync_capture(preset),
                     }
                 )
             if outcome == 'settled':
@@ -1228,9 +1236,7 @@ class HistoryRun(OrdinaryRun):
                     images.append(
                         {
                             'scenario': f'mixed-technical-details-{preset}',
-                            **self.command(
-                                {'type': 'captureView', 'view': 'sync', 'preset': preset}
-                            ),
+                            **self.synthetic_sync_capture(preset),
                         }
                     )
         legacy_after = legacy_upgrade_state(self)
@@ -1307,7 +1313,7 @@ class HistoryRun(OrdinaryRun):
             images.append(
                 {
                     'scenario': f'discover-offered-latest-success-{preset}',
-                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    **self.synthetic_sync_capture(preset),
                 }
             )
         self.command({'type': 'sync', 'action': 'details'})
@@ -1316,7 +1322,7 @@ class HistoryRun(OrdinaryRun):
             images.append(
                 {
                     'scenario': f'discover-offered-details-{preset}',
-                    **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                    **self.synthetic_sync_capture(preset),
                 }
             )
         self.command({'type': 'sync', 'action': 'details'})
@@ -1358,9 +1364,7 @@ class HistoryRun(OrdinaryRun):
                     images.append(
                         {
                             'scenario': f'{action}-active-{preset}',
-                            **self.command(
-                                {'type': 'captureView', 'view': 'sync', 'preset': preset}
-                            ),
+                            **self.synthetic_sync_capture(preset),
                         }
                     )
                 self.command({'type': 'setViewport', 'preset': 'wide'})
@@ -1396,7 +1400,7 @@ class HistoryRun(OrdinaryRun):
                 images.append(
                     {
                         'scenario': f'{action}-{label}-{preset}',
-                        **self.command({'type': 'captureView', 'view': 'sync', 'preset': preset}),
+                        **self.synthetic_sync_capture(preset),
                     }
                 )
             self.stop()
@@ -1710,6 +1714,11 @@ def main():
         help='Finite authored loopback Personal API data on stopped owned copies; no account calls',
     )
     parser.add_argument(
+        '--snow-hr-no-sync-captures',
+        action='store_true',
+        help='Synthetic Sync only: retain operations/assertions but omit unrelated Sync PNGs for Snow HR review',
+    )
+    parser.add_argument(
         '--no-external-tools',
         action='store_true',
         help='macOS: launch the owned app where executing Python/uv/uvx/pip is denied (synthetic scopes only)',
@@ -1732,6 +1741,8 @@ def main():
         parser.error(
             'Synthetic history cannot consume private tokens or legacy continuation authority'
         )
+    if args.snow_hr_no_sync_captures and not args.synthetic_sync:
+        parser.error('--snow-hr-no-sync-captures requires --synthetic-sync')
     if args.no_external_tools and not (args.synthetic_sync or args.dependency_guidance):
         parser.error('--no-external-tools applies only to the synthetic Sync scopes')
     if args.token_input:
@@ -1813,6 +1824,12 @@ def history_scenario(
             )
             run.before_start = verify_current
             run.no_external_tools = args.no_external_tools
+            run.snow_hr_no_sync_captures = getattr(args, 'snow_hr_no_sync_captures', False)
+            receipt['syncCaptureSelection'] = (
+                'omitted for Snow HR review; all operations/assertions retained, Settings originals retained'
+                if run.snow_hr_no_sync_captures
+                else 'default'
+            )
             runs.append(run)
             run.observer = observer
             receipt['captures'].extend(run.onboarding())

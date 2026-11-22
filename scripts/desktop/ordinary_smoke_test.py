@@ -291,6 +291,28 @@ class OrdinaryContracts(unittest.TestCase):
             ],
         )
 
+    def test_snow_compact_baseline_retains_all_navigation_viewports(self):
+        commands = []
+        full = self.run_fixture()
+        full.command = lambda value: commands.append(value) or {'ok': True}
+        full.wait = lambda predicate, label: None
+        full.captures()
+        baseline = list(commands)
+        commands.clear()
+        full = self.run_fixture()
+        full.command = lambda value: commands.append(value) or {'ok': True}
+        full.wait = lambda predicate, label: None
+        full.snow_hr_compact_captures = True
+        full.captures()
+        self.assertEqual(
+            [c for c in commands if c['type'] == 'captureView'],
+            [{'type': 'captureView', 'view': 'trainer', 'preset': 'wide'}],
+        )
+        self.assertEqual(
+            [c for c in commands if c['type'] != 'captureView'],
+            [c for c in baseline if c['type'] != 'captureView'],
+        )
+
     def test_conversation_scenario_uses_finite_actions_fresh_origin_and_only_run_copy(self):
         run = self.run_fixture()
         run.origin, run.boot = 'http://127.0.0.1:11111', 'old-boot'

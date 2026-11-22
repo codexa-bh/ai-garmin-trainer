@@ -46,8 +46,9 @@ const bucket = (index: number, seconds: number) => ({
 });
 const derived = (avg: number, seconds: number[]) => ({
   avgHeartRate: avg,
-  supportSeconds: 200,
-  windowSeconds: 200,
+  supportSeconds: seconds.reduce((sum, value) => sum + value, 0),
+  windowSeconds: seconds.reduce((sum, value) => sum + value, 0),
+  hasLongGap: false,
   unavailableReason: null,
   zones: {
     buckets: seconds.map((value, index) => bucket(index, value)),
@@ -58,6 +59,7 @@ const noWindow = {
   avgHeartRate: null,
   supportSeconds: null,
   windowSeconds: null,
+  hasLongGap: null,
   unavailableReason: "invalid-window" as const,
   zones: {
     buckets: null,
@@ -77,7 +79,11 @@ function supplement(variant: Variant): ActivitySupplement {
             descentMeters: 340,
             avgSpeedMps: 10,
             maxSpeedMps: 17.8,
-            heartRate: derived(151, [0, 0, 60, 70, 70, 0]),
+            heartRate: {
+              ...derived(153.75, [0, 0, 40, 50, 70, 0]),
+              windowSeconds: 200,
+              hasLongGap: true,
+            },
           },
           {
             splitKey: "index:4",
@@ -112,6 +118,9 @@ function supplement(variant: Variant): ActivitySupplement {
               maxSpeedMps: null,
               heartRate: {
                 ...derived(120, []),
+                supportSeconds: 160,
+                windowSeconds: 200,
+                hasLongGap: true,
                 zones: {
                   buckets: null,
                   unavailableReason: "missing-zone-boundaries" as const,
@@ -448,7 +457,20 @@ it("refuses unknown/private controls, extra fields, debug mode, altered cells an
     (await command({ type: "captureView", view: "snowRuns", preset: "wide" }))
       .ok,
   ).toBe(false);
-  hrCell.textContent = "151";
+  hrCell.textContent = "154";
+  const warning = document.querySelector(".snow-hr-gap")!;
+  warning.textContent = "Private substituted warning";
+  expect(
+    (await command({ type: "captureView", view: "snowRuns", preset: "wide" }))
+      .ok,
+  ).toBe(false);
+  expect(
+    document.querySelector("[data-smoke-reveal],#trainer-smoke-sanitizer"),
+  ).toBeNull();
+  warning.textContent = "HR gaps; supported time only";
+  expect((await command({ type: "snowRuns", action: "observe" })).ready).toBe(
+    true,
+  );
   document.querySelector(".snow-runs tbody td")!.textContent =
     "Private substituted value";
   expect(

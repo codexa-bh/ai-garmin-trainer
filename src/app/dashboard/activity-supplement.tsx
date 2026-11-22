@@ -211,7 +211,6 @@ const HR_REASON_TEXT: Record<
   "no-window-samples": "No samples in run window",
   "no-usable-heart-rate": "No usable HR measurements",
   "insufficient-samples": "Too few HR samples",
-  "significant-gap": "HR gaps too long",
   "insufficient-support": "HR coverage too low",
 };
 const ZONE_REASON_TEXT: Record<
@@ -233,15 +232,42 @@ function RunAvgHeartRate({
   return <>{n(heartRate.avgHeartRate)}</>;
 }
 
-/** Derived zone cell: bar/Times when supported, else the specific reason. */
+/** Visible duration coverage remains beside zones even when file limits are absent. */
 function RunZoneCell({ heartRate }: { heartRate: SplitHeartRate | undefined }) {
+  return (
+    <div className="snow-hr-result" role="group" aria-label="Run HR support">
+      {finite(heartRate?.avgHeartRate) &&
+      finite(heartRate?.supportSeconds) &&
+      finite(heartRate?.windowSeconds) ? (
+        <div className="snow-hr-coverage">
+          HR measured {runTimer(heartRate.supportSeconds)} of{" "}
+          {runTimer(heartRate.windowSeconds)}
+          {heartRate.supportSeconds < heartRate.windowSeconds
+            ? " · partial"
+            : ""}
+          {heartRate.hasLongGap ? (
+            <span className="snow-hr-gap">HR gaps; supported time only</span>
+          ) : null}
+        </div>
+      ) : null}
+      <RunZoneValues heartRate={heartRate} />
+    </div>
+  );
+}
+
+/** Derived zone cell: bar/Times when supported, else the specific reason. */
+function RunZoneValues({
+  heartRate,
+}: {
+  heartRate: SplitHeartRate | undefined;
+}) {
   const buckets = heartRate?.zones.buckets;
   if (heartRate && buckets?.length)
     return (
       <ZoneBarCell
         buckets={buckets}
-        label="Run HR zones"
-        provenance="Derived from HR samples in this run · zone limits from this activity file"
+        label="Run HR zones · supported HR time only"
+        provenance="Derived from HR samples in this run · supported HR time only, not the full run · zone limits from this activity file"
       />
     );
   const reason =
@@ -374,8 +400,9 @@ export function SnowSection({
             </p>
           ) : null}
           <p className="snow-hr-note">
-            Avg HR and HR zones are derived from HR samples during each run;
-            they may differ slightly from Garmin per-lap totals.
+            Avg HR and HR zones use supported HR time during each run, not
+            missing time. These derived values are separate from Garmin lap and
+            session totals.
           </p>
           <div
             className="snow-totals-wrap snow-runs-wrap"

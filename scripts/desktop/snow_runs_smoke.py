@@ -11,6 +11,25 @@ def snow_wait(run, label):
     return result
 
 
+def capture_selected(run, variant, preset, edge, times=False):
+    compact = getattr(run, 'snow_hr_compact_captures', False)
+    selected = not compact or (
+        getattr(run, 'snow_hr_capture_instance', False)
+        and (
+            (
+                variant == 'populated'
+                and (
+                    (times and (preset, edge) in [('wide', 'start'), ('narrow', 'end')])
+                    or (not times and (preset, edge) == ('wide', 'start'))
+                )
+            )
+            or (variant == 'preserved' and (preset, edge) == ('wide', 'start'))
+        )
+    )
+    if selected:
+        run.command({'type': 'captureView', 'view': 'snowRuns', 'preset': preset})
+
+
 def scenario(run):
     run.command({'type': 'setViewport', 'preset': 'wide'})
     run.command({'type': 'click', 'target': 'Activities'})
@@ -39,7 +58,7 @@ def scenario(run):
                 and not observed['scrollable']
             ):
                 raise ValueError('Narrow Snow runs must use its local table scroller')
-            run.command({'type': 'captureView', 'view': 'snowRuns', 'preset': preset})
+            capture_selected(run, variant, preset, edge)
         if variant == 'populated':
             # Derived-zone Times disclosures: open for one checked capture, then closed again.
             run.command({'type': 'setViewport', 'preset': 'wide'})
@@ -51,7 +70,7 @@ def scenario(run):
                     observed[key] for key in ['ready', 'contained', 'edgeReached', 'headerVisible']
                 ):
                     raise ValueError('Snow Times readiness/containment/edge/header failed')
-                run.command({'type': 'captureView', 'view': 'snowRuns', 'preset': preset})
+                capture_selected(run, variant, preset, edge, times=True)
             run.command({'type': 'snowRuns', 'action': 'times'})
         run.command({'type': 'setViewport', 'preset': 'wide'})
         run.command({'type': 'snowRuns', 'action': 'expand'})
@@ -87,6 +106,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
+    parser.add_argument(
+        '--compact-captures',
+        action='store_true',
+        help='Finite Snow HR capture-only selection; all full/two-instance assertions retained',
+    )
     args = parser.parse_args()
     run_scenarios(
         scratch=args.scratch,
@@ -97,4 +121,5 @@ if __name__ == '__main__':
         'ordinary two-instance baseline plus actual Snow runs composition',
         full=True,
         timeout=1200,
+        snow_hr_compact_captures=args.compact_captures,
     )

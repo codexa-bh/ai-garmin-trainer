@@ -395,7 +395,8 @@ function populateSupplements(db: Database.Database, time: number) {
   windowEnd.run(startSec(26 * 60 + 215), "index:5");
   // Actual legacy storage shape, with a genuine activity-start clock anchor,
   // then 10 s cadence inside the two measured windows:
-  // run 1 holds 130/150/170 bpm for 60/70/70 s; run 3 holds 120 for 100 s then
+  // run 1 supports 130/150/170 bpm for 40/50/70 s after the authored gap;
+  // run 3 holds 120 for 100 s then
   // 165 for 115 s. Zone limits are the activity file's own, never today's baseline.
   const sample = db.prepare(
     "insert into activity_stream_point (garmin_id, elapsed_sec, timestamp, heart_rate) values ('synthetic-snow', ?, ?, ?)",
@@ -416,6 +417,10 @@ function populateSupplements(db: Database.Database, time: number) {
       );
   };
   sampleRun(8 * 60, 200, (o) => (o < 60 ? 130 : o < 130 ? 150 : 170));
+  // Reject the whole 40 s span 40..80: exact 80% coverage, no first-30 s hold.
+  db.prepare(
+    "delete from activity_stream_point where garmin_id='synthetic-snow' and elapsed_sec in (530,540,550)",
+  ).run();
   sampleRun(26 * 60, 210, (o) => (o < 100 ? 120 : 165));
   const fileZone = db.prepare(
     "insert into activity_hr_zone_time (garmin_id, zone, fetched_at, source, status, seconds, source_lower_bpm, source_total_seconds) values ('synthetic-snow', ?, ?, 'garmin_mcp', 'available', 0, ?, 0)",
@@ -490,7 +495,7 @@ function populateSupplements(db: Database.Database, time: number) {
     9,
     1,
     preservedAt(0),
-    preservedAt(10),
+    preservedAt(200),
     time,
   );
   reasonSplit.run(
@@ -498,15 +503,15 @@ function populateSupplements(db: Database.Database, time: number) {
     "index:10",
     10,
     2,
-    preservedAt(50),
-    preservedAt(60),
+    preservedAt(250),
+    preservedAt(260),
     time,
   );
   const reasonSample = db.prepare(
     "insert into activity_stream_point(garmin_id,elapsed_sec,timestamp,heart_rate) values(?,?,?,120)",
   );
-  reasonSample.run("synthetic-snow-preserved", 0, preservedAt(0));
-  reasonSample.run("synthetic-snow-preserved", 10, preservedAt(10));
+  for (const second of [0, 20, 40, 80, 100, 120, 140, 160, 180, 200])
+    reasonSample.run("synthetic-snow-preserved", second, preservedAt(second));
   const unprovenAt = (second: number) =>
     new Date(time - DAY * 5.5 + second * 1000).toISOString();
   reasonSplit.run(

@@ -410,6 +410,7 @@ describe("activity supplement read", () => {
         avgHeartRate: null,
         supportSeconds: null,
         windowSeconds: null,
+        hasLongGap: null,
         unavailableReason: "invalid-window",
         zones: {
           buckets: null,
