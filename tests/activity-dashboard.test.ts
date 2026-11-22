@@ -456,6 +456,61 @@ describe("numerical Trainer dashboard overview", () => {
 });
 
 describe("activity dashboard repository and routes", () => {
+  it("projects stored run totals separately from session distance in list pages and API", async () => {
+    await seedActivities();
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    db.prepare(
+      "update activity set sport = 'resort_skiing' where garmin_id = '111111'",
+    ).run();
+    db.prepare(
+      "insert into activity_split_summary (garmin_id, split_type, distance_meters, fetched_at) values (?, ?, ?, 1)",
+    ).run("111111", "SKI_RUN_SPLIT", 4500);
+    db.prepare(
+      "insert into activity_split_summary (garmin_id, split_type, distance_meters, fetched_at) values (?, ?, ?, 1)",
+    ).run("111111", "SKI_LIFT_SPLIT", 5500);
+    const repo = await import("../src/lib/local-data/composition");
+    db.prepare(
+      "insert into activity_snow_split (garmin_id, split_key, message_index, source_order, split_type, distance_meters, fetched_at) values ('111111', 'index:1', 1, 1, 'run', 123, 1)",
+    ).run();
+    const page = repo.listActivitiesForDashboard({ query: "trail", limit: 1 });
+    expect(page.totalApprox).toBe(1);
+    expect(page.activities[0]).toMatchObject({
+      distanceMeters: 10000,
+      snowRunDistanceMeters: 4500,
+      durationSec: 3600,
+    });
+    const route = await import("../src/app/api/activities/route");
+    const response = await route.GET(
+      new Request("http://local.test/api/activities?q=trail"),
+    );
+    expect((await response.json()).activities[0]).toMatchObject({
+      distanceMeters: 10000,
+      snowRunDistanceMeters: 4500,
+    });
+    const update = db.prepare(
+      "update activity_split_summary set distance_meters = ? where garmin_id = '111111' and split_type = 'SKI_RUN_SPLIT'",
+    );
+    for (const [value, expected] of [
+      [0, 0],
+      [-1, null],
+      [null, null],
+      [Infinity, null],
+    ] as const) {
+      update.run(value);
+      expect(
+        repo.listActivitiesForDashboard({ query: "trail" }).activities[0]
+          .snowRunDistanceMeters,
+      ).toBe(expected);
+    }
+    db.prepare(
+      "delete from activity_split_summary where garmin_id = '111111' and split_type = 'SKI_RUN_SPLIT'",
+    ).run();
+    expect(
+      repo.listActivitiesForDashboard({ query: "trail" }).activities[0]
+        .snowRunDistanceMeters,
+    ).toBeNull(); // Lift and individual run rows are not a fallback.
+  });
   it("searches all synced activities with dashboard-bounded results", async () => {
     const repo = await seedActivities();
 
@@ -490,6 +545,14 @@ describe("activity dashboard repository and routes", () => {
       })),
     );
 
+    const { getDatabase } = await import("../src/lib/db/connection");
+    const db = getDatabase();
+    db.prepare(
+      "update activity set sport = 'resort_snowboarding' where garmin_id = 'page-000'",
+    ).run();
+    db.prepare(
+      "insert into activity_split_summary (garmin_id, split_type, distance_meters, fetched_at) values ('page-000', 'SKI_RUN_SPLIT', 3210, 1), ('page-000', 'SKI_LIFT_SPLIT', 1790, 1)",
+    ).run();
     const firstPage = repo.listActivitiesForDashboard({ limit: 100 });
     const secondPage = repo.listActivitiesForDashboard({
       limit: 100,
@@ -502,6 +565,11 @@ describe("activity dashboard repository and routes", () => {
     expect(firstPage.activities).toHaveLength(100);
     expect(firstPage.nextOffset).toBe(100);
     expect(secondPage.activities).toHaveLength(25);
+    expect(secondPage.activities.at(-1)).toMatchObject({
+      garminId: "page-000",
+      distanceMeters: 5000,
+      snowRunDistanceMeters: 3210,
+    });
     expect(secondPage.nextOffset).toBeNull();
   });
 

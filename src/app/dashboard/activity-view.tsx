@@ -473,8 +473,15 @@ export function ActivityView({
                       </small>
                     </span>
                     <span>
-                      {distanceLabel(activity.distanceMeters)} ·{" "}
-                      {durationLabel(activity.durationSec)}
+                      {activity.sport === "resort_skiing" ||
+                      activity.sport === "resort_snowboarding"
+                        ? typeof activity.snowRunDistanceMeters === "number" &&
+                          Number.isFinite(activity.snowRunDistanceMeters) &&
+                          activity.snowRunDistanceMeters >= 0
+                          ? distanceLabel(activity.snowRunDistanceMeters)
+                          : "—"
+                        : distanceLabel(activity.distanceMeters)}{" "}
+                      · {durationLabel(activity.durationSec)}
                     </span>
                   </button>
                 ))}

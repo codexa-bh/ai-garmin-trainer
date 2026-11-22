@@ -1361,7 +1361,7 @@ def run_scenarios(
     args.snow_hr_compact_captures = snow_hr_compact_captures
     if snow_hr_compact_captures:
         plan['captures'] = {
-            'selected': 'trainer wide per instance; first instance Snow populated wide closed/open Times, narrow-right open Times, preserved wide',
+            'selected': 'trainer wide per instance; first instance Snow populated wide closed/open Times, narrow-right open Times, preserved wide; populated and missing navigation wide/narrow',
             'omitted': 'other baseline PNGs, other Snow states/edges and duplicate second-instance Snow PNGs; all scenario assertions/viewports still execute',
             'authority': 'explicit task capture-only selection; no scenario/security/isolation waiver',
         }
@@ -1377,7 +1377,12 @@ def run_scenarios(
             task_id or Path(os.environ.get('PIVAN_TASK_PATH', 'local')).name.split('-')[0]
         )
         args.anchor = anchor
-        prepared = prepare(scratch, args, 'ordinary')
+        prepared = prepare(
+            scratch,
+            args,
+            'ordinary',
+            synthetic_snow_navigation=tuple(s.label for s in scenarios) == ('snow-runs',),
+        )
         bundle, source = canonical(bundle), source_identity()
         with ordinary_preparation(REPO, bundle, source, scratch) as (verified, inventory):
             return execute_ordinary(

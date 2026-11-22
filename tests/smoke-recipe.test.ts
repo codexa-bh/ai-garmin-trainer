@@ -40,6 +40,42 @@ afterEach(() => {
 });
 
 describe("finite representative authored smoke recipe", () => {
+  it("creates the exclusive snow paging variant without changing the default", () => {
+    const root = scratch();
+    expect(() =>
+      recipe(root, `smoke-input-${randomUUID()}`, "2026-11-01", true, true),
+    ).toThrow();
+    const result = recipe(
+      root,
+      `smoke-input-${randomUUID()}`,
+      "2026-11-01",
+      false,
+      true,
+    );
+    expect(result).toMatchObject({
+      syntheticVariant: "snow-navigation",
+      activities: 114,
+    });
+    const db = new Database(result.path, { readonly: true });
+    try {
+      expect(
+        db
+          .prepare(
+            "select count(*) as n from activity where garmin_id like 'snow-page-%'",
+          )
+          .get(),
+      ).toEqual({ n: 100 });
+      expect(
+        db
+          .prepare(
+            "select a.sport, a.distance_meters as session, s.distance_meters as runs from activity a join activity_split_summary s on s.garmin_id = a.garmin_id where a.garmin_id = 'snow-page-099' and s.split_type = 'SKI_RUN_SPLIT'",
+          )
+          .get(),
+      ).toEqual({ sport: "resort_skiing", session: 9000, runs: 1234 });
+    } finally {
+      db.close();
+    }
+  });
   it("is logically deterministic across fresh private outputs and timezone/clock boundaries", () => {
     const root = scratch();
     const first = recipe(root, `smoke-input-${randomUUID()}`, "2026-11-01");

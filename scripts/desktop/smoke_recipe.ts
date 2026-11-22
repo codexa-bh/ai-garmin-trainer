@@ -848,7 +848,10 @@ export function recipe(
   name: string,
   anchor: string,
   emptyChat = false,
+  snowNavigation = false,
 ) {
+  if (emptyChat && snowNavigation)
+    throw new Error("Synthetic variants are exclusive.");
   anchorTime(anchor);
   const info = lstatSync(scratch);
   if (
@@ -867,6 +870,28 @@ export function recipe(
   const db = new Database(":memory:");
   try {
     populate(db, anchor);
+    if (snowNavigation) {
+      const insert = db.prepare(
+        "insert into activity (id, garmin_id, name, sport, started_at, duration_sec, distance_meters) values (?, ?, ?, ?, ?, ?, ?)",
+      );
+      for (let index = 0; index < 100; index++) {
+        const id = `snow-page-${index.toString().padStart(3, "0")}`;
+        insert.run(
+          id,
+          id,
+          index === 99
+            ? "Fictional paged resort"
+            : `Fictional page filler ${index}`,
+          index === 99 ? "resort_skiing" : "running",
+          anchorTime(anchor) - DAY * (1000 + index),
+          3600,
+          9000,
+        );
+      }
+      db.prepare(
+        "insert into activity_split_summary (garmin_id, split_type, distance_meters, fetched_at) values ('snow-page-099', 'SKI_RUN_SPLIT', 1234, ?)",
+      ).run(anchorTime(anchor));
+    }
     const checks = verify(db, "synthetic");
     if (emptyChat) {
       // Author only this new in-memory fixture; never clear a published/selected input.
@@ -886,6 +911,7 @@ export function recipe(
       anchor,
       ...checks,
       ...(emptyChat ? { syntheticVariant: "empty-chat" } : {}),
+      ...(snowNavigation ? { syntheticVariant: "snow-navigation" } : {}),
     };
   } finally {
     db.close();
@@ -898,7 +924,9 @@ if (
 ) {
   if (
     process.argv.length === 6 &&
-    ["create", "create-empty-chat"].includes(process.argv[2])
+    ["create", "create-empty-chat", "create-snow-navigation"].includes(
+      process.argv[2],
+    )
   )
     console.log(
       JSON.stringify(
@@ -907,6 +935,7 @@ if (
           process.argv[4],
           process.argv[5],
           process.argv[2] === "create-empty-chat",
+          process.argv[2] === "create-snow-navigation",
         ),
       ),
     );
@@ -929,6 +958,6 @@ if (
     }
   } else
     throw new Error(
-      "Usage: smoke_recipe.ts create|create-empty-chat <private-scratch> <smoke-input-UUID> <UTC-date> | verify <database> synthetic|private",
+      "Usage: smoke_recipe.ts create|create-empty-chat|create-snow-navigation <private-scratch> <smoke-input-UUID> <UTC-date> | verify <database> synthetic|private",
     );
 }

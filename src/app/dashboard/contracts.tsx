@@ -342,6 +342,7 @@ export type ActivityListItem = {
   startedAt: string;
   durationSec: number | null;
   distanceMeters: number | null;
+  snowRunDistanceMeters?: number | null;
   elevationGainMeters: number | null;
   avgHeartRate: number | null;
   detailStatus: string | null;

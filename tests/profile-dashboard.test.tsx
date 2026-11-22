@@ -180,6 +180,7 @@ type ActivityListTestItem = {
   elevationGainMeters: number;
   avgHeartRate: number;
   detailStatus: string;
+  snowRunDistanceMeters?: number | null;
 };
 
 function activityListItem(
@@ -2921,6 +2922,95 @@ describe("strength activity detail visibility", () => {
 });
 
 describe("TrainerDashboard activity charts", () => {
+  it("shows resort run distance or dash without changing session duration", async () => {
+    const activities = [
+      activityListItem(0, {
+        name: "Ski",
+        label: "Ski",
+        sport: "resort_skiing",
+        distanceMeters: 10000,
+        durationSec: 3600,
+        snowRunDistanceMeters: 4500,
+      }),
+      activityListItem(1, {
+        name: "Board",
+        label: "Board",
+        sport: "resort_snowboarding",
+        distanceMeters: 10000,
+        durationSec: 3600,
+      }),
+      activityListItem(2, {
+        name: "Run",
+        label: "Run",
+        sport: "running",
+        distanceMeters: 10000,
+        durationSec: 3600,
+        snowRunDistanceMeters: 4500,
+      }),
+      activityListItem(3, {
+        name: "Zero",
+        label: "Zero",
+        sport: "resort_skiing",
+        durationSec: 3600,
+        snowRunDistanceMeters: 0,
+      }),
+      activityListItem(4, {
+        name: "Invalid",
+        label: "Invalid",
+        sport: "resort_snowboarding",
+        durationSec: 3600,
+        snowRunDistanceMeters: -1,
+      }),
+      activityListItem(5, {
+        name: "Backcountry",
+        label: "Backcountry",
+        sport: "backcountry_skiing",
+        distanceMeters: 10000,
+        durationSec: 3600,
+        snowRunDistanceMeters: 4500,
+      }),
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversations/selection")
+          return selectionResponse(init);
+        if (
+          url.startsWith("/api/chat") ||
+          (url.startsWith("/api/conversations/") && init?.method === "GET")
+        )
+          return jsonResponse(emptyChat);
+        if (url === "/api/profile") return jsonResponse(profile([]));
+        if (url.startsWith("/api/activities?"))
+          return jsonResponse({ activities, nextOffset: null });
+        return jsonResponse({ ok: true });
+      }),
+    );
+    render(React.createElement(TrainerDashboard));
+    fireEvent.click(screen.getByRole("button", { name: "Activities" }));
+    await screen.findByText("Ski");
+    expect(
+      screen.getByText("Ski").closest(".activity-list-item")?.textContent,
+    ).toContain("4.50 km · 1h 00m");
+    expect(
+      screen.getByText("Board").closest(".activity-list-item")?.textContent,
+    ).toContain("— · 1h 00m");
+    expect(
+      screen.getByText("Run").closest(".activity-list-item")?.textContent,
+    ).toContain("10.00 km · 1h 00m");
+    expect(
+      screen.getByText("Zero").closest(".activity-list-item")?.textContent,
+    ).toContain("0.00 km · 1h 00m");
+    expect(
+      screen.getByText("Invalid").closest(".activity-list-item")?.textContent,
+    ).toContain("— · 1h 00m");
+    expect(
+      screen.getByText("Backcountry").closest(".activity-list-item")
+        ?.textContent,
+    ).toContain("10.00 km · 1h 00m");
+  });
+
   it("renders humanized sport text without icons, tooltips or Garmin IDs", async () => {
     const sports = [
       "hiking",
