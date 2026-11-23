@@ -28,18 +28,26 @@ Catalog/key Save uses the existing live acknowledgment. A successful connection 
 
 ## Recovery and lifetime
 
-| State                                                | Deliberate next action                                                                                                                                                                   |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Signed in, plan permission required                  | Enable plan permission; do not assume identity access authorizes inference.                                                                                                              |
-| No account model selected / stale or removed model   | Refresh the selected registration's catalog and choose a supported entry explicitly. Old preferences remain visible/unavailable, never substituted.                                      |
-| Reconnect required / terminal refresh rejection      | Continue with the selected saved registration; its issued client and verified identity must still match.                                                                                 |
-| Interrupted new registration, known issued client    | Retry deliberately using the retained issued client and host, including after restart. No automatic authorization or code replay.                                                        |
-| Interrupted new registration, unknown remote effects | Preserve local state and reconcile the intended connected app with the operator before another new registration. Do not delete private files or blindly retry.                           |
-| Transient network/service failure                    | Retain the connection and inspect/retry deliberately. There is no sign-in loop or automatic inference replay.                                                                            |
-| Usage limit                                          | Manage usage. The failure does not establish whole-plan exhaustion or a reset time. API-key routing requires a separate manual selection.                                                |
-| Ineligible account, region, route or capability      | Check current OpenAI eligibility/model support. Repeated sign-in or a paid fallback is not an automatic remedy.                                                                          |
-| Private connection state unavailable / unsupported   | Preserve originals and use a compatible build or reconcile private storage. Do not delete/chmod/adopt files to bypass refusal. Other configured API-key/local routes remain independent. |
-| Saved/live activation unknown                        | Inspect saved state and explicitly reopen if necessary; do not treat a timeout as rollback or a confirmed live update.                                                                   |
+- **Signed in, plan permission required**
+  - Deliberate next action: Enable plan permission; do not assume identity access authorizes inference.
+- **No account model selected / stale or removed model**
+  - Deliberate next action: Refresh the selected registration's catalog and choose a supported entry explicitly. Old preferences remain visible/unavailable, never substituted.
+- **Reconnect required / terminal refresh rejection**
+  - Deliberate next action: Continue with the selected saved registration; its issued client and verified identity must still match.
+- **Interrupted new registration, known issued client**
+  - Deliberate next action: Retry deliberately using the retained issued client and host, including after restart. No automatic authorization or code replay.
+- **Interrupted new registration, unknown remote effects**
+  - Deliberate next action: Preserve local state and reconcile the intended connected app with the operator before another new registration. Do not delete private files or blindly retry.
+- **Transient network/service failure**
+  - Deliberate next action: Retain the connection and inspect/retry deliberately. There is no sign-in loop or automatic inference replay.
+- **Usage limit**
+  - Deliberate next action: Manage usage. The failure does not establish whole-plan exhaustion or a reset time. API-key routing requires a separate manual selection.
+- **Ineligible account, region, route or capability**
+  - Deliberate next action: Check current OpenAI eligibility/model support. Repeated sign-in or a paid fallback is not an automatic remedy.
+- **Private connection state unavailable / unsupported**
+  - Deliberate next action: Preserve originals and use a compatible build or reconcile private storage. Do not delete/chmod/adopt files to bypass refusal. Other configured API-key/local routes remain independent.
+- **Saved/live activation unknown**
+  - Deliberate next action: Inspect saved state and explicitly reopen if necessary; do not treat a timeout as rollback or a confirmed live update.
 
 ID-token audience validation accepts the issued client as either a string or a single-element string array, as defined by [OpenID Connect](https://openid.net/specs/openid-connect-core-1_0.html#IDToken). An explicit authorized-party claim must match that issued client; multiple audiences retain the additional matching-party requirement. Signature, trusted issuer/key, original nonce, expiry and returning-registration identity checks remain mandatory.
 

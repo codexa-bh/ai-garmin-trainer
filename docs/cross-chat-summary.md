@@ -89,6 +89,8 @@ are output-only and never persisted as a ledger. No model-managed item IDs,
 keep/remove/upsert/replaces, required coverage schema, citation graph or transitive
 summary-item ancestry is requested, stored or repaired by the active engine.
 
+### Source eligibility and privacy decisions
+
 Code owns completion/source selection, operation identity, frontier and processing
 counts. Successful source dispositions mean **processed**, not “represented in a
 sentence”; ineligible and minimized-away sources remain excluded/filtered. Original
@@ -119,6 +121,8 @@ retain their independent historical erasure scope. No hidden retry repairs inval
 not new global sources. Rebuild alone admits separately bounded authentic context.
 User-authored URLs, paths, topic/key-like words and quoted instructions are untrusted
 prose, not a content-pattern veto or authority to access secrets/files/tools.
+
+### Scheduling and publication
 
 An incremental/import job captures at most20 new sources; reviewed rebuild chunks
 contain at most40. Each makes one draft request with one advisory size target and
@@ -218,8 +222,7 @@ Retry preserves all costs and does not synchronously infer. Old version1 writers
 Closed version2 `densify-request`, `densify-accept`, `densify-discard` and
 `densify-cancel` carry an opaque request ID; the renderer never supplies candidate
 text or trusted counts. Only `densify-request` additionally accepts an optional
-`model` string: the existing encoded version1 `{version,entryId,provider,modelId}`
-exact catalog choice. Omission preserves the configured default, including legacy
+`model` string: an exact encoded catalog choice, version1 `{version,entryId,provider,modelId}` or subscription version2 with `registrationId`. Omission preserves the configured default, including legacy
 compatibility; alternatives must still match the current activated catalog and
 credential eligibility. Unknown/removed/remapped identities or extra fields refuse,
 never fall back. Read-only content inspection exposes safe default/eligible picker
@@ -349,8 +352,7 @@ an old writer/downgrade/blind copy-back.
 
 Focused policy/provider/storage/rebuild/import/pin/composition/UI/migration suites retain
 independent no-save/Clear/suppression, CAS/lease/concurrency/cancel/unknown, whole-request
-and compatibility oracles. New complete-text/many-batch/Unicode/preference tests replace
-superseded item-graph assertions, not weaken safety to accept prior_item failures.
+and compatibility oracles. Complete-text/many-batch/Unicode/preference tests retain safety coverage without requiring a generated item graph.
 Current ARM64 ordinary-artifact native smoke exercises summary/preference editing,
 owned restart and wide/narrow presentation plus adjacent lifecycle/isolation. Fixed
 presentation fixtures, synthetic DOM input, canonical masks, actual provider success

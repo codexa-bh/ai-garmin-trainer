@@ -1,228 +1,78 @@
 # Trainer memory without embeddings
 
-Cross-chat memory is **one generated summary**, plus separately authored preferences
-and restrictions. Current conversation history, Profile, Garmin facts and saved plans
-remain independent. Ordinary chat does not retrieve or ingest legacy vectors.
-Memory is untrusted continuity, never verified measurements, policy or permission to
-save a plan. Current corrections, Profile and fresh tool evidence take precedence;
-your separate preferences take precedence over generated prose.
+Memory is **one generated summary plus separate authored preferences/restrictions**. It is untrusted continuity, not measurements, policy or save permission. Current corrections, Profile and fresh tool evidence outrank it; authored preferences outrank generated prose. Conversation history, Garmin facts and saved plans remain independent. Ordinary chat neither retrieves nor ingests legacy vectors.
+
+This guide owns visible controls. [Cross-chat summary](cross-chat-summary.md) owns generation, concurrency, privacy/storage and migration; [conversation history](conversation-history.md) owns same-chat continuity.
 
 ## Configuration
 
-Native Settings → Memory exposes:
+Native Settings → Memory offers Remember across chats (Off), the independent Memory and automatic chat-title model (Unselected), and generated-text target (6000 Unicode scalars, integer 1000–20000). The [configuration contract](cross-chat-summary.md#shared-summarytitle-configuration-independent-chat) owns defaults, provider/credential handling, advisory sizing, capacity/usage and restart rules. Complete valid over-target text remains usable; preferences do not consume the target. Missing identity/key/capability never silently substitutes a provider.
 
-- **Remember across chats**, default Off. Off stops use and new summary processing,
-  retains stored data and does not disable automatic chat titles.
-- **Memory and automatic chat-title model**, default Unselected. Choose an exact
-  configured provider/model independently of Trainer chat. Missing/removed entries,
-  keys or provider capability remain unavailable, never silently substituted.
-- **Generated summary target (characters)**, default6000 Unicode scalars, integer
-  1000–20000. This guides concise **generated text only**, not a maximum. Complete
-  valid text above the target is saved and used unchanged; lowering the target
-  does not erase it. Separately authored preferences do not count toward the target.
-
-[ChatGPT subscription](chatgpt.md) is an independent supported summary/title choice with no API-key, embedding or token-count prerequisite. The same compatible streaming factory serves maintenance, history rebuild/import, explicit Densify and titles while Summary is Off. The selected registration/model is captured; disconnect or permission/currentness loss prevents late publication. Plan/credit usage and observed tokens are not API-price estimates; missing counters stay unknown.
-
-A smaller, cheaper model is usually sufficient. Minimized eligible context may
-leave the device through the selected provider's native private-key or subscription credential owner;
-keys never enter renderer readback, jobs or generated secret files. Summary/title/
-local compaction have no product-wide spending/attempt cap, tokenizer qualification
-or output-token cap. The provider can refuse capacity; full memory is not silently
-clipped or switched to another model. Observed estimates, historical reservations
-and unknown liabilities are not invoices or free work. Explicit paid tests require
-their own credible finite bounds and cumulative authority.
-
-On/Off/model/size configuration remains restart-only. Saving native On does not undo
-an immediate Trainer Disable. Catalog/shared-key live updates retain their existing
-acknowledgment/captured-work safeguards. Settings draft/saved values are not proof of
-running readiness. The retained metadata-only native status command is not a content
-or provider-probing API and has no automatic UI replacement.
+A smaller, cheaper model is usually sufficient. Eligible context may leave the device. [ChatGPT subscription](chatgpt.md) is supported without an API key or embedding service; plan/credit observations are not API invoices. Summary Off does not disable titles. Save memory changes, then quit/reopen; saving On never undoes immediate Trainer Disable. Draft/saved values do not prove active readiness. Paid tests need their own credible finite cumulative authority.
 
 ## Stable memory and visible controls
 
-Trainer **Memory** shows:
+### Generated summary and editing
 
-- **Generated summary**: one complete text and its generated-only character count.
-  **Show summary** reveals the saved text; **Hide summary** collapses it again.
-  The choice lasts while the app runs and resets to collapsed on restart.
-  **Edit summary** opens a full-current-window, labelled complete-text editor.
-  Long text scrolls inside the editor; **Save summary** / **Cancel edit** stay visible.
-  The native **Edit** menu supplies standard macOS selection/copy and editing commands
-  for the focused field (including ⌘A / ⌘C), without extra copy/select controls.
-  Saving replaces the generated field under current-state comparison. It does not
-  turn generated sentences into your preferences. A later history regeneration
-  replaces this text, **including direct summary edits**.
-- **Densify summary**: an optional extra paid request, not routine upkeep: normal
-  chat updates already consolidate memory automatically. **Model for this run**
-  defaults to the configured memory model (including an honest unavailable default),
-  or explicitly chooses an eligible exact catalog entry for this request only.
-  It never saves settings, changes automatic summary/title or Trainer models, or
-  requires a restart. Local eligibility is not remote readiness or a cost estimate.
-  The choice is captured once, disabled during generation/review and resets to the
-  default after settlement; live configuration changes still revoke stale work.
-  Densify is
-  available for any nonempty usable saved summary, not only above target. Only the
-  captured generated text and advisory target are sent, not history or preferences.
-  Saved memory stays readable and in use during generation and complete candidate
-  review. Compare old/new scalar counts and meaning, then **Use shorter summary**
-  or **Discard**. Only strictly shorter valid text can replace it, even if still
-  above target. Equal/longer output cannot save and never buys an automatic retry.
-  Save/cancel editor drafts first; other memory writers and missing native/model
-  configuration refuse admission. **Cancel densify** cannot recall sent text/costs.
-  Reviews expire after ten minutes or changed saved/privacy/configuration/native
-  authority. Lost requests reconcile without replay; restarting discards unaccepted
-  previews. Acceptance preserves preferences, source progress and existing chat pins.
-  A shorter result is not a guarantee of preserved meaning: review it carefully.
-- **Your preferences**: separate **Add preference**, **Edit preference**,
-  **Save preference** and deliberate **Remove preference**. Regeneration preserves
-  these authored notes; relevant history edits/deletions do not erase them.
-- **Update from chat history**: one local all/selected-conversation review, followed
-  by a separate exact-snapshot **Start update** confirmation. It explains export,
-  uncertain cost and replacement. Old generated text stays until complete success,
-  unless an independent privacy action has already revoked it. Keep the app open.
-- **Turn Off / Turn On** and **Manage memory → Clear saved memory**. Clear explicitly
-  removes generated text, authored preferences and chat-pin derivatives, records
-  source cutoffs including incomplete pre-clear turns, but leaves originals and
-  independent stores. Future new turns may create new memory.
+**Show summary** reveals the complete saved text and generated-only character count; **Hide summary** collapses it. The choice lasts while the app runs, resetting on restart. **Edit summary** opens a labelled full-current-window editor with scrolling text and always-visible Save/Cancel. The native Edit menu provides standard macOS selection/copy/editing, including ⌘A/⌘C, without extra copy controls.
 
-There are no generated cards, model-managed IDs, Source & details or per-fact Forget
-claims. Without provenance the app cannot surgically subtract one source's influence.
-**Deleting chats or messages does not clear saved memory** (schema27, approved
-deletion-only exception): the generated summary, preferences, processed frontier and
-use in surviving/new chats stay intact, so memory may keep what it learned from deleted
-chats. Use Clear saved memory to remove it. Deleted originals are never reselected,
-exported or replayed, and a pending update computed from them is refused. Other
-relevant source edits still invalidate the **whole generated summary**, revoke unsafe
-captured use/export and show a durable "earlier history no longer covered" status until
-Clear or a completed Update from chat history; new-only updates do not clear it.
-Existing historical Forget suppressions and known Clear/no-save restrictions remain
-enforced. Up to 50 recent generated-memory revisions are kept locally for debugging
-only (see [cross-chat summary](cross-chat-summary.md#local-debug-revisions)).
-Removing a preference is not deleting original history or erasing similar generated
-meaning everywhere. No paid rebuild starts on panel open, reads or navigation.
+Save replaces the entire generated field under current-state comparison. It does not turn sentences into authored preferences. A later history regeneration replaces it, **including direct edits**.
 
-Editors have labelled Save/Cancel, dirty-discard protection and focus return. Passive
-progress/metadata reads preserve mounted content, drafts, focus and scroll. Status
-honestly distinguishes Off, empty, invalidated, running, complete, cancelled,
-interrupted, failed and unknown results. Off content is not presented as usable current
-memory. Destructive confirmations default to Cancel. Lost connections reconcile the
-same operation; no mutation is automatically replayed. Ordinary pending updates,
-including work scheduled by an explicit Retry, are also observed automatically
-until saved results or a reason needing attention arrives. Pending does not mean
-an update is running; observation only reads status and never starts or retries work.
+### Densify summary
 
-Ordinary updates automatically learn, correct and consolidate through one complete-summary
-request with full prior meaning and new eligible input. No routine manual Densify, fixed
-size ceiling or second condensation call is required. Identical text means no useful
-change; failure preserves prior and pending input without blind retry. Important reasons,
-negation and unresolved choices must survive, but structural checks cannot guarantee
-model judgment or semantic completeness. Schema25 removes ordinary-prose correction and
-Profile erasure: “Actually …”, “Correction: …”, changed facts and no-op Profile saves do
-not wipe unrelated memory or chat continuity. Changed Profile values invalidate captured
-in-flight work independently. Genuine source/privacy controls still revoke unsafe use;
-revoked text never becomes a fallback. The configured memory model distinguishes
-plan/review/document no-write directions from memory privacy in its normal single call.
-Otherwise eligible privacy prose is transmitted to that provider; it is not a
-no-transmission guarantee. A minimal validated exclusion decision restricts current
-inputs durably through native storage; it cannot erase arbitrary prior memory or
-preferences. Hard Off/cutoff/suppression/deletion controls still apply before transmission.
-Quoted instructions remain data. Semantic interpretation/omission remains model-dependent.
+Densify is optional extra paid work, not routine upkeep: ordinary updates already consolidate. It accepts any nonempty usable summary, not just over-target text. **Model for this run** starts at the configured memory model, including an honest unavailable default; an explicit eligible exact catalog choice applies only to this request. It neither saves settings nor changes chat/automatic memory/title choices. Eligibility is not readiness or a cost estimate. Choice is captured once, disabled during generation/review and reset after settlement; live configuration changes can revoke stale work.
 
-At each atomic turn admission, after busy exclusion, the chat adopts latest usable
-summary plus separate preferences, or null. Ordinary publication does not replace
-that admitted snapshot during planner/tools/synthesis/delivery. The next admission
-adopts the new revision without a per-chat maintenance action. Privacy/Off/Clear/
-source/preference invalidation revokes unsafe captured use, including marked derived
-debug copies; already displayed/exported text or provider logs cannot be recalled.
-Holding a pin alone is not evidence that an answer consumed it. Full memory is included
-on the configured chat routes without a second projection ceiling; provider capacity
-refusal remains explicit. Conversation-local continuity does not depend on global memory.
+Only captured generated text and advisory target are sent, not history/preferences. Saved memory remains readable/in use while generating and reviewing the complete candidate. Compare counts **and meaning**, then **Use shorter summary** or **Discard**. Only valid strictly shorter text can save, even above target; equal/longer output cannot save or trigger an automatic retry. Save/cancel editor drafts first; conflicting writers or missing configuration refuse admission.
+
+**Cancel densify** cannot recall transmitted text or costs. Review expires after ten minutes or changed saved/privacy/configuration/native authority. Lost requests reconcile without replay; restart discards unaccepted previews. Acceptance preserves preferences, source progress and existing chat pins. Shorter does not prove preserved meaning. [Densification protocol](cross-chat-summary.md#explicit-manual-densification) owns requests, candidates, accounting and publication.
+
+### Preferences, history update and removal
+
+- **Your preferences:** Add/Edit/Save and deliberate Remove operate on separate authored notes. History regeneration and relevant history edits/deletions preserve them. Removal neither deletes original history nor erases similar generated meaning everywhere.
+- **Update from chat history:** review all/selected conversations locally, then confirm **Start update** for that exact snapshot. Confirmation explains export, uncertain cost and replacement. Keep the app open. Old generated text stays until full success unless independent privacy authority revoked it.
+- **Turn Off / Turn On:** Off retains records but stops use/admission; enabling needs active native configuration and does not import Off history.
+- **Manage memory → Clear saved memory:** removes generated text, preferences and pin derivatives, recording cutoffs including incomplete pre-clear turns. Originals/independent stores remain; future turns can create new memory.
+
+There are no generated cards, model-owned IDs, Source & details or per-fact Forget promise. Without provenance the app cannot subtract one source's influence. **Deleting chats/messages does not clear saved memory**: summary, preferences, processed frontier and surviving/new-chat use remain, potentially retaining deleted-source influence. Use Clear to remove it. Deleted originals cannot be reselected/exported/replayed; pending work based on them refuses.
+
+Other relevant source edits invalidate the whole generated summary and unsafe captured use/export. Durable “earlier history no longer covered” remains until Clear or completed Update from chat history, not a new-only update. Historical Forget/Clear/no-save restrictions remain. [Privacy contract](cross-chat-summary.md#stable-pin-inspection-controls-and-privacy) owns exact revocation scopes; [local debug revisions](cross-chat-summary.md#local-debug-revisions) retains at most 50 revisions for explicit debugging, not runtime use.
+
+### Progress and normal learning
+
+Editors preserve labelled Save/Cancel, dirty-discard protection and focus return. Passive reads keep drafts, focus, scroll and mounted content. Status distinguishes Off, empty, invalidated, running, complete, cancelled, interrupted, failed and unknown; Off content is not usable current memory. Destructive confirmation defaults to Cancel. Lost connections reconcile the same operation without mutation replay. Automatic observation of pending work (including after explicit Retry) reads status only; pending does not mean running and observation never starts/retries work. Opening the panel/navigation never starts paid rebuilds.
+
+Ordinary updates use one complete-summary request to learn, correct and consolidate prior/new eligible meaning. No fixed ceiling or extra condensation call is required. Identical output is no new learning; failure preserves prior/pending input. Structural validity cannot prove model fidelity. Ordinary correction prose and no-op Profile saves do not erase unrelated memory; changed Profile values separately stale captured work. The configured memory model distinguishes document no-write directions from memory privacy in that same call. Otherwise eligible privacy prose reaches the provider: non-retention is not a no-transmission promise. Valid current-input exclusions become durable restrictions but cannot erase arbitrary prior/preference content; hard controls apply before transmission. Quoted instructions remain data.
+
+Each atomic turn admission adopts latest usable summary/preferences or null after busy exclusion. The snapshot remains frozen through planner/tools/synthesis/delivery; next turn adopts newer publication automatically. Privacy/Off/Clear/source/preference changes revoke unsafe use, including marked debug derivatives. Already displayed/exported text and provider logs cannot be recalled. Holding a pin does not prove answer consumption. Full memory reaches configured routes without a second projection cap; provider refusal remains explicit and local conversation continuity stays independent.
 
 ### Paused summary recovery
 
-Memory overview distinguishes **paused** processing after a provider failure from ordinary pending updates, running work and a finite retry delay. Pending count and saved summary remain separate; a parked retry sentinel is never displayed as a future date. Old failures can show the truthful paused state without invented diagnostics.
+Paused after provider failure differs from pending, running and finite retry delay. Saved summary/pending count remain separate; a parked sentinel is never shown as a future date. Historical failures can show paused without invented diagnostics.
 
-Use the existing **Retry summary processing** deliberately when ready. It schedules eligible work through the same scheduler, may consume subscription plan/credits or provider charges, and does not guarantee repair or immediate completion. Timed backoff retains its existing policy; there is no automatic unpark/replay on panel open, disclosure, refresh or restart. Off and active history updates keep their existing precedence and action restrictions.
+Deliberate **Retry summary processing** schedules eligible work, may incur plan/credit/provider usage and guarantees neither repair nor immediate completion. Existing timed backoff remains; panel open/disclosure/refresh/restart never unparks/replays. Off and active history-update precedence still applies.
 
-**Provider failure details** is keyboard-accessible and initially collapsed. It shows only validated closed category/stage, available status/timing/correlation, receipt comparisons and known SDK-discard counts, never raw errors, response text or full debug traces. These are observations, not a confirmed cause. Missing historical details say they were not recorded. Details must belong to the current configuration/failure; Retry or a newer outcome removes them from current presentation while historical attempt metadata remains. Passive refresh preserves the open disclosure and existing drafts/focus/scroll.
+**Provider failure details** starts collapsed and is keyboard-accessible. It shows only validated categories/stages, available status/timing/correlation, receipt comparisons and SDK-discard counts, not raw errors/text/full traces. These are observations, not causes. Missing historical details say not recorded. Only current configuration/failure details display; Retry/new outcome removes them from current presentation while historical attempt metadata remains. Passive refresh preserves disclosure/drafts/focus/scroll. [ChatGPT diagnostics](chatgpt.md) owns the bounded fields.
 
 ## Preserved legacy records and explicit historical transition
 
-Legacy semantic facts/vectors, trainer-memory records, markers, inactive settings and
-historical receipts remain preserved. They are not automatically migrated into active
-memory, re-embedded or exported. There is no archive/technical/per-chat snapshot dashboard.
-The retained compatibility import API admits explicitly reviewed eligible completed
-Off-turn versions after the actual cutoff, at most200 turns/100000 source scalars in
-batches of20. It shares the current complete-text writer, not old item reconciliation.
-Pause/cancel/unknown effects retain progress/accounting and require honest review.
-Temporal words alone do not exclude durable meaning. Original user and available
-assistant-context dates anchor relative time, never the import/generation date.
-Availability changes do not select or replay history automatically.
+Legacy facts/vectors, trainer-memory records, markers/settings/receipts remain inactive and preserved, without automatic migration, re-embedding or export. There is no archive/technical/per-chat-snapshot dashboard. The retained explicit compatibility import admits reviewed completed Off-turn versions after cutoff; [historical transition](cross-chat-summary.md#explicit-historical-transition) owns the 200-turn/100000-scalar/20-source bounds, dated context, progress and unknown-effect handling. Temporal words alone never exclude durable meaning; original dates, not generation dates, anchor relative time. Availability is not consent or replay.
 
 ### Rebuild from chat history
 
-Review counts the complete retained original pool, not the sidebar/import page.
-Choose all retained or selected conversations and explicitly opt into uncertain older
-history if wanted. Earlier schema22's conservative legacy floor and schema23's separate
-known future-Clear floor remain distinct. Permission to reuse uncertain older history
-does not override known suppression, Clear, no-save or source/context authority.
-Unfinished linked sources, unavailable dates and whole oversized messages are disclosed;
-missing/ambiguous assistant context does not exclude independent user text or invent a
-referent. Excluded originals are never silently labelled processed.
+Review the complete retained pool, not the sidebar/import page; choose all or selected conversations and explicitly opt into uncertain older history if wanted. This never overrides known Clear/no-save/suppression or context authority. Disclose unfinished linked sources, unavailable dates and whole oversized messages; missing assistant context neither excludes independent user text nor invents referents. Excluded originals are not processed.
 
-A rebuild starts from **empty temporary generated text**, not the old publication.
-Each successful40-source batch receives the previous complete draft and the next
-eligible prose chunk, then replaces that draft in full. The generated-size target
-is advisory: one draft request per chunk, with no size-only rejection or additional
-condensation inference. No decoder-forced clipping, unknown replay or source shrinking. Only full completion atomically
-publishes once. Processing counts are application-owned; they do not certify semantic
-representation of every source. Failure/cancel/unknown/stale/config changes cannot
-publish a partial draft or silently spend again. Arrivals after the reviewed boundary
-remain pending. No model item IDs, coverage arrays, keep/remove/upsert/replaces or
-source-fate/citation graph are part of generation.
+Rebuild starts from empty temporary generated text. Each successful 40-source batch replaces the complete draft using the previous draft and next chunk. One request per chunk uses an advisory target, without forced clipping, extra size-only condensation, narrowed sources or unknown replay. Only complete success publishes once; arrivals after review remain pending. Failure/cancel/stale/configuration/unknown effects never publish partial drafts or silently spend again.
 
-Useful rationale, constraints, rejected approaches and uncertainty matter more than
-filling the target. Underfull output is valid; an empty result is not a substitute for
-required meaningful real-history acceptance. Structural/mocked/native evidence is not
-real-provider semantic-quality proof. See [cross-chat summary](cross-chat-summary.md)
-for precise bounds, concurrency and forward-format admission.
+Useful constraints, rationale, rejected approaches and uncertainty matter more than filling the target. Underfull is valid; empty output cannot substitute for required meaningful real-history acceptance. Processing counts do not prove representation of every source. [Rebuild contract](cross-chat-summary.md#explicit-rebuild-from-chat-history) owns bounds, concurrency and distinct mechanical versus real-provider quality evidence.
 
 ## First-prompt chat titles
 
-Future automatic titles use the **same explicitly selected summary model**, not
-chat/extraction selection. Summary Off does not disable title processing. Unselected,
-unsupported, missing-key or exhausted capability retains the prompt excerpt.
-The existing first-message/manual-title/clear/delete tombstones and Next `after()`
-lifetime remain. No historical retitling or retry queue is added.
+Titles use the independent selected summary model even when Summary is Off. Unselected/unsupported/missing-key/exhausted capability retains the prompt excerpt. Existing first-message/manual-title/clear/delete tombstones and Next `after()` lifetime apply, without historical retitling or retry queue.
 
-Title-only source input retains its unchanged limited legacy pre-call privacy guard
-(including its weekly-review limitation), isolated from memory eligibility/decisions,
-and is bounded to2000 characters;
-the3000ms deadline, no tools/retries and supported stateless controls remain.
-There is no token-count/output-cap, pricing prerequisite, daily count or monetary
-admission cap. Captured keys/configuration survive awaits; manual titles and
-first-message/deletion tombstones remain authoritative. Durable attempt receipts
-and usage are recorded once; old reservations remain intact. Missing counters or
-prices are unknown, never zero cost or billed savings.
+Title-only input retains its limited legacy pre-call privacy guard, including the weekly-review limitation, independently of memory eligibility. Input is bounded to 2000 characters, deadline 3000ms, no tools/retries, supported stateless controls. There is no token-count/output cap, price prerequisite or daily monetary/attempt gate. Captured keys/configuration survive awaits; title/tombstone authority still wins. Receipts/usage record once; old reservations persist. Unknown counters/prices never mean zero cost or billed savings.
 
 ## Backup, restore, and reset
 
-Schema25 removes the four correction/Profile erasure triggers without changing stored
-rows; compatible saved compacts, generated text, preferences, originals and costs survive.
-Startup/Use existing does not migrate. Installed24 needs separately authorized exact-target
-migration; source delivery is not activation, lost-text recovery or live-model proof.
+[Compatibility and validation](cross-chat-summary.md#compatibility-and-validation) owns schema24 text/preferences, schema25 erasure-trigger removal and schema27 deletion-only authority, including refused ambiguous legacy edits and preserved originals/accounting. Rehearse independent WAL-consistent online copies, integrity/FKs/reopen and preservation before separately authorized exact-target migration. Startup/Use existing never migrates; source delivery neither activates a database nor proves lost-text recovery or live-model quality. Preserve compatible backups/settings/archives and favor forward fix after new writes, never downgrade/blind copy-back.
 
-Schema24 changes active generated serialization to `{version:2,text}` and uses separate
-`summary_preference` rows and version2 pin/command admission. Historical migrations are
-unchanged. Only proven standalone legacy authored notes map losslessly; source-linked
-manual edits require an operator decision and refuse the transition unchanged. Corrupt/
-unsupported state also refuses rather than resets. Historical manual bytes/accounting/
-restrictions remain; incompatible active pins/staged work are revoked without pretending
-completion, refunds or replay. Primary activation is separately authorized.
-
-Rehearse on an independent WAL-consistent online copy and verify originals, integrity,
-FKs, preserved sources/settings/accounting and reopen first. Startup/Use existing never
-migrate selected data. Older schema readers refuse24. Preserve compatible backups and
-native settings/archives; use a forward fix after new writes, not downgrade/blind copy-back.
-Clear/removal do not erase transcripts, Profile, Garmin, plans, legacy stores, provider
-logs or backups. Domain deletion scopes remain separate; no “all memory erased” claim.
+Clear/removal never erases transcripts, Profile, Garmin, plans, legacy stores, provider logs or backups. Domain scopes remain separate; there is no “all memory erased” guarantee.
