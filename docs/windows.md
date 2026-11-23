@@ -1,6 +1,12 @@
 # Windows x64 alpha
 
-The source tree builds a **Windows x64 (`x86_64-pc-windows-msvc`)** desktop app and an **unsigned per-user NSIS installer** next to the existing macOS ARM64 app. The **[0.1.3 Windows x64 alpha installer is published](https://github.com/codexa-bh/ai-garmin-trainer/releases/download/v0.1.3/Garmin-Trainer-0.1.3-windows-x64-setup.exe)** in the shared stable/Latest release. Verify its [checksum](https://github.com/codexa-bh/ai-garmin-trainer/releases/download/v0.1.3/Garmin-Trainer-0.1.3-windows-x64-setup.exe.sha256) and [seven-asset identities](release.md#published-013) before use. Its accepted qualification is hosted **Windows Server 2025 x64 only**, **not** Windows 11 support: no Windows 11 machine has run this installer/app. Windows ARM testing is deferred; availability of an ARM runner is not evidence. Windows 10 and Windows ARM64 are not targets.
+The source tree builds a **Windows x64 (`x86_64-pc-windows-msvc`)** desktop app and an **unsigned per-user NSIS installer** next to the existing macOS ARM64 app. The **[0.1.4 Windows x64 alpha installer is published](https://github.com/codexa-bh/ai-garmin-trainer/releases/download/v0.1.4/Garmin-Trainer-0.1.4-windows-x64-setup.exe)** in the shared stable/Latest release. Verify its [checksum](https://github.com/codexa-bh/ai-garmin-trainer/releases/download/v0.1.4/Garmin-Trainer-0.1.4-windows-x64-setup.exe.sha256) and [seven-asset identities](release.md#published-014) before use. Its accepted qualification is hosted **Windows Server 2025 x64 only**, **not** Windows 11 support: no Windows 11 machine has run this installer/app. Windows ARM testing is deferred; availability of an ARM runner is not evidence. Windows 10 and Windows ARM64 are not targets.
+
+## Published 0.1.4 evidence
+
+Binary source is [`02fd82fd9842e93402cdc88e7e2f387fb02d3fde`](https://github.com/codexa-bh/ai-garmin-trainer/tree/02fd82fd9842e93402cdc88e7e2f387fb02d3fde). The 107,228,501-byte installer SHA-256 is `f63ddd038cad9bfa62f841c0f6413d0bdc061ac53326504b1bcbe234c8d6bd0c`; its complete anonymous download matched. [Run 45149572845, attempt 1](https://github.com/codexa-bh/ai-garmin-trainer/actions/runs/45149572845) verified the final payload and exercised the exact installer through hydration, navigation, Goals save/restart, same-version replacement, preserving uninstall and owned settlement. All six masked images were individually inspected: Trainer navigation fits at both widths, Sync actions stack narrow, and the Profile overlay occludes navigation while saved Goals wrap.
+
+Host: Windows Server 2025 x64 build 26100, image `20261116.315.1`, WebView2 `157.0.4341.46`. Export `14807866549` and image artifact `14806539358` were verified before their three-day expiry. They are not permanent download links. This is Server-only synthetic own-WebView2 evidence, not Windows 11, trusted native input/chrome, SmartScreen, normal onboarding, older-version upgrades, source-CLI migration or real-service qualification.
 
 ## Published 0.1.3 evidence
 
@@ -28,7 +34,7 @@ The app is the same private, single-user Tauri host with its owned loopback Next
 
 ## Build from source (Windows x64 host)
 
-Prerequisites: Windows x64, Git, Node.js 22 with npm, Python 3.12 (`python`), Rust 1.98 with the MSVC toolchain (Visual Studio Build Tools "Desktop development with C++"), 7-Zip installed in `Program Files\7-Zip` (used to read, never run, the installer), and the Microsoft Edge WebView2 Runtime. Runtime integrations need separately managed uv/uvx and Python 3.12, as on macOS.
+Prerequisites: Windows x64, Git, Node.js 22 with npm, Python 3.12 (`python`), Rust 1.98 with the MSVC toolchain (Visual Studio Build Tools "Desktop development with C++"), 7-Zip installed in `Program Files\7-Zip` (used to read, never run, the installer), and the Microsoft Edge WebView2 Runtime. Garmin sync uses the official Personal API in-process; it does not require Python or uv/uvx at runtime.
 
 ```powershell
 $env:PYTHONUTF8 = "1"   # Python UTF-8 text I/O, as on macOS/Linux
@@ -44,7 +50,7 @@ The installer installs for the current user under `%LOCALAPPDATA%\Garmin Trainer
 
 - **WebView2** is a prerequisite. If it is missing, the installer stops with guidance and installs nothing; it never downloads or installs WebView2 itself.
 - **Uninstall never deletes your data.** Settings, databases and tokens under `%APPDATA%\com.codexa.garmin-trainer.desktop` remain until you manage them yourself. (The stock Tauri "delete app data" option is removed.)
-- **Program replacement** uses the same install directory and preserves private data; the finite alpha scenario re-executes only the exact same-version installer after owned shutdown and rechecks installed payload/registration/DB/settings before uninstall. There is no prior public Windows installer baseline; older/dev upgrades and downgrades remain unqualified. Installer downgrade refusal in silent/update modes is a contract, not normal-use certification. **Existing-database source-CLI migration is not qualified on Windows**: current maintenance tooling has POSIX uid/mode assumptions. Do not use macOS migration instructions as a tested Windows path. The app never upgrades a database at startup.
+- **Program replacement** uses the same install directory and preserves private data; the finite alpha scenario re-executes only the exact same-version installer after owned shutdown and rechecks installed payload/registration/DB/settings before uninstall. Upgrades from earlier public or development installers and downgrades remain unqualified. Installer downgrade refusal in silent/update modes is a contract, not normal-use certification. **Existing-database source-CLI migration is not qualified on Windows**: current maintenance tooling has POSIX uid/mode assumptions. Do not use macOS migration instructions as a tested Windows path. The app never upgrades a database at startup.
 
 ## Package and verify without installing
 
