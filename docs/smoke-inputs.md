@@ -91,19 +91,28 @@ An explicit private refusal is nonzero **before native launch**, never silently 
 
 No extra fields are accepted. This is a serialization contract, **not a real grant template to self-approve**:
 
-| Field                                                 | Required value/meaning                                                                                                             |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `schemaVersion`, `grantId`, `revision`, `status`      | Integer `1`; opaque bounded identity; positive integer; current `active` (anything else, including `revoked`, refuses)             |
-| `kind`, `consumerTask`                                | `standing` with `null`, or `one-off` with the exact consuming `Tnnnn`                                                              |
-| `approval`                                            | Exactly nonempty bounded `operator` and `evidence` strings referencing actual explicit approval, not fixture provenance            |
-| `artifactId`, `artifactVersion`                       | Exact bounded selected artifact/version identities                                                                                 |
-| `selectionSha256`, `provenanceSha256`, `logicalHash`  | Lowercase 64-hex exact selection bytes, exact provenance bytes, and whole logical SQLite fingerprint from the existing smoke owner |
-| `epic`                                                | Exactly `E0007`                                                                                                                    |
-| `scenarios`                                           | Nonempty unique subset of `native`, `ordinary`, `health-comparison`; must include requested use                                    |
-| `dataClasses`                                         | Exactly ordered `["numeric-activity-summaries","daily-health","synthetic-profile"]`; excluded populated classes still refuse       |
-| `validFrom`, `expiresAt`, `retentionUntil`            | Explicit UTC `YYYY-MM-DDTHH:MM:SSZ`; start ≤ now < expiry ≤ owner-approved retention bound                                         |
-| `originalReadOnly`                                    | `true`                                                                                                                             |
-| `primaryWrite`, `credentials`, `externalTransmission` | Each exactly `false`                                                                                                               |
+- **`schemaVersion`, `grantId`, `revision`, `status`**
+  - Required value/meaning: Integer `1`; opaque bounded identity; positive integer; current `active` (anything else, including `revoked`, refuses)
+- **`kind`, `consumerTask`**
+  - Required value/meaning: `standing` with `null`, or `one-off` with the exact consuming `Tnnnn`
+- **`approval`**
+  - Required value/meaning: Exactly nonempty bounded `operator` and `evidence` strings referencing actual explicit approval, not fixture provenance
+- **`artifactId`, `artifactVersion`**
+  - Required value/meaning: Exact bounded selected artifact/version identities
+- **`selectionSha256`, `provenanceSha256`, `logicalHash`**
+  - Required value/meaning: Lowercase 64-hex exact selection bytes, exact provenance bytes, and whole logical SQLite fingerprint from the existing smoke owner
+- **`epic`**
+  - Required value/meaning: Exactly `E0007`
+- **`scenarios`**
+  - Required value/meaning: Nonempty unique subset of `native`, `ordinary`, `health-comparison`; must include requested use
+- **`dataClasses`**
+  - Required value/meaning: Exactly ordered `["numeric-activity-summaries","daily-health","synthetic-profile"]`; excluded populated classes still refuse
+- **`validFrom`, `expiresAt`, `retentionUntil`**
+  - Required value/meaning: Explicit UTC `YYYY-MM-DDTHH:MM:SSZ`; start ≤ now < expiry ≤ owner-approved retention bound
+- **`originalReadOnly`**
+  - Required value/meaning: `true`
+- **`primaryWrite`, `credentials`, `externalTransmission`**
+  - Required value/meaning: Each exactly `false`
 
 Grant/selection/provenance JSON are each at most 8192 bytes. The selected SQLite is at most 16 MiB with at most 256 rows per table; this finite seam is not a full personal-backup importer. Artifact provenance has exactly `schemaVersion:1`, `artifactId`, `artifactVersion`, `logicalHash`, the same `dataClasses`, and `originalPreserved:true`. Its claim must originate from reviewed artifact preparation; a hash match alone does not prove anonymity, appropriate consent or owner lifetime. Numeric/date data can remain personal. A changed source or additional data classes require fresh exact authority, not widening a saved grant to force compatibility.
 
