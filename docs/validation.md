@@ -1,10 +1,10 @@
 # Local validation and smoke checklist
 
-After [tool setup](#local-tool-setup), comprehensive validation is `npm ci && CI=true npm run validate`. Routine Ubuntu PR/main `validate:ci` runs cheap checks first: Prettier, rustfmt, Ruff format/lint, production Vulture, ESLint, architecture, both Knip modes, fresh `next typegen && tsc --noEmit`, Vitest and Python contracts. It builds no production backend/native host; full `validate` adds Next production build. Required hosted checks must succeed on the exact PR head before checked merge; pending/skipped/neutral is not success. [Project guardrails](project-guardrails.md) owns dynamic-entry/dead-code rules; test-only use is not a production consumer.
+After [tool setup](#local-tool-setup), run `npm ci && CI=true npm run validate`. PR/main Ubuntu `validate:ci` checks formatting, lint/dead code, architecture, both Knip modes, fresh types and Vitest/Python tests; full validate adds Next build. Required hosted checks must **succeed on exact PR head** before merge; pending/skipped/neutral is not success. [Guardrails](project-guardrails.md) owns individual rules.
 
 ## Local tool setup
 
-Use Node 22.23.4, Python 3.12, Rust 1.98.0 and pinned Ruff/Vulture. Put Python tooling outside the checkout (Pivan task disposable scratch), not in app/fixture state. Activate before npm so `python3` resolves its modules:
+Pin Node 22.23.4, Python 3.12, Rust 1.98.0 and requirements-file Ruff/Vulture. Put Python environment outside checkout (managed disposable scratch), activate before npm:
 
 ```bash
 python3.12 -m venv '/absolute/outside-checkout/python-quality'
@@ -15,23 +15,19 @@ export RUSTUP_TOOLCHAIN=1.98.0
 export PATH="$(dirname "$(rustup which cargo --toolchain 1.98.0)"):$PATH"
 ```
 
-Checks never install/rewrite; missing tools fail. Ruff is 0.17.5, Vulture 2.16. Keep exact Cargo/rustc (not unrelated Homebrew tools) and environment unchanged through validation/build/smoke. Python selects Git-tracked files: format/lint includes tests; Vulture excludes `tests/` and `*_test.py` from usage/definitions, confidence60, with narrow reasoned protocol/public-entry modelling rather than name-based reachability. No Python/plain JS/MJS type-check claim is made. Hosted Clippy is post-merge macOS-only; Windows-only Rust is formatted, not linted.
+Checks never install/rewrite; missing tools fail. Keep actual Cargo/rustc/environment unchanged through build/smoke, not unrelated Homebrew tools. Rustfmt includes Windows; hosted Clippy is post-merge macOS only. Python/JS analysis is not typechecking.
 
 ## Windows x64 job
 
-[Windows](windows.md#on-demand-execution) owns manual `workflow_dispatch`, immutable selected SHA, Server2025 runner, exact tools/build/tests and installed scenario. PRs/pushes never allocate this non-required job. [Scenario publication](windows.md#installed-app-scenario-and-narrow-evidence-exception) permits only six inspected synthetic masked PNGs plus sanitized manifest for three days. Default-off [release export](windows.md#explicit-exact-candidate-release-export) is separate authority.
-
-Windows x64 remains alpha/unsupported. Server proof does not qualify Windows11/ARM, trusted input/menu/focus/full chrome, ordinary onboarding or real integrations; same-version replacement does not qualify older/dev upgrades or Windows source-CLI DB migration. [Release qualification](release.md#dual-platform-candidate-and-publication-procedure) owns candidate acceptance.
+[Windows](windows.md#on-demand-execution) owns manual-only selected-SHA Server 2025 execution/build/tests/installed scenario; PR/push never allocates it. Only [six masked synthetic images plus manifest](windows.md#installed-app-scenario-and-narrow-evidence-exception) get three-day upload; default-off release export is separate. Alpha stays unsupported; Server evidence does not qualify Windows 11/ARM, trusted input/full chrome/default onboarding/real integration/older upgrades/source-CLI migration. [Release](release.md#dual-platform-candidate-and-publication-procedure) owns candidate qualification.
 
 ## Change-gated native nightly
 
-`Nightly macOS` runs at **02:17 UTC** daily or manually on main. A Linux metadata gate precedes macOS allocation. First/changed exact main SHA runs; unchanged SHA skips after an allocated attempt (even failure/cancel/timeout) or carried successful unchanged decision. Cancellation before allocation is not an attempt. Skips save cost, not certify repair/green; manual dispatch cannot force unchanged retry. Inspect/repair failure before a new revision.
+Nightly macOS runs 02:17UTC or manual main. Linux metadata gate allocates macOS for first/changed SHA; unchanged skips after an allocated attempt even failed/cancelled/timed-out, or carried successful unchanged decision. Preallocation cancellation is not attempt. Manual cannot force unchanged retry: inspect/repair/new revision. A skip is cost avoidance, not green.
 
-History limits are 20 runs and 20 jobs/run, 10-second/1-MiB API bounds and exact job identities. Missing/malformed/denied history fails before macOS. Only gate has Actions-read; all jobs Contents-read. Gate emits comparison SHA, native checkout verifies it against HEAD, so moving main cannot change revision.
+Gate bounds history to 20 runs×20 jobs,10s/1MiB API responses and exact job identities; missing/malformed/denied history fails before allocation. Only gate has Actions-read, all Contents-read. Native checkout must match gate SHA despite main movement. ARM64 macos-15 verifies actual Darwin/arm64.
 
-The `macos-15` ARM64 runner (catalog plus actual Darwin/arm64 checks), Node22.23.4/Rust1.98.0 runs full validation, reliability, one Next build/resource assembly, locked all-target warnings-denied Clippy, native tests and one synthetic native Goals save/restart. It does not run optimized packaging, full navigation/parallel/capture/release, services/Keychain or dialog qualification. Stage observations do not imply later steps ran; observe hosted allocation/cron/skips separately from local tests.
-
-Reproduce on dedicated macOS ARM64 worktree after setup, without changing inputs:
+Full validation/reliability uses one Next build, assembly, locked warnings-denied all-target Clippy/native tests and one synthetic Goals Save/restart. No optimized package/full navigation/parallel/images/release/services/Keychain/dialog proof. Reproduce on dedicated ARM64 worktree, same inputs:
 
 ```bash
 npm ci
@@ -43,13 +39,11 @@ rustup run 1.98.0 npm run desktop:test:native
 rustup run 1.98.0 npm run smoke:quick -- --scratch '/absolute/canonical/private-task-scratch' --resources-ready
 ```
 
-Assembler-only `desktop:assemble` must immediately follow the same-input successful Next build. `--resources-ready` checks source fingerprint/all resource hashes and refuses mismatch without rebuild fallback; without it quick builds resources. Other build/smoke commands keep their full meanings.
-
-Superseded PR/ref runs cancel; nightly serializes without cancelling allocated native work. Actions are SHA-pinned and installs locked. Only nightly/Windows npm download-tarball caches keyed by lockfile exist; push Validate has no cache. Never cache node_modules/app/build state or upload binary/SQLite. macOS images stay local; Windows has only its linked exception. Job-private synthetic state follows [verified invocation disposal](smoke/ownership.md#preparation-reuse-and-owned-disposal) after settlement/evidence; diagnostics expire with runner/task scratch. Retain bounded receipt/source/shutdown facts, not private config/DOM/DB dumps. Pivan registers PR/main CI asynchronously; skips/pending never mean green or merge authority.
+Assembler-only follows same-input successful build. Resources-ready verifies fingerprint/all hashes or refuses, never silently rebuilds; other commands retain full meaning. Superseded PR/ref runs cancel; nightly serializes without cancelling allocated work. Actions are pinned/installs locked. Only nightly/Windows npm tarball caches by lockfile, no Validate cache or cached node_modules/app/build/SQLite. [Owned disposition](smoke/ownership.md#preparation-reuse-and-owned-disposal) follows settlement/evidence; macOS images remain local. Record actual stages, not inferred later success.
 
 ### Deterministic checks and diagnostics
 
-Rendered navigation, mode-persistence and privacy scenarios remain independent real-component/bridge tests under default per-test deadlines. Separate CLI refusal tests each run the real CLI; splitting cumulative startup/render work never justifies longer timeouts, dropped assertions or mocked boundaries. For load-sensitive failures, run affected file then full Vitest under normal concurrency. SQLite preservation uses `Buffer.equals` for exact bytes; online-backup/migration assertions remain.
+Use focused affected tests early; load-sensitive failures need affected file then normal-concurrency Vitest, not dropped assertions or enlarged timeouts. Real CLI refusal/DOM/byte-preservation tests remain meaningful boundaries.
 
 ```bash
 npm run doctor -- --json
@@ -69,7 +63,7 @@ npm run deps:evidence -- --output ./tmp/dependency-evidence.json
 npm run build
 ```
 
-Doctor, DB status and dependency evidence are allowlisted support artifacts after review. They report version/schema/current-migration/provider/loopback configuration and native official-Garmin ownership, never remote readiness. Doctor reads no Garmin key and calls no Garmin service. Exclude credentials/tokens/provider URLs/prompts/GPS/raw payloads/vectors/env values from shared evidence.
+Doctor/status/dependency reports need review before sharing. They prove local configuration/version/schema, not remote readiness; doctor reads no Garmin key/calls no service. Exclude credentials/provider URLs/prompts/GPS/raw data/vectors/env values.
 
 ## Individual snow split validation
 
@@ -77,55 +71,43 @@ Doctor, DB status and dependency evidence are allowlisted support artifacts afte
 npx vitest run tests/snow-splits.test.ts tests/snow-split-storage.test.ts tests/snow-backfill.test.ts tests/official-extra-sync.test.ts tests/garmin-extra-backfill-cli.test.ts
 ```
 
-These cover authored FIT (including native Sync fixture), single-decode persistence, populated schema29 upgrade, stable/reordered identity/refusals, preservation/coverage, full authored history and independent resume/repeat/target/writer admission.
+Add split-heart-rate/stored-split-heart-rate, activity-supplement and adjacent SQL/KPI/local-data/instruction tests for derived-HR or UI changes. [Field contract](garmin-extra-data.md) owns units/clock/support/coverage/backfill rules; tests own numeric edge fixtures, not a duplicate prose test inventory.
 
-`split-heart-rate` and `stored-split-heart-rate` cover exact/near80% unrounded support despite long gaps; no held first30s; leading/middle/trailing/null-chain warnings; supported-only weighting/zones; stationary run/lift isolation/clipping; calendar/clock and exact activity-local legacy UTC proof through the millisecond writer; FIT alignment; MCP-excluding lap-only bounds, incomplete/conflicting bounds beyond UI caps; readonly preservation, reasons/privacy and trainer caps. `activity-supplement` covers run table/totals/lap visibility. Adjacent SQL, KPI recipe, local-data wiring and trainer instructions cover guarded evidence/freshness.
-
-Run current full ordinary plus [Snow runs](smoke/features.md#finite-authored-snow-runs), synthetic Sync and `smoke:chat --extra-data`. Snow `--compact-captures` selects HR/coverage/warning/Times/narrow-right images before generation, retaining full two-instance assertions; record omitted image proof. These prove authored wiring, not service/model semantics. Primary history requires the separate [backup/full-range rehearsal/explicit-go contract](garmin-extra-data.md#explicit-history-backfill).
+Run full ordinary plus [Snow runs](smoke/features.md#finite-authored-snow-runs), synthetic Sync and chat --extra-data. Compact capture selection may omit images, never actions/assertions; disclose omitted proof. Primary history still requires [full-range rehearsal/explicit go](garmin-extra-data.md#explicit-history-backfill).
 
 ## macOS desktop validation
 
-[Desktop](desktop.md#validation-and-recovery) owns full commands and required actual-artifact setup/lifecycle/state scenarios. Build with `npm run desktop:build` before `npm run desktop:test:native`; fresh native tests need assembled resources (`desktop:resources` is the alternative). Use an unsigned ARM64 bundle outside checkout on disposable populated state, not browser/dev-server success. Inspect sanitized native images and disclose unavailable real integrations.
+[Desktop](desktop.md#validation-and-recovery) owns full commands and required actual setup/lifecycle/state proof. Native tests require assembled resources. Use unsigned current ARM64 bundle outside checkout on disposable populated state, not browser/dev-server readiness. Inspect required images; real integration unavailable remains explicit.
 
-For DMG tooling, [release foundation](release.md) requires cheap packaging/metadata/remote-mock tests, ordinary build, mounted final-payload verification and full ordinary `--release-record` smoke. Keep original producer stamp/lock and final transport identity at every boot; debug/probe never substitutes. Foundation grants no real tag/draft/upload/publication/install. `release:check` and `release_test.py` remain deterministic coverage.
+For DMG work, follow [release](release.md): cheap packaging/metadata/mock tests, ordinary build, mounted final-payload verification and ordinary --release-record smoke. Retain producer lock/identity through every boot. Debug/probe is not ordinary payload proof; foundation grants no real tag/draft/upload/install.
 
-[Ownership](smoke/ownership.md) is the single owner of:
+[Smoke ownership](smoke/ownership.md) owns identity/reuse, full versus reviewed feature scope, noninterference/preservation/settlement/disposal. [Catalog](smoke-commands.md) gives commands; [scenario references](dev-bridge.md#detailed-reference) give actual assertions/captures. Synthetic inputs need no personal consent; private/service inputs need exact current authority. Python smoke:test is contracts, not full execution; quick/nightly is intentionally narrow. Missing safe capability follows [before-use extension](smoke/protocol.md#task-needed-bridge-and-runner-extensions), never bypass or automatic ticket. Trusted dialogs/input need arranged operator window.
 
-- [Build identity/current-driver reuse](smoke/ownership.md#ordinary-build-identity-and-current-driver-reuse), including whole-source versus build/context identity, complete inventory and fail-closed freshness. Cheap mutation/concurrency tests are not actual-artifact smoke.
-- [Risk-selected coverage](smoke/ownership.md#risk-selected-ordinary-feature-smoke): default full two-instance; reviewed local features may narrow, shared/native/controller/config/DB/process/identity/mask or uncertain impact requires full plus affected features. Stronger saved obligations remain.
-- [Resources/disposal](smoke/ownership.md#preparation-reuse-and-owned-disposal), observer/preservation/settlement and [evidence limits](smoke/ownership.md#evidence-and-recovery).
-
-The [catalog](smoke-commands.md) supplies commands/prerequisites/effects; [scenario references](dev-bridge.md#detailed-reference) own exact assertions/captures. Ordinary, debug, release-denial probe, fixed presentation, actual lifecycle, trusted input and real service are distinct proof. Routine synthetic input needs no personal consent; optional private input needs current exact authority. `smoke:test` contains cheap Python contracts, not full private/release execution. Quick/nightly remains minimal. Missing task-needed capability follows the [before-use extension recipe](smoke/protocol.md#task-needed-bridge-and-runner-extensions), never a bypass or automatic extra ticket. Native dialogs/trusted input need an arranged manual window.
-
-Both Knip modes model actual command/workflow, runtime/OAuth, Python-invoked seed/recipe, setup HTML, admitted smoke bootstrap and ESLint-rule entries. Debug Settings/history bootstraps remain outside ordinary UI resources; shared validation is reachable through real entries. Generated `src-tauri/{target,gen,resources}` and `dist` are output, not source exemptions. Packaged initializer probes are target-free; native fresh-publication/readonly tests are not ordinary wizard certification. Operator-only real Garmin key entry remains separate from authored keyless evidence.
-
-Presentation-only Markdown-table app changes may use `npm run smoke:tables -- --scratch <canonical-private-task-scratch> --bundle <same-source-ordinary-app>` under the [table scenario](smoke/features.md#finite-synthetic-markdown-table-scenario): synthetic existing seed, ordinary artifact, exact masks, twelve wide/narrow/scroll-edge captures and stated integration/input limits. This changes no recurring CI/default workload.
+Markdown-table UI changes may use [tables](smoke/features.md#finite-synthetic-markdown-table-scenario) ordinary evidence/twelve images. Documentation-only changes need formatting, links/commands and pinned consumers—not app screenshots merely because docs mention smoke.
 
 ### ChatGPT subscription proof boundaries
 
-`tests/chatgpt-{oauth,transport,composition,settings}.test.*` cover authored OAuth/JWKS/callbacks/browser args, compatible HTTP/SSE across purposes, API-key-free chat/tools/history/memory/titles/maintenance, failures, currentness and UI intent. Native tests cover storage/restart/identity/rotation, transient/terminal outcomes, queued/late cancellation, replaced file/parent and broker denials. Returning-client tests inspect outgoing issued-client/host before callback, not row counts. Pending tests distinguish known-client retry from unknown-remote refusal across restart; new workspaces never merge by subject/email. Debug/release-probe owners refuse real credentials; routine tests never borrow ordinary state.
-
-After marker/DOM/Python/native checks, `smoke:settings -- --scratch <canonical-root> --input-file <authored-selection> --chatgpt-presentation` proves fictional controls, saved/new intent and Back in nine inspected images, not OAuth or billed inference. Shared lifetime changes need full ordinary plus affected eligibility/chat/summary proof. Real authorization/renewal/inference needs separately explicit account/usage/data/window authority. [ChatGPT](chatgpt.md) owns service contract and unavailable-proof reporting.
+ChatGPT OAuth/transport/composition/settings tests plus native storage/broker/epoch/cancel tests cover authored mechanics. Returning authorization must reuse selected issued client **before** callback; known pending client retries versus unknown remote refusal remain distinct. No test borrows normal credentials. [Fictional Settings](smoke/settings.md#finite-chatgpt-settings-presentation) gives nine inspected images, not OAuth/inference. Shared lifetime changes need full ordinary plus affected chat/eligibility/summary. [Real service](chatgpt.md#verification-boundary) needs separate account/usage/data/window authority.
 
 <a id="official-personal-api-reader-dormant"></a>
 
 ## Official Personal API reader
 
-The official reader is the product path. `tests/official-{client,fit,coverage,reader,mixed-provenance}.test.ts` cover transport, ZIP/FIT, zones and coverage. `official-composed-sync` runs the real import application/SQLite against in-memory `official-api-fixture`, covering ranges, legacy transition, replay/cancel and non-null preservation. `official-fit-fixture` authors bytes, never personal recordings. [Synthetic Sync](synthetic-sync-smoke.md) exercises the native official path; neither proves account/device/rate-limit/terms behavior or uses a real key.
+Official client/FIT/coverage/reader/mixed-provenance and composed-Sync tests cover wire/archive/normalization/SQLite with authored fixtures. [Synthetic Sync](synthetic-sync-smoke.md) exercises actual native official path. Neither proves account/device/rate-limit/terms behavior or uses a real key. Never use personal recordings as public FIT fixtures.
 
 ## Generated Next.js declarations
 
-`next-env.d.ts` and `.next/` are ignored framework output: never commit/hand-edit them. TypeScript includes ambient/image and dev/production routes through tsconfig. Fresh checkout needs only `npm ci` then `typecheck`/`validate`; `next typegen` precedes tsc and failure stops it. Builds/assembly also regenerate. No browser server or restoring tracked declarations is required.
+next-env.d.ts/.next are ignored framework output, never hand-edited/committed. Fresh npm ci then typecheck/validate runs next typegen before tsc; failure stops. Builds/assembly regenerate too. No browser server or restored tracked declarations needed.
 
 ## Task process guardrails
 
-[Developer process](developer-process.md) owns same-task reconciliation/no-op/blocker and evidence-first task-created cleanup/deferral. The following live checks require separately authorized secrets/services and disposable populated state, not primary backfill authority:
+[Developer process](developer-process.md) owns same-task data reconciliation/cleanup/deferral. Live checks require separately authorized services/secrets and disposable populated state, not primary mutation authority:
 
-1. Actual Tauri chat/Profile loads without dev-login/Google OAuth/cookies/email allowlist; doctor flags non-loopback exposure.
-2. Follow [Garmin key setup](garmin-auth.md), Save/reopen and explicit Verify. Never expose keys/tokens/raw errors; old connector files remain untouched.
-3. Run explicit no-date Sync under finite approved live-test bounds, not merely the product maximum. Verify [operation/discovery/finality rules](sync-and-health.md), cancel/settle/restart/explicit Continue, passive no-replay, scope changes and preserved older/weight rows. Do not reset checkpoints or run exhaustive backfill for proof. [Synthetic Sync](smoke/sync.md#current-finite-synthetic-sync-scenario) is separate; copied-token routes refuse.
-4. Backfill one imported activity's detail; inspect normalized record/lap status or supported failure. Check streams/GPS/elevation/HR/grade/power/recovery/count coverage. Payload archive stays redacted local SQLite; FIT is decoded in memory, not written as files. Interrupt/resume/repeat to verify idempotence.
-5. Chat with configured provider on imported facts. Optional Ollama uses model `qwen3.5:4b` and loopback `/v1` (`AI_PROVIDER`/`OLLAMA_MODEL` are internal/maintenance identifiers, not desktop env onboarding). Include no-tool coaching, Garmin SQL/math, useful status/reference and missing-evidence cases. Verify schema discovery as needed, same-turn SQL handles/math, criteria/limitations and no fixed hidden rubric/model-only arithmetic. Record only tool statuses, bounded timing and redacted evidence.
-6. Restart and verify conversation/Profile/detail persistence; edit Profile and verify correction. Separately exercise chat/Profile, memory Clear and Garmin deletion on disposable state, including raw-payload/detail removal and reconnectability, under their distinct [deletion scopes](source-beta-readiness.md#local-data-lifecycle).
+1. Native chat/Profile loads without app sign-in; doctor flags non-loopback exposure.
+2. Native [Garmin setup](garmin-auth.md), Save/reopen/explicit Verify, no secret/raw-error exposure or old connector mutation.
+3. Finite approved live Sync, cancel/settle/restart/explicit Continue and passive no-replay/scope/finality/preservation. Product maxima are not test authority; no checkpoint reset/exhaustive backfill. Retired token runners refuse.
+4. Targeted imported detail: normalized coverage or supported failure, archive redacted/in-memory FIT, interruption/repeat idempotence.
+5. Exact configured provider on no-tool coaching/grounded SQL+same-turn math/reference/gaps with transparent criteria. Optional loopback Ollama is independently prepared; record bounded statuses/timing/redacted evidence, not hidden app rubric or model-only arithmetic.
+6. Restart persistence/Profile edits and separately authorized chat/Profile, memory and Garmin deletion on copies under distinct [scopes](source-beta-readiness.md#local-data-lifecycle).
 
-Deterministic tool-registry/planner/two-step/invalid-selection/no-replay tests remain available without live credentials, not equivalent service proof. [Garmin risk](garmin-risk.md), [memory privacy](cross-chat-summary.md#stable-pin-inspection-controls-and-privacy) and [desktop lifecycle](desktop.md) own readonly fixed-origin access, bounded model evidence, actual-artifact/ephemeral-listener use and primary/unrelated-process preservation. Ordinary memory uses completed-source summaries, not retired semantic-vector retrieval. No release/deploy follows validation.
+Deterministic tests remain usable without credentials but are not service proof. Validation grants no release/deploy or primary/unrelated-process control.

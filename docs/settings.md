@@ -1,58 +1,44 @@
 # Settings, model choice and memory options
 
-Native **Settings** is available from the app menu even without a working backend. This guide explains the controls; [desktop runtime](desktop.md#explicit-private-state-adoption) owns storage, adoption, activation and recovery, [local runtime](local-runtime.md#runtime-trainer-model-preference) owns model selection, and [Garmin connection](garmin-auth.md) owns key handling.
+Native Settings is available from the app menu even without a backend. [Desktop](desktop.md#explicit-private-state-adoption) owns storage/adoption/recovery; this page explains controls.
 
 ## First run and Settings
 
-A blank installation opens **Data → Provider → Connect Garmin or continue → Review**:
+Blank installation: **Data → Provider → Connect Garmin or continue → Review**.
 
-1. Choose **Create new database** at an unused destination, or **Use existing data** with a compatible SQLite database. Native proposes a private app-data destination outside the checkout. Custom destinations need an existing owner-private parent; use canonical absolute paths, not aliases, shell expansion or relative paths. Before selecting existing data, evaluate a WAL-consistent populated disposable backup. Existing selection/startup never creates or migrates a database; follow the [adoption and schema procedure](desktop.md#explicit-private-state-adoption) before primary cutover.
-2. Add chat models and required keys. Keys are stored in an owner-private **plaintext** file, not encrypted. Saved values are never read back: the fixed mask means configured presence, not key length. Leave it untouched to keep the key, type/paste to replace, or press Backspace/Delete on the mask to mark removal on Save. [Legacy Keychain adoption and private re-entry](desktop.md#legacy-settings-and-keychain) are explicit actions, never automatic startup work.
-3. Choose **Connect Garmin** or continue without it. Configured-provider chat and saved history work without Garmin.
-4. **Finish and open Trainer** validates local configuration, commits the database and settings separately, and opens one verified backend. It does not prove remote readiness, probe providers, sign in or sync Garmin. On failure, read the commit state: saved resources are retained. **Retry opening saved Trainer** uses only committed configuration; if interruption preceded settings commit, explicitly select the retained database with Use existing data.
+1. Create new DB at unused private destination, or select compatible existing SQLite. Use canonical absolute paths/private parents. Existing data becomes writable: rehearse a WAL-consistent populated copy and follow [adoption](desktop.md#explicit-private-state-adoption) before primary cutover. Startup never creates/migrates existing selection.
+2. Add models/keys. Storage is owner-private **plaintext**, not encryption. Fixed key mask means presence, not saved value/length. Untouched keeps, typing replaces, Backspace/Delete on saved mask marks removal. [Legacy adoption/re-entry](desktop.md#legacy-settings-and-keychain) is explicit, never startup work.
+3. Connect Garmin or continue without it; offline history/configured chat remains available.
+4. Finish validates local config and separately commits DB/settings before owned readiness. No remote probe/sign-in/Sync. Failure does not erase committed resources; Retry opens committed config, or after DB-only interruption select retained file as existing.
 
-Desktop never imports env files or its retired configuration pointer. Originals remain unchanged. Invalid or unsupported saved settings do not grant blank-install authority.
+No env-file/old-pointer import. Invalid/unsupported saved state is not blank-install authority; originals remain.
 
 ### Catalog and provider controls
 
-The catalog separates ChatGPT subscription, OpenAI API key, DeepSeek, Ollama and opt-in OpenRouter. Add/remove exact Model ID rows per provider; keys are shared per provider. Existing API-key/Ollama labels use provider / exact Model ID. Valid legacy names remain hidden compatibility metadata. There is no configured default, discovery or automatic fallback. Trainer requires an explicit choice, even with one eligible entry; [choice compatibility](local-runtime.md#runtime-trainer-model-preference) preserves prior exact intent.
+Add/remove literal Model IDs grouped by ChatGPT subscription, OpenAI API, DeepSeek, Ollama and OpenRouter. Keys shared per provider, valid old aliases hidden/preserved. No default/first-option/fallback; explicit Trainer choice even with one eligible entry. [Runtime](local-runtime.md#runtime-trainer-model-preference) owns compatibility.
 
-- **ChatGPT subscription:** [Continue with ChatGPT](chatgpt.md) uses native system-browser authorization and account models, not an OpenAI key or borrowed Codex credentials. One active connection has explicit Switch account; legacy multiple connections require a one-time choice. Connection commit and catalog Save are separate; no paid fallback occurs.
-- **Ollama:** manage its daemon and models separately. It has equal catalog prominence; its loopback endpoint remains Advanced.
-- **OpenRouter:** explicitly opt in and review its [privacy/tool-reliability limits](local-runtime.md#opt-in-openrouter-chat).
-
-Provider-key controls remain mounted through catalog edits and validation failures. Preserved extraction/embedding configuration and executable overrides have no normal technical editors or diagnostic status section.
+[ChatGPT](chatgpt.md) uses native browser authorization, retained-versus-new connection and independent credential/catalog commits, not API/Codex keys. Ollama daemon/models stay operator-managed with Advanced loopback endpoint. [OpenRouter](local-runtime.md#opt-in-openrouter-chat) is explicit opt-in with privacy/reliability limits. Catalog edits keep key controls mounted; old extraction/embedding/executable values remain hidden/inert, not normal technical editors.
 
 ### Save and activation
 
-For an existing installation, **Save settings** commits privately, then live-applies only chat catalog and shared provider-key changes. Check the result: Applied, saved/not applied, or saved/live outcome unknown. **Reload** reconciles saved versus active state without replaying Save. The independently saved Trainer choice is preserved.
-
-All other settings, including database, Garmin key/account, endpoints and memory, need explicit quit/reopen. A confirmed Save that changes effective startup-only settings still pending activation shows **Restart required**. Unchanged, repeated or live-only Saves do not repeat the dialog for older pending changes; restoring active values needs no notice. Dismissal never restarts the app. Ordinary Save never starts a backend or switches a live database/account. See the [activation contract](desktop.md#save-and-live-activation) for uncertainty and recovery.
+Save commits privately, then live-applies **only catalog/shared provider keys**. Inspect Applied/saved-not-applied/unknown. Reload reconciles without replay; Trainer choice is preserved. DB/Garmin/endpoints/memory need explicit quit/reopen. Restart-required notice appears for this confirmed Save's effective startup changes, not unchanged/repeated/live-only edits with old pending state or restoration to active values. Dismissal does not restart; Save never starts backend/live DB/account switch. [Activation](desktop.md#save-and-live-activation) owns uncertainty.
 
 ## Garmin access in Settings
 
-Create your own Personal API key in Garmin Connect → Settings → Personal API key, then choose **Connect Garmin** in native Settings, paste it and Save (first run: Finish). Quit/reopen to activate it. Keep the key out of chat, screenshots and issues. **Key saved** means stored configuration, not validity; **Sync → Garmin maintenance → Verify connection** is the explicit check. [Garmin connection](garmin-auth.md) explains replacement and action-specific failure recovery.
+Create key privately in Garmin Connect, enter via native Connect Garmin, Save/Finish and reopen. Never put key in chat/screenshots/issues. Key saved is configuration, not validity; Sync → Garmin maintenance → Verify connection is explicit check. [Connection](garmin-auth.md) owns replacement/recovery; legacy Reconnect needed leaves history/token files untouched. No startup contact/offline gating.
 
-Older unofficial-connector installations show **Reconnect needed**; saved history and old token files remain untouched. Garmin never gates offline views or chat and is not contacted at startup. [Sync and Health](sync-and-health.md) explains imports; [additional Garmin data](garmin-extra-data.md) lists field coverage and explicit historical backfill.
-
-Under **Garmin history**, **Limit how far back to import** reveals a required **Import from** date. No date is needed otherwise: explicit Sync discovers history in bounded batches. Turning the limit off and saving restores automatic discovery after quit/reopen. The [date-control contract](desktop.md#history-and-memory-controls) covers draft preservation and invalid dates.
+Garmin history → Limit how far back reveals required Import from date. Otherwise explicit Sync uses bounded automatic discovery. Off-and-Save/reopen restores automatic mode; [date rules](desktop.md#history-and-memory-controls) preserve drafts/invalid-date correction. [Sync](sync-and-health.md) owns progress; [extra data](garmin-extra-data.md) owns fields/backfill.
 
 ## Trainer model selector
 
-Chat's **Model** control (accessible name **Trainer model**) shows locally eligible activated entries. Missing-key cloud entries are omitted; eligible keyless Ollama remains. An unavailable selected identity stays visibly unavailable, never replaced by the first option. Configure models/keys in Settings, confirm live application, then **Retry model availability** if needed.
+Model (accessible **Trainer model**) lists eligible activated entries, omitting missing-key cloud and retaining eligible keyless Ollama. Unavailable saved choice remains warned, never replaced. Configure/confirm live apply, then Retry model availability. Selection affects future turns only and persists per DB; no Reset/default. Eligibility is not funding/install/readiness, exposes no keys and changes no summary/title choice.
 
-Selecting a model affects subsequent turns without restart; running work retains its captured configuration. The choice persists per selected database across reloads/restarts. There is no Default/Reset or silent substitution. Eligibility proves local configuration only, not funding, model installation or remote readiness. This control neither exposes keys nor changes the shared summary/title model. [Local runtime](local-runtime.md#runtime-trainer-model-preference) owns persistence, API and compatibility details.
-
-**Profile & data** contains Profile, imported athlete/body facts, diagnostics and deletion. **Sync** owns verification, import-summary refresh and activity-detail maintenance; **Memory** is separate.
+Profile & data owns Profile/imported facts/debug/deletion; Sync owns verification/import/detail maintenance; Memory is separate.
 
 ## Cross-chat memory and debug traces
 
-Settings → Memory offers:
+Defaults: Remember across chats **Off**, independent memory/title model **Unselected**, advisory generated target **6000** characters (1000–20000). Preferences are separate; target is not maximum. Save then reopen. Native On does not undo immediate Trainer Disable; Summary Off does not disable titles. Selected model may receive context; smaller is often sufficient.
 
-- **Remember across chats**, default Off. It controls processing, not deletion; saving On does not undo immediate Disable in Trainer → Memory.
-- **Memory and automatic chat-title model**, default Unselected. Choose an exact catalog entry independently of Trainer chat; a smaller, cheaper model is usually enough. Minimized context may leave the device through it. Summary Off does not disable titles.
-- **Generated summary target (characters)**, default 6000, range 1000–20000. This is advisory generated-text guidance, not a maximum; authored preferences are separate.
+[Memory](memory.md) owns controls, [summary](cross-chat-summary.md) protocol/privacy/usage. Ordinary memory needs no embeddings/vectors; legacy records/settings stay preserved, not automatically exported. Ollama chat remains independent.
 
-These settings require quit/reopen. [Memory](memory.md) and [cross-chat summary](cross-chat-summary.md) own editing, Densify review, Clear/Disable, regeneration, next-turn adoption, privacy, usage and migration rules. Ordinary chat does not use semantic vectors or require an embedding service; legacy records/configuration remain preserved without automatic export or lazy migration. Optional Ollama chat is independent.
-
-Local debug traces are always enabled by tested policy, regardless of `LLM_DEBUG_TRACES`. Profile & data traces may contain private normalized Garmin/chat/tool context: keep them local and out of screenshots/support artifacts.
+Debug traces are always enabled regardless of LLM_DEBUG_TRACES and may contain private Garmin/chat/tool context. Keep local; never include in screenshots/support artifacts.

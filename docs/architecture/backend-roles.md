@@ -1,76 +1,31 @@
 # Architecture: backend roles and composition
 
-Part of the [architecture overview](../architecture.md).
+Part of [architecture](../architecture.md).
 
 ## Enforced backend roles and composition inventory
 
-[`backend-roles.mjs`](../../scripts/backend-roles.mjs) is the complete per-file
-feature/layer inventory, checked by normal architecture/validation commands.
-Feature folders intentionally mix responsibilities; names/folder depth do not
-confer an exemption. [Allowed edges and limitations](../project-guardrails.md#featurelayer-ownership-runtime-and-erased-contracts)
-include erased contracts without treating them as runtime execution or cycles.
+[`scripts/backend-roles.mjs`](../../scripts/backend-roles.mjs) is the per-file feature/layer inventory; do not maintain a parallel file list here. [Guardrails](../project-guardrails.md#featurelayer-ownership-runtime-and-erased-contracts) owns allowed edges, erased contracts and checker limitations. Folder names confer no exemption.
 
-- **Chat / conversations**
-  - Inner contracts / application ports: `chat/{contracts,ports,context-ports}`, `createChatTurns`, `createChatContext`, `ConversationPorts`
-  - Outer composition and capability owners: `chat/{composition,conversation-composition}` binds storage, memory and selected AI generation; chat/conversation HTTP families invoke these seams
-- **AI orchestration / tools**
-  - Inner contracts / application ports: `TrainerOrchestrationPorts`, tool ports, neutral tool schemas/types, selection/evidence/math
-  - Outer composition and capability owners: `ai/{composition,tool-composition}`; provider generation/schema wrapping and model selection are adapters, not inner contracts
-- **Guarded analytics**
-  - Inner contracts / application ports: `analytics/contracts`, synchronous execution/inspection ports and application
-  - Outer composition and capability owners: `ai/sql-analysis` composes `analytics/sqlite-execution`; tool facade never exposes a database handle
-- **Garmin**
-  - Inner contracts / application ports: Import reader/storage/config/clock ports, sync/baseline/detail applications and pure normalizers
-  - Outer composition and capability owners: `garmin/composition`; official HTTPS/reader/FIT/archive and connection modules are mechanical adapters; sync/detail callers use composition directly
-- **Local data**
-  - Inner contracts / application ports: Plain read models, selected-row policy, `LocalDataReads` / `LocalDataLifecycle`
-  - Outer composition and capability owners: `local-data/composition` binds SQLite for activity/Health/summary/delete, chat and tools
-- **Profile / memory**
-  - Inner contracts / application ports: `ProfileStorage`, semantic `MemoryPorts`, management and legacy application contracts
-  - Outer composition and capability owners: Profile/memory compositions bind SQL, config, embeddings/extraction; management owns preserved-record operations, not a public legacy proposal facade
-- **Training Plan**
-  - Inner contracts / application ports: Contracts/policy/edits/snapshot and synchronous `TrainingPlanStore`
-  - Outer composition and capability owners: `training-plan/composition` binds plan SQL for HTTP and tool use
-- **Infrastructure / operations**
-  - Inner contracts / application ports: No business-policy exemption
-  - Outer composition and capability owners: DB connection/schema/migrations/repositories, env, diagnostics doctor, Garmin connection/HTTPS/FIT and provider/config transports are explicitly classified adapters; diagnostics redaction is pure domain
+Feature applications consume plain contracts/ports; adapters supply capabilities; composition binds them; HTTP invokes composition, not concrete infrastructure. Follow the relevant [area guide](../architecture.md#area-guides) for Chat/AI, Garmin, analytics/local-data, personalization and plans. Operational auth/migration/status/doctor scripts are outer entrypoints, not domain services.
 
-The `model-settings` feature owns strict versioned catalog/contracts and supplied-port preference application. Native Settings v3 preserves original v2/v1 settings and independent extraction/title fields; activation v3 carries immutable catalog and private selection-compatibility metadata over the existing private pipe (older v2/v1 remain supported). Lazy composition binds one durable explicit choice with frozen startup compatibility, preserving original preferences, placeholder-aware eligibility and exact chat-only provider construction. `/api/model-settings` returns bounded version-3 metadata; `chat/composition` captures selection/configuration once before context awaits. Live Settings publishes one complete validated catalog/key snapshot in a narrowly named process-owned cell shared by the separately built launcher and Next bundles, never a mutable whole-config env overlay. Fixed authenticated POST/GET validates boot/generation/revision; status acknowledges only published state. Native lock order is service-before-settings, with nonblocking service acquisition during startup and bounded transport. DB schema, provider probing and extraction/embedding topology remain unchanged. Focused `model-settings*` suites cover key/validation/persistence/redaction/UI and overlapping production turn binding.
+Composition binds functions **without opening resources at import time**. Lifetimes:
 
-[ChatGPT subscription](../chatgpt.md) adds native-only protected registration/token ownership plus a bounded pipe-fed public-OAuth helper, not an app-auth/provider framework. The v2 private record has one explicit active registration, retained recovery records and original-preserving v1 compatibility; only active metadata/credential access is projected, with an explicit Switch account or one-time legacy reconciliation. Archived choices remain unavailable, never retargeted. Startup version4 wraps the prior activation with the private credential broker descriptor; no credential/capability enters renderer, argv or inherited connector env. Pure `model-settings/chatgpt-metadata` owns secret-free identity validation; `ai/chatgpt-{connection,transport,generation}` owns private access and compatible actual Responses streaming/namespace/terminal decoding behind existing generation contracts. Catalog identity additionally binds registration; independent shared summary/title identity uses version2. Scope/epoch currentness spans tools, delivery and summary candidates; old metadata cannot resurrect disconnected access. Native acknowledged connection changes issue the existing metadata-refresh notification. Existing API-key adapters, app preference structures and normalized SQLite schema remain unchanged. Inactive legacy extraction/vectors are not revived.
+- One lazy SQLite connection; synchronous feature transactions.
+- One reader per Garmin import, closed by that invocation. Explicit Sync cancellation/disconnect stops admission/owned reader work, not committed normalized data.
+- One readonly session per guarded SQL call, closed by that call.
+- One disposable tool context per AI turn and timeout per provider call. Chat disconnect is not provider cancellation.
+- Captured memory/provider configuration per admitted work item. Shared-key changes rotate the lazy current store without changing in-flight snapshots; subscription invalidation follows registration epochs.
 
-First-prompt titles use chat-owned application ports, `chat/title-adapter` and the independent shared summary/title model selector, not extraction, ingestion or Trainer preferences. A synchronous message transaction reserves the first eligible message in `conversation_title_attempt`; one conditional claim admits generation. Next.js `after()` owns the bounded post-response work for both HTTP modes. Guarded SQL applies only to that surviving message's unchanged automatic excerpt, never a manual title, without changing recency. Clear/delete preserve small admission tombstones. Optional list `titlePending` metadata and the response `x-chat-title-pending` header drive at most four existing-list refetches; settlement/navigation/unmount stop further reads. See [title behavior and migration](../memory.md#first-prompt-chat-titles), `conversation-title*` and chat-boundary tests.
+There is no DI container, ambient setter or eager initialization. `backend-composition.test.mjs` checks all route families with DB/env/provider/connector probes; construction must not access them. Feature application, wiring and adapter tests cover actual use.
 
-All HTTP route families consume feature composition. `chat/delivery` owns
-JSON/NDJSON transport; debug configuration is obtained request-time through the
-existing conversation application port, not directly from env. Personalization routes use Profile and memory-management composition directly.
-There is no legacy proposal/confirm/reject/forget facade or public semantic-store
-adapter entrypoint. Preserved legacy rows, vectors, migration markers and schema
-remain unchanged; management's existing bounded listing/migration and explicit
-read-only inspection remain separate from ordinary chat.
+## Model configuration
 
-Conversation selection uses the existing `app_metadata` key `chat.active_conversation.v1`
-(identity only; empty string represents resolved-empty). Lazy conversation composition
-binds metadata reads/writes; `GET /api/conversations/selection` validates saved existence
-without sidebar-page limits, then repairs stale selection with `updated_at DESC, id DESC`.
-`PUT` accepts only a valid existing `conversationId`, never creating or retimestamping it.
-Delete repairs selection only when it still names that deleted row. The UI serializes
-selection mutations; generation guards prevent stale reads/delete responses undoing newer
-intent. Failures have explicit selection retry, not a browser/default rescue. No schema
-migration, browser import, model preference change or eager resource is introduced.
+`model-settings` owns strict versioned catalog/preferences and supplied-port application policy; [local runtime](../local-runtime.md) owns exact choice compatibility and [desktop](../desktop.md) owns activation/live apply. Chat captures one selection/config snapshot before context awaits. Shared launcher/Next state is a narrowly named validated catalog/key cell, not a mutable whole-config env overlay. Live POST/GET checks boot/generation/revision; native lock order is service-before-settings with nonblocking startup acquisition and bounded transport. No provider probing or DB migration is implicit.
 
-Resource ownership stays unchanged: compositions bind functions at import time,
-not resources. One lazy SQLite connection is shared; memory topology is
-snapshotted from the startup base; credential changes create a new lazy current store while old work retains its immutable snapshot; each Garmin import starts/closes one reader;
-each guarded SQL invocation owns/closes its readonly session; each AI turn owns
-one disposable tool context; each provider call owns its timeout. Existing provider disconnect semantics are unchanged; optional subscription invalidation follows its explicit native registration epochs. Explicit Sync cancellation/HTTP disconnect now stops sync admission and its owned reader work; persisted normalized data is not rolled back. No global DI
-container, ambient setter, eager initialization, schema/data migration or new
-retry is introduced. Explicit operational auth/migrate/status/doctor scripts remain
-outer entrypoints, not domain services.
+[ChatGPT](../chatgpt.md) owns native registration/token/broker access and epoch invalidation. Pure public metadata enters model selection; credentials/capabilities never enter renderer, argv or inherited connector environment. API-key adapters and inactive legacy stores remain separate.
 
-`tests/backend-composition.test.mjs` checks the complete route mapping and imports
-all production routes with DB/env/provider/connector access probes; construction
-must not invoke any. It also checks request-time debug-port delegation. Existing
-`*-application`, `*-wiring`, SQL execution, provider generation and connector reader
-suites cover supplied ports, real adapters, singleton/transaction lifetimes and
-failure paths. API-only smoke uses a disposable populated DB. Structural-only changes need no data back-sync; schema/checkpoint changes follow the owning feature's migration and recovery contract.
+## Conversation titles and selection
+
+First-prompt titles use chat ports and `chat/title-adapter` with the independent summary/title selector. A synchronous transaction reserves the first eligible message; one conditional claim admits generation via Next `after()` in both HTTP modes. Apply only to that surviving message's unchanged automatic excerpt, never a manual title or recency. Clear/delete retain admission tombstones. `titlePending`/`x-chat-title-pending` permits at most four list refetches; settlement/navigation/unmount stop them. [Memory](../memory.md#first-prompt-chat-titles) owns visible behavior and migration.
+
+Selection uses `app_metadata` key `chat.active_conversation.v1`; empty string means resolved-empty. GET validates saved existence beyond sidebar paging and repairs stale selection by `updated_at DESC, id DESC`. PUT accepts only an existing valid ID, never creates/retimestamps it. Delete repairs only a selection still naming that row. The UI serializes mutations and rejects superseded reads/delete responses. Failure offers explicit retry, not browser/default rescue; no schema migration/browser import or preference change is implied.
