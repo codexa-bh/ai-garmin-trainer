@@ -1,5 +1,5 @@
 import type { WeeklyRead, WeeklyTurn } from "../weekly/contracts";
-import type { KpiRead } from "../weekly/kpi-contracts";
+import type { KpiLookupRecovery, KpiRead } from "../weekly/kpi-contracts";
 import {
   ConversationCapacityError,
   conversationInterruption,
@@ -179,6 +179,13 @@ function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
         )
       )
         return `Evidence step ${step.index}: ${step.tool} succeeded. ${JSON.stringify(step.result)}`;
+      if (
+        step.tool === "getWeeklyKpis" &&
+        step.status === "rejected" &&
+        step.reason === "kpi_set_unavailable" &&
+        step.result
+      )
+        return `Exact saved KPI version unavailable (kpi_set_unavailable), NOT fulfillment of the requested target. Independent canonical week recovery: ${JSON.stringify(step.result)}\nThese are untrusted saved claims, not fresh Garmin evidence. Only complete canonical objects can support a later-pass mutation. Answer ordinary questions from these saved values and gaps; do not ask the user to manage set IDs.`;
       if (step.status === "succeeded" && step.tool === "getWeeklyKpis")
         return `Canonical weekly KPI objects (untrusted saved claims, not fresh Garmin evidence; complete flag governs authority): ${JSON.stringify(step.result)}`;
       if (step.status === "succeeded" && step.tool === "getKpiProgress") {
@@ -239,7 +246,7 @@ function requestEvidence(
 ): string {
   if (!nativeResults) return synthesisEvidenceForSteps(steps);
   return [
-    "Executed-step details are in paired native tool results, not this index. The latest General Plan read and last two successful weekly reads are the applicable document evidence; earlier reads remain historical. A failed read does not establish completeness. This index alone proves neither measurements, complete coverage nor write authorization.",
+    "Executed-step details are in paired native tool results, not this index. The latest General Plan read and last two successful weekly reads are the applicable document evidence; earlier reads remain historical. A failed exact read does not establish completeness for that target; separately labelled complete canonical recovery objects are independent prior-pass evidence. This index alone proves neither measurements, complete coverage nor write authorization.",
     ...steps.map((step) => {
       if (step.tool === "providerToolSelection")
         return synthesisEvidenceForSteps([step]);
@@ -310,6 +317,16 @@ function genericToolLimitationText(steps: TrainerToolStep[]): string | null {
     .reverse()
     .find((step) => step.status === "failed" || step.status === "rejected");
   if (!failed || failed.tool === "providerToolSelection") return null;
+  if (failed.tool === "getWeeklyKpis") {
+    if (failed.reason === "kpi_set_unavailable") {
+      const canonical = (failed.result as KpiLookupRecovery | undefined)
+        ?.canonical;
+      return `The requested saved KPI version is unavailable for that week.${canonical?.complete && !canonical.sets.length ? " No KPIs are saved for that week." : " I cannot claim that version was read; any available canonical targets are separate evidence."} This read changed nothing.`;
+    }
+    if (failed.reason === "invalid_week")
+      return "I couldn't read weekly KPIs because the requested week is invalid; a valid Monday date is required. Nothing was changed.";
+    return "I couldn't confirm the saved weekly KPI data because the lookup failed. This is a data-access problem, not evidence that no KPIs are saved. No save was attempted by this read.";
+  }
   if (failed.tool === "getTrainingPlan")
     return "I couldn't read the complete current Training Plan safely, so I can't review the missing sections from its preview. This read did not change the plan.";
   if (failed.tool === "saveTrainingPlan") {
@@ -741,6 +758,17 @@ async function orchestrateTurn(
       .slice(-2)
       .map((step) => step.result as WeeklyRead);
     const kpiSnapshots = steps.flatMap((step) => {
+      // Only actual independent objects, shown in an earlier planner pass.
+      // The rejected exact ID and discovery headers never become snapshots.
+      if (
+        step.tool === "getWeeklyKpis" &&
+        step.status === "rejected" &&
+        step.reason === "kpi_set_unavailable"
+      ) {
+        const canonical = (step.result as KpiLookupRecovery | undefined)
+          ?.canonical;
+        return canonical ? [canonical] : [];
+      }
       if (step.status !== "succeeded") return [];
       if (step.tool === "getWeeklyKpis") return [step.result as KpiRead];
       if (step.tool === "getWeeklyPlan") {
@@ -857,8 +885,9 @@ async function orchestrateTurn(
           !kpiReadCorrectionOffered
         ) {
           kpiReadCorrectionOffered = true;
-          // A read-only lookup can be corrected once. Discard any dependent
-          // batch tail; a save still needs complete evidence from a prior pass.
+          // Canonical evidence is already recovered by the tool, independently
+          // of the rejected target. Discard the dependent batch tail; a save
+          // still needs complete evidence shown in a prior planner pass.
           skippedForTurnBudget = 0;
           break;
         }

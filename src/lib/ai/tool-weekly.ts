@@ -1,3 +1,4 @@
+import type { KpiLookupRecovery } from "../weekly/kpi-contracts";
 import type { TrainerToolExecutionInput } from "./tool-execution-input";
 import type { TrainerToolPorts } from "./tool-ports";
 import type { TrainerToolStep } from "./tool-types";
@@ -32,7 +33,30 @@ export function executeWeeklyTool(
         };
         break;
       case "getWeeklyKpis":
-        result = weekly.readKpis(input.input.weekStart, input.input.setId);
+        try {
+          result = weekly.readKpis(input.input.weekStart, input.input.setId);
+        } catch (error) {
+          if (
+            !(error instanceof Error) ||
+            error.message !== "kpi_set_unavailable" ||
+            !input.input.setId
+          )
+            throw error;
+          // The exact target is still unavailable. Canonical week evidence is
+          // obtained now, not delegated to another model-selected correction.
+          const canonical = weekly.readKpis(input.input.weekStart);
+          return {
+            ...base,
+            status: "rejected",
+            reason: "kpi_set_unavailable",
+            summary:
+              "The requested saved KPI version is unavailable for this week. Independent canonical week evidence follows; it is not the requested version. This read changed nothing. Missing values are not zero.",
+            result: {
+              requestedSetId: input.input.setId,
+              canonical,
+            } satisfies KpiLookupRecovery,
+          };
+        }
         break;
       case "getKpiProgress":
         result = weekly.progress(
@@ -85,9 +109,7 @@ export function executeWeeklyTool(
       status: reason === "weekly_persistence_uncertain" ? "failed" : "rejected",
       reason,
       summary:
-        input.toolName === "getWeeklyKpis" && reason === "kpi_set_unavailable"
-          ? "The requested saved KPI set was not found for this week. This read changed nothing. Omit setId to discover the week's canonical sets, then use an exact returned ID if needed; latest/original are not selector aliases."
-          : "Weekly operation did not return confirmed success. Re-read current state before a future attempt; no repeated weekly save in this turn.",
+        "Weekly operation did not return confirmed success. Re-read current state before a future attempt; no repeated weekly save in this turn.",
     };
   }
 }

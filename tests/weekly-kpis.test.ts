@@ -15,6 +15,55 @@ import { PROGRESS_MAX_WEEKS } from "../src/lib/weekly/calendar";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
 import { projectKpis, validateKpiSet } from "../src/lib/weekly/kpis";
 
+it("preserves bounded retained history and read-only back-sync no-op on oversized canonical reads", () => {
+  const base = {
+    ...authoredKpiSet(),
+    id: "retained-0",
+    savedAt: now.toISOString(),
+    items: Array.from({ length: 12 }, (_, i) => ({
+      ...authoredKpiSet().items[0],
+      id: `item-${i}`,
+      conceptId: `concept-${i}`,
+      definition: "x".repeat(800),
+      selection: "x".repeat(600),
+    })),
+  };
+  validateKpiSet(base);
+  const state: WeeklyKpis = {
+    revision: "large-history",
+    timeZone: "UTC",
+    originalId: base.id,
+    latestId: "retained-127",
+    reviewDefinedId: "retained-126",
+    sets: Array.from({ length: 128 }, (_, i) => ({
+      ...structuredClone(base),
+      id: `retained-${i}`,
+    })),
+    assessments: [],
+  };
+  store.saveKpis(week, state);
+  const before = db.prepare("select * from weekly_kpi").all();
+  const schema = db
+    .prepare("select name, sql from sqlite_master order by name")
+    .all();
+  const read = app.readKpis(week);
+  expect(read.complete).toBe(false);
+  expect(read.availableSets).toHaveLength(128);
+  expect(read.narrowToSetIds).toEqual([
+    state.originalId,
+    state.latestId,
+    state.reviewDefinedId,
+  ]);
+  expect(JSON.stringify(read).length).toBeLessThanOrEqual(60000);
+  const exact = app.readKpis(week, "retained-73");
+  expect(exact.complete).toBe(true);
+  expect(exact.sets.map((set) => set.id)).toEqual(["retained-73"]);
+  expect(db.prepare("select * from weekly_kpi").all()).toEqual(before);
+  expect(
+    db.prepare("select name, sql from sqlite_master order by name").all(),
+  ).toEqual(schema);
+});
+
 it("omits legacy item-level pool fields from new-write TypeScript contracts", () => {
   expectTypeOf<KpiSetInput["items"][number]>().not.toHaveProperty(
     "availablePoints",

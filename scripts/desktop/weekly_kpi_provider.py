@@ -7,6 +7,12 @@ from copy import deepcopy
 
 ANSWER = 'Authored structured weekly operation completed; saved facts remain distinct from fresh Garmin evidence.'
 NO_SAVE = 'Authored draft only; no structured changes saved.'
+RECOVERED = 'Saved canonical targets are 5 sessions and 90 minutes; reviewed points are 12.5. The requested version is unavailable; no data changed.'
+MISSING = (
+    'No KPIs are saved for that week. The requested saved version is unavailable; no data changed.'
+)
+EXACT_MISSING = 'The requested saved version is unavailable. Canonical targets are separate evidence, not that version; no data changed.'
+RECOVERY_MARKER = 'Independent canonical week recovery: '
 
 
 def commitment(origin='planned'):
@@ -45,7 +51,7 @@ def commitment(origin='planned'):
     }
 
 
-def canonical_kpis(messages):
+def kpi_evidence(messages, recovery_only=False):
     # Both shipped carriers are actual server evidence: paired native tool
     # results or labelled legacy system context. Never user/assistant claims.
     marker = 'Canonical weekly KPI objects (untrusted saved claims, not fresh Garmin evidence; complete flag governs authority): '
@@ -56,7 +62,7 @@ def canonical_kpis(messages):
         if message.get('role') == 'tool':
             try:
                 parsed = json.loads(raw)
-                if parsed.get('status') != 'succeeded':
+                if parsed.get('status') not in ('succeeded', 'rejected'):
                     continue
                 evidence = parsed.get('evidence', '')
             except (ValueError, AttributeError):
@@ -68,20 +74,30 @@ def canonical_kpis(messages):
             evidence = raw
         else:
             continue
-        if marker not in evidence:
+        selected = RECOVERY_MARKER if RECOVERY_MARKER in evidence else marker
+        if selected not in evidence or (recovery_only and selected != RECOVERY_MARKER):
+            continue
+        if message.get('role') == 'tool' and parsed['status'] != (
+            'rejected' if selected == RECOVERY_MARKER else 'succeeded'
+        ):
             continue
         try:
-            value, _end = json.JSONDecoder().raw_decode(evidence.rsplit(marker, 1)[1])
-        except (ValueError, TypeError):
+            value, _end = json.JSONDecoder().raw_decode(evidence.rsplit(selected, 1)[1])
+            if selected == RECOVERY_MARKER:
+                value = value['canonical']
+        except (ValueError, TypeError, KeyError):
             continue
-        identity = value.get('latestPlanSetId')
-        if (
-            value.get('complete') is True
-            and isinstance(identity, str)
-            and re.fullmatch(r'[A-Za-z0-9_-]+', identity)
-        ):
+        if value.get('complete') is True:
             return value
     raise ValueError('Complete current canonical tool result required')
+
+
+def canonical_kpis(messages, recovery_only=False):
+    value = kpi_evidence(messages, recovery_only)
+    identity = value.get('latestPlanSetId')
+    if not isinstance(identity, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', identity):
+        raise ValueError('Actual canonical identity required')
+    return value
 
 
 def latest_id(messages):
@@ -89,7 +105,7 @@ def latest_id(messages):
 
 
 def reused_adaptation(messages):
-    read = canonical_kpis(messages)
+    read = canonical_kpis(messages, recovery_only=True)
     selected = next(
         (value for value in read.get('sets', []) if value['id'] == read['latestPlanSetId']), None
     )
@@ -151,35 +167,32 @@ def response(index, body, week):
         or not isinstance(body.get('messages'), list)
     ):
         raise ValueError('Fixed authored KPI provider protocol required')
-    call_index = index
-    # The adaptation first makes the operator-reported harmless ID mistake.
-    # Its next pass must receive the actual rejected tool result and rediscover.
-    if index == 4:
-        rejected = []
-        for message in body['messages']:
-            raw = message.get('content', '')
-            if not isinstance(raw, str):
-                continue
-            if message.get('role') == 'tool':
-                try:
-                    rejected.append(json.loads(raw))
-                except ValueError:
-                    continue
-            elif (
-                message.get('role') == 'system'
-                and 'Current-turn server-authored prior tool evidence context' in raw
-                and 'getWeeklyKpis rejected' in raw
-            ):
-                rejected.append({'status': 'rejected', 'evidence': raw})
-        if not any(
-            value.get('status') == 'rejected'
-            and 'kpi_set_unavailable' in value.get('evidence', '')
-            and 'Omit setId' in value.get('evidence', '')
-            for value in rejected
-        ):
-            raise ValueError('Actual rejected canonical-read evidence required before correction')
-    if index >= 4:
-        index -= 1
+    # Deliberately no cooperative corrected discovery call after index 3.
+    # Adaptation must consume actual independent prior-pass recovery objects.
+    if index in (14, 16, 18):
+        read = kpi_evidence(body['messages'], recovery_only=True)
+        expected_week = (
+            (datetime.date.fromisoformat(week) + datetime.timedelta(days=21)).isoformat()
+            if index == 16
+            else week
+        )
+        if read.get('weekStart') != expected_week:
+            raise ValueError('Requested-week recovery required')
+        if index == 16:
+            if read.get('sets') or read.get('latestPlanSetId') is not None:
+                raise ValueError('Genuine empty-week evidence required')
+            answer = MISSING
+        else:
+            selected = next(
+                value for value in read['sets'] if value['id'] == read['latestPlanSetId']
+            )
+            if [track['target']['value'] for track in selected['items'][0]['tracks']] != [
+                5,
+                90,
+            ] or read['assessments'][0]['totalPoints'] != 12.5:
+                raise ValueError('Actual saved canonical values required')
+            answer = RECOVERED if index == 14 else EXACT_MISSING
+        return {'role': 'assistant', 'content': answer}
     if index in (2, 5, 8, 12):
         return {'role': 'assistant', 'content': ANSWER}
     if index == 9:
@@ -202,9 +215,19 @@ def response(index, body, week):
                 'assessments': [assessment(latest_id(body['messages']), index == 11)],
             },
         )
+    elif index in (13, 15, 17):
+        target = (
+            (datetime.date.fromisoformat(week) + datetime.timedelta(days=21)).isoformat()
+            if index == 15
+            else week
+        )
+        name, args = (
+            'getWeeklyKpis',
+            {'weekStart': target, 'setId': 'unavailable-version' if index == 17 else 'latest'},
+        )
     else:
         raise ValueError('Unexpected authored KPI provider call')
-    if call_index == 3:
+    if index == 3:
         args['setId'] = 'latest'
     if index in (4, 11):
         name, args = 'saveWeeklyDocuments', {'changes': [], 'kpiChanges': [args]}
@@ -215,7 +238,7 @@ def response(index, body, week):
         'content': None,
         'tool_calls': [
             {
-                'id': 'kpi-' + str(call_index),
+                'id': 'kpi-' + str(index),
                 'type': 'function',
                 'function': {'name': name, 'arguments': json.dumps(args)},
             }

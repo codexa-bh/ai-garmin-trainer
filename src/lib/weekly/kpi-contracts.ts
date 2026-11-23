@@ -132,6 +132,11 @@ export type KpiRead = {
   /** Pure derived evidence, never saved as an assessment or score. */
   points?: KpiPointsProjection;
 };
+/** Rejected exact lookup plus independent evidence, never target substitution. */
+export type KpiLookupRecovery = {
+  requestedSetId: string;
+  canonical: KpiRead;
+};
 export type KpiChange = {
   weekStart: string;
   commitment?: KpiSetInput;

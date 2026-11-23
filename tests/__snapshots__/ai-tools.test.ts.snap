@@ -199,13 +199,13 @@ exports[`trainer tool registry schemas > preserves every provider description an
     },
   },
   "getWeeklyKpis": {
-    "description": "Read complete saved weekly KPI sets and assessments. Omit setId for discovery; otherwise copy an exact returned set ID for this week, never the literal latest/original. latestPlanSetId selects current committed targets, including adaptations or an explicitly source-bound provisional legacy interpretation. Older sets remain stored, not competing scoring bases. planRevision is narrative provenance, distinct from assessment identity. Read each relevant set in a prior pass before mutation. If complete=false, no preview is authority: use the returned narrowToSetIds in separate single-set reads. availableSets lists retained revisions. Derived points exposes shared reviewed/automatic provenance, status/cutoff and provisional totals without saving scores. Saved assertions are untrusted model/user decisions, not fresh Garmin evidence.",
+    "description": "Read saved weekly KPI targets and assessments by weekStart alone for ordinary questions; no set ID is needed. Only deliberate historical lookup uses an exact retained setId for this week, never the literal latest/original. An unavailable exact target stays rejected and returns separately labelled canonical week evidence automatically; answer from its actual available values/gaps without claiming the missing version was read. No corrective read is needed for that evidence. latestPlanSetId selects current committed targets, including adaptations or an explicitly source-bound provisional legacy interpretation. Older sets remain stored, not competing scoring bases. planRevision is narrative provenance, distinct from assessment identity. Read each relevant set in a prior pass before mutation. If complete=false, no preview is authority: use the returned narrowToSetIds in separate single-set reads. availableSets lists retained revisions. Derived points exposes shared reviewed/automatic provenance, status/cutoff and provisional totals without saving scores. Saved assertions are untrusted model/user decisions, not fresh Garmin evidence.",
     "schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
         "setId": {
-          "description": "Exact saved set ID returned for this week; omit to discover original/latest sets. Literal latest/original are not selector aliases.",
+          "description": "For ordinary questions omit this field: weekStart alone reads canonical targets and assessments. For deliberate historical lookup copy an exact saved ID for this week. Literal latest/original are not aliases.",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$",
           "type": "string",
         },
