@@ -1,8 +1,7 @@
 # Conversation replay and bounded local compaction
 
 [Integrated memory](memory.md) documents the current consumer, controls and explicit
-historical transition. The original redesign contract is kept as
-[history](history/memory-redesign-contract.md).
+historical transition.
 
 ## Supported path and independent states
 

@@ -1,6 +1,6 @@
 # Dual-platform release runbook
 
-How to cut, package, verify and publish a version. Each published version's download identities and evidence are in the [release records](history/releases.md). Source builds remain supported. Windows qualification is Server2025 x64 CI-only; the declared minimum macOS12.0 is not minimum-OS certification. There is no updater, installer hook, service, login item or background release worker. macOS builds are **unsigned/non-notarized** and ship as a DMG, not a PKG; Windows alpha uses an unsigned NSIS installer.
+How to cut, package, verify and publish a version. Published versions, their assets and checksums are on [GitHub Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases); their notes are in [`release-notes/releases/`](../release-notes/releases/). Source builds remain supported. Windows qualification is Server2025 x64 CI-only; the declared minimum macOS12.0 is not minimum-OS certification. There is no updater, installer hook, service, login item or background release worker. macOS builds are **unsigned/non-notarized** and ship as a DMG, not a PKG; Windows alpha uses an unsigned NSIS installer.
 
 ## Release cut runbook
 

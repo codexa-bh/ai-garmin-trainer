@@ -8,7 +8,7 @@ A local-first training companion with public source: import your Garmin Connect 
 - **Personalization** — an editable Profile and General Plan, chat-maintained weekly plans and reviews, and an inspectable cross-chat memory summary.
 - **Provider choice** — ChatGPT subscription, OpenAI or DeepSeek API keys, explicit loopback Ollama, or opt-in OpenRouter. Cloud providers receive bounded chat/Garmin context; local storage does not mean all AI processing stays on your machine.
 
-**Local-only, single-user, no app sign-in.** Run on loopback only; do not expose it on your LAN, a public host, or a tunnel. Garmin data comes from Garmin's official **Personal API** with a key you create for your own account; it is a new API that may change, and a key can expire or be revoked. The supported platform is **macOS ARM64**; published downloads and their limits are listed in the [release records](docs/history/releases.md).
+**Local-only, single-user, no app sign-in.** Run on loopback only; do not expose it on your LAN, a public host, or a tunnel. Garmin data comes from Garmin's official **Personal API** with a key you create for your own account; it is a new API that may change, and a key can expire or be revoked. The supported platform is **macOS ARM64**; published downloads are on [GitHub Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases), with notes in [`release-notes/releases/`](release-notes/releases/).
 
 [Installation](#installation) · [Settings guide](docs/settings.md) · [Garmin connection](docs/garmin-auth.md) · [Safety and privacy](#safety-and-privacy)
 
@@ -99,7 +99,7 @@ Read only what your change touches:
 | Release                                | [Release runbook](docs/release.md), [release notes](release-notes/README.md), [redistribution](docs/redistribution.md)                                                                                |
 | Data lifecycle and support             | [Source readiness and data lifecycle](docs/source-beta-readiness.md)                                                                                                                                  |
 
-[`docs/history/`](docs/history/) holds retired contracts, task-bound recipes and published-release records; it is not current guidance. Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/api/`, `src/lib/ai/`, `src/lib/garmin/` and `src/lib/memory/`.
+Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/api/`, `src/lib/ai/`, `src/lib/garmin/` and `src/lib/memory/`.
 
 ## Validation
 

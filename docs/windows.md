@@ -1,6 +1,6 @@
 # Windows x64 alpha
 
-The source tree builds a **Windows x64 (`x86_64-pc-windows-msvc`)** desktop app and an **unsigned per-user NSIS installer** next to the existing macOS ARM64 app. It is an **experimental build outside the supported macOS ARM64 platform**; published installers and their checksums are listed in the [release records](history/releases.md). Its accepted qualification is hosted **Windows Server 2025 x64 only**, **not** Windows 11 support: no Windows 11 machine has run this installer/app. Windows ARM testing is deferred; availability of an ARM runner is not evidence. Windows 10 and Windows ARM64 are not targets.
+The source tree builds a **Windows x64 (`x86_64-pc-windows-msvc`)** desktop app and an **unsigned per-user NSIS installer** next to the existing macOS ARM64 app. It is an **experimental build outside the supported macOS ARM64 platform**; published installers and their checksums are on [GitHub Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases). Its accepted qualification is hosted **Windows Server 2025 x64 only**, **not** Windows 11 support: no Windows 11 machine has run this installer/app. Windows ARM testing is deferred; availability of an ARM runner is not evidence. Windows 10 and Windows ARM64 are not targets.
 
 ## What is the same
 

@@ -1,6 +1,6 @@
 # Source-beta readiness foundation
 
-This repository supports one product: the advanced-user local macOS ARM64 Tauri app, from source or a published binary ([release records](history/releases.md)). See [desktop build/adoption/recovery](desktop.md). A published unsigned/non-notarized download is not an installer, clean-machine certification, beta invitation or commercial implementation; publication follows the [redistribution conditions](redistribution.md). Downloaded-app existing-DB upgrades still need matching source CLI/dependencies, verified backups and explicit stopped-target approval.
+This repository supports one product: the advanced-user local macOS ARM64 Tauri app, from source or a published binary ([GitHub Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases)). See [desktop build/adoption/recovery](desktop.md). A published unsigned/non-notarized download is not an installer, clean-machine certification, beta invitation or commercial implementation; publication follows the [redistribution conditions](redistribution.md). Downloaded-app existing-DB upgrades still need matching source CLI/dependencies, verified backups and explicit stopped-target approval.
 
 ## Supported boundary
 
