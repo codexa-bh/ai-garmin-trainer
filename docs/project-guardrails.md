@@ -22,14 +22,7 @@ arguments remain intentional). SonarJS 4 adds these blocking rules:
 - `no-inverted-boolean-check`, `no-collection-size-mischeck`
 - `no-redundant-jump`, `no-use-of-empty-return-value`
 
-Selection measured the pre-change baseline: ten selected SonarJS checks had no
-findings; Next/hooks exposed five effect-state, seven dependency and fifteen
-module-variable findings, all remediated. Duplicate-string (197 findings) was
-not selected: repeated fixture/UI vocabulary is not necessarily duplicated
-knowledge. Cognitive-complexity (25 findings at the plugin default) was not
-selected: the project has no measured numerical complexity budget, and cohesion
-is not a function-size contest. These are selection decisions, not a grandfathered
-baseline or per-file debt waiver.
+Duplicate-string is not selected: repeated fixture/UI vocabulary is not necessarily duplicated knowledge. Cognitive-complexity is not selected: there is no measured numerical complexity budget, and cohesion is not a function-size contest. Neither decision grants a grandfathered baseline or per-file debt waiver.
 
 ## Typed asynchronous work
 
@@ -58,8 +51,7 @@ CLI lint keeps its normal single-run optimization. Reproduce the suite with
 invalid/valid/invalid overlays with imported promise types. Cold TypeScript
 project initialization runs once in a `beforeAll` hook with a 30-second setup
 budget; individual rule probes retain the normal five-second test timeout.
-Hosted startup exceeded five seconds in the first test, so project setup must
-not be charged to that assertion. Initialization failures still fail the suite.
+Project setup is not charged to the first assertion; initialization failures still fail the suite.
 
 ## Architecture boundaries
 
@@ -104,23 +96,7 @@ external package is claimed pure. Direct rules retain quick editor feedback;
 the aggregate gate must always include the graph. Regression tests exercise
 real project-backed typed lint probes and positive/negative graph fixtures.
 
-The guarded SQL slice also has a type-inclusive dependency regression in
-`tests/sql-dependencies.test.ts`: analytical contracts/schema/policy/application
-cannot import SQLite, DB/environment, SDKs or the outer composition facade,
-even through erased types or local helpers. Production tool wiring and actual
-readonly/query_only behavior are covered in `tests/sql-execution.test.ts`;
-supplied-capability tests prove rejected requests never open execution. These
-checks complement the runtime graph, not a claim of arbitrary capability-flow
-proof or a replacement SQL parser.
-
-The AI application slice has a type-inclusive regression in
-`tests/ai-dependencies.test.ts`. Orchestration, dispatch/handlers, selection and
-metadata may reach only reviewed feature contracts/application and pure rules,
-not SDKs, storage, connector adapters, environment, HTTP or outer composition.
-Existing Zod use in tool and complete-plan schemas is the narrow external
-exception. Supplied-port and exact provider-adapter tests complement production
-chat/tool wiring and the runtime graph; this is not an arbitrary capability-flow
-proof or a new sandbox.
+Feature-specific type-inclusive regressions complement the graph: [SQL dependency/execution tests](architecture/analytics-and-local-data.md#guarded-analytical-policy-and-sqlite-execution) check inward contracts, rejection-before-I/O and real readonly wiring; [AI dependency/adapter tests](architecture/ai-and-chat.md#ai-application-and-providertool-adapters) check orchestration/tools, exact provider behavior and the narrow existing Zod exception. They neither replace SQL parsing nor prove arbitrary capability flow.
 
 ### Feature/layer ownership (runtime and erased contracts)
 
@@ -257,7 +233,4 @@ are clamped during render; mode changes reset paging in their event handler.
 Route changes reset map state before commit. These preserve existing UI contracts;
 focused dashboard/hydration tests and local app smoke accompany the change.
 
-No data/schema migration, backfill, deployment, release or new telemetry is part
-of these developer checks. Removing unused exports does not remove internal
-implementations still in use. The obsolete fresh-schema helper is removed;
-existing ordered migrations remain authoritative and unchanged.
+Developer checks neither migrate/backfill data, deploy/release nor add telemetry. Removing unused exports must preserve live internal implementations. Ordered migrations remain authoritative.
