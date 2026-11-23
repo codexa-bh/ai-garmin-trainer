@@ -1108,6 +1108,17 @@ class TimingTests(unittest.TestCase):
         self.assertNotIn(str(self.root), output.getvalue())
         self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_closed_timing_output_never_masks_owner_failure_or_prevents_owner_work(self):
+        with patch('release_timing.print', side_effect=BrokenPipeError('closed'), create=True):
+            with self.assertRaisesRegex(RuntimeError, 'original owner failure'):
+                with timing.recording('windows-installed', report=True):
+                    with timing.stage('final-preservation'):
+                        raise RuntimeError('original owner failure')
+            with timing.recording('ordinary-build', report=True):
+                timing.attach(self.root / 'missing')
+                owner_completed = True
+        self.assertTrue(owner_completed)
+
     def test_no_scratch_actions_keep_output_and_write_no_timing(self):
         import release
 

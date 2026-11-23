@@ -23,6 +23,20 @@ def utc():
     return datetime.now(timezone.utc).isoformat(timespec='milliseconds')
 
 
+def unavailable(error):
+    try:
+        print('Release timing evidence unavailable: ' + type(error).__name__, file=sys.stderr)
+    except OSError:
+        pass  # A closed diagnostic stream must not replace the owner's result.
+
+
+def emit(value):
+    try:
+        print(json.dumps(value), flush=True)
+    except OSError as error:
+        unavailable(error)
+
+
 class Recorder:
     def __init__(self, action, correlation):
         self.path = None
@@ -58,7 +72,7 @@ class Recorder:
             os.replace(temporary, self.path)
         except OSError as error:
             self.path = None  # One bounded warning; the owner operation continues unchanged.
-            print('Release timing evidence unavailable: ' + type(error).__name__, file=sys.stderr)
+            unavailable(error)
 
 
 @contextlib.contextmanager
@@ -80,34 +94,28 @@ def recording(action, *, report=False, **correlation):
         if report:
             # Safe log observation only; private paths/references/correlation are
             # deliberately omitted. Nested spans are not independent runner cost.
-            print(
-                json.dumps(
-                    {
-                        'timingObservation': {
-                            key: recorder.value[key]
-                            for key in (
-                                'action',
-                                'startedAt',
-                                'endedAt',
-                                'elapsedSeconds',
-                                'outcome',
-                                'stages',
-                            )
-                        }
+            emit(
+                {
+                    'timingObservation': {
+                        key: recorder.value[key]
+                        for key in (
+                            'action',
+                            'startedAt',
+                            'endedAt',
+                            'elapsedSeconds',
+                            'outcome',
+                            'stages',
+                        )
                     }
-                ),
-                flush=True,
+                }
             )
         if recorder.path is not None:
-            print(
-                json.dumps(
-                    {
-                        'timing': str(recorder.path),
-                        'elapsedSeconds': recorder.value['elapsedSeconds'],
-                        'outcome': recorder.value['outcome'],
-                    }
-                ),
-                flush=True,
+            emit(
+                {
+                    'timing': str(recorder.path),
+                    'elapsedSeconds': recorder.value['elapsedSeconds'],
+                    'outcome': recorder.value['outcome'],
+                }
             )
 
 
@@ -126,7 +134,7 @@ def attach(directory):
             )
         )
     except OSError as error:
-        print('Release timing evidence unavailable: ' + type(error).__name__, file=sys.stderr)
+        unavailable(error)
         return
     recorder.path = path
     recorder.save()
