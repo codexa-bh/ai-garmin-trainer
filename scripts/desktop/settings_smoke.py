@@ -471,6 +471,30 @@ def chatgpt_presentation(run, captures):
                 **run.command({'type': 'settings', 'action': 'captureChatgpt' + size}),
             }
         )
+    run.command({'type': 'settings', 'action': 'chatgptSwitch'})
+    wait_settings(
+        run,
+        lambda value: value['chatgptReady'] and value['chatgptChoosing'],
+        'retained registration selected before any authorization',
+    )
+    for scenario, action in [('retained-choice', None), ('new-registration-choice', 'chatgptNew')]:
+        if action:
+            selected = run.command({'type': 'settings', 'action': action})
+            if not selected['chatgptChoosing'] or not selected['privateActionsDenied']:
+                raise ValueError('New-registration choice escaped presentation boundary')
+        for size in ['Wide', 'Narrow']:
+            captures.append(
+                {
+                    'scenario': 'chatgpt-' + scenario + '-' + size.lower(),
+                    **run.command({'type': 'settings', 'action': 'captureChatgpt' + size}),
+                }
+            )
+    run.command({'type': 'settings', 'action': 'chatgptSwitchBack'})
+    wait_settings(
+        run,
+        lambda value: value['chatgptReady'] and not value['chatgptChoosing'],
+        'active fictional connection restored without authorization',
+    )
     exercised = run.command({'type': 'settings', 'action': 'chatgptExercise'})
     if (
         not exercised['chatgptReady']
@@ -503,6 +527,7 @@ def chatgpt_presentation(run, captures):
     return {
         'fictionalMetadataOnly': True,
         'singleActiveConnection': True,
+        'explicitSavedVersusNewChoice': True,
         'duplicateChoicesHidden': True,
         'noFirstModelSelection': True,
         'draftResetWithoutSave': True,

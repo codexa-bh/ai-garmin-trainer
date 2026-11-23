@@ -116,7 +116,9 @@ The selected DB retains conversations, Profile, memory, Trainer choice and gener
 
 ## Optional ChatGPT subscription
 
-[ChatGPT](chatgpt.md) owns OAuth/PKCE, registration/epoch identity, protected version2 companion storage, broker transport, refresh/disconnect and recovery. It is separate from API-key slots and Garmin. Connection commit, catalog Save and backend acknowledgment remain distinct; explicit Save projects subscription availability. Unsupported records preserve originals and unrelated routes. Admitted ordinary/debug smoke stays credential-owner/broker-free: fictional presentation never authorizes sign-in.
+[ChatGPT](chatgpt.md) owns OAuth/PKCE, registration/epoch identity, protected version2 companion storage, broker transport, refresh/disconnect and recovery. Returning authorization reuses the explicitly selected retained registration; new account/workspace is a separate choice. Protected pending registration survives restart, and unknown remote effects refuse fresh registration rather than replaying it. The guide also owns compatibility and operator-only [keep-one cleanup](chatgpt.md#keep-one-intended-connected-app).
+
+Connection commit, catalog Save and backend acknowledgment remain distinct; explicit Save projects subscription availability. Unsupported records preserve originals and unrelated API-key/local routes. Ordinary admitted smoke stays credential-owner/broker-free; debug/release-probe binaries refuse real credential-owner creation altogether. Fictional presentation never authorizes sign-in.
 
 ## Integrations and GUI execution
 

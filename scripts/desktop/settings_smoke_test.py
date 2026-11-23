@@ -148,6 +148,7 @@ class SettingsCaptureTests(unittest.TestCase):
             'capture': 'unit-only.png',
             'chatgptReady': True,
             'chatgptExercised': command['action'] == 'chatgptExercise',
+            'chatgptChoosing': True,
             'privateActionsDenied': True,
         }
         captures = []
@@ -164,12 +165,20 @@ class SettingsCaptureTests(unittest.TestCase):
         self.assertTrue(result['fictionalMetadataOnly'])
         self.assertTrue(result['batchAddition'])
         self.assertTrue(result['duplicatePairsDisabled'])
-        self.assertEqual(len(captures), 5)
+        self.assertTrue(result['explicitSavedVersusNewChoice'])
+        self.assertEqual(len(captures), 9)
         self.assertEqual(
             [call.args[0] for call in run.command.call_args_list],
             [
                 {'type': 'settings', 'action': 'captureChatgptWide'},
                 {'type': 'settings', 'action': 'captureChatgptNarrow'},
+                {'type': 'settings', 'action': 'chatgptSwitch'},
+                {'type': 'settings', 'action': 'captureChatgptWide'},
+                {'type': 'settings', 'action': 'captureChatgptNarrow'},
+                {'type': 'settings', 'action': 'chatgptNew'},
+                {'type': 'settings', 'action': 'captureChatgptWide'},
+                {'type': 'settings', 'action': 'captureChatgptNarrow'},
+                {'type': 'settings', 'action': 'chatgptSwitchBack'},
                 {'type': 'settings', 'action': 'chatgptExercise'},
                 {'type': 'settings', 'action': 'captureChatgptWide'},
                 {'type': 'settings', 'action': 'captureChatgptNarrow'},
@@ -203,6 +212,7 @@ class SettingsCaptureTests(unittest.TestCase):
             'capture': 'unit-only.png',
             'chatgptReady': True,
             'chatgptExercised': False,
+            'chatgptChoosing': False,
             'privateActionsDenied': True,
         }
         with (
@@ -212,7 +222,7 @@ class SettingsCaptureTests(unittest.TestCase):
             self.assertRaises(ValueError),
         ):
             settings_smoke.chatgpt_presentation(run, [])
-        self.assertEqual(run.command.call_count, 3)
+        self.assertEqual(run.command.call_count, 6)
 
     def test_dependency_settings_uses_live_owner_state_not_cached_renderer_origin(self):
         origin = 'http://127.0.0.1:19324'

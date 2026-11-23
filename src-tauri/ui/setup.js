@@ -280,7 +280,11 @@ function updateChatgptModelControls() {
     !selected.length ||
     selected.length > remaining;
 }
+let chatgptSwitchChoices = null;
+const NEW_CHATGPT_ACCOUNT = "new-account";
 function renderChatgpt(message) {
+  const switching = chatgptSwitchChoices !== null;
+  const connections = chatgptSwitchChoices ?? chatgptConnections;
   const input = byId("chatgpt-account");
   const selected = input.value;
   input.replaceChildren(
@@ -292,7 +296,15 @@ function renderChatgpt(message) {
             ? "Choose a connection…"
             : "Connect a ChatGPT account",
       },
-      ...chatgptConnections,
+      ...connections,
+      ...(switching
+        ? [
+            {
+              id: NEW_CHATGPT_ACCOUNT,
+              label: "New account/workspace",
+            },
+          ]
+        : []),
     ].map((connection) => {
       const option = document.createElement("option");
       option.value = connection.id;
@@ -300,18 +312,31 @@ function renderChatgpt(message) {
       return option;
     }),
   );
-  input.value =
-    (chatgptSelectionMade || chatgptConnections.length === 1) &&
-    chatgptConnections.some((connection) => connection.id === selected)
+  input.value = switching
+    ? [...connections, { id: NEW_CHATGPT_ACCOUNT }].some(
+        (item) => item.id === selected,
+      )
+      ? selected
+      : (chatgptConnections[0]?.id ?? "")
+    : (chatgptSelectionMade || chatgptConnections.length === 1) &&
+        chatgptConnections.some((connection) => connection.id === selected)
       ? selected
       : !chatgptSelectionMade && chatgptConnections.length === 1
         ? chatgptConnections[0].id
         : "";
   const connection = selectedChatgpt();
-  const reconcile = chatgptConnections.length > 1;
+  const reconcile = chatgptConnections.length > 1 || switching;
   input.closest("label").hidden = !reconcile;
+  byId("chatgpt-account-label").textContent = switching
+    ? "Account to use"
+    : "Connection to keep";
   byId("chatgpt-switch").hidden = !connection || reconcile;
-  byId("chatgpt-activate").hidden = !reconcile;
+  byId("chatgpt-switch-continue").hidden = !switching;
+  byId("chatgpt-switch-continue").disabled =
+    busy || chatgptPending || !input.value;
+  byId("chatgpt-switch-back").hidden = !switching;
+  byId("chatgpt-switch-back").disabled = busy || chatgptPending;
+  byId("chatgpt-activate").hidden = !reconcile || switching;
   byId("chatgpt-activate").disabled = busy || chatgptPending || !connection;
   const models = byId("chatgpt-model");
   const previous = new Set(
@@ -342,8 +367,9 @@ function renderChatgpt(message) {
   input.disabled = busy || chatgptPending;
   byId("chatgpt-model-picker").hidden = !connection?.planEnabled;
   byId("catalog-chatgpt-add").hidden = !connection?.planEnabled;
-  byId("chatgpt-models").hidden = !connection?.planEnabled;
-  byId("chatgpt-disconnect").hidden = !connection;
+  byId("chatgpt-models").hidden = switching || !connection?.planEnabled;
+  byId("chatgpt-usage").hidden = switching;
+  byId("chatgpt-disconnect").hidden = !connection || switching;
   for (const id of [
     "chatgpt-connect",
     "chatgpt-switch",
@@ -356,7 +382,9 @@ function renderChatgpt(message) {
       busy ||
       chatgptPending ||
       chatgptContext === null ||
-      (id !== "chatgpt-connect" && id !== "chatgpt-usage" && !connection);
+      (id !== "chatgpt-connect" &&
+        id !== "chatgpt-usage" &&
+        (!connection || switching));
   byId("chatgpt-consent").hidden =
     reconcile || !connection || connection.planEnabled;
   byId("chatgpt-models").disabled ||= !connection?.planEnabled;
@@ -364,11 +392,15 @@ function renderChatgpt(message) {
   byId("chatgpt-cancel").disabled = !chatgptPending || !chatgptAuthorizing;
   byId("chatgpt-status").textContent =
     message ??
-    (reconcile
-      ? "Choose one connection to keep active. Other records remain private for recovery; existing model choices will not switch accounts."
-      : connection
-        ? `${connection.label} — ${connection.state === "connected" ? (connection.planEnabled ? "plan permission enabled" : "signed in; plan permission required") : connection.state === "identity-only" ? "signed in; plan permission required" : connection.state === "reconnect-required" ? "reconnect required" : connection.state === "unavailable" ? "connection state unavailable; reload before retry" : "disconnected"}.`
-        : "Choose a saved registration or continue in your system browser.");
+    (switching
+      ? input.value === NEW_CHATGPT_ACCOUNT
+        ? "This creates a connected app. To reconnect, choose a saved connection instead. Existing access stays active until sign-in succeeds."
+        : "Continue privately in your browser to reuse this saved connection. Local labels do not identify remote app entries."
+      : reconcile
+        ? "Choose one connection to keep active. Other records remain private for recovery; existing model choices will not switch accounts."
+        : connection
+          ? `${connection.label} — ${connection.state === "connected" ? (connection.planEnabled ? "plan permission enabled" : "signed in; plan permission required") : connection.state === "identity-only" ? "signed in; plan permission required" : connection.state === "reconnect-required" ? "reconnect required" : connection.state === "unavailable" ? "connection state unavailable; reload before retry" : "disconnected"}.`
+          : "Choose a saved registration or continue in your system browser.");
   byId("chatgpt-connect").hidden =
     reconcile || Boolean(connection && connection.state === "connected");
   updateChatgptModelControls();
@@ -400,22 +432,51 @@ async function refreshChatgpt() {
       throw Error("Connection metadata unavailable");
     chatgptContext = context;
     chatgptConnections = connections;
+    if (chatgptSwitchChoices !== null) chatgptSelectionMade = false;
+    chatgptSwitchChoices = null;
     renderChatgpt();
     return true;
   } catch {
     if (read !== chatgptRead || epoch !== settingsEpoch) return false;
-    chatgptContext = context;
+    chatgptContext = null;
     chatgptConnections = [];
+    chatgptSwitchChoices = null;
     renderChatgpt(
       "Connection status unavailable. Reload before choosing a registration; no paid fallback.",
     );
     return false;
   }
 }
+async function beginChatgptSwitch() {
+  if (chatgptPending || busy || chatgptContext === null) return;
+  const epoch = settingsEpoch;
+  let message;
+  setBusy(true);
+  try {
+    const choices = await invoke("chatgpt_connections", { switching: true });
+    if (epoch !== settingsEpoch) return;
+    if (!Array.isArray(choices) || !choices.length) throw Error("Unavailable");
+    chatgptSwitchChoices = choices;
+    renderChatgpt();
+  } catch {
+    message =
+      "Saved connection choices unavailable. Reload before switching; no new registration was started.";
+  } finally {
+    if (epoch === settingsEpoch) {
+      setBusy(false);
+      renderChatgpt(message);
+      byId(
+        chatgptSwitchChoices === null ? "chatgpt-switch" : "chatgpt-account",
+      ).focus();
+    }
+  }
+}
 async function chatgptOperation(operation) {
   if (chatgptPending || busy || chatgptContext === null) return;
-  const selection =
-    operation === "switch" ? null : byId("chatgpt-account").value || null;
+  const selected = byId("chatgpt-account").value;
+  if (operation === "switch" && (chatgptSwitchChoices === null || !selected))
+    return;
+  const selection = selected === NEW_CHATGPT_ACCOUNT ? null : selected || null;
   const authorizing = ["connect", "consent", "switch"].includes(operation);
   const previous = new Map(
     chatgptConnections.map((connection) => [connection.id, connection.epoch]),
@@ -436,6 +497,7 @@ async function chatgptOperation(operation) {
     const result = authorizing
       ? await invoke("chatgpt_connect", {
           registrationId: selection,
+          newAccount: selection === null,
           consent: operation === "consent",
           context,
         })
@@ -531,9 +593,14 @@ byId("chatgpt-select-all").addEventListener("click", () => {
 byId("chatgpt-connect").addEventListener("click", () =>
   chatgptOperation("connect"),
 );
-byId("chatgpt-switch").addEventListener("click", () =>
+byId("chatgpt-switch").addEventListener("click", beginChatgptSwitch);
+byId("chatgpt-switch-continue").addEventListener("click", () =>
   chatgptOperation("switch"),
 );
+byId("chatgpt-switch-back").addEventListener("click", async () => {
+  await refreshChatgpt();
+  byId("chatgpt-switch").focus();
+});
 byId("chatgpt-activate").addEventListener("click", () =>
   chatgptOperation("activate"),
 );

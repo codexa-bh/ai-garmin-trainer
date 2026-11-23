@@ -237,6 +237,13 @@ export function authorization({
       pendingClientId === "dynamic_agent_client")
   )
     return fail("identity");
+  if (
+    (registration != null &&
+      (!opaque(registration.clientId, 256) ||
+        registration.clientId === "dynamic_agent_client")) ||
+    (registration != null && pendingClientId != null)
+  )
+    return fail("identity", "registration");
   const url = new URL(AUTHORIZE);
   const parameters = {
     client_id:
@@ -556,6 +563,7 @@ export async function signIn(
             : undefined),
       );
       accepted = true;
+      issuedClientId = value.clientId;
       response
         .writeHead(200, {
           "content-type": "text/plain",
@@ -607,14 +615,10 @@ export async function signIn(
       authTransport,
     );
   } catch (error) {
-    if (lifetime.signal.aborted) return fail("timeout");
-    if (
-      error.message === "reconnect-required" &&
-      !input.registration &&
-      issuedClientId
-    )
-      error.pendingClientId = issuedClientId;
-    throw error;
+    const failure = lifetime.signal.aborted ? new Error("timeout") : error;
+    if (!input.registration && issuedClientId)
+      failure.pendingClientId = issuedClientId;
+    throw failure;
   } finally {
     clearTimeout(timer);
     server.closeAllConnections();
@@ -673,7 +677,8 @@ export function failureResult(error) {
     (code === "model-discovery" && MODEL_REASONS.has(error?.reason))
       ? { reason: error.reason }
       : {}),
-    ...(code === "reconnect-required" && opaque(error.pendingClientId, 256)
+    ...(opaque(error?.pendingClientId, 256) &&
+    error.pendingClientId !== "dynamic_agent_client"
       ? { pendingClientId: error.pendingClientId }
       : {}),
   };
