@@ -68,7 +68,7 @@ Current ordinary build and finite authored seed. Exercises missing-key schedulin
 
 `npm run smoke:ordinary -- --scratch "$scratch" --bundle "$bundle" --summary-engine --summary-part presentation --summary-family densify`
 
-Select `densify`, `overview` or `history` (repeatable); omitted family means all. Current ordinary build. Fixed renderer adapter proves production-hook/geometry states, not inference, actual acceptance persistence or engine progress. Mutations stay denied except the exact fixture-local actions. Inspect selected images; full/default or reviewed presentation scope retains its own coverage accounting. [Fixed contracts](smoke/ordinary.md#manual-densify-presentation-evidence-t0287).
+Select `densify`, `overview` or `history` (repeatable); omitted family means all. Current ordinary build. Fixed renderer adapter proves production-hook/geometry states, not inference, actual acceptance persistence or engine progress. Mutations stay denied except the exact fixture-local actions. Inspect selected images; full/default or reviewed presentation scope retains its own coverage accounting. [Fixed contracts](smoke/ordinary.md#manual-densify-presentation-evidence).
 
 ## summary-native-copy — Opt-in real native responder; replaces system clipboard
 
@@ -128,13 +128,13 @@ Current ordinary build; three fictional strength/gravel/hiking summaries. Exact 
 
 `npm run smoke:weekly-kpis -- --scratch "$scratch" --bundle "$bundle"`
 
-Current ordinary build; synthetic plans/notes/activities. Actual two-week Refresh and persistence, separate fixed score/gap/period/layout proof. `--automatic-points` selects declared-rule evidence; `--refresh-only` selects the documented smaller release-risk scope, not full presentation. Inspect selected captures and omitted coverage. No provider/primary migration. [KPI contract](smoke/features.md#finite-authored-weekly-kpis-t0319).
+Current ordinary build; synthetic plans/notes/activities. Actual two-week Refresh and persistence, separate fixed score/gap/period/layout proof. `--automatic-points` selects declared-rule evidence; `--refresh-only` selects the documented smaller release-risk scope, not full presentation. Inspect selected captures and omitted coverage. No provider/primary migration. [KPI contract](smoke/features.md#finite-authored-weekly-kpis).
 
 ## weekly-kpi-chat — Ordinary authored KPI tool/chat wiring
 
 `npm run smoke:weekly-kpi-chat -- --scratch "$scratch" --bundle "$bundle"`
 
-Current ordinary build; exclusive named fake-provider scope and closed 14-call sequence. Tests establishment/adaptation/latest assessment/no-save/correction, rejected latest discovery then one save, automatic points and restart. API/tool/SQLite evidence is textual; KPI screenshots are a separate scenario. No real coach/reasoning claim. [KPI chat details](smoke/features.md#finite-authored-weekly-kpis-t0319).
+Current ordinary build; exclusive named fake-provider scope and closed 14-call sequence. Tests establishment/adaptation/latest assessment/no-save/correction, rejected latest discovery then one save, automatic points and restart. API/tool/SQLite evidence is textual; KPI screenshots are a separate scenario. No real coach/reasoning claim. [KPI chat details](smoke/features.md#finite-authored-weekly-kpis).
 
 ## quick — CI-minimal debug synthetic Profile; not full regression
 
@@ -170,4 +170,4 @@ Refuses before private input: the product no longer reads token files. Real Pers
 
 Commands: `smoke:conversation:live`, `smoke:summary:live`, `smoke:memory:live`, `smoke:memory:capacity`, `smoke:rebuild:live`, `smoke:t0284:summary`.
 
-These may privately use the normal native OpenAI slot and spend money; the T0284 helper additionally uses specifically authorized actual-derived history. They are **not generic smoke recommendations**. Consult [restricted contracts](smoke/live.md) for exact T0269/T0270/T0272/T0274/T0276/T0284 authority, current qualified source/pricing, immutable claims and narrowly permitted continuation. Old presets/budgets/receipts and command flags are not new-task consent. Unknown spend is never refunded; no blind retry, private discovery or primary activation.
+These may privately use the normal native OpenAI slot and spend money; the actual-history summary helper additionally uses specifically authorized actual-derived history. They are **not generic smoke recommendations**. Their authority belonged to the completed tasks recorded in the [restricted recipe history](history/restricted-live-recipes.md), with their qualified source/pricing, immutable claims and narrowly permitted continuation. Old presets/budgets/receipts and command flags are not new-task consent. Unknown spend is never refunded; no blind retry, private discovery or primary activation.

@@ -1,6 +1,6 @@
 // Explicit, separately authorized maintenance backfill of the additional Garmin
 // evidence groups over a selected stopped database. Never startup, Settings
-// discovery, migration or implicit replay. See docs/garmin-extra-backfill.md.
+// discovery, migration or implicit replay. See docs/garmin-extra-data.md#explicit-history-backfill.
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { isAbsolute } from "node:path";
