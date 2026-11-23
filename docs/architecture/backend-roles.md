@@ -10,16 +10,30 @@ Feature folders intentionally mix responsibilities; names/folder depth do not
 confer an exemption. [Allowed edges and limitations](../project-guardrails.md#featurelayer-ownership-runtime-and-erased-contracts)
 include erased contracts without treating them as runtime execution or cycles.
 
-| Feature                     | Inner contracts / application ports                                                                 | Outer composition and capability owners                                                                                                                                                                    |
-| --------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Chat / conversations        | `chat/{contracts,ports,context-ports}`, `createChatTurns`, `createChatContext`, `ConversationPorts` | `chat/{composition,conversation-composition}` binds storage, memory and selected AI generation; chat/conversation HTTP families invoke these seams                                                         |
-| AI orchestration / tools    | `TrainerOrchestrationPorts`, tool ports, neutral tool schemas/types, selection/evidence/math        | `ai/{composition,tool-composition}`; provider generation/schema wrapping and model selection are adapters, not inner contracts                                                                             |
-| Guarded analytics           | `analytics/contracts`, synchronous execution/inspection ports and application                       | `ai/sql-analysis` composes `analytics/sqlite-execution`; tool facade never exposes a database handle                                                                                                       |
-| Garmin                      | Import reader/storage/config/clock ports, sync/baseline/detail applications and pure normalizers    | `garmin/composition`; reader/MCP/FIT/archive/token/auth modules are mechanical adapters; sync/detail callers use composition directly                                                                      |
-| Local data                  | Plain read models, selected-row policy, `LocalDataReads` / `LocalDataLifecycle`                     | `local-data/composition` binds SQLite for activity/Health/summary/delete, chat and tools                                                                                                                   |
-| Profile / memory            | `ProfileStorage`, semantic `MemoryPorts`, management and legacy application contracts               | Profile/memory compositions bind SQL, config, embeddings/extraction; management owns preserved-record operations, not a public legacy proposal facade                                                      |
-| Training Plan               | Contracts/policy/edits/snapshot and synchronous `TrainingPlanStore`                                 | `training-plan/composition` binds plan SQL for HTTP and tool use                                                                                                                                           |
-| Infrastructure / operations | No business-policy exemption                                                                        | DB connection/schema/migrations/repositories, env, diagnostics doctor, Garmin connection/HTTPS/FIT and provider/config transports are explicitly classified adapters; diagnostics redaction is pure domain |
+- **Chat / conversations**
+  - Inner contracts / application ports: `chat/{contracts,ports,context-ports}`, `createChatTurns`, `createChatContext`, `ConversationPorts`
+  - Outer composition and capability owners: `chat/{composition,conversation-composition}` binds storage, memory and selected AI generation; chat/conversation HTTP families invoke these seams
+- **AI orchestration / tools**
+  - Inner contracts / application ports: `TrainerOrchestrationPorts`, tool ports, neutral tool schemas/types, selection/evidence/math
+  - Outer composition and capability owners: `ai/{composition,tool-composition}`; provider generation/schema wrapping and model selection are adapters, not inner contracts
+- **Guarded analytics**
+  - Inner contracts / application ports: `analytics/contracts`, synchronous execution/inspection ports and application
+  - Outer composition and capability owners: `ai/sql-analysis` composes `analytics/sqlite-execution`; tool facade never exposes a database handle
+- **Garmin**
+  - Inner contracts / application ports: Import reader/storage/config/clock ports, sync/baseline/detail applications and pure normalizers
+  - Outer composition and capability owners: `garmin/composition`; official HTTPS/reader/FIT/archive and connection modules are mechanical adapters; sync/detail callers use composition directly
+- **Local data**
+  - Inner contracts / application ports: Plain read models, selected-row policy, `LocalDataReads` / `LocalDataLifecycle`
+  - Outer composition and capability owners: `local-data/composition` binds SQLite for activity/Health/summary/delete, chat and tools
+- **Profile / memory**
+  - Inner contracts / application ports: `ProfileStorage`, semantic `MemoryPorts`, management and legacy application contracts
+  - Outer composition and capability owners: Profile/memory compositions bind SQL, config, embeddings/extraction; management owns preserved-record operations, not a public legacy proposal facade
+- **Training Plan**
+  - Inner contracts / application ports: Contracts/policy/edits/snapshot and synchronous `TrainingPlanStore`
+  - Outer composition and capability owners: `training-plan/composition` binds plan SQL for HTTP and tool use
+- **Infrastructure / operations**
+  - Inner contracts / application ports: No business-policy exemption
+  - Outer composition and capability owners: DB connection/schema/migrations/repositories, env, diagnostics doctor, Garmin connection/HTTPS/FIT and provider/config transports are explicitly classified adapters; diagnostics redaction is pure domain
 
 The `model-settings` feature owns strict versioned catalog/contracts and supplied-port preference application. Native Settings v3 preserves original v2/v1 settings and independent extraction/title fields; activation v3 carries immutable catalog and private selection-compatibility metadata over the existing private pipe (older v2/v1 remain supported). Lazy composition binds one durable explicit choice with frozen startup compatibility, preserving original preferences, placeholder-aware eligibility and exact chat-only provider construction. `/api/model-settings` returns bounded version-3 metadata; `chat/composition` captures selection/configuration once before context awaits. Live Settings publishes one complete validated catalog/key snapshot in a narrowly named process-owned cell shared by the separately built launcher and Next bundles, never a mutable whole-config env overlay. Fixed authenticated POST/GET validates boot/generation/revision; status acknowledges only published state. Native lock order is service-before-settings, with nonblocking service acquisition during startup and bounded transport. DB schema, provider probing and extraction/embedding topology remain unchanged. Focused `model-settings*` suites cover key/validation/persistence/redaction/UI and overlapping production turn binding.
 
@@ -59,5 +73,4 @@ all production routes with DB/env/provider/connector access probes; construction
 must not invoke any. It also checks request-time debug-port delegation. Existing
 `*-application`, `*-wiring`, SQL execution, provider generation and connector reader
 suites cover supplied ports, real adapters, singleton/transaction lifetimes and
-failure paths. API-only smoke runs on a disposable populated DB; rollback is a
-source revert, data back-sync is a no-op.
+failure paths. API-only smoke uses a disposable populated DB. Structural-only changes need no data back-sync; schema/checkpoint changes follow the owning feature's migration and recovery contract.
