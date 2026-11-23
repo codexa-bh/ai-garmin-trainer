@@ -4,6 +4,9 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { migrateDatabase } from "../src/lib/db/migrations";
+import { createWeeklyStore } from "../src/lib/db/weekly-repository";
+import { authoredWeeklyKpis } from "./kpi-fixture";
+import { weeklyCalendar } from "../src/lib/weekly/calendar";
 import {
   initializeLiveConfiguration,
   applyChatgptConnections,
@@ -736,6 +739,73 @@ function routeUpstream(planner: () => Response, synthesisTerminal = true) {
   );
   return { bodies, syncStatus };
 }
+it("production weekly lookup recovers canonical evidence without a cooperative corrected call", async () => {
+  initializeLiveConfiguration(boot);
+  modelSettings.save({ modelId: entry.id });
+  const now = new Date();
+  const weekStart = weeklyCalendar(now, "UTC").weekStart;
+  const fixture = authoredWeeklyKpis(now);
+  createWeeklyStore(() => db).saveKpis(weekStart, fixture);
+  const before = db.prepare("select * from weekly_kpi").all();
+  const originalFetch = fetch;
+  let calls = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url).startsWith("http://127.0.0.1:"))
+        return originalFetch(url, init);
+      calls += 1;
+      const body = JSON.parse(String(init?.body));
+      const output = body.input.find(
+        (item: { type: string }) => item.type === "function_call_output",
+      );
+      if (!output) {
+        const item = wireCall({
+          id: "fc_kpi",
+          name: "getWeeklyKpis",
+          arguments: JSON.stringify({ weekStart, setId: "latest" }),
+        });
+        return wire([{ item }]);
+      }
+      const evidence = JSON.parse(output.output);
+      expect(evidence.status).toBe("rejected");
+      expect(evidence.evidence).toContain("kpi_set_unavailable");
+      // No second read is offered by this authored provider: the actual recovery
+      // object must survive orchestration and locked-SDK native serialization.
+      expect(evidence.evidence).toContain('"canonical":');
+      expect(evidence.evidence).toContain(
+        JSON.stringify(fixture.sets[0].items[0].label),
+      );
+      const text = `Available saved targets: ${fixture.sets[0].items[0].label}. The requested version is unavailable; these are canonical targets, not that version.`;
+      const item = wireMessage(text, "final_answer");
+      return wire([{ item, text }]);
+    }),
+  );
+  const turn = prepareChatTurn(
+    "weekly-recovery",
+    "What are my saved KPIs this week?",
+    "UTC",
+  );
+  const result = await generateChatTurn(turn, { debugTraceEnabled: true });
+  if (result.kind !== "generated") throw Error("Expected generated response");
+  await completeChatTurn(turn, result);
+  expect(result.text).toContain(fixture.sets[0].items[0].label);
+  expect(result.toolSteps).toEqual([
+    expect.objectContaining({
+      tool: "getWeeklyKpis",
+      status: "rejected",
+      reason: "kpi_set_unavailable",
+    }),
+  ]);
+  expect(calls).toBe(2);
+  expect(db.prepare("select * from weekly_kpi").all()).toEqual(before);
+  expect(
+    listRecentChatMessages("weekly-recovery").filter(
+      (m) => m.role === "assistant",
+    ),
+  ).toHaveLength(1);
+});
+
 async function persistedTurn(conversationId: string) {
   const turn = prepareChatTurn(conversationId, "Compare my recent sync state.");
   const result = await generateChatTurn(turn, { debugTraceEnabled: true });

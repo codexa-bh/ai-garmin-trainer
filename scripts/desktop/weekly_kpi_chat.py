@@ -12,7 +12,7 @@ import sqlite3
 import uuid
 import smoke_resources as resources
 from chat_smoke import AuthoredProvider, api, seed_run
-from weekly_kpi_provider import ANSWER, NO_SAVE
+from weekly_kpi_provider import ANSWER, NO_SAVE, RECOVERED, MISSING, EXACT_MISSING
 from native_smoke import REPO, Observer, canonical, private_json, readonly, source_identity
 from ordinary_identity import inventory_hash
 from release_artifact import candidate_preparation
@@ -25,6 +25,21 @@ def state(run, week):
     with contextlib.closing(readonly(run.database)) as db:
         row = db.execute('select state_json from weekly_kpi where week_start=?', (week,)).fetchone()
         return json.loads(row[0]) if row else None
+
+
+def weekly_snapshot(run):
+    """All weekly persistence, not just the selected KPI set, is read-only."""
+    with contextlib.closing(readonly(run.database)) as db:
+        return {
+            table: db.execute('select * from ' + table + ' order by 1').fetchall()
+            for table in [
+                'weekly_artifact',
+                'weekly_kpi',
+                'weekly_kpi_track',
+                'weekly_kpi_recipe',
+                'weekly_kpi_measurement',
+            ]
+        }
 
 
 def seed_auto_measurements(run, week):
@@ -138,15 +153,15 @@ def exercise(run, provider, receipt):
             steps = grounding.get('toolSteps', [])
             if [(step['tool'], step['status']) for step in steps] != [
                 ('getWeeklyKpis', 'rejected'),
-                ('getWeeklyKpis', 'succeeded'),
                 ('saveWeeklyDocuments', 'succeeded'),
             ] or steps[0].get('reason') != 'kpi_set_unavailable':
                 raise ValueError(
-                    'Actual unavailable-set read correction did not precede the single normal save'
+                    'Actual independent read recovery did not precede the single normal save'
                 )
             receipt['readCorrection'] = {
                 'rejectedRead': 'kpi_set_unavailable',
-                'freshDiscovery': True,
+                'deterministicCanonicalRecovery': True,
+                'correctiveDiscoveryCall': False,
                 'singleConfirmedSave': True,
                 'transport': 'NDJSON',
             }
@@ -264,7 +279,69 @@ def exercise(run, provider, receipt):
                 'redundantFieldsOmitted': True,
             }
         )
-    if len(provider.calls) != 14:
+    for index, (action, expected) in enumerate(
+        [
+            ('ordinary-recovery', RECOVERED),
+            ('missing-week', MISSING),
+            ('explicit-unavailable-version', EXACT_MISSING),
+        ]
+    ):
+        receipt['lastAction'] = action
+        before = weekly_snapshot(run)
+        raw = json.loads(
+            api(
+                run,
+                'POST',
+                '/api/chat',
+                {
+                    'conversationId': conversation,
+                    'message': {
+                        'ordinary-recovery': 'What are my saved KPI targets this week?',
+                        'missing-week': 'What KPIs are saved three weeks from now?',
+                        'explicit-unavailable-version': 'Read the exact saved unavailable-version, not another version.',
+                    }[action],
+                    'timeZone': 'UTC',
+                    'stream': False,
+                },
+            )
+        )
+        steps = raw.get('toolSteps', [])
+        if (
+            raw['assistant']['content'] != expected
+            or len(steps) != 1
+            or steps[0]['tool'] != 'getWeeklyKpis'
+            or steps[0]['status'] != 'rejected'
+            or steps[0].get('reason') != 'kpi_set_unavailable'
+        ):
+            raise ValueError('Actual deterministic read-only recovery/absence failed')
+        if weekly_snapshot(run) != before:
+            raise ValueError(
+                'Read recovery changed weekly documents, KPIs, recipes or measurements'
+            )
+        receipt['readOnlyWeeklyPersistence'] = True
+        receipt['backSync'] = (
+            'verified no-op on authored disposable state; no schema/data reinterpretation or primary access'
+        )
+        with contextlib.closing(readonly(run.database)) as db:
+            counts = dict(
+                db.execute(
+                    'select role,count(*) from message where conversation_id=? group by role',
+                    (conversation,),
+                ).fetchall()
+            )
+        if counts != {'user': 6 + index, 'assistant': 6 + index}:
+            raise ValueError('Recovery chat was not persisted exactly once')
+        evidence.append(
+            {
+                'action': action,
+                'transport': 'JSON',
+                'http': 200,
+                'readOnly': True,
+                'correctiveDiscoveryCall': False,
+                'exactlyOncePersistence': True,
+            }
+        )
+    if len(provider.calls) != 19:
         raise ValueError('Unexpected authored provider call count')
     return (
         conversation,
@@ -294,7 +371,7 @@ def main():
     source = source_identity()
     run = provider = observer = None
     receipt = {
-        'scenario': 'T0336-canonical-read-correction-declared-rules-carry-forward-post-save-refresh-reviewed-zero-native-chat',
+        'scenario': 'T0376-deterministic-canonical-recovery-missing-exact-version-read-only-and-protected-save-native-chat',
         'passed': False,
         'privateInputs': 'none',
         'realServices': 'not exercised; finite authored provider',
@@ -352,6 +429,20 @@ def main():
                 != expected
             ):
                 raise ValueError('Actual native restart persistence failed')
+            with contextlib.closing(readonly(run.database)) as db:
+                history = db.execute(
+                    'select role,content from message where conversation_id=? order by created_at',
+                    (conversation,),
+                ).fetchall()
+            if (
+                len(history) != 16
+                or sum(role == 'assistant' for role, _ in history) != 8
+                or history[-1][1] != EXACT_MISSING
+            ):
+                raise ValueError('Recovery history restart persistence failed')
+            if len(provider.calls) != 19:
+                raise ValueError('Restart replayed a provider call')
+            receipt['exactlyOnceHistoryRestart'] = True
             if (
                 source_identity() != source
                 or audit(bundle) != inventory

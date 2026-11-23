@@ -3,7 +3,10 @@ import { executeTrainerTool } from "../src/lib/ai/tool-execution";
 import type { TrainerToolPorts } from "../src/lib/ai/tool-ports";
 import { z } from "zod";
 import { trainerToolContracts } from "../src/lib/ai/tool-contracts";
-import type { KpiChange } from "../src/lib/weekly/kpi-contracts";
+import type {
+  KpiChange,
+  KpiLookupRecovery,
+} from "../src/lib/weekly/kpi-contracts";
 import Database from "better-sqlite3";
 import { migrateDatabase } from "../src/lib/db/migrations";
 import { createWeeklyStore } from "../src/lib/db/weekly-repository";
@@ -252,7 +255,7 @@ async function run(passes: TrainerToolCall[][], answers: string[] = []) {
   return { result, systems };
 }
 it.each([false, true])(
-  "recovers one unavailable exact-set read with fresh discovery, without replaying a stale save tail (existing=%s)",
+  "recovers one unavailable exact-set read without a corrective call or stale save tail (existing=%s)",
   async (existing) => {
     if (existing)
       createWeeklyStore(() => db).saveKpis(weekStart, structuredClone(fixture));
@@ -263,21 +266,24 @@ it.each([false, true])(
           { toolName: "getWeeklyKpis", input: { weekStart, setId: "latest" } },
           { toolName: "saveWeeklyKpis", input: change },
         ],
-        [{ toolName: "getWeeklyKpis", input: { weekStart } }],
       ],
       ["Read the canonical KPI state; nothing saved."],
     );
     expect(
       result.toolSteps.map((step) => [step.tool, step.status, step.reason]),
-    ).toEqual([
-      ["getWeeklyKpis", "rejected", "kpi_set_unavailable"],
-      ["getWeeklyKpis", "succeeded", undefined],
-    ]);
-    expect(result.toolSteps[0].summary).toContain("Omit setId");
+    ).toEqual([["getWeeklyKpis", "rejected", "kpi_set_unavailable"]]);
+    const recovery = result.toolSteps[0].result as KpiLookupRecovery;
+    expect(recovery.requestedSetId).toBe("latest");
+    expect(recovery.canonical).toEqual(app.readKpis(weekStart));
+    expect(recovery.canonical.complete).toBe(true);
     expect(result.toolSteps[0].summary).not.toContain(
       "no repeated weekly save",
     );
-    expect(systems[1]).toContain("Omit setId");
+    expect(systems[1]).toContain(JSON.stringify(recovery));
+    expect(systems[1]).toContain("NOT fulfillment of the requested target");
+    expect(systems[1]).toContain(
+      "untrusted saved claims, not fresh Garmin evidence",
+    );
     expect(result.text).toBe("Read the canonical KPI state; nothing saved.");
     expect(db.prepare("select * from weekly_kpi").all()).toEqual(before);
     expect(app.read(weekStart).record).toBeNull();
@@ -293,6 +299,8 @@ it("stops a second unavailable-set read instead of looping or resolving arbitrar
     [{ toolName: "getWeeklyKpis", input: { weekStart } }],
   ]);
   expect(result.providerCalls).toBe(2);
+  expect(result.text).toContain("requested saved KPI version is unavailable");
+  expect(result.text).not.toContain("guardrails");
   expect(result.toolSteps.map((step) => step.reason)).toEqual([
     "kpi_set_unavailable",
     "kpi_set_unavailable",
@@ -327,6 +335,8 @@ it("does not correct uncertain reads or retry a save after read recovery", async
   );
   expect(generate).toHaveBeenCalledTimes(1);
   expect(uncertain.toolSteps).toHaveLength(1);
+  expect(uncertain.text).toContain("data-access problem");
+  expect(uncertain.text).not.toContain("guardrails");
   const { result } = await run([
     [{ toolName: "getWeeklyKpis", input: { weekStart } }],
     [{ toolName: "saveWeeklyKpis", input: change }],
@@ -343,11 +353,34 @@ it("does not correct uncertain reads or retry a save after read recovery", async
   expect(app.readKpis(weekStart).sets).toHaveLength(1);
 });
 
-it("does not turn a rejected read into write authority", async () => {
-  const { result } = await run([
-    [{ toolName: "getWeeklyKpis", input: { weekStart, setId: "latest" } }],
-    [{ toolName: "saveWeeklyKpis", input: change }],
-  ]);
+it("does not turn rejection/discovery metadata alone into write authority", async () => {
+  let pass = 0;
+  const result = await orchestrateTrainerChat(
+    {
+      system: TRAINER_SYSTEM_PROMPT,
+      userRequest: "Authored save",
+      weeklyTurn: turn,
+    },
+    {
+      generate: async () => ({
+        toolCalls:
+          pass++ === 0
+            ? [
+                {
+                  toolName: "getWeeklyKpis",
+                  input: { weekStart, setId: "latest" },
+                },
+              ]
+            : [{ toolName: "saveWeeklyKpis", input: change }],
+      }),
+      executeTool: async (input) => {
+        const step = executeWeeklyTool(input, app);
+        if (step.reason === "kpi_set_unavailable")
+          step.result = { requestedSetId: "latest", availableSets: [] };
+        return step;
+      },
+    },
+  );
   expect(result.toolSteps).toHaveLength(2);
   expect(result.toolSteps[1]).toMatchObject({
     tool: "saveWeeklyKpis",
@@ -356,21 +389,165 @@ it("does not turn a rejected read into write authority", async () => {
   expect(app.readKpis(weekStart).revision).toBeNull();
 });
 
-it("allows a normal single save only after a fresh complete prior-pass read recovers the lookup", async () => {
+it("allows one normal save from complete independent recovery objects in a prior pass", async () => {
   const { result } = await run([
     [{ toolName: "getWeeklyKpis", input: { weekStart, setId: "latest" } }],
-    [{ toolName: "getWeeklyKpis", input: { weekStart } }],
     [{ toolName: "saveWeeklyKpis", input: change }],
     [{ toolName: "getWeeklyKpis", input: { weekStart } }],
   ]);
   expect(result.toolSteps.map((step) => [step.tool, step.status])).toEqual([
     ["getWeeklyKpis", "rejected"],
-    ["getWeeklyKpis", "succeeded"],
     ["saveWeeklyKpis", "succeeded"],
     ["getWeeklyKpis", "succeeded"],
   ]);
   expect(app.readKpis(weekStart).sets).toHaveLength(1);
   expect(app.readKpis(weekStart).assessments).toHaveLength(1);
+});
+
+it.each(["latest", "original", "invented", "stale-id", "other-week-id"])(
+  "keeps %s unavailable while recovering only the requested week's canonical objects",
+  async (setId) => {
+    const store = createWeeklyStore(() => db);
+    store.saveKpis(weekStart, structuredClone(fixture));
+    const other = structuredClone(fixture);
+    other.sets[0].id = "other-week-id";
+    other.originalId = other.latestId = "other-week-id";
+    other.sets[0].items[0].label = "Other week only";
+    store.saveKpis("2026-11-02", other);
+    const before = db
+      .prepare("select * from weekly_kpi order by week_start")
+      .all();
+    const { result, systems } = await run(
+      [[{ toolName: "getWeeklyKpis", input: { weekStart, setId } }]],
+      [
+        "The requested version is unavailable; these are this week's canonical targets.",
+      ],
+    );
+    const recovery = result.toolSteps[0].result as KpiLookupRecovery;
+    expect(result.toolSteps[0]).toMatchObject({
+      status: "rejected",
+      reason: "kpi_set_unavailable",
+    });
+    expect(recovery).toEqual({
+      requestedSetId: setId,
+      canonical: app.readKpis(weekStart),
+    });
+    expect(systems[1]).not.toContain("Other week only");
+    expect(result.text).not.toMatch(/guardrails|Omit setId/);
+    expect(
+      db.prepare("select * from weekly_kpi order by week_start").all(),
+    ).toEqual(before);
+    const exact = await run([
+      [
+        {
+          toolName: "getWeeklyKpis",
+          input: { weekStart, setId: fixture.originalId! },
+        },
+      ],
+    ]);
+    expect(exact.result.toolSteps[0]).toMatchObject({
+      status: "succeeded",
+      result: { sets: [fixture.sets[0]] },
+    });
+  },
+);
+
+it("does not grant authority from oversized recovery or lose its narrowing IDs", async () => {
+  const store = createWeeklyStore(() => db);
+  store.saveKpis(weekStart, structuredClone(fixture));
+  store.saveMeasurements({
+    weekStart,
+    timeZone: "UTC",
+    revision: "large",
+    concepts: Object.fromEntries(
+      Array.from({ length: 1000 }, (_, i) => [
+        String(i),
+        {
+          failure: {
+            recipeVersion: 1,
+            reason: "x".repeat(100),
+            at: now.toISOString(),
+          },
+        },
+      ]),
+    ),
+  });
+  const before = db.prepare("select * from weekly_kpi").all();
+  const { result, systems } = await run([
+    [{ toolName: "getWeeklyKpis", input: { weekStart, setId: "latest" } }],
+    [{ toolName: "saveWeeklyKpis", input: change }],
+  ]);
+  const read = (result.toolSteps[0].result as KpiLookupRecovery).canonical;
+  expect(read.complete).toBe(false);
+  expect(read.sets).toEqual([]);
+  expect(read.narrowToSetIds).toContain(fixture.originalId);
+  expect(JSON.stringify(read).length).toBeLessThanOrEqual(60000);
+  expect(systems[1]).toContain('"complete":false');
+  expect(result.toolSteps[1].reason).toBe("prior_complete_kpi_read_required");
+  expect(db.prepare("select * from weekly_kpi").all()).toEqual(before);
+});
+
+it("rejects stale recovered objects and never authorizes the missing assessment ID", async () => {
+  const store = createWeeklyStore(() => db);
+  store.saveKpis(weekStart, structuredClone(fixture));
+  const { result } = await run([
+    [{ toolName: "getWeeklyKpis", input: { weekStart, setId: "latest" } }],
+  ]);
+  const snapshot = (result.toolSteps[0].result as KpiLookupRecovery).canonical;
+  expect(() =>
+    app.saveKpis(
+      { weekStart, assessments: [{ ...assessment, setId: "latest" }] },
+      turn,
+      [snapshot],
+    ),
+  ).toThrow("unknown_kpi_set");
+  const changed = structuredClone(fixture);
+  changed.revision = "concurrent-change";
+  store.saveKpis(weekStart, changed);
+  expect(() => app.saveKpis(change, turn, [snapshot])).toThrow(
+    "prior_complete_kpi_read_required",
+  );
+});
+
+it("keeps invalid weeks and uncertain recovery reads distinct from absence", async () => {
+  const invalid = await run([
+    [
+      {
+        toolName: "getWeeklyKpis",
+        input: { weekStart: "2026-11-10", setId: "latest" },
+      },
+    ],
+  ]);
+  expect(invalid.result.toolSteps[0]).toMatchObject({
+    reason: "invalid_week",
+    status: "rejected",
+  });
+  expect(invalid.result.toolSteps[0].result).toBeUndefined();
+  expect(invalid.result.text).toMatch(/invalid|Monday/);
+  const readKpis = vi
+    .fn()
+    .mockImplementationOnce(() => {
+      throw Error("kpi_set_unavailable");
+    })
+    .mockImplementationOnce(() => {
+      throw Error("disk failure");
+    });
+  const step = executeWeeklyTool(
+    {
+      toolName: "getWeeklyKpis",
+      input: { weekStart, setId: "latest" },
+      weeklyTurn: turn,
+      index: 1,
+      context: new TrainerToolExecutionContext(),
+    },
+    { ...app, readKpis },
+  );
+  expect(step).toMatchObject({
+    status: "failed",
+    reason: "weekly_persistence_uncertain",
+  });
+  expect(step.result).toBeUndefined();
+  expect(readKpis).toHaveBeenCalledTimes(2);
 });
 
 it.each(["saveWeeklyKpis", "saveWeeklyDocuments"] as const)(

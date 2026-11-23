@@ -215,7 +215,7 @@ export function createWeekly(
         sets: [],
         assessments: [],
         measured: null,
-        narrowToSetIds: read.sets.map((set) => set.id),
+        narrowToSetIds: read.narrowToSetIds ?? read.sets.map((set) => set.id),
       };
       return { ...incomplete, points: kpiPointsProjection(incomplete) };
     }

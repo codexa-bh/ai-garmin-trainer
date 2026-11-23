@@ -14,7 +14,7 @@ Discovery reads the [catalog](smoke-commands.md), never prepares/builds/launches
 
 - **Sync/import:** [build/run card](synthetic-sync-smoke.md), `synthetic-sync`; onboarding: `history-setup`; offline help: `dependency-guidance`.
 - **Navigation/Profile/shared native:** `ordinary`, full plus affected features.
-- **Features:** search `chat`, `terrain`, `tables`, `activity-labels`, `weekly-kpis`, `summary`, `composer` or `conversations`.
+- **Features:** search `chat`, `terrain`, `tables`, `activity-labels`, `weekly-kpis`, `summary`, `composer` or `conversations`. Weekly lookup/recovery uses [authored KPI chat](smoke/features.md#authored-kpi-chat); KPI rendering/Refresh uses the separate presentation scenario.
 - **Settings:** `summary-settings` ordinary; `settings`/`live-settings`/`health` debug—different evidence.
 - **Real service:** `real-provider`/`real-garmin` restricted; current authority before access/spend.
 - **Build/admission/extension:** relevant [reference](#detailed-reference), no bypass/retry loop.
