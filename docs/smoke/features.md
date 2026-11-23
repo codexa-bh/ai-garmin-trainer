@@ -26,21 +26,21 @@ Assert native API/tool status/exact answer/exactly-once assistant persistence/co
 
 `smoke:chat … --extra-data` is a separate scope, exclusive with images, memory and weekly KPIs. The exclusive run copy gets authored rows in every [additional evidence relation](../garmin-extra-data.md) (sleep components, HRV baseline, one sparse VO2 reading, a Body Battery event, stress, a lap-zone bucket plus a below bucket, a per-type snowboard total, four individual measured snow run/lift rows and coverage rows, including latest failed split coverage with preserved rows). The loopback provider makes exactly **5 calls**: known-ID `getActivityDashboard`, `describeGarminDatabase`, one `runReadOnlySql`, one `runMathAnalysis`, then fixed text. Before selecting any tool it requires the actual initial context to include the latest selected legacy day's sleep score/qualifier, weekly HRV/baseline, daily charged/drained and high-stress minutes with coverage. Before schema discovery it inspects the actual default overview for signed delta, source-distinct fractional cadence/stride, null sensor, lap bucket identity/timing, snow per-type total and coverage/caps; no private visual input may enter numerical evidence. The exclusive copy seeds those normalized facts on the latest existing legacy day too; it does not introduce extra-only preview dates. It requires actual schema evidence for every new relation and its meanings, and all **16 expected SQL cells**, including a not-backfilled date, two measured runs versus two lifts, run distance separate from totals and latest failed split coverage. Same-turn math converts measured run metres to kilometres; fixed text discloses retained/stale evidence and unavailable split HR without a proven link. Then it asserts the native tool sequence, persisted answer and restart history. No capture: the fixed chat mask admits only the canonical ordinary answer, so this is non-visual wire/persistence proof. It does not test model semantic judgment. `extra_data_provider_test.py` covers the sequence, refusals, seed/schema agreement and scope exclusivity before use.
 
-### Finite automatic-memory cleanup proof (T0304)
+### Finite automatic-memory cleanup proof
 
 `--memory-curation` extends same runner after nine calls/two images; cannot combine `--activity-images`. Seed substantial repetitive generated prior +separate preference through real version2 HTTP; stopped owned v3 chooses distinct keyless authored loopback memory model, no normal settings. Actual Profile no-op/changed Save preserves prior. Correction uses complete General Plan/current-week read-save with fictional path/key-like examples; maintenance receives full prior/eligible source/current Profile and supplied full consolidation. Plan-no-write retains independent caregiving meaning. Fixed title response; extra chat/model calls refuse. No manual Densify/paid provider.
 
-**Current contract includes T0305 dates and T0306 same-call exclusion below; superseded prose-prefilter/two-ID-import expectations are not instructions.** Require four summary calls, exact source progress/suppression, preferences/documents/original input preserved, real restart/no replay. Actual HTTP/provider-wire/SQLite proves hidden state, not masked chat images or live model judgment. Existing native permissions/default workload unchanged; diagnostics/disposal remain owned.
+The original-date import and same-call exclusion proofs below are part of this contract. Require four summary calls, exact source progress/suppression, preferences/documents/original input preserved, real restart/no replay. Actual HTTP/provider-wire/SQLite proves hidden state, not masked chat images or live model judgment. Existing native permissions/default workload unchanged; diagnostics/disposal remain owned.
 
-### Finite privacy and original-date import repair (T0305)
+### Finite privacy and original-date import repair
 
 Before Enable, seed exactly **three linked completed-Off turns**, original user/context dates in **2020**: durable temporal meaning, modified plan refusal, private negative. No original/prepared/private history edit. Compatibility content API deliberately omits candidate text; review only fixed authored IDs, **select all three** through actual import. Adapter requires original user and preceding-assistant dates serialized distinctly from now. Same-call decision excludes only private source; actual dispositions/stable-message and exact-source suppressions checked, later restricted re-import refuses. Owner tests separately cover inspection/selection/stale-source/cancel/privacy/accounting. No public candidate endpoint/real-history/UI/native grant.
 
-### Same-call semantic privacy proof (T0306)
+### Same-call semantic privacy proof
 
 Weekly-review no-write reaches normal memory request; genuine privacy turn also reaches it and returns `{summary,exclude:[0]}`, retaining full unrelated prior. Reviewed import applies exclusion in that same dated request, not a prose prefilter or prior selection refusal. Four summary calls/restart/no-replay/preferences/no document write/original integrity remain exact. Supplied decisions prove owner/wire/transaction, not live semantic judgment. Reviewed-import observation ≤**65 seconds =30 idle poll +30 HTTP +5 settlement**, failure reasons immediate; no product cadence/deadline/retry change or relaxed publication/count assertion.
 
-### Selected activity images (T0303)
+### Selected activity images
 
 `--activity-images` instead selects four optional panels on same dashboard call, exact loopback `llava` authored fixture (no downloaded model). Only owned copy gets fictional GPS on existing101 points. Actual backend shared SVG/dashboard rasterizer yields **4 SDK `image_url` PNGs, 960×540, ≤1 MiB each**, exact panel/activity/call and unchanged numerical HR evidence. Decode first four actual images to task evidence `screenshots/`, no raw requests; inspect all. Proves rasterizer/wire, not native compositor/vision interpretation.
 
@@ -68,7 +68,7 @@ Default: fifteen Snow runs PNGs per instance, plus four first-instance navigatio
 
 `smoke:activity-labels`: fresh `ci:seed --activity-labels`, three fictional `strength_training`, `gravel_cycling`, `hiking` summaries. Closed `activityLabels`: observe/strength/gravel/hiking/list-scroll-to-selected, no IDs/selectors, only readiness/containment booleans. Exact synthetic title/type/selected Garmin ID must match before revealing list/detail text. Unknown/extra/wrong-mode/unmatched refuses; wide/narrow images at actual geometry, originals/shutdown/mask restoration verified. Synthetic DOM, not trusted/default/service proof.
 
-## Finite authored weekly KPIs (T0319)
+## Finite authored weekly KPIs
 
 `smoke:weekly-kpis`: exclusive `ci:seed --weekly-kpis`, current ordinary admission. Corpus: compound count/duration +independently saved qualifying condition, non-scored two-track monitoring, plan/review notes, original/latest sets, latest matching **112.5/80 =140.625%**, per-measurement **50/50 and30/30**, unknown duration, true-zero previous week, latest-unassessed gap with only obsolete original score. Future notes/KPIs authored, no personal data. Stored Yes/No qualification is **not numeric metric**.
 
@@ -96,7 +96,7 @@ Release-risk `--refresh-only` selects just documented Refresh/restart/six images
 
 Before adaptation request `setId=latest`, require rejected paired-tool or labelled server-authored legacy `kpi_set_unavailable` +discovery hint; fresh read **omits setId** before single combined Save. Receipt must show rejected-read → discovery → confirmed-save under NDJSON; never silently resolve arbitrary IDs. Successful paired-result baseline identity/finite provider tests first. Textual API/tool evidence separate from KPI images. Deterministic replies are not real coach/reasoning.
 
-### Declared automatic-point proof (T0336)
+### Declared automatic-point proof
 
 `--automatic-points` / `ci:seed --weekly-auto-points`: duration proportional rule gated by reviewed condition, null reviewed duration award. Before Refresh total unavailable; afterward **reviewed count50 +automatic duration30 +extras12.5 =92.5/80 (115.625%), Provisional**. Saved overall112.5 is not an extra candidate. Require common API `points` parity, byte-identical KPI through refresh/restart, zero/gaps/all charts/bottom retained; baseline unchanged.
 

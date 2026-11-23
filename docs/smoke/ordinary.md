@@ -14,7 +14,7 @@ Actual native startup/polling exposes independent Luna and scheduled missing-key
 
 Closed cost DTO admits only nonnegative finite reserved/observed-token-estimate/all-day-unknown USD and exact reviewed price basis. Faster T0274 scheduler/larger allowances require requalified cumulative worst-case costs; old per-boot authority does not transfer.
 
-### Authored paused-summary diagnostic recovery (T0343)
+### Authored paused-summary diagnostic recovery
 
 Lifecycle uses `diagnostics` seed: same sources plus one explicitly authored **unreserved** failed attempt settled through production storage after real debounce. Diagnostic is authored, not SDK/service evidence; no provider or invented token usage. Unknown/replayed/active targets refuse.
 
@@ -40,7 +40,7 @@ Version2 CAS actions first read fixed expected authority metadata; extra/unknown
 
 History entry is dedicated `rebuild-preflight`. `history-select` chooses first fixed authored conversation; `history-legacy` toggles fixed older-history permission; `history-effects` reviews scope then opens final confirmation, **never Start**. These three are presentation-only. Clear enters Manage then its review; Forget/Enable require visible confirmation. `confirm` accepts only Clear/Forget/Enable, never history Start. `rebuild-start|rebuild-cancel` stay denied keylessly. Observations retain `rebuildVisible|rebuildStartDisabled|rebuildCancelDisabled`, plus `presentationFixture|confirmationVisible`, booleans only. Actual native preflight/missing-capability Start refusal and masked wide/narrow Rebuild controls prove no paid multi-batch synthesis/progress/cancel/quality. Counts/cost/summary stay hidden. Supplied-generation real-SQLite tests cover mechanics separately; real provider needs exact native route/model/export/cumulative authority, no inherited preset or normal-key lookup.
 
-### Manual Densify presentation evidence (T0287)
+### Manual Densify presentation evidence
 
 Exact fixtures: `fixture-densify-ready|fixture-densify-unavailable|fixture-densify-busy|fixture-densify-review|fixture-densify-no-reduction|fixture-densify-accepted|fixture-densify-discarded`. Only inside them may `densify|densify-cancel|densify-accept|densify-discard` click production controls; outside refuses. `densify-model-alternative` selects fixed alternative through labelled **Model for this run**, refusing hidden/disabled/noncanonical options. No caller value/selector/provider/key.
 
@@ -50,7 +50,7 @@ Fixed original **13250 at target 6000**, candidate **7000 scalars** (or equal-co
 
 This is supplied-candidate UI/wire presentation, not eligibility/inference/fidelity/real save/trusted input. Separate SQLite supplied-generation tests prove atomic shorter-only publication/source-preference-pin preservation/reopen/next admission; actual native manual save/restart proves persistence. No private input or historical paid budget.
 
-### Fixed Memory presentation evidence (T0279)
+### Fixed Memory presentation evidence
 
 Fixtures: `fixture-populated|fixture-empty|fixture-error|fixture-off|fixture-history|fixture-running|fixture-progressive|fixture-complete|fixture-interrupted|fixture-failed|fixture-cancelled|fixture-unknown|fixture-reset`, plus overview `fixture-ordinary|fixture-ordinary-failed|fixture-ordinary-interrupted`.
 

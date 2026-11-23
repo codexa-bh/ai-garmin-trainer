@@ -72,7 +72,7 @@ The existing native POST still accepts only the safety-reducing header `x-traine
 
 ### Retained legacy contract — not executable authority
 
-`smoke:history --token-input|--continuation-only` **refuses before private input**. T0238's **96 attempts/180-second invocation** cannot authorize current interactive **480 attempts/30 minutes**. Re-enabling needs separately attributable current private grant and reviewed live envelope. Synthetic success waives nothing.
+`smoke:history --token-input|--continuation-only` **refuses before private input**. The retired runner's **96 attempts/180-second invocation** cannot authorize current interactive **480 attempts/30 minutes**. Re-enabling needs separately attributable current private grant and reviewed live envelope. Synthetic success waives nothing.
 
 Retained copy primitives accept canonical owner-private directory and known `garmin_tokens.json`/optional `garmin_tokens.base64` via `0600` single-link `{tokenDirectory,tokenFiles,purpose:"T0238 private copied-token smoke only"}`. Pin directory, no-follow/nonblocking private single-link regular files, bounded stable-identity reads, exclusive run `tokens` copies; author only stopped run keyless settings. Original token hashes/DB integrity verified; refresh only copy. No normal settings/keys, fresh login/MFA/original rotation/raw payload/copy-back.
 

@@ -1,11 +1,13 @@
 # Memory redesign: authored acceptance and evidence contract
 
+> **History.** Retained for its attributed decisions and evidence; it is not a current contract. Current behavior is in [memory](../memory.md), [cross-chat summary](../cross-chat-summary.md) and [conversation history](../conversation-history.md).
+
 **Accepted scenarios, not a blanket execution certificate.** These synthetic scripts
 and measurable oracles define the evidence obligation; implementation tests/native
 receipts must identify which surfaces they actually prove. They are not private
 examples, a new fixture framework or a cache-savings claim. The authoritative target
 and T0272 shared-summary/title amendment live in [the architecture contract](memory-redesign-contract.md).
-Current source behavior is in [memory.md](memory.md). Historical H/S/I labels are
+Current source behavior is in [memory.md](../memory.md). Historical H/S/I labels are
 responsibility boundaries, not task IDs, launches or primary activation authority.
 
 ## 1. Common setup and oracle vocabulary
@@ -279,7 +281,7 @@ and supplied-port patterns rather than a fixture framework.
 | `tests/memory-contract.test.ts`, `sqlite-memory-adapter.test.ts`, `personalization-application.test.ts`, `personalization-wiring.test.ts`                 | S: M02–M06/M09/M11–M17/M20/M22/M24; new text-only policy/ledger ports with no embeddings; legacy contracts retained                                                                                                                                |
 | `tests/memory-route.test.ts`, `memory-status.test.ts`, `model-settings-chat.test.ts`, `desktop-settings.test.ts`, `desktop-runtime.test.ts`               | S/I: M10–M12/M18–M26; control/status, independent admitted selection, private settings/version compatibility and foreground shutdown                                                                                                               |
 | Existing dashboard/memory UI suites and `tests/local-data-wiring.test.ts`                                                                                 | I: M04/M08/M18–M21/M26; exact scopes, saved/active/pinned state, stale response guards and atomic invalidation                                                                                                                                     |
-| Existing programmatic native runner, [input](smoke-inputs.md) and [Memory scenario](smoke/ordinary.md) contracts                                          | Each slice: required actual behavior with synthetic copy by default, own bounded scenario/captures/process/original-integrity evidence. I additionally demonstrates integrated cross-chat/race/privacy behavior and authorized provider comparison |
+| Existing programmatic native runner, [input](../smoke-inputs.md) and [Memory scenario](../smoke/ordinary.md) contracts                                    | Each slice: required actual behavior with synthetic copy by default, own bounded scenario/captures/process/original-integrity evidence. I additionally demonstrates integrated cross-chat/race/privacy behavior and authorized provider comparison |
 
 H's native scenario must exercise an actual long follow-up, deliberate compaction,
 failed/overflow limitation and restart with the same pin. S's must show independent

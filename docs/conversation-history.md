@@ -1,9 +1,8 @@
 # Conversation replay and bounded local compaction
 
-This describes the source implementation, not an installed-app upgrade or primary
-DB activation. The [accepted redesign contract](memory-redesign-contract.md) retains
-independent evidence/activation obligations; [integrated memory](memory.md) documents
-the current consumer, controls and explicit historical transition.
+[Integrated memory](memory.md) documents the current consumer, controls and explicit
+historical transition. The original redesign contract is kept as
+[history](history/memory-redesign-contract.md).
 
 ## Supported path and independent states
 
@@ -58,7 +57,7 @@ saves remain intact.
 
 ## Accounting and limits
 
-**Current operator-directed policy (T0280):** no application-imposed spending/attempt
+**Policy:** no application-imposed spending/attempt
 caps, output-token caps or tokenizer/model-capacity qualification. Full frozen memory
 is supplied to all configured chat routes; non-Luna routes retain their prior local
 history rather than gaining general replay. Provider capacity errors remain explicit,
@@ -94,7 +93,7 @@ request would overflow. One boundary processes one oldest contiguous batch (at
 most twenty completed turns) plus previous **conversation-only** compact state,
 retaining at least two exact recent pairs. No global snapshot/current tool payload
 is new compaction source. Generation has no tools, a 30-second total abortable,
-monotonic deadline (explicit T0269 operator override after measured five-second live timeouts), 8192 serialized input/2048 output tokens and no automatic retry.
+monotonic deadline (raised from five seconds after measured live timeouts), 8192 serialized input/2048 output tokens and no automatic retry.
 Those older token/item allocations are historical, not current admission gates.
 Current generation returns strict `{summary:string}` continuity with no topic blacklist,
 negation exception, item count/text/source-ID certificate or6000-character ceiling.
@@ -177,7 +176,6 @@ first; historical18/19 migration bytes are unchanged. Originals,
 legacy vectors, Profile, plan/settings/key fields are not converted/backfilled.
 Older schema19/20 desktop admission refuses schema21; after new writes use a compatible
 forward fix or separately reconciled restore, not an unsafe older writer or copy-back.
-Source delivery never authorizes primary migration, activation, restart or release.
 
 `conversation-replay.test.ts` captures actual locked SDK serialized requests with
 fake transport; `summary-pin.test.ts` additionally combines SQLite pins, planner/
