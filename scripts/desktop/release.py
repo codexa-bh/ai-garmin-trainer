@@ -134,7 +134,13 @@ def run(parser, args):
             version = args.version
         elif args.notes is not None:
             parser.error('--notes is prospective only; choose a new --version')
-        print(json.dumps(preview(ROOT, notes, version, args.preflight_context)))
+        result = preview(ROOT, notes, version, args.preflight_context)
+        if (
+            args.platform == platform_target.WINDOWS
+            and args.platform not in result['context']['platforms']
+        ):
+            raise ValueError('Windows preflight context omits Windows')
+        print(json.dumps(result))
         return
     if args.action == 'release-set':
         # Portable digest assembly of already-verified per-platform records; it

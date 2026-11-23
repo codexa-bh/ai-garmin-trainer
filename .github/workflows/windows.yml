@@ -54,7 +54,7 @@ jobs:
           python-version: "3.12"
 
       - name: Early rendered release disclosure preflight (no build or provider effects)
-        run: npm run release -- preflight --preflight-context release-notes/windows-preflight.json
+        run: npm run release -- preflight --platform windows-x64 --preflight-context release-notes/windows-preflight.json
 
       - name: Record exact source, runner and toolchain
         run: |
@@ -100,7 +100,11 @@ jobs:
       - name: Release and identity contract tests
         id: contracts
         working-directory: scripts/desktop
-        run: python -m unittest platform_files_test platform_target_test release_set_test release_test release_cli_test release_preflight_test windows_release_test windows_release_export_test redistribution_test windows_app_smoke_test
+        run: >-
+          python -m unittest platform_files_test platform_target_test release_set_test release_test release_cli_test
+          release_preflight_test windows_release_test windows_release_export_test redistribution_test windows_app_smoke_test
+          smoke_build_test.PreparationTests.test_tree_identity_matches_original_walk_and_keeps_every_current_byte
+          smoke_build_test.PreparationTests.test_tree_hash_failure_and_cancellation_never_supply_reusable_identity
 
       - name: Production backend and Windows resources (pinned Node/SQLite probe)
         id: resources

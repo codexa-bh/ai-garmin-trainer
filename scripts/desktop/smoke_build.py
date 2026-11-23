@@ -12,6 +12,7 @@ import subprocess
 import uuid
 
 import platform_files
+from release_timing import stage
 
 
 @contextlib.contextmanager
@@ -35,21 +36,26 @@ def digest_file(path):
     return digest.hexdigest()
 
 
+@stage('tree-content-identity')
 def tree_digest(root, *, dependencies=False):
     digest = hashlib.sha256()
     for directory, dirs, files in os.walk(root, followlinks=False):
+        parent = Path(directory)
+        relative = parent.relative_to(root).as_posix()
+        prefix = '' if relative == '.' else relative + '/'
         for name in sorted(dirs + files):
-            path = Path(directory) / name
-            digest.update(path.relative_to(root).as_posix().encode() + b'\0')
-            if path.is_symlink():
+            path = parent / name
+            digest.update((prefix + name).encode() + b'\0')
+            # Classify this entry once, but still read/hash every file's bytes.
+            # No stat/mtime result substitutes for content or survives this walk.
+            info = path.lstat()
+            if stat.S_ISLNK(info.st_mode):
                 if not dependencies or not path.resolve(strict=True).is_relative_to(root):
                     raise ValueError('Prepared input/output alias refused')
                 digest.update(os.readlink(path).encode())
-            elif path.is_file():
-                digest.update(
-                    str(path.stat().st_mode & 0o777).encode() + digest_file(path).encode()
-                )
-            elif not path.is_dir():
+            elif stat.S_ISREG(info.st_mode):
+                digest.update(str(info.st_mode & 0o777).encode() + digest_file(path).encode())
+            elif not stat.S_ISDIR(info.st_mode):
                 raise ValueError('Unexpected prepared input/output object')
         dirs.sort()
     return digest.hexdigest()
@@ -86,12 +92,13 @@ def toolchain(mode):
 
 def build_inputs(repo, source, mode):
     tools = toolchain(mode)
-    versions = [
-        subprocess.check_output(command, cwd=repo, timeout=20, stderr=subprocess.STDOUT)
-        .decode()
-        .strip()
-        for command in tools
-    ]
+    with stage('toolchain-identity'):
+        versions = [
+            subprocess.check_output(command, cwd=repo, timeout=20, stderr=subprocess.STDOUT)
+            .decode()
+            .strip()
+            for command in tools
+        ]
     # Include installed bytes, not only lockfile/HEAD or npm's installed-lock claim.
     dependencies = repo / 'node_modules'
     if not (dependencies / '.package-lock.json').is_file():

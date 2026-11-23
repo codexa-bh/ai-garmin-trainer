@@ -150,7 +150,7 @@ describe("economical CI profiles", () => {
   it("checks rendered Windows disclosure context before expensive preparation", () => {
     const windows = read(".github/workflows/windows.yml");
     const command =
-      "npm run release -- preflight --preflight-context release-notes/windows-preflight.json";
+      "npm run release -- preflight --platform windows-x64 --preflight-context release-notes/windows-preflight.json";
     expect(windows).toContain(command);
     expect(windows).toContain("fetch-depth: 0");
     expect(windows.indexOf(command)).toBeLessThan(

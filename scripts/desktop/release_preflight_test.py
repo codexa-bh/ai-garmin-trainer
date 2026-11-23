@@ -9,6 +9,8 @@ import release_metadata as metadata
 import release_preflight as preflight
 import release_cli_test
 from release_remote import set_body, release_body
+from release_artifact import SIGNING as MACOS_SIGNING
+from windows_release import SIGNING as WINDOWS_SIGNING
 
 
 class PreflightTests(unittest.TestCase):
@@ -90,7 +92,7 @@ class PreflightTests(unittest.TestCase):
                 {
                     'platform': 'windows-x64',
                     'assets': [{'sha256': 'UNRESOLVED — preview only'}],
-                    'signing': 'unsigned; no Authenticode',
+                    'signing': WINDOWS_SIGNING,
                 }
             ],
         }
@@ -148,6 +150,8 @@ class PreflightTests(unittest.TestCase):
         self.reviewed.write_text(text)
         result = self.cli(*self.args())
         notes = metadata.prepared_notes('0.2.0', metadata.promotion(self.root, text)[0])
+        with self.assertRaisesRegex(ValueError, 'omits Windows'):
+            self.cli(*self.args(), '--platform', 'windows-x64')
         self.assertEqual(
             result['body'],
             release_body(
@@ -155,7 +159,7 @@ class PreflightTests(unittest.TestCase):
                     'repository': metadata.REPOSITORY,
                     'commit': 'UNRESOLVED — preview only',
                     'artifact': {'sha256': 'UNRESOLVED — preview only'},
-                    'signing': 'unsigned; not notarized',
+                    'signing': MACOS_SIGNING,
                 },
                 notes,
             ),
@@ -195,6 +199,19 @@ class PreflightTests(unittest.TestCase):
                 self.cli(*self.args())
             self.context[field] = original
         self.context_path.write_text(json.dumps(self.context))
+
+    def test_unknown_or_malformed_baseline_refuses_with_actionable_context_error(self):
+        for value in (
+            None,
+            [],
+            {},
+            {**self.context, 'baseline': {'commit': 42, 'version': '0.1.0', 'schema': 28}},
+        ):
+            self.context_path.write_text(json.dumps(value))
+            before = self.tree()
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'context|baseline'):
+                self.cli(*self.args('prepare'), '--execute')
+            self.assertEqual(before, self.tree())
 
     def test_changed_notes_malformed_fragments_and_missing_context_never_reuse_preview(self):
         self.cli(*self.args())

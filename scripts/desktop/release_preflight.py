@@ -38,7 +38,7 @@ def schema(text):
 
 def context(root, path, version):
     value = document(path)
-    if set(value) != {'version', 'platforms', 'baseline', 'schema'}:
+    if not isinstance(value, dict) or set(value) != {'version', 'platforms', 'baseline', 'schema'}:
         raise ValueError('Preflight context requires version, platforms, baseline and schema')
     if version_value(value['version']) != version:
         raise ValueError('Preflight context version differs from selected notes')
@@ -54,7 +54,8 @@ def context(root, path, version):
     if (
         not isinstance(baseline, dict)
         or set(baseline) != {'commit', 'version', 'schema'}
-        or not re.fullmatch(r'[0-9a-f]{40}', baseline.get('commit', ''))
+        or not isinstance(baseline['commit'], str)
+        or not re.fullmatch(r'[0-9a-f]{40}', baseline['commit'])
         or type(baseline['schema']) is not int
         or type(value['schema']) is not int
     ):
@@ -124,6 +125,8 @@ def preview(root, notes, version, path):
     # Use the publisher itself, not a parallel public-body template. Unresolved
     # values cannot masquerade as selected source/artifact identities.
     from release_remote import release_body, set_body
+    from release_artifact import SIGNING as MACOS_SIGNING
+    from windows_release import SIGNING as WINDOWS_SIGNING
 
     unresolved = 'UNRESOLVED — preview only'
     if value['platforms'] == [platform_target.MACOS]:
@@ -132,7 +135,7 @@ def preview(root, notes, version, path):
                 'repository': REPOSITORY,
                 'commit': unresolved,
                 'artifact': {'sha256': unresolved},
-                'signing': 'unsigned; not notarized',
+                'signing': MACOS_SIGNING,
             },
             notes,
         )
@@ -145,9 +148,9 @@ def preview(root, notes, version, path):
                     {
                         'platform': item,
                         'assets': [{'sha256': unresolved}],
-                        'signing': 'unsigned; no Authenticode'
+                        'signing': WINDOWS_SIGNING
                         if item == platform_target.WINDOWS
-                        else 'unsigned; not notarized',
+                        else MACOS_SIGNING,
                     }
                     for item in value['platforms']
                 ],
