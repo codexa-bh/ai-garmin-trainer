@@ -54,6 +54,7 @@ def current_stat(path):
         os.close(fd)
 
 
+@stage('source-snapshot')
 def source_snapshot(repo):
     repo = Path(repo)
     if repo.resolve(strict=True) != repo:
@@ -172,6 +173,7 @@ def provenance(bundle):
     return value
 
 
+@stage('build-context')
 def context_identity(repo, snapshot):
     # Also bind the exact lock inode: replacing it cannot manufacture a second owner
     # for an old stamp. Standalone assembly may allocate it, but publishes no stamp.
@@ -222,6 +224,7 @@ def producer_platform(bundle):
     return platform_target.MACOS if bundle.suffix == '.app' else platform_target.WINDOWS
 
 
+@stage('producer-inventory')
 def producer_inventory(repo, bundle, workspace):
     from release_smoke import audit
 
@@ -231,6 +234,7 @@ def producer_inventory(repo, bundle, workspace):
     return audit(bundle)
 
 
+@stage('verify-ordinary')
 def verify_ordinary(repo, bundle, source, inventory, workspace=None):
     """Caller owns the preparation lock. A stamp is not a substitute for rehashing."""
     if workspace is None:
@@ -336,6 +340,7 @@ def producer(repo, platform_id):
     return repo / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
 
 
+@stage('windows-producer-inventory')
 def windows_producer_inventory(repo, bundle, workspace):
     """Installer + non-installing payload identity of a Windows producer."""
     import release_metadata
@@ -458,4 +463,7 @@ if __name__ == '__main__':
 
     root = Path(__file__).resolve().parents[2]
     check(root)
-    build_ordinary(root, platform_target.host())
+    from release_timing import recording
+
+    with recording('ordinary-build', report=platform_target.host() == platform_target.WINDOWS):
+        build_ordinary(root, platform_target.host())

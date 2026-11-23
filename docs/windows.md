@@ -64,6 +64,8 @@ gh run view <run-id> --repo codexa-bh/ai-garmin-trainer --json headSha,event,sta
 
 Optional `-f release_export=true` explicitly selects the exact qualified public-safe release triple export below; default dispatch does not export binaries. It grants no tag/upload/publication and changes no automatic triggers.
 
+Before Rust setup, dependencies, resource assembly or native builds, the workflow runs the read-only [rendered disclosure preflight](release.md#rendered-disclosure-preflight) against `release-notes/windows-preflight.json`. That explicit context binds the current notes' Windows selection and prior-release source/schema; it must be reviewed/updated with every cut, not inferred from Latest. Unknown/missing/contradictory context or required alpha/signing/platform/upgrade wording refuses early. Preview placeholders are not artifact identities and do not qualify an installer.
+
 The selected ref is resolved to the dispatch's immutable `github.sha`; checkout and the recorded `TESTED_SOURCE` use that SHA, and the job refuses a different HEAD. Compare the observed run `headSha` with the intended PR head before relying on evidence. A later branch push does not update an earlier dispatch's evidence; explicitly request a new run when needed. Missing automatic Windows PR checks are expected, not a green Windows result.
 
 ## Installed-app scenario and narrow evidence exception
@@ -101,6 +103,20 @@ Use `windows_release_export.py download --source <SHA> --run <id> --attempt <att
 See the [dual-platform release procedure](release.md#dual-platform-candidate-and-publication-procedure) for set assembly, original macOS producer admission, seven-asset publication, unchanged-byte unknown-effect recovery and complete anonymous-download verification. The transport receipt/import/ZIP are not public release-set members. Downloading is not installation or primary-data authority.
 
 Current image manifests are schema 2, adding explicit same-version programReplacement to passed outcomes. Historical schema 1 images remain historical; they do not qualify a new candidate. Every fresh image still needs individual inspection after strict download validation.
+
+## Proposed manual development feedback path (design only)
+
+There is **no implemented fast mode**. Both values of `release_export` in `windows.yml` still run the complete installed-app qualification; false only omits the separate binary export. Do not relabel build-only or older feedback as release evidence.
+
+A future implementation would add a separate `windows-dev.yml`, explicitly named **Windows development feedback — nonqualifying**, with `workflow_dispatch` only and no required-check, PR/push/schedule or workflow-call trigger. The dispatch-selected ref resolves once to immutable `github.sha`; checkout/HEAD and the summary must agree on that exact SHA. It would use Windows Server 2025 x64, the existing pinned Node/Python/Rust inputs, contents-read, no secrets/private services, fresh per-job state, and only the existing lock-keyed npm download cache. No shared writable build output or verification cache is proposed.
+
+The useful bounded workload would be: prerequisites/toolchain facts; locked `npm ci`; release/disclosure/identity/private-file/process contract tests; production backend/resource assembly and pinned Node/SQLite probe; focused platform/ownership/renderer JS tests; locked native Windows tests against those resources; and the synthetic packaged-backend smoke. It should report each actual stage/outcome and creation-to-verdict, queue and runner-time observations, with failures/skips/unavailable coverage distinct. A finite timeout stops work rather than silently falling back to a smaller success profile.
+
+It would **omit** the full ordinary release build and NSIS installer, stamped producer admission, package/extract/final-installer verification, installed payload admission, installed hydration/navigation/Goals save/restart, same-version replacement, preserving uninstall, six restored masked images/visual review, release-record/set assembly, export/import/provider archive verification and publication. Resource assembly alone confers none of these properties. Real services, normal onboarding, trusted native input/chrome and Windows 11/ARM remain unqualified.
+
+Separation is structural: no `release_export` input, no artifact upload or release/candidate/qualification output, no package/export/publication commands, and no minting of a successful installed-scenario manifest or release record. Its summary must always say **Development feedback only — not release qualification**; passing development steps cannot change that statement. Full `windows.yml` qualification on the exact final installer, current source/run/attempt identities, strict downloaded artifact validation and individual image inspection remain mandatory for release eligibility. A development run cannot donate status, receipts, images or provenance to that path.
+
+Before later implementation, tests must prove manual-only least-privilege routing, immutable selected-source handling, positive enrollment of the useful workload, and absence/refusal of export/publication/qualification routes and `release_export`. Existing release export consumers must reject its workflow identity, missing installed manifest and forged or copied qualification claims. Integration evidence must observe the new path's honest failed/skipped summaries and show that only a separate successful full workflow can produce an eligible installer. This section authorizes no implementation, dispatch or new workflow by itself.
 
 ## Evidence and deferred qualification
 

@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 from pathlib import Path
 import tempfile
@@ -178,6 +179,82 @@ class PreparationTests(unittest.TestCase):
             alias.symlink_to(self.scratch, target_is_directory=True)
             with self.assertRaisesRegex(ValueError, 'alias'):
                 key()
+
+    def test_tree_identity_matches_original_walk_and_keeps_every_current_byte(self):
+        root = self.repo / 'installed tree'
+        (root / 'nested ü' / 'empty').mkdir(parents=True)
+        first = root / 'nested ü' / 'module.js'
+        first.write_bytes(b'original')
+        (root / '.package-lock.json').write_bytes(b'{}')
+
+        def original():
+            digest = hashlib.sha256()
+            for directory, dirs, files in os.walk(root, followlinks=False):
+                for name in sorted(dirs + files):
+                    path = Path(directory) / name
+                    digest.update(path.relative_to(root).as_posix().encode() + b'\0')
+                    if path.is_symlink():
+                        if not path.resolve(strict=True).is_relative_to(root):
+                            raise ValueError('alias')
+                        digest.update(os.readlink(path).encode())
+                    elif path.is_file():
+                        digest.update(
+                            str(path.stat().st_mode & 0o777).encode()
+                            + smoke_build.digest_file(path).encode()
+                        )
+                    elif not path.is_dir():
+                        raise ValueError('unexpected object')
+                dirs.sort()
+            return digest.hexdigest()
+
+        def current():
+            result = smoke_build.tree_digest(root, dependencies=True)
+            self.assertEqual(result, original())
+            return result
+
+        initial = current()
+        before = first.stat()
+        first.write_bytes(b'modified')  # Same size and restored mtime cannot hide content.
+        os.utime(first, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertNotEqual(initial, current())
+        first.write_bytes(b'original')
+        self.assertEqual(initial, current())
+        extra = root / 'extra'
+        extra.write_bytes(b'new')
+        self.assertNotEqual(initial, current())
+        extra.unlink()
+        self.assertEqual(initial, current())
+        first.unlink()
+        self.assertNotEqual(initial, current())
+        first.write_bytes(b'original')
+        if os.name != 'nt':
+            first.chmod(0o700)
+            self.assertNotEqual(initial, current())
+            alias = root / 'internal'
+            alias.symlink_to(first)
+            current()
+            with self.assertRaisesRegex(ValueError, 'alias'):
+                smoke_build.tree_digest(root)
+            alias.unlink()
+            alias.symlink_to(self.scratch, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'alias'):
+                smoke_build.tree_digest(root, dependencies=True)
+            alias.unlink()
+            os.mkfifo(root / 'special')
+            with self.assertRaisesRegex(ValueError, 'Unexpected'):
+                smoke_build.tree_digest(root, dependencies=True)
+
+    def test_tree_hash_failure_and_cancellation_never_supply_reusable_identity(self):
+        root = self.repo / 'dependencies'
+        root.mkdir()
+        (root / 'entry').write_bytes(b'current')
+        for failure in (OSError('partial read'), KeyboardInterrupt()):
+            with patch.object(smoke_build, 'digest_file', side_effect=failure):
+                with self.assertRaises(type(failure)):
+                    smoke_build.tree_digest(root, dependencies=True)
+        initial = smoke_build.tree_digest(root, dependencies=True)
+        (root / 'entry').write_bytes(b'changed')
+        self.assertNotEqual(initial, smoke_build.tree_digest(root, dependencies=True))
 
     def test_source_identity_binds_tracked_dirty_deleted_and_untracked_inputs(self):
         import subprocess

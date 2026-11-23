@@ -18,6 +18,7 @@ from release_metadata import (
     exact_source,
     prepare,
     promotion,
+    prepared_notes,
     version_value,
 )
 from release_note_fragments import collect
@@ -36,6 +37,7 @@ def main():
         default='check',
         choices=(
             'check',
+            'preflight',
             'prepare',
             'build',
             'package',
@@ -66,9 +68,14 @@ def main():
     )
     parser.add_argument('--version')
     parser.add_argument(
+        '--preflight-context',
+        type=Path,
+        help='Disclosure preview/prepare: explicit version, platforms, baseline commit/schema and current schema JSON',
+    )
+    parser.add_argument(
         '--notes',
         type=Path,
-        help='prepare: optional reviewed text placed before the generated fragment changes',
+        help='prepare/prospective preflight: reviewed text placed before generated fragment changes',
     )
     parser.add_argument('--commit', help='Full reviewed merged SHA, never inferred newest main')
     parser.add_argument('--repository', choices=(REPOSITORY,))
@@ -88,7 +95,12 @@ def main():
     if hasattr(os, 'umask'):
         os.umask(0o077)
     # Timing is private observation for scratch-backed actions; it selects, approves and retries nothing.
-    with timing.recording(args.action, version=args.version, commit=args.commit):
+    with timing.recording(
+        args.action,
+        report=args.platform == platform_target.WINDOWS and args.action in ('package', 'verify'),
+        version=args.version,
+        commit=args.commit,
+    ):
         run(parser, args)
 
 
@@ -108,7 +120,28 @@ def artifacts(platform_id):
 
 
 def run(parser, args):
-    version, notes = check(ROOT, None if args.action == 'prepare' else args.version)
+    version, notes = check(ROOT, None if args.action in ('prepare', 'preflight') else args.version)
+    if args.action == 'preflight':
+        from release_preflight import preview
+
+        if args.preflight_context is None:
+            parser.error(
+                'preflight requires --preflight-context with explicit baseline/platform/schema context'
+            )
+        if args.version is not None and args.version != version:
+            body, _ = promotion(ROOT, args.notes.read_text() if args.notes else '')
+            notes = prepared_notes(version_value(args.version), body)
+            version = args.version
+        elif args.notes is not None:
+            parser.error('--notes is prospective only; choose a new --version')
+        result = preview(ROOT, notes, version, args.preflight_context)
+        if (
+            args.platform == platform_target.WINDOWS
+            and args.platform not in result['context']['platforms']
+        ):
+            raise ValueError('Windows preflight context omits Windows')
+        print(json.dumps(result))
+        return
     if args.action == 'release-set':
         # Portable digest assembly of already-verified per-platform records; it
         # never re-admits a foreign host's producer or performs remote effects.
@@ -144,14 +177,24 @@ def run(parser, args):
         version_value(args.version)
         reviewed = args.notes.read_text() if args.notes else ''
         # Validate and plan before any effect, for both the dry run and --execute.
-        _, consumed = promotion(ROOT, reviewed)
+        body, consumed = promotion(ROOT, reviewed)
+        if args.platform == platform_target.WINDOWS and args.preflight_context is None:
+            parser.error('Windows preparation requires --preflight-context')
+        if args.preflight_context is not None:
+            from release_preflight import validate
+
+            value = validate(
+                ROOT, prepared_notes(args.version, body), args.version, args.preflight_context
+            )
+            if args.platform == platform_target.WINDOWS and args.platform not in value['platforms']:
+                raise ValueError('Windows preparation context omits Windows')
         if args.execute:
             # Preparation also refuses unexplained dirty input before generating a diff.
             from release_metadata import git
 
             if git(ROOT, 'status', '--porcelain', '--untracked-files=all'):
                 raise ValueError('Metadata preparation requires clean source')
-            prepare(ROOT, args.version, reviewed)
+            prepare(ROOT, args.version, reviewed, preflight_context=args.preflight_context)
         print(
             json.dumps(
                 {

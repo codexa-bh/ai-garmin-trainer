@@ -88,7 +88,19 @@ def promotion(root, reviewed=''):
     return body, [item.path for item in required]
 
 
-def prepare(root, version, reviewed=''):
+def prepared_notes(version, body):
+    return (
+        '# Garmin Trainer '
+        + version
+        + '\n\nStatus: prepared\n\n'
+        + WARNINGS
+        + '\n'
+        + body.strip()
+        + '\n'
+    )
+
+
+def prepare(root, version, reviewed='', *, preflight_context=None):
     """Local metadata diff only, intended for a separate future cut PR.
 
     Everything is validated before the first write. The consumed fragments are removed
@@ -101,6 +113,11 @@ def prepare(root, version, reviewed=''):
     if old == version or destination.exists() or destination.is_symlink():
         raise ValueError('Select a new version; no overwrite')
     body, consumed = promotion(root, reviewed)
+    notes = prepared_notes(version, body)
+    if preflight_context is not None:
+        from release_preflight import validate
+
+        validate(root, notes, version, preflight_context)
     changes = {}
     for name in ('package.json', 'package-lock.json'):
         path = root / name
@@ -137,15 +154,7 @@ def prepare(root, version, reviewed=''):
             raise ValueError('Ambiguous Cargo metadata')
         changes[path] = text
     with destination.open('x') as stream:
-        stream.write(
-            '# Garmin Trainer '
-            + version
-            + '\n\nStatus: prepared\n\n'
-            + WARNINGS
-            + '\n'
-            + body.strip()
-            + '\n'
-        )
+        stream.write(notes)
     for path, text in changes.items():
         path.write_text(text)
     check(root, version, prepared=True)

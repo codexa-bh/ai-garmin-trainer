@@ -6,6 +6,7 @@ checks, not a real NSIS build (that is the Windows CI job's actual artifact).
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -31,6 +32,7 @@ class FakeSevenZip:
     def __init__(self, members):
         self.members = members
         self.extractions = 0
+        self.destinations = []
 
     def __call__(self, command, **kwargs):
         if command[1] == 'l':
@@ -42,6 +44,7 @@ class FakeSevenZip:
         if command[1] == 'x':
             self.extractions += 1
             destination = Path(next(arg for arg in command if arg.startswith('-o'))[2:])
+            self.destinations.append(destination)
             for name, data in self.members.items():
                 path = destination.joinpath(*name.replace('\\', '/').split('/'))
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,9 +88,76 @@ class WindowsPayloadTests(unittest.TestCase):
 
     def test_repeated_payloads_get_fresh_scratch_even_when_extractor_hashes_match(self):
         with patch.object(FakeSevenZip, '__hash__', return_value=1):
-            first, _ = self.payload()
-            second, _ = self.payload()
+            first, a = self.payload()
+            second, b = self.payload()
+            changed, c = self.payload({**self.members, 'resources/runtime/runtime.cjs': b'altered'})
         self.assertEqual(first, second)
+        self.assertNotEqual(first, changed)
+        self.assertEqual([a.extractions, b.extractions, c.extractions], [1, 1, 1])
+        self.assertEqual(len({*a.destinations, *b.destinations, *c.destinations}), 3)
+
+    def test_inventory_hashes_same_size_edits_even_with_restored_mtime(self):
+        original, fake = self.payload()
+        extracted = fake.destinations[0]
+        relative = 'resources/runtime/runtime.cjs'
+        target = extracted / relative
+        before = target.stat()
+        target.write_bytes(b'altered')
+        os.utime(target, ns=(before.st_atime_ns, before.st_mtime_ns))
+        changed = windows_package.payload_inventory(extracted)
+        self.assertNotEqual(original[relative], changed[relative])
+        with self.assertRaisesRegex(ValueError, 'differs from producer'):
+            windows_package.check_payload(changed, self.release, self.release / 'resources')
+        producer = self.release / relative
+        before = producer.stat()
+        producer.write_bytes(b'altered')
+        os.utime(producer, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertNotEqual(
+            original[relative],
+            windows_package.expected(self.release, self.release / 'resources')[relative],
+        )
+        with self.assertRaisesRegex(ValueError, 'differs from producer'):
+            windows_package.check_payload(original, self.release, self.release / 'resources')
+
+    def test_resource_link_checks_precede_directory_or_content_admission(self):
+        resources = self.release / 'resources'
+        for call, message in [
+            (lambda: windows_package.payload_inventory(resources), 'payload link'),
+            (lambda: windows_package.expected(self.release, resources), 'resource link'),
+        ]:
+            with (
+                self.subTest(message=message),
+                patch('windows_package.platform_files.is_link', return_value=True),
+                patch('windows_package.digest', return_value='a' * 64),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                call()
+
+    def test_partial_extraction_failure_or_cancellation_is_not_reused(self):
+        for failure in (False, True):
+            fake = FakeSevenZip(self.members)
+            partial = []
+
+            def incomplete(command, **kwargs):
+                if command[1] != 'x':
+                    return fake(command, **kwargs)
+                destination = Path(next(arg for arg in command if arg.startswith('-o'))[2:])
+                partial.append(destination)
+                (destination / windows_package.BINARY).write_bytes(b'partial')
+                if failure:
+                    raise KeyboardInterrupt()
+                return subprocess.CompletedProcess(command, 2, b'', b'')
+
+            with patch('windows_package.subprocess.run', side_effect=incomplete):
+                with self.assertRaises(KeyboardInterrupt if failure else ValueError):
+                    windows_package.payload(Path('7z.exe'), self.installer, self.root)
+            with patch('windows_package.subprocess.run', side_effect=fake):
+                destination, inventory = windows_package.payload(
+                    Path('7z.exe'), self.installer, self.root
+                )
+            self.assertNotEqual(destination, partial[0])
+            self.assertTrue((partial[0] / windows_package.BINARY).exists())
+            windows_package.check_payload(inventory, self.release, self.release / 'resources')
 
     def test_payload_equals_producer_binary_and_resources_excluding_installer_ui(self):
         inventory, fake = self.payload()

@@ -19,7 +19,17 @@ Checks never install/rewrite; missing tools fail. Keep actual Cargo/rustc/enviro
 
 ## Windows x64 job
 
-[Windows](windows.md#on-demand-execution) owns manual-only selected-SHA Server 2025 execution/build/tests/installed scenario; PR/push never allocates it. Only [six masked synthetic images plus manifest](windows.md#installed-app-scenario-and-narrow-evidence-exception) get three-day upload; default-off release export is separate. Alpha stays unsupported; Server evidence does not qualify Windows 11/ARM, trusted input/full chrome/default onboarding/real integration/older upgrades/source-CLI migration. [Release](release.md#dual-platform-candidate-and-publication-procedure) owns candidate qualification.
+[Windows](windows.md#on-demand-execution) owns manual-only selected-SHA Server 2025 execution/build/tests/installed scenario; PR/push never allocates it. Only [six masked synthetic images plus manifest](windows.md#installed-app-scenario-and-narrow-evidence-exception) get three-day upload; default-off release export is separate. Alpha stays unsupported; Server evidence does not qualify Windows 11/ARM, trusted input/full chrome/default onboarding/real integration/older upgrades/source-CLI migration. [Release](release.md#dual-platform-candidate-and-publication-procedure) owns candidate qualification. Before expensive preparation, the [rendered disclosure preflight](release.md#rendered-disclosure-preflight) checks explicit current Windows notes and baseline/schema context.
+
+### Windows timing and comparison
+
+Actions run/job/step UTC timestamps cover queue, setup, dependencies, contract tests, resource assembly, JS/native tests, full build/NSIS, package/verify, backend, installed scenario and eligible artifact handling. Measure creation-to-complete verdict separately from summed actual job duration; neither is the sum of nested helper spans. Source/run/attempt, image/toolchain and cache/workload differences belong beside every comparison. Include failed attempts, original failures and retries, not just the fastest green runs.
+
+The existing release timing owner additionally observes source snapshots, build context, producer inventory, member listing, extraction, extracted and producer inventory/hashing, installed admission/capture/replacement and final preservation. Windows build/package/verify/installed invocations print safe `timingObservation` JSON in job logs; only fixed stage names, parent, UTC/outcome/error-class and monotonic duration are reported, never private paths/environment/diagnostics. Private records remain local. Failed/interrupted/incomplete and unobserved spans are distinct from successful zero time. No timing is qualification and no timing log is added to an upload allowlist.
+
+A representative bounded comparison freezes an instrumented baseline and a final candidate, repeats the same full workload on each, records operation counts and phase/whole-run/runner-cost variability, and discloses source/environment confounders and unsupported conclusions. A single historical observation is not an average or speed guarantee. Optimization must preserve current-byte verification, source/context, locking, failure refusal and final settlement; repeated calls alone do not prove redundancy.
+
+The [separate manual development feedback path](windows.md#proposed-manual-development-feedback-path-design-only) is a maintained design only, not a fast release mode or implemented workflow. Full installed qualification remains unchanged.
 
 ## Change-gated native nightly
 
