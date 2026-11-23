@@ -2,7 +2,7 @@
 
 The source-built **macOS Apple Silicon** app is a thin Tauri host with an owned loopback Next.js service. React, HTTP/NDJSON, Next `after()`, guarded tools, SQLite and Garmin import policies remain the application, not a remote website wrapper or Rust domain rewrite. Default launches grant native commands only to the local settings document, never trainer/remote pages. An explicitly admitted isolated ordinary-artifact or debug smoke instance has only its exact-origin correlated-result callback, never settings/auth privileges; see [programmatic smoke](dev-bridge.md).
 
-Unsigned/non-notarized ARM64 builds only: no installer, auto-update, login item or background service. The [release runbook](release.md) owns packaging and publication, and [release records](history/releases.md) hold each published download's identity. The [supported platform boundary](source-beta-readiness.md#supported-boundary) is macOS ARM64; the [Windows x64 alpha](windows.md) is an experimental build outside it.
+Unsigned/non-notarized ARM64 builds only: no installer, auto-update, login item or background service. The [release runbook](release.md) owns packaging and publication; published downloads and checksums are on [GitHub Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases). The [supported platform boundary](source-beta-readiness.md#supported-boundary) is macOS ARM64; the [Windows x64 alpha](windows.md) is an experimental build outside it.
 
 ## Build and run
 
@@ -64,7 +64,7 @@ Use SQLite online backup for active-WAL copies, verify integrity and retain pre-
 
 ### Schema upgrades
 
-Each schema version is additive and refused by older builds; startup and **Use existing data** never migrate a selected database. To activate a newer schema on real data, separately approve the exact DB/settings target, make and integrity-verify a WAL-consistent pre-upgrade backup, rehearse the explicit process-env migration on an independent populated disposable copy, stop every owner, migrate the stopped target, then check integrity, foreign keys, version and preserved state before a controlled reopen. Recover with a compatible forward fix, never a downgrade, older writer or blind backup copy-back. Per-schema details are in the [schema activation history](history/schema-activations.md).
+Each schema version is additive and refused by older builds; startup and **Use existing data** never migrate a selected database. To activate a newer schema on real data, separately approve the exact DB/settings target, make and integrity-verify a WAL-consistent pre-upgrade backup, rehearse the explicit process-env migration on an independent populated disposable copy, stop every owner, migrate the stopped target, then check integrity, foreign keys, version and preserved state before a controlled reopen. Recover with a compatible forward fix, never a downgrade, older writer or blind backup copy-back.
 
 ## Optional ChatGPT subscription
 

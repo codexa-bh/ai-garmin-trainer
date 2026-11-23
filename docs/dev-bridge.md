@@ -102,15 +102,4 @@ Deep links route below. Read relevant sections only for changes, diagnosis or ex
 
 **[Authored chat/privacy/images, tables, Terrain, activity labels and KPIs](smoke/features.md)**
 
-<a id="task-scoped-actual-history-whole-summary-proof-t0284"></a>
-<a id="finite-authored-rebuild-integration"></a>
-<a id="authorized-finite-luna-summary-integration"></a>
-<a id="authorized-integrated-memory-lineage-proof"></a>
-<a id="current-cumulative-dollar-only-authority"></a>
-<a id="finite-off-title-and-selected-import-case"></a>
-<a id="finite-correction-and-explicit-profile-precedence"></a>
-<a id="finite-native-local-compaction-and-summary-adoption"></a>
-<a id="finite-size-aware-capacity-and-freshness-proof"></a>
-<a id="authorized-finite-luna-history-integration"></a>
-
-**[Restricted task-specific paid/private contracts and immutable claim history](history/restricted-live-recipes.md)**
+Restricted paid/private recipes: see the [`real-provider` catalog entry](smoke-commands.md#real-provider--restricted-task-bound-paidprivate-recipes-not-reusable-approvals).
