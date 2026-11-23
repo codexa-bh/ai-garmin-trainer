@@ -75,7 +75,7 @@ def main():
     parser.add_argument(
         '--notes',
         type=Path,
-        help='prepare: optional reviewed text placed before the generated fragment changes',
+        help='prepare/prospective preflight: reviewed text placed before generated fragment changes',
     )
     parser.add_argument('--commit', help='Full reviewed merged SHA, never inferred newest main')
     parser.add_argument('--repository', choices=(REPOSITORY,))
