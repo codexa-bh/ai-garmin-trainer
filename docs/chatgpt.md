@@ -54,8 +54,8 @@ Authorization is bounded to three minutes. Cancel/Settings-close/quit invalidate
 ## Keep one intended connected app
 
 1. Reconnect the intended **retained** connection, never the New account/workspace option. Privately inspect the actual ChatGPT connected-app list before and after reconnect and after reopening the ordinary app; the count must not grow. Do not send credentials, URLs, client IDs or account labels to an assistant.
-2. Identify the intended entry yourself using the provider's available controls. Local ordinal labels distinguish saved records, not remote list entries. If identically named entries cannot be distinguished safely, stop and resolve that uncertainty rather than guessing.
-3. Remove only obsolete entries yourself in ChatGPT. Removing/revoking the retained entry interrupts its access; this app never deletes or merges remote entries automatically. Confirm exactly one intended entry remains and another deliberate retained reconnect adds none. If that cannot be verified, keep the cleanup/non-growth outcome unfinished.
+2. Identify the intended entry using details in the provider's **Sign in with ChatGPT** management screen, when available. Names, list order and usage percentages are not identity evidence; local ordinal labels distinguish saved records, not remote entries. If the details do not distinguish identical entries safely, defer cleanup rather than guessing.
+3. Remove/revoke only identified obsolete entries yourself if the provider exposes that control. Turning off an allowance under **Connected App Limits** is not deletion. Revoking the retained entry interrupts its access; this app never deletes or merges remote entries automatically. After cleanup, confirm one intended entry remains and another deliberate retained reconnect adds none. Deferred cleanup is not a completed one-entry outcome.
 
 ## Private boundary and compatibility
 
