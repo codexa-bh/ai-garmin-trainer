@@ -148,10 +148,11 @@ def expected(release_dir, resources):
     """Program files the installer must carry: the binary and every resource."""
     result = {BINARY: digest(release_dir / BINARY)}
     for path in sorted(resources.rglob('*')):
-        if platform_files.is_link(path.lstat()):
+        info = path.lstat()
+        if platform_files.is_link(info):
             raise ValueError('Producer resource link refused')
-        if path.is_file():
-            relative = PurePosixPath(*path.relative_to(resources.parent).parts).as_posix()
+        if stat.S_ISREG(info.st_mode):
+            relative = path.relative_to(resources.parent).as_posix()
             result[relative] = digest(path)
     return result
 
