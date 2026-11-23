@@ -66,6 +66,11 @@ fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, &'static str> {
 }
 
 fn chatgpt_owner(app: &tauri::AppHandle) -> Result<std::sync::Arc<chatgpt::Owner>, &'static str> {
+    // Routine development/presentation binaries never open a credential owner,
+    // generate a host namespace or perform provider discovery/auth/revocation.
+    if cfg!(any(debug_assertions, feature = "release-probe")) {
+        return Err("ChatGPT credentials are unavailable in debug/test builds. Use the ordinary app's retained connection for separately arranged private verification.");
+    }
     let runtime = app.state::<Runtime>();
     let mut owner = runtime
         .chatgpt
@@ -109,6 +114,7 @@ fn apply_chatgpt_connections(app: &tauri::AppHandle, owner: &chatgpt::Owner) -> 
 async fn chatgpt_connections(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
+    switching: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     setup_only(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -131,9 +137,12 @@ async fn chatgpt_connections(
                 return Ok(serde_json::json!([]));
             }
         }
-        chatgpt_owner(&app)
-            .map(|owner| owner.metadata())
-            .map_err(str::to_owned)
+        let owner = chatgpt_owner(&app).map_err(str::to_owned)?;
+        if switching == Some(true) {
+            owner.switch_choices().map_err(str::to_owned)
+        } else {
+            Ok(owner.metadata())
+        }
     })
     .await
     .map_err(|_| "ChatGPT status unavailable.".to_string())?
@@ -151,10 +160,17 @@ async fn chatgpt_connect(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     registration_id: Option<String>,
+    new_account: bool,
     consent: bool,
     context: u64,
 ) -> Result<serde_json::Value, String> {
     private_setup_only(&window)?;
+    if new_account != registration_id.is_none() {
+        return Err(
+            "Choose a saved ChatGPT registration or explicitly choose a new account/workspace."
+                .into(),
+        );
+    }
     if !window.is_visible().unwrap_or(false) {
         return Err("Open Settings before signing in.".into());
     }
@@ -177,17 +193,29 @@ async fn chatgpt_connect(
     };
     tauri::async_runtime::spawn_blocking(move || {
         let runtime = app.state::<Runtime>();
-        if runtime.quitting.load(Ordering::SeqCst) { owner.stop(); }
-        let result = owner.sign_in(registration_id, consent,epoch,Some((&runtime.chatgpt_context,reserved))).map_err(str::to_owned)?;
-        let message = if runtime.chatgpt_context.load(Ordering::SeqCst) != reserved || runtime.quitting.load(Ordering::SeqCst) {
-            "Connection outcome settled after Settings closed. Reopen to inspect saved state.".into()
-        } else if result.reused {
-            format!("This account is now active. Existing credentials and permissions were preserved. {}", apply_chatgpt_connections(&app, &owner))
+        if runtime.quitting.load(Ordering::SeqCst) {
+            owner.stop();
+        }
+        let result = owner
+            .sign_in(
+                registration_id,
+                consent,
+                epoch,
+                Some((&runtime.chatgpt_context, reserved)),
+            )
+            .map_err(str::to_owned)?;
+        let message = if runtime.chatgpt_context.load(Ordering::SeqCst) != reserved
+            || runtime.quitting.load(Ordering::SeqCst)
+        {
+            "Connection outcome settled after Settings closed. Reopen to inspect saved state."
+                .into()
         } else {
             apply_chatgpt_connections(&app, &owner)
         };
         Ok(serde_json::json!({"registrationId":result.registration_id,"message":message}))
-    }).await.map_err(|_| "ChatGPT sign-in interrupted; reload committed state.".to_string())?
+    })
+    .await
+    .map_err(|_| "ChatGPT sign-in interrupted; reload committed state.".to_string())?
 }
 #[tauri::command]
 async fn chatgpt_action(
