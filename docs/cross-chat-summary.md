@@ -1,360 +1,87 @@
 # Integrated automatic cross-chat summary
 
-One complete generated text plus separate authored preferences replaces the
-model-managed item ledger. [Memory](memory.md) owns user controls; [conversation
-history](conversation-history.md) owns same-chat continuity. Authored tests and
-structural validity are not real semantic-quality certificates.
+One complete generated text plus separate authored preferences, not a model-managed ledger. [Memory](memory.md) owns controls; [conversation history](conversation-history.md) owns same-chat continuity. Structural validity is not semantic-quality certification.
 
 ## Shared summary/title configuration, independent chat
 
-Native Memory configuration is Off / Unselected /6000 generated characters by default.
-Choose an exact configured provider/model independently of Trainer chat; missing keys,
-removed identities, unavailable capability or capacity errors never select a fallback.
-Summary Off does not disable automatic titles. On/model/size remain restart-only;
-catalog/shared-key live Save retains its narrower acknowledgment and captured-snapshot
-rules. Existing private settings/archives and hidden contract marker remain preserved.
+Defaults: Off / Unselected /6000 generated Unicode scalars. Select exact provider/model independently of Trainer. On/model/target are restart-only; catalog/shared-key live Save keeps its narrower acknowledgment/captured-snapshot rules. Off does not disable titles. Missing identity/key/capability/capacity never substitutes a provider.
 
-The1000–20000 Unicode-scalar setting is an advisory **generated summary target**,
-not an output ceiling or a combined allocation with preferences. Complete valid text
-above it (including above20000) is retained unchanged through storage, edits, rebuild,
-import and chat pins; lowering the target preserves saved text. No truncation,
-preference reservation or invented second preference cap. Invalid scalars, malformed,
-extra-field or unfinished output still refuse with closed diagnostics. Independent
-provider/result and sealed-storage/pin/rebuild envelope guards remain unchanged. The complete memory request owns capacity; no second memory
-projection ceiling or tokenizer/price qualification is imposed. Product processing has
-no spend/attempt or output-token cap. Paid tests must separately establish credible
-finite provider/whole-run cost bounds before any effect; old allocation constants are
-not such proof. Historical reservations, unknown liabilities and observed usage remain
-distinct from invoices and are never reset/refunded by retries or migration.
+Target range 1000–20000 is **advisory**, not an output ceiling or allocation shared with preferences. Complete valid larger text remains unchanged through storage/edit/import/rebuild/pins; lowering target does not truncate. Malformed/extra/unfinished/invalid-scalar output still refuses; independent provider/sealed-storage envelopes remain. No application spend/attempt/output-token cap, tokenizer/price qualification or second memory projection ceiling. Paid tests need credible finite cumulative authority; historical reservations/unknown liabilities/observed usage are not invoices or refundable retry budgets.
 
-Native's API-key or separate [ChatGPT subscription](chatgpt.md) owner supplies immutable admitted provider identity; credentials never enter jobs, SQLite or renderer readback. Subscription uses its protected companion store and compatible streaming path for maintenance, rebuild, retained explicit import, Densify and titles. It needs no API key, embedding or unsupported counting preflight; token observations carry a plan/credit basis, not API-price multiplication. Disconnect/currentness loss prevents stale publication without a replacement request. Direct OpenAI remains
-store:false without threads/tools/SDK retries. Other configured transports retain their
-own stateless construction and honest privacy limits, not claimed OpenAI retention.
+Native admits immutable provider identity; no credentials enter jobs/SQLite/renderer. [ChatGPT](chatgpt.md) uses protected owner/broker and compatible streaming, no API key/embedding/counting preflight; plan/credit usage is not API-priced billing. Currentness loss prevents publication without replacement request. Direct OpenAI is store:false/no threads/tools/SDK retries; other transports retain their own honest retention limits.
 
 ## Incremental state and bounded foreground work
 
-Generated value remains exactly `{version:2,text:string}`: **one complete summary**.
-Ordinary generation consumes the **complete previous valid generated text** plus new
-eligible user/context prose and current Profile. One strict `{summary:string,exclude:number[]}` normal response
-learns additions, reconciles supported corrections and automatically consolidates old
-wording. No global rewrite ban, secondary model pass or routine manual Densify step.
-The prompt selects durable user-specific coaching value from **both prior and new
-input**, then merges duplicates and compresses. Prior inclusion is not evidence of
-importance/truth: low-value or stale prior content can disappear without a new
-contradiction; still-useful prior constraints survive unrelated new input. Goals,
-preferences, practical constraints, explicit still-applicable commitments and recurring
-patterns take priority. Reasons/rejected alternatives/failed-approach lessons remain
-only when they materially change advice. Preserve essential qualifications, negation,
-uncertainty and historical/current scope **on selected facts**; current Profile,
-corrections and fresh evidence outrank stale prose. Explicit corrections replace
-superseded claims, not retain dispute history; genuine unresolved uncertainty stays
-unresolved. Questions/suggestions do not become user commitments.
+Stored generated value is `{version:2,text:string}`. One strict `{summary:string,exclude:number[]}` request consumes complete prior generated text, eligible new user/context prose and current Profile; it learns/corrects/consolidates in one pass. Preferences are independent, not generation input or generated-source records. No item IDs/keep-remove ledger/citation graph/ancestry repair/second judge. Densify returns `{summary}`; titles `{title}`; old exact-edit support is internal compatibility.
 
-Keep user choices arising from analysis, not the analysis archive. Normally omit
-incidental activity statistics, calculated comparisons, KPI actuals/scores, historical
-plan tables, detailed single-workout analysis and assistant plan-save claims; retrieve
-or recalculate authoritative records when needed. Do not accumulate generic advice,
-assistant operating rules/mistake histories or needless claims plus disclaimers.
-This is not a number ban: useful durable numerical facts and commitments may remain;
-a changing measurement needs genuine value and honest historical qualification,
-not promotion to verified current state. Target size is not a quota: concise underfull
-useful memory is valid, without padding or a word ceiling. An empty ordinary summary
-is structurally valid when no useful durable context exists. Relevance pruning omits
-prose from `summary`, never repurposes privacy `exclude`.
-Profile values are captured and compared at job CAS, independently of privacy authority.
+Select durable user-specific value from prior **and** new input, merge duplicates and prune stale/low-value prose. Preserve essential qualifications/negation/uncertainty/time scope on selected facts; current Profile/corrections/fresh evidence outrank stale prose. Questions/proposals are not commitments. Do not archive activity/KPI calculations, plan tables, generic advice or assistant save/mistake claims. Useful numerical commitments/dated facts may remain. Underfull or empty ordinary summary is valid; target is not a quota. Relevance omission changes summary, not privacy exclude.
 
-Authored selection contrasts (design examples, not measured model compliance):
+Examples: retain 25-minute availability/weekend strength commitment, not ride tables; retain a user's controlled-effort choice, not the preceding calculation; “could two sessions work?” is unchosen; afternoon preference replaces morning. Unrelated input should not erase useful prior constraints. All-excluded privacy input instead requires exact prior text, even if cluttered.
 
-- Rotating shifts allow25-minute weekday sessions and the user commits to one weekend
-  strength session: retain availability/commitment, not ride calorie/zone/KPI tables.
-- After a walk distance comparison, the user chooses controlled effort: retain that
-  choice, not splits/calculations or generic coaching prescriptions.
-- “Could two sessions work?” is unchosen. “I now prefer afternoons, not mornings”
-  replaces the earlier preference; an assistant's saved-plan claim proves no save.
-- Retain a still-useful old constraint despite unrelated new input; prune stale clutter.
-  A useful dated measurement stays historical. All privacy-excluded input still requires
-  exact previous text even if cluttered; this safety contract outranks ordinary curation.
-
-Identical complete output processes sources without claiming new learning. Malformed,
-unfinished, invalid-scalar or refused output preserves prior/pending sources and actual
-usage without automatic replay. Shape is not a semantic-loss detector: a valid but lossy
-model rewrite can still pass. Supplied outputs prove owner/wire/state mechanics, not
-live-model fidelity. Advisory sizing never certifies meaning or requires shorter output.
-
-Initial generation, reviewed import and whole-history rebuild share that normal contract.
-Manual Densify stays summary-only `{summary:string}`, and title generation stays `{title:string}`. Older exact-edit validator/transport support
-remains internal compatibility, not the normal maintenance path. Title stays separate.
-Preferences are not generated-source records or model reconciliation input. Text edits
-are output-only and never persisted as a ledger. No model-managed item IDs,
-keep/remove/upsert/replaces, required coverage schema, citation graph or transitive
-summary-item ancestry is requested, stored or repaired by the active engine.
+Identical output processes sources without new-learning claims. Invalid/refused/unfinished output preserves prior/pending sources and actual usage without replay. Valid but lossy output can pass; supplied-output tests prove mechanics, not fidelity. Captured Profile values are compared at publication separately from privacy authority.
 
 ### Source eligibility and privacy decisions
 
-Code owns completion/source selection, operation identity, frontier and processing
-counts. Successful source dispositions mean **processed**, not “represented in a
-sentence”; ineligible and minimized-away sources remain excluded/filtered. Original
-journal/source identities and old restrictions are not generated-memory identities.
-Hard source eligibility, durable restrictions and Off/cutoff remain native authority.
-Complete preceding assistant passages are lower-authority context, bounded at16000
-scalars; missing/oversized/restricted context does not drop independent user meaning.
-The configured memory model interprets document directions versus memory privacy in
-this same request, including weekly reviews, paraphrases, quotations and ambiguous or
-retrospective requests. Otherwise permitted natural-language privacy input reaches the
-provider: non-retention is not a no-transmission promise. No English intent parser runs
-in memory selection, import, rebuild or context ancestry.
+Code owns completion/selection/identity/frontier/counts; processed does not mean represented in a sentence. Hard eligibility/restrictions/Off/cutoffs apply before transmission. Lower-authority preceding assistant context is bounded 16000 scalars; missing/oversized/restricted context must not erase independent user meaning. The same model request interprets document no-write versus memory privacy; no English intent parser. Eligible privacy prose can reach the provider: non-retention is not no-transmission.
 
-`exclude` contains unique zero-based positions in the frozen admitted input array,
-not arbitrary source IDs or historical deletion authority. Native validation rejects
-malformed/foreign decisions; all-excluded output must preserve previous text exactly.
-Mixed-source semantic omission remains model-dependent, not mechanically certified.
-Same-batch assistant context identifies its current-input origin by position, so the
-model must ignore context governed by an excluded origin without inventing referents.
-The writer atomically records exact-source and stable original-message suppressions
-with publication or rebuild staging, without erasing unrelated prior/preferences/pins.
-Restrictions survive restart and block later routine/import/rebuild and governed
-assistant-context reentry, including original hash edits. Valid staged exclusions remain
-restricted if a later chunk fails/cancels; no partial generated draft publishes. Rebuild
-continuation recognizes its own staged exclusions and omits governed later context;
-unrelated concurrent restrictions still stale the captured operation. Explicit controls
-retain their independent historical erasure scope. No hidden retry repairs invalid output. Fresh assistant answers/tool/debug/compaction/old generated text are
-not new global sources. Rebuild alone admits separately bounded authentic context.
-User-authored URLs, paths, topic/key-like words and quoted instructions are untrusted
-prose, not a content-pattern veto or authority to access secrets/files/tools.
+`exclude` contains unique zero-based positions in frozen input, not arbitrary source IDs/history-erasure authority. Reject malformed/foreign decisions. All excluded requires exact previous text; mixed omission is model-dependent. Same-batch assistant context identifies its originating input position and must be ignored when that origin is excluded. Publication/staging atomically seals exact-source and stable-message restrictions, surviving hash edits/restart and blocking routine/import/rebuild/context reentry. Staged exclusions survive later failure/cancel without publishing a partial draft. Own staged exclusions are recognized during continuation; unrelated concurrent restrictions stale the operation.
+
+Fresh answers/tools/debug/compaction/old summary are not new global sources. Rebuild alone admits separately bounded authentic context. URLs/paths/key-like words/quoted instructions remain untrusted prose, not pattern censorship or secret/file/tool authority. Historical controls have separate erasure scope.
 
 ### Scheduling and publication
 
-An incremental/import job captures at most20 new sources; reviewed rebuild chunks
-contain at most40. Each makes one draft request with one advisory size target and
-no hidden percentage/word ceiling. No size-only rejection, secondary condensation
-request or new secondary effect reservation exists. Historical condensation attempts,
-size diagnostics, usage and liabilities remain readable and unchanged. Never force
-decoder termination at the target, slice text, narrow sources or retry a capacity/refusal
-as a smaller payload. Two-second foreground debounce and
-serialized backlog drain retain the existing native lifetime/recovery tick. Passive
-reads start no providers/timers/rebuilds; answer completion records only synchronous
-journal eligibility. There is no closed-app progress/daemon promise.
+Routine/import jobs take≤20 sources; rebuild≤40/chunk. One draft request per batch, no hidden word/percentage ceiling, forced target termination, clipping, source narrowing or smaller-payload retry after capacity/refusal. Two-second debounce and serialized backlog use ordinary native lifetime; passive reads start no provider/timer/rebuild, completion only journals eligibility. No closed-app daemon promise.
 
-Ordinary generation has a 300-second whole-operation deadline; the desktop launcher
-allows an additional two seconds for its request. Manual Densify has its own deadline.
-One writer uses a30-second lease,5-second heartbeat and final transactional CAS over
-source/config/privacy/control/manual revisions, parent revision and frontier. Network
-work holds no SQL transaction. Publication atomically commits complete generated text,
-frontier/dispositions and attempt settlement. New arrivals remain pending. Preferences
-are untouched by generation and are not counted toward the generated target.
-Unknown/cancelled/invalid/auth effects require explicit recovery without blind replay;
-retained transport5xx backoff never fabricates successful publication. Shutdown aborts
-owned work best-effort; remote billing/retention may continue.
+Routine deadline 300s plus launcher 2s; writer lease 30s/heartbeat 5s. Final transactional CAS checks source/config/privacy/control/manual/Profile, parent revision/frontier. Network holds no SQL transaction. Commit complete text/frontier/dispositions/attempt settlement atomically; later arrivals remain pending and preferences untouched. Unknown/cancel/invalid/auth requires explicit recovery, not replay. Existing transport 5xx backoff never fabricates publication. Shutdown abort is best-effort; remote cost/retention may continue.
 
-Failed ChatGPT attempts may carry the same closed provider diagnostic as chat, atomically merged into the existing attempt JSON envelope without replacing usage/rejection/value observations or inventing tokens. Write and outward-read projection are independent. Status reads select at most one relevant latest attempt, bound to current policy/configuration, control/privacy generations, revision and failure reason; old/unrelated/malformed metadata stays absent. No schema migration or diagnostic backfill occurs.
-
-A passive `processing` observation distinguishes inactive, running, parked/manual-attention, finite delayed (`retryAt`) and eligible state. The MAX_SAFE_INTEGER parking sentinel never leaves as a timestamp. This does not change eligibility, debounce, leases, transient classification or retry/backoff. Explicit Retry clears current reason/timing through the existing action; historical failure details remain stored but are no longer current. See [Memory recovery](memory.md#paused-summary-recovery). The smaller strict native status protocol is unchanged.
+Closed provider diagnostic metadata may accompany existing attempt JSON without replacing usage or inventing tokens. Status projects at most one relevant current attempt matching policy/config/control/privacy/revision/reason; malformed/old/unrelated details remain absent. Processing distinguishes inactive/running/parked/finite retryAt/eligible; parking sentinel never becomes a date. Explicit Retry clears current reason/timing, not historical details/accounting. Native's narrower status remains unchanged.
 
 ## Stable pin, inspection, controls and privacy
 
-Each turn's atomic admission adopts latest available generated text and separate
-preferences or null, after busy exclusion. Version2 pins freeze both independently
-framed lower-authority fields through planner, tools, synthesis and delivery. Ordinary
-publication does not revoke an admitted pin; next admission adopts the latest. Full
-memory is included on supported configured routes, not clipped to a second cap. Holding
-a pin is not a completed-answer consumption observation. Compatibility Refresh remains
-explicit/busy/CAS-guarded, not routine UI maintenance.
+Atomic chat admission adopts latest usable generated text/preferences or null after busy exclusion. Version 2 pins freeze separately framed lower-authority fields through planning/tools/synthesis/delivery; ordinary publication does not revoke them, next admission adopts latest. Full memory is not clipped to another cap. Pin holding is not completed-answer consumption; compatibility Refresh is explicit busy/CAS-guarded, not routine upkeep.
 
-Ordinary chat/message deletion is classified separately (schema27): it advances
-history/source freshness (segments, turn source versions, admitted routine/import/rebuild
-work, staged import/rebuild review) but **not** published-memory authority, so the saved
-generated summary, preferences, frontier and pins of surviving chats remain usable.
-Deletion is detected row-locally in SQLite (message delete trigger and the lifecycle's
-own `deleting_conversation`-scoped semantic cleanup), so it survives rollback/restart
-without a process flag. This deliberately accepts retained deleted-source influence;
-Clear saved memory remains the removal action. Bulk Chat/Profile reset and any other
-source edit/derived-memory change remain genuine revocations.
+**Ordinary message/conversation deletion does not clear published memory.** It invalidates source/history freshness and affected pending/staged work, not summary/preferences/frontier/surviving pins. Row-local SQLite triggers/lifecycle implement this across rollback/restart. Deleted-source influence may persist; Clear is removal. Bulk Chat/Profile reset and other source edits/derived-memory changes remain genuine revocations.
 
-Genuine history/source privacy invalidation conservatively empties the **whole generated
-summary** and revokes captured use/export. When it erases nonempty text it also sets a
-durable `coverageLost` status: later new-only publications, Retry and restart keep it;
-Clear or a completed reviewed Update from chat history settles it; a manual edit does not. It does not delete independent preferences.
-No precise per-source subtraction or stale published fallback is claimed. Separate
-preferences can still be used after generated invalidation. Control/preference changes
-invalidate captured authority; actual source deletion also revokes affected in-flight
-work and marked derived debug copies. Existing original visible transcript/legacy
-unmarked grounding remain. Already exported/displayed data, backups and provider logs
-cannot be recalled. Schema25 removes the phrase-triggered correction erasure and all three Profile erasure
-triggers. Ordinary correction completion and changed/no-op/timestamp-only Profile saves
-preserve unrelated generated text, pins and local compacts. Chat admission and summary
-publication independently reject changed captured Profile values, without a global
-privacy cascade. Actual source deletion/edit, Clear/Forget/Off and preference controls
-retain their separate revocation authority. Temporal qualifications live in the summary prose;
-there is no hidden item-expiry maintenance engine.
+Genuine privacy invalidation empties the whole generated summary and revokes unsafe captured use/export, preserving independent preferences. Erasing nonempty text sets durable `coverageLost`, retained through new-only updates/Retry/restart/manual edits until Clear or completed reviewed history update. No precise per-source subtraction or stale fallback. Controls/preferences revoke captured authority and marked derived debug copies; original visible transcript/legacy grounding remain. Exported/displayed data/backups/provider logs cannot be recalled.
+
+Ordinary corrections and changed/no-op/timestamp-only Profile saves preserve unrelated summary/pins/local compacts. Captured Profile change separately stales chat/publication; no global erasure cascade. Clear/Off/preference/source-edit authority remains independent. Temporal qualifications live in prose, not item-expiry maintenance.
 
 ### Local debug revisions
 
-`summary_debug_revision` keeps at most the 50 newest committed generated-memory
-revisions (revision/parent, UTC ms time, kind `routine|import|rebuild|densify|manual-edit|preference-change`,
-captured model or null, memory/control generation and a typed source domain:
-completion-event range, import-selection count, reviewed-history count or none). Rows are
-written in the committing transaction only; failed, stale, preview and staged rebuild
-candidates are not recorded, and idempotent re-settlement does not duplicate them.
-Preference text is never archived. `summary_debug_event` keeps at most 50 metadata-only
-`source-deleted`/`memory-revoked` events. Source deletion/update and a direct summary
-save purge all earlier payloads (the save keeps only its own new text); Clear removes
-all rows and events; Off preserves them. Nothing reads these tables for chat, pins,
-generation, import, rebuild or status: they are for explicit local SQLite debugging.
-Purging old payloads does not erase influence retained in the active summary; physical
-SQLite pages, backups and provider logs are outside this guarantee.
+Keep at most 50 committed generated revisions and 50 metadata-only source-deleted/memory-revoked events for **explicit local SQLite debugging only**. No runtime chat/generation/import/rebuild/status consumer. Revision rows bind parent/time/kind/model/generations and typed source-domain metadata in the committing transaction; no failed/stale/staged candidate or duplicate settlement. Never archive preferences.
 
-Content inspection returns one `stored` generated value and separate `preferences`,
-not generated cards/manual-ID/source-link projections. The compatibility metadata
-`items` counter is0/1 for empty/nonempty generated text, not a ledger. Corrupt/unknown
-state preserves bytes and refuses consumption/writes. Inspection/selection/progress
-reads do not generate, adopt chat memory or mutate a published draft.
+Source deletion/update and direct summary save purge prior payloads (save retains only its new text); Clear removes all rows/events; Off retains them. Purging history does not remove active-summary influence, SQLite pages/backups or external logs.
 
-Version2 closed commands carry expected revision/privacy/control/manual CAS:
-`edit-summary` changes the whole generated field; `edit` / `forget` are adapter names
-for saving/removing **separate preferences only**. They confer no generated-fact Forget
-promise. Clear explicitly removes generated/preferences/pins and records cutoff over
-incomplete pre-clear admissions. Off retains records but stops use/admission. Enable
-requires already-active native On/model configuration and never imports Off history.
-Retry preserves all costs and does not synchronously infer. Old version1 writers refuse.
+Inspection returns one stored generated value plus preferences; compatibility items is 0/1, not cards/ledger. Corrupt/unknown state preserves bytes and refuses use/write. Reads never generate/adopt/publish. Version 2 commands require revision/privacy/control/manual CAS: edit-summary replaces generated text; edit/forget change **preferences only**, not per-fact generated erasure. Clear removes generated/preferences/pins and records cutoff including incomplete admissions. Off retains records/stops use; Enable needs active native config and never imports Off history. Retry preserves costs/no synchronous inference; v1 writers refuse.
 
 ## Explicit manual densification
 
-Closed version2 `densify-request`, `densify-accept`, `densify-discard` and
-`densify-cancel` carry an opaque request ID; the renderer never supplies candidate
-text or trusted counts. Only `densify-request` additionally accepts an optional
-`model` string: an exact encoded catalog choice, version1 `{version,entryId,provider,modelId}` or subscription version2 with `registrationId`. Omission preserves the configured default, including legacy
-compatibility; alternatives must still match the current activated catalog and
-credential eligibility. Unknown/removed/remapped identities or extra fields refuse,
-never fall back. Read-only content inspection exposes safe default/eligible picker
-metadata without initializing the Trainer preference. The existing Memory hook
-keeps intent ephemeral, with no Settings writes or automatic inference on selection.
-One deliberate request captures exact model/credentials, generated text,
-advisory target, expected revision/privacy/control/manual and native boot/live
-configuration. It uses the exact existing provider route, strict complete output,
-no tools/fallback/SDK retries and no preferences/history/new source admission.
-Passive reads and ordinary overshoot never request this separate manual work. Normal
-new-source updates already consolidate automatically; this is an optional extra rewrite.
-The prompt first curates/selects durable user-specific knowledge, then merges redundancy,
-then compresses. It permits deletion of low-value statistics, obsolete temporary details,
-generic advice, repeated caveats and assistant-claim history, not just shorter wording
-for everything. Preserve essential meaning/qualifications of what remains; no invented
-facts, resolutions, endorsements or verified current truth. Its only evidence is the
-saved summary, without fresh Profile, original history or authoritative records. The
-advisory target is not a quota or ceiling; underfull useful text need not be padded.
-These instructions do not change the independent nonblank/strictly-shorter acceptance
-requirements below; structural success does not measure semantic selection quality.
+Version 2 request/accept/discard/cancel uses opaque ID, never renderer candidate/count authority. Optional request model is exact version 1 catalog choice or subscription version 2 including registrationId; omission keeps configured default even unavailable. Reject removed/remapped/ineligible/extra input without fallback. Picker is readonly/ephemeral, never changes Settings/Trainer/title/routine choice.
 
-The process-owned single candidate is ephemeral and lasts at most ten minutes;
-privacy/currentness/configuration loss revokes it. The paid call shares the existing
-writer lease/heartbeat/native cancellation and durable attempt/usage owners with
-an empty source list and distinct manual purpose. Its unique durable identity
-refuses restart replay. Reusing an in-process ID with different selection intent
-refuses rather than regenerating. Manual policy identity and price basis reflect
-the captured model, including unknown price; shared control/model/default, routine
-updates and titles stay unchanged. A preview is not publication or source processing. After
-settlement review holds no writer lease; routine work may win and stale the review.
-Cancellation/unknown effects retain accounting, never a refund or automatic retry.
-Manual failure/restart recovery does not poison routine backlog retry controls.
+Capture generated text,target,model/credentials and all currentness once; send only summary, not Profile/history/preferences/new sources, with no tools/retries/fallback. Ordinary updates already consolidate; overshoot/passive reads never trigger Densify. Prompt selects useful meaning before compressing and may remove low-value stats/obsolete details/advice/repeated caveats, but cannot invent facts/resolve uncertainty. Saved summary is its only evidence.
 
-Acceptance independently revalidates the server-owned candidate and original
-currentness and reacquires writer/import/rebuild exclusion transactionally. Only
-valid nonblank strictly shorter text publishes. It changes revision/checksum/time,
-not manual authority, preferences, frontier, dispositions or source completion.
-Existing admitted pins remain frozen; the next admission adopts latest. Supplied
-provider tests and native renderer-only review fixtures are mechanical evidence,
-not live rewrite quality, billing or private-data/installed activation proof.
+One process-owned candidate expires within 10min or currentness/privacy/config loss. Use existing writer/heartbeat/cancel/attempt accounting with empty source list/distinct purpose. Durable identity prevents restart replay; same ID/different intent refuses. Preview processes no sources; settled review holds no writer lease and routine publication can stale it. Cancel/unknown keeps liability, no refund/retry; manual failure does not poison routine controls.
+
+Accept reacquires exclusion and revalidates candidate/original currentness transactionally. Only nonblank valid **strictly shorter** text publishes; changes revision/hash/time, not manual authority/preferences/frontier/dispositions/source completion. Existing pins stay frozen. Shorter/structurally valid is not fidelity or billing certification.
 
 ## Explicit historical transition
 
-The retained completed-Off-turn import freezes at most200 exact source versions /
-100000 source scalars. It shares the current complete-text writer in20-source batches,
-keeps its independent routine frontier and sealed application-owned dispositions, and
-retains original sources. Incidental today/until/week/month words do not exclude whole
-sources. Original user and available preceding-assistant message timestamps (Unix
-milliseconds) accompany the actual generation input, independently of the generation
-clock. Relative claims remain historical; obsolete temporary detail is omitted without
-discarding independent durable meaning. Unavailable dates remain unknown, never guessed;
-reviewed import requires an authoritative user date. New availability is not selection,
-consent or automatic replay of formerly filtered sources.
-Pause/cancel/changed authority/unknown effects require honest
-inspection/review, not auto-resume or inferred historical completion. Legacy semantic
-facts/vectors/settings/markers stay inactive; no automatic archive export/re-embedding.
+Retained reviewed completed-Off import freezes≤200 source versions/100000 scalars, processes 20-source batches through the same writer and owns separate frontier/sealed dispositions. Preserve original sources. Include authoritative original user and available assistant Unix-ms dates independently of generation clock; unknown dates stay unknown and reviewed user dates are required. Relative claims remain historical; temporal words alone do not exclude independent meaning. Availability is not consent/replay. Pause/cancel/stale/unknown requires review, not auto-resume. Legacy vectors/markers/settings stay inactive without re-embedding/export.
 
 ## Explicit Rebuild from chat history
 
-Local review paginates the entire original pool, not the sidebar or200-row import
-window. All-retained or sorted selected-conversation scope and explicit uncertain-
-legacy inclusion are sealed to the exact snapshot. Schema22's conservative old floor
-and schema23's known future-Clear floor remain distinct. Uncertain older-history
-permission never overrides recorded Clear, suppressions, no-save or context ancestry.
-Original hashes/times support operation freshness, not a generated-memory citation graph.
+Review paginates full retained pool, not sidebar/import window. All/sorted selected conversations and uncertain-legacy inclusion are sealed to exact snapshot. Permission never overrides recorded Clear/suppression/no-save/context restrictions; conservative old and known future-Clear floors remain distinct.
 
-Final Start is explicit, exact-snapshot and idempotent. Same request identity reconciles
-without another operation; different/changed consent refuses. Rebuild/import/writer
-exclusion and native boot/config identity remain. Bounds:10000 included user sources,
-2000000 source/context scalars and two-hour operation deadline; whole messages exceeding
-16000 scalars and unsupported/ambiguous sources are disclosed, never silently clipped.
-Cost before ordinary generation is unknown, not a product spending cap or invoice.
+Explicit Start is idempotent for the same identity/snapshot; changed/different consent refuses. Writer/import/rebuild exclusion and native identity apply. Bounds:10000 user sources,2000000 source/context scalars, two-hour operation. Whole messages>16000 or unsupported/ambiguous sources are disclosed, never clipped. Cost may be unknown, not zero/product budget.
 
-A rebuild starts from **empty generated draft**, independent of the current publication.
-Batch N+1 receives complete draft N and the next selected chunk. Each validated success
-overwrites the complete candidate. **Only the last batch atomically publishes once**
-and accounts for reviewed routine completion coverage, without labelling excluded
-sources represented. There is no partial active publication. Independent preferences
-survive; successful regeneration replaces direct whole-summary edits as clearly stated
-in confirmation. Failure/cancel/reopen/deadline/stale source/config/unknown effect never
-replays Start or publishes a partial draft. Scrub staged derivatives while retaining
-bounded progress/provenance/accounting and original adverse results. Final receipts do
-not retain duplicate generated-text history. Arrivals beyond review remain pending.
+Start from empty generated draft; next chunk receives complete previous draft. **Only full final success publishes once**, accounting reviewed completion without claiming every source represented. Preferences survive; regeneration replaces direct summary edits, disclosed before Start. Failure/cancel/reopen/deadline/stale/unknown never replays Start or publishes partial text. Scrub staged derivatives while retaining bounded progress/provenance/accounting/original failures; arrivals after review stay pending.
 
-Quality is separate from processing coverage. Select useful constraints/decisions/rejected
-approaches; retain rationale only when it materially changes advice, and preserve essential
-historical/current scope, negation and uncertainty on what remains.
-A question/assistant proposal is not endorsement; incidental routes/weather, isolated
-measurements and obsolete targets are not filler. Underfull is valid. Authored supplied
-outputs prove mechanics only; required real-history acceptance needs every included
-source, meaningful bounded final publication and private qualitative inspection plus
-local next-turn planner/synthesis composition evidence. Do not substitute a partial
-first20, source deletion, synthetic output or transport-only result.
+Quality is independent of coverage: useful decisions/constraints/reasons, honest time/negation/uncertainty, no proposal-as-endorsement or filler. Underfull is valid. Real-history acceptance requires every included source, meaningful final output, private qualitative inspection and next-turn composition proof; partial-first 20/synthetic/transport-only evidence is not equivalent.
 
 ## Compatibility and validation
 
-Schema27 is additive: history control gains `memory_generation` (initialised to the
-existing privacy generation), `deletion_generation` and a transient
-`deleting_conversation`; summary control gains `coverage_lost` (0); two empty debug
-tables are created; four triggers are re-created on the new authority column. No rows are
-transformed, no past revisions or loss evidence are invented, and already erased or
-recent-only memory stays as stored (this is not recovery). Authored populated26→27
-rehearsal preserves summary/preferences/originals/frontier/accounting with integrity/FK
-and an idempotent reopen. Schema26 readers refuse27; startup/Use existing never migrate.
-Primary activation and back-sync are a separately authorized, backed-up exact-target
-`npm run db:migrate` step, not part of source delivery; use a forward fix, not downgrade.
+Startup/Use-existing never migrate. Separately authorize exact DB/settings, preserve backups, rehearse populated/actual-derived online copies with integrity/FKs/idempotent reopen/original/accounting preservation, then controlled migration. Older readers refuse new schemas; use compatible forward fix, never downgrade/blind copy-back.
 
-Schema25 drops only four obsolete erasure triggers and transforms no stored rows.
-Authored populated24→25 fixtures preserve every table, valid summary/preferences,
-compatible opaque compacts, originals and accounting; reopen is a no-op with integrity/FK
-checks. Older schema24 readers refuse25 honestly. Startup/Use existing remain non-migrating;
-installed schema24 retains its triggers until separately authorized exact-target migration.
+Relevant transitions: schema 24 carries complete text into v2/separate preferences, invalidates incompatible pins and interrupts staged work without refunds/invented completion. Only proven standalone authored notes map losslessly; source-linked/ambiguous manual edits and corrupt/unsupported records refuse transactionally. Schema 25 removes obsolete correction/Profile erasure triggers without transforming stored rows. Schema 27 separates deletion versus memory authority, adds coverageLost/debug tables and recreates triggers without inventing old revisions/recovering lost text. Earlier restrictions/Clear floors/usage/originals remain authoritative. Detailed migration DDL/rehearsal history belongs in migrations/tests/Git, not this guide.
 
-Additive schema24 preserves migrations19–23, source transcripts/Profile/Garmin/plans,
-legacy records, suppressions/Clear floors and historical usage/reservations/failures.
-It carries generated text into v2 without preference duplication, creates independent
-preferences, invalidates incompatible pins and interrupts staged work without refunds
-or fabricated completion. Historical manual bytes stay inert/readable; only proven
-standalone authored notes map losslessly. Source-linked or semantically ambiguous old
-manual edits refuse transactionally pending an operator decision. Corrupt/unsupported
-active/derived records also refuse before transition rather than resetting them.
-
-Rehearse authored and actual-derived online copies, integrity/FK/reopen/idempotence and
-original/accounting preservation. Startup/Use existing remain non-migrating. Schema23
-readers refuse24. Preserve originals/backups and use a compatible forward fix, never
-an old writer/downgrade/blind copy-back.
-
-Focused policy/provider/storage/rebuild/import/pin/composition/UI/migration suites retain
-independent no-save/Clear/suppression, CAS/lease/concurrency/cancel/unknown, whole-request
-and compatibility oracles. Complete-text/many-batch/Unicode/preference tests retain safety coverage without requiring a generated item graph.
-Current ARM64 ordinary-artifact native smoke exercises summary/preference editing,
-owned restart and wide/narrow presentation plus adjacent lifecycle/isolation. Fixed
-presentation fixtures, synthetic DOM input, canonical masks, actual provider success
-and private semantic inspection remain different evidence classes. Inspect relied-on
-images locally; never commit/upload new captures or private source/summary excerpts.
+Policy/provider/storage/rebuild/import/pin/UI/migration tests cover CAS/leases/concurrency, source/privacy/no-save, unknown effects, Unicode and preferences. Native ordinary smoke covers actual controls/restart/presentation/isolation. Fixed fixtures, real lifecycle, service success and private semantic inspection are different proof classes. Inspect relied-on images locally; never publish private source/summary excerpts or captures.
