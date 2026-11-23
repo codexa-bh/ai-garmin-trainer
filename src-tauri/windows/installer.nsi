@@ -1,6 +1,6 @@
 ; Garmin Trainer per-user NSIS template, derived from Tauri CLI 2.12.4
 ; crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi (Apache-2.0 OR MIT).
-; Reviewed deltas (see docs/desktop.md, Windows build foundation):
+; Reviewed deltas (see docs/windows.md, Unsigned per-user installer):
 ;  1. The uninstaller never deletes app data (settings, databases, tokens):
 ;     the "Delete the application data" checkbox and its RmDir /r are removed.
 ;  2. WebView2 is an explicit prerequisite: the installer detects it and stops

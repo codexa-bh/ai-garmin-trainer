@@ -91,7 +91,7 @@ After final validation/current unsigned ARM64 build, run the catalog's `release-
 
 It then builds a separate `release-probe`: only run-local paths/identity/incognito/nonactivation and fixed denial observation, **no** listener/control/capture/result callback. A copied app with read-only resources receives enabling env yet exposes no endpoint and denies the fixed WebView request (`command-not-found` or earlier ACL refusal). Report actual reason, reap only live child, verify original inventory. The unbundled executable may now be instrumented; ordinary build never enables this feature and bundled app stays unchanged.
 
-Static audit plus instrumented denial **is not ordinary-artifact launch**; use `smoke:ordinary`. Native routing tests are not a live default UI certificate. Manual private settings/auth requires a specifically arranged noninterfering operator window. Source delivery grants no signing/install/release/primary restart.
+Static audit plus instrumented denial **is not ordinary-artifact launch**; use `smoke:ordinary`. Native routing tests are not a live default UI certificate. Manual private settings/auth requires a specifically arranged noninterfering operator window.
 
 ## Installed Windows scope
 

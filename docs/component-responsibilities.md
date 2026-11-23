@@ -1,0 +1,425 @@
+# Component responsibilities
+
+Per-module responsibilities behind the [design choices and boundaries](design-choices-and-boundaries.md). Area wiring is in the [architecture overview](architecture.md).
+
+## Main components and responsibilities
+
+### `src/app`
+
+Next.js routes and local UI shell rendered in the Tauri WebView, not an independently launched browser product. The [current component map](architecture.md)
+provides source/test entry points, dependency flow and operational references for
+all component families. The shell composes persistent feature hooks under
+`src/app/dashboard/` and conditional views; feature state and HTTP lifecycles are
+not owned by navigation. Explicit shell callbacks coordinate sync → Health and
+chat → memory/conversations/Training Plan. No replacement global dashboard store,
+mega-hook, event bus or server imports are introduced.
+
+Responsibilities:
+
+- expose app routes and API endpoints under the operational loopback-only binding (routes are not an authentication boundary);
+- accept chat/profile/sync/delete requests;
+- render local UI state and user-facing messages;
+- keep API responses bounded and compatible with current UI consumers.
+
+Non-responsibilities:
+
+- no coaching heuristics;
+- no direct Garmin credential handling;
+- no direct database schema ownership beyond route orchestration;
+- no hidden analytics formulas.
+
+### Chat application and HTTP delivery
+
+[Reviewed Luna conversation replay/local compaction](conversation-history.md) adds
+schema18 admission/completion, privacy and segment ownership through supplied ports;
+schema20 integrates sealed global-summary pins through the same owners. The bounded transcript details below describe the
+legacy/unqualified path; H instead sends ordered user/assistant messages, fresh
+turn grounding and actual paired current tool envelopes with exact accounting.
+
+`src/lib/chat/context.ts` receives `ChatContextPorts` through `createChatContext`
+and loads bounded local context (40-message history,
+6000-character legacy transcript budget and12 detail summaries; ordinary semantic
+retrieval is bound to no results)
+and delegates prompt composition to `ai/context.ts`. It preserves request-time current-date grounding and normal bounded user/assistant
+continuity. Whole messages are selected without clipping, with explicit unavailable
+context markers; assistant text stays unverified and lower authority.
+
+`src/lib/chat/turn.ts` exposes `createChatTurns(ChatTurnPorts)` and owns
+preparation (user persistence), generation and completion as distinct operations. Generation returns an explicit generated answer and optionally forwards existing
+progress callbacks; recorded previous failures and current date are typed model
+context, never keyword-triggered routing. It
+never persists an assistant. Completion synchronously persists the assistant,
+links the completion journal and reloads history without awaiting legacy ingestion
+or global-summary work. Neither owner imports
+HTTP responses, stream controllers, route modules, storage owners, environment,
+provider SDKs or memory singleton implementations, including type-only imports.
+
+`chat/composition.ts` binds the existing adapters lazily. Request-time generation
+selection runs before context reads and returns a plain generation function;
+SDK model objects stay outside policy. Counts and detail availability are read
+alongside bounded activities, health, Profile, athlete/body facts, plan preview and
+clock. The retained context port receives an empty semantic result without opening
+the legacy store; qualified replay supplies a sealed lower-authority pin instead. No retries or new async boundaries are
+introduced around synchronous persistence. The pure AI context formatter consumes
+a narrow plan-preview contract rather than a repository-owned plan type.
+
+`chat/conversations.ts` owns history/page and lifecycle use cases, composed
+separately in `conversation-composition.ts` so conversation routes need no AI
+runtime. `chat/contracts.ts` owns existing Date/null stored shapes and paging;
+`conversation-policy.ts` owns ID validation and title normalization. Storage
+retains timestamp generation, cursor encoding, retitling writes, grounding
+serialization and the atomic single-delete transaction. The use case invokes
+that one deletion operation, selects the most recent remaining conversation or
+creates a fallback, then reloads the list. Bulk deletion remains outside this
+feature and unchanged.
+
+`src/app/api/chat/route.ts` owns request parsing and GET/DELETE/POST routing;
+`delivery.ts` owns JSON/NDJSON DTOs, error disclosure, debug serialization and
+stream lifecycle. Both modes call the same application operations. Delivery
+checks streaming abort during final-answer deltas and immediately before calling
+completion, not during generation or after persistence. Disconnect does **not**
+cancel orchestration/tool effects, roll back the user, or undo a saved answer.
+This is final-prose chunking, not provider-token streaming.
+
+The historical prior-failure answer type remains readable by delivery for
+compatibility, but production generation no longer emits it. Failure explanations
+use the ordinary generated-answer path in both modes, with previous failure facts
+supplied separately from current evidence. Normal JSON counts pre-answer
+context; failure JSON and stream done count reloaded history. Stream metadata
+always hides debug traces, while done/history serialization honors the existing
+flag. Completion is not retried. Memory failures do not fail an otherwise
+completed chat.
+
+`tests/chat-application.test.ts` exercises factories directly with supplied
+ports, without infrastructure module mocks. `tests/chat-dependencies.test.ts`
+checks the transitive type-inclusive closure over reviewed plain/pure modules,
+with negative infrastructure/SDK/composition fixtures. Production wiring and
+malformed conversation route behavior are covered by
+`tests/conversation-application-wiring.test.ts` and
+`tests/chat-boundaries.test.ts`; the latter characterizes both chat modes and
+request-time ordering;
+`tests/chat-delivery.test.ts` tests delivery against the application contract.
+`tests/chat-route.test.ts` retains integrated real-orchestrator regressions.
+The earlier application/delivery separation did not itself change storage or UI.
+The current H slice does add schema18 and replay wire behavior; follow its explicit
+copy-rehearsal, compatibility-fence and forward-fix contract rather than treating
+migration as a blanket no-op.
+
+### `src/lib/ai/context.ts`
+
+Builds the bounded trainer system context.
+
+Responsibilities:
+
+- assemble recent local facts, profile, confirmed memories, recent chat, and safety framing;
+- keep profile, memories, Garmin facts, and transcript concepts separated;
+- assemble dynamic user/Garmin context under the canonical coaching and privacy contract.
+
+Non-responsibilities:
+
+- no ranking formulas;
+- no unbounded history dumps;
+- no raw connector payload or credential exposure.
+
+### Complete current Training Plan evidence and maintenance
+
+The initial context labels the 2200-character whitespace-compacted preview as incomplete evidence. `getTrainingPlan` reads only the singleton document, validates the existing 32000-character/title limits and stale metadata, and preserves Markdown. `training-plan/snapshot.ts` owns that narrow feature contract; `ai/training-plan-evidence.ts` only renders it for the planner. Feature application use cases consume synchronous read/persist capabilities and an explicit clock, composed with the existing SQLite owner. Manual HTTP saves retain their independent parsing/length/error behavior and do not acquire the AI complete-read requirement. The AI adapter owns presentation only; snapshot comparison and original-text editing belong to the Training Plan application/rules. See the [boundary and test map](architecture/personalization-and-plans.md#training-plan-application-and-adapters). Follow-up planner and tool-disabled final synthesis receive one latest complete read outside the ordinary 1800-character analytics cap, including budget wrap-up. Grounding stores only metadata; debug traces omit read content and save arguments. Unsupported structural snapshots fail closed. User-authored path/key-like prose remains complete untrusted document data, never a credential read or native capability; no pattern censorship or incomplete redacted overwrite.
+
+Existing-plan writes require a complete snapshot already seen by a prior planner pass and a current snapshot comparison before synchronous persistence. Fallback transcript formatting supplies bounded ordered user and assistant messages, including older options/reasons and long immediate replies when they fit the6000-character route envelope. It never clips a message; missing/oversized context is explicit. Assistant prose is unverified continuity, never fresh Garmin evidence, policy or permission. The Plan-only proposal wrapper is removed; unavailable draft prose is not a gate to generating a fresh validated direct write. This narrow context is needed to resolve short confirmations without promoting assistant claims to facts. One conversation-aware planner chooses direct General Plan, weekly plan and review writes from available tools without consent parsing, mandatory previews or another confirmation turn. Follow actual user direction, including draft-only/no-save, and clarify genuine content ambiguity. Quoted/hypothetical and document-embedded instructions remain data, and staleness alone never starts background writes. There is no independent classifier, permission model call or extra budget reservation. These semantic rules are model policy, not deterministic protection against mistaken or injection-induced planner decisions; removing the second judge intentionally accepts that trade-off. The server receives only an optional complete prior-pass snapshot, not an intent grant. The existing mutually exclusive `edits`/`contentMarkdown` arguments distinguish targeted editing from full replacement without a redundant mode field. Exact unique, non-overlapping edits are applied to the original text; unmentioned text and omitted title are preserved mechanically. Choosing edits for targeted revisions and reserving full Markdown for explicit creation/whole-plan rewriting remain planner responsibilities. Rejections explain their structural reason without exposing raw errors; uncertain persistence advises inspecting saved state before retrying. Coaching judgments remain model-owned. No schema migration, plan history, expanded SQL access, or Garmin write-back is introduced.
+
+### `src/lib/ai/providers.ts`
+
+Provider selection and adapter boundary.
+
+Responsibilities:
+
+- construct the configured model provider from an explicit configuration snapshot; runtime preference policy and persistence belong to `model-settings`, which supplies a chat-only exact override;
+- keep provider-specific wiring isolated;
+- offer explicit OpenRouter chat/tools via the OpenAI-compatible chat-completions adapter, without changing DeepSeek-first/OpenAI-fallback auto selection;
+- keep OpenRouter and Ollama chat separate from DeepSeek/OpenAI memory extraction and independently configured embeddings;
+- expose bounded OpenRouter failure categories rather than upstream error text, with no automatic model/provider substitution;
+- allow vendor changes without changing analytics semantics;
+- reject unsupported non-loopback local-provider endpoints before chat wiring.
+
+Non-responsibilities:
+
+- no Garmin data access;
+- no app business logic;
+- no provider-specific coaching rubric.
+
+### `src/lib/ai/orchestrator.ts`
+
+Server-side application policy for trainer chat, consuming plain generation and
+execution capabilities from `orchestration-ports.ts`. `ai/composition.ts` binds
+the already-selected SDK model through `provider-generation.ts` and supplies the
+composed tool dispatcher; no SDK/model/DB/connector/outer-composition dependency
+enters policy, even through types. The provider adapter owns native action-tool/text-response options,
+raw results and per-call abort/timeout mechanics; HTTP disconnect behavior and
+independent memory provider configuration are unchanged. See the
+[AI boundary/test map](architecture/ai-and-chat.md#ai-application-and-providertool-adapters).
+
+Responsibilities:
+
+- let the model select needed tools, executed sequentially;
+- delegate deterministic whole-batch validation, stable ordering and combined-capacity selection to `tool-selection.ts` before sequential execution; planner guidance avoids forbidden SQL tokens even as aliases (for example use `total_training_load`, not `load`), without relaxing validation or making terminal safety rejections retryable;
+- enforce the shared execution policy: 30 combined admitted provider/tool attempts per turn, including failed attempts and explicit final synthesis; guide the model to finish within 20 without enforcing that soft target;
+- send a live actual-attempt budget snapshot on every planning call, counting that call before rendering remaining capacity; successful per-tool quotas/maps are retired, not replaced by another limiter;
+- reserve one provider execution for action-disabled final synthesis (no tools are exposed), stopping exploration/batches before they consume it; reuse current-turn evidence and distinguish verified facts, user statements, general coaching and missing evidence;
+- count actual admitted tool attempts separately from synthetic skipped-selection/budget diagnostics; diagnostics remain visible in grounding but do not represent executed tools;
+- on a planner exception after executed evidence, use the existing admitted action-disabled final-answer reserve once to explain supported facts and gaps; first-call failures without evidence still return immediately;
+- route missing/malformed/failed/timed-out terminal synthesis to bounded truthful prose without another call or a mandatory narrower follow-up; wrap-up never replays side effects;
+- pass only server-authored bounded evidence into follow-up planning/synthesis: detailed paired native results with a compact fresh status/handle index on envelope routes, textual evidence on legacy routes, and unpaired non-execution diagnostics in context;
+- accept ordinary nonempty text when no action calls remain, without claim certification, prose classification or checker repair; accurate evidence use and limitations remain model responsibilities;
+- instruct the model to keep logs out of display prose; do not reject legitimate explanations by matching evidence labels or JSON-looking prefixes;
+- return fail-closed user-facing text when provider/tool synthesis fails.
+
+Non-responsibilities:
+
+- no fixed demand, training-load, sport-normalization, or ranking rubric as primary behavior;
+- no provider-visible secrets, SQL text in final answers unless explicitly requested, or raw dumps;
+- no direct connector or database mutation beyond validated tool execution.
+
+### `src/lib/ai/tool-selection.ts`
+
+Synchronous, side-effect-free selection over already extracted provider calls and
+readonly turn snapshots. It validates the whole batch in provider order before
+stable priority sorting or truncation: the first invalid call rejects
+all calls, even beyond remaining capacity. Only successful prior steps influence
+priority; selection does not invent prerequisites or filter by successful-tool counts.
+Repeated valid calls remain separate. Metadata describes the original batch,
+while skipped counts include valid calls truncated by turn capacity.
+
+Dependencies are the neutral tool contracts/descriptions, shared
+`TRAINER_EXECUTION_POLICY`, erased tool types and `tool-step-diagnostics.ts` for
+unchanged rejected-step construction shared with orchestration. SDK wrapping now
+lives exclusively in the outer `provider-tool-definitions.ts` adapter. No execution context, tool handlers,
+provider calls, database, connector or orchestrator back-import belongs here.
+
+The turn loop retains raw-call parsing, provider I/O, actual-attempt accounting,
+independent successful/unsuccessful progress, synthesis reserve, sequential
+execution, prior-planner-pass Training Plan snapshots and non-replay/side-effect
+guards. It rechecks combined capacity before dispatch. Failed admitted attempts
+consume the same combined allowance as successes; skipped calls and diagnostics
+are not attempts. Obsolete analytical quota exports are removed; actual combined
+limits, historical diagnostics, grounding and progress remain compatible.
+
+`tests/tool-selection.test.ts` directly covers whole-batch validation precedence,
+defaults, stable ordering, repeated calls, capacity edges, metadata and immutable
+inputs without execution/provider mocks. `tests/tool-selection-orchestration.test.ts`
+proves actual success/failure accounting and final synthesis in production and
+three-execution modes; existing orchestrator, plan and route tests protect integration.
+
+### `src/lib/ai/sql-analysis.ts`
+
+Guarded production composition over normalized local data. Feature-owned
+`ai/analytics/{contracts,schema,policy,application}.ts` separates plain analytical
+contracts, admission/result interpretation and synchronous use cases from the
+concrete `sqlite-execution.ts` adapter. Only the guarded facade reaches tools;
+math and evidence import neutral contracts. Supplied execution/inspection ports
+carry no DB/statement/path values. See the [boundary and test map](architecture/analytics-and-local-data.md#guarded-analytical-policy-and-sqlite-execution).
+
+Admission always precedes opening; inspection accepts no arbitrary metadata SQL.
+Read-only options/query_only, initialization and close ownership, correction
+metadata, byte/row limits and post-execution timeout remain compatible. The
+existing parser and timeout are not strengthened in this separation. No new
+provider-visible schema, coaching policy, migration or back-sync is introduced.
+
+Responsibilities:
+
+- describe allowlisted analytical tables and columns;
+- execute one bounded read-only `SELECT`/`WITH` query;
+- reject writes, PRAGMAs, comments, stacked statements, disallowed tables, auth/session/account data, raw payload dumps, secrets, paths, connector handles, environment/process/network access, raw FIT data, and unrestricted stream dumps;
+- return capped rows; the tool adapter registers a same-turn result handle for math only after success.
+
+Non-responsibilities:
+
+- no product ranking formula;
+- no hidden sports heuristic;
+- no model synthesis;
+- no destructive data operations.
+
+### `src/lib/ai/math-analysis.ts`
+
+Bounded TypeScript math over same-turn SQL rows. Pure local runtime helpers are
+allowed only when the blocking architecture graph verifies their entire closure
+against the same capability restrictions as this root. Opaque external packages
+and loaders are not pure-helper exceptions. See [project guardrails](project-guardrails.md)
+for the static enforcement boundary and its limits.
+
+Responsibilities:
+
+- compute generic transformations over already-returned SQL rows;
+- support safe formula scoring, normalization, ranking/order, aggregation, and summaries;
+- validate formula syntax and referenced numeric columns;
+- offer bounded correction hints only for eligible column mismatches: formula/grouping use input fields, ordering uses transformed output fields; hints omit values and sensitive-looking identifiers (up to 16 ASCII names of at most 48 bytes each);
+- preserve rejected attempts without publishing output handles; eligible math correction returns to fresh budgeted planning, discards stale batch tails, and synthesizes an honest limitation after repeated unchanged failure without successful analytical progress;
+- keep row/byte/output bounds;
+- operate without database, filesystem, network, process, environment, connector, or arbitrary script access.
+
+Non-responsibilities:
+
+- no app-authored coaching rubric;
+- no fixed sport-specific demand score;
+- no app-authored medical response policy or training-load authority;
+- no access outside the same-turn SQL result set.
+
+### Explicit tool-runtime boundaries (`src/lib/ai/tool-*.ts`)
+
+- `tool-types.ts`: dependency-free names and call/step metadata contracts.
+- `tool-contracts.ts`: neutral descriptions, strict Zod schemas/defaults and
+  parsed discriminated calls. Weekly model shapes omit obsolete prose while the
+  same parser accepts rich legacy calls; SDK wrapping preserves that separation. No SDK, repository or connector imports;
+  `src/lib/training-plan/limits.ts` owns shared document bounds; the prior
+  limits entry point remains a compatibility re-export.
+- `tool-execution.ts`: direct typed dispatch and sanitized exception boundary.
+  `tool-analytics.ts`, `tool-local-data.ts` and `tool-training-plan.ts` own
+  analytics, sync/reference/detail and complete-plan execution respectively.
+  Handlers receive narrow feature-owned capabilities via `tool-ports.ts`;
+  `tool-composition.ts` alone binds concrete feature facades. No plugin registry,
+  service container or ambient dependency setter; admission stays in the orchestrator.
+- `tool-execution-context.ts`: one transient analytical handle map per invocation,
+  required explicitly by execution. Successful SQL/math registers rows; rejected
+  results do not. Within-turn name replacement and chained math are retained.
+- `tool-evidence.ts`: bounded rendering, redaction and metadata-only grounding.
+  Its result-type imports are erased; presentation cannot execute SQL, connector
+  calls, writes or provider calls. Complete-plan evidence retains its separate
+  full-document exception and sensitive-document rejection.
+
+The orchestrator allocates the context before entering its turn body and disposes
+it in `finally` on every exit. Disposal releases map references, not arrays held
+by returned steps or final evidence. It never touches another turn, even for the
+same conversation. Provider timeout and request-disconnect behavior are unchanged:
+route disconnect is not new abort propagation into orchestration. Training Plan
+snapshot authorization still comes from a **prior planner pass**; the synchronous
+compare/edit/write section has no added await.
+
+Concurrent turns are isolated: starting a second turn never clears, overwrites or
+exposes another turn's handles, and real-orchestrator overlap tests cover all three
+failure modes. The responsibility extraction preserves provider
+contracts, budgets, side-effect guards, failure prose and evidence shapes. See
+`tests/tool-runtime-ownership.test.ts`, `tests/tool-boundaries.test.ts`, the
+pre-extraction provider snapshot in `tests/ai-tools.test.ts`, and existing
+orchestration/Training Plan regressions. No new coaching/ranking policy, schema,
+backfill or release is introduced; source revert is the rollback path.
+
+### `src/lib/db`
+
+Local SQLite schema and repositories. Cohesive persistence owners are documented
+in [the architecture map](architecture/server-and-persistence.md#persistence-owners): one lazy connection,
+a conversation repository, a singleton Training Plan repository and an explicit
+cross-domain conversation-deletion lifecycle owner. The latter preserves atomic
+message deletion, soft deletion of semantic entries matching both conversation ID
+and `kind = 'conversation'`, then conversation deletion—even for a missing target.
+Saved/non-conversation memory and other domains are not its deletion authority.
+Local-data application contracts and pure health/freshness/coverage/reference/HR-zone
+interpretation now live in `src/lib/local-data`; the remaining repository is a
+cohesive SQL/row-decoding adapter, not a generic storage framework. Atomic bulk
+scopes live in `db/local-data-lifecycle.ts`, selected by the local-data application
+before post-commit counts. Existing table exclusions and statement order remain
+unchanged. See the [local-data boundary/test map](architecture/analytics-and-local-data.md#local-data-application-and-adapters).
+Extracted inner owners never import the compatibility facade. Source revert
+is sufficient rollback because schema, SQL and stored shapes are unchanged.
+
+Responsibilities:
+
+- own normalized storage schema and migrations;
+- persist activities, health, detail availability, chat, profile, confirmed memories, and deletion state;
+- supply synchronous capabilities to feature applications composed for routes/tools;
+- separate Garmin data from profile, memories, and chat state.
+
+Non-responsibilities:
+
+- no model prompting;
+- no provider calls;
+- no product-level coaching heuristics.
+
+### `src/lib/analytics/activity-dashboard-calculations.ts`
+
+Pure selected-activity display calculations, not coaching policy or data access.
+Two facades compose chart timing/speed/grade and route filtering/bounds/sampling
+from already selected, ordered normalized rows. Plain inputs/outputs and no imports
+make the calculations directly testable without SQLite, configuration or connector
+setup. Private helpers stay together because window and metadata behavior changes
+together; no generic analytics framework or per-helper service layer is needed.
+
+The repository retains SQL, ordered row selection and lap decoding; local-data
+policies own selected-row read models and HR-zone interpretation. HTTP retains
+wire serialization and display labels/speed fallback.
+Existing timing thresholds, signed grade, zero-versus-missing speed, messages,
+point ordering, full route bounds and sampling are preserved, including duplicate
+points outside a selected grade window. No measured-speed, GPS or summary fallback
+is added. See the [source/test boundary map](architecture/dashboard.md#selected-activity-chart-and-route-calculations).
+
+### `src/lib/garmin`
+
+Official Garmin Personal API reader, feature-owned import workflows and
+normalization. `composition.ts` supplies explicit capabilities to `sync-import`,
+`baseline-import`, `detail-import` and `detail-requests`; the application closure
+contains only plain contracts and pure policy. `official-*.ts` keeps HTTPS,
+wire parsing, in-process FIT and archive mechanics outside that closure. There is no
+DI container, ambient dependency setter, second client per invocation or generic
+persistence interface. See the [Garmin boundary map](architecture/garmin.md#garmin-application-and-adapter-boundary)
+for exact owners, ordering/failure contracts and direct/integrated test entries.
+
+Responsibilities:
+
+- read the official Personal API over fixed-origin HTTPS with the user's key only;
+- import and normalize selected Garmin data into app-owned SQLite rows;
+- preserve checkpoints and detail availability;
+- archive supported raw reader/detail payloads locally only after redaction via `src/lib/garmin/raw-payload.ts` and the repository archive writer; normalized facts remain the ordinary analytics contract, not unrestricted raw archive access.
+
+Non-responsibilities:
+
+- no alternate endpoints, redirects or connector processes;
+- no Garmin write-back;
+- no password collection; key entry and storage live in native Settings (`src-tauri`), not this feature;
+- no coaching/ranking decisions.
+
+### `src/lib/memory`
+
+Owns complete-text summary policy with foreground incremental learning, bounded minimized generation, manual
+controls and reviewed import through feature-owned ports. SQLite adapters own
+seals, CAS, generations, source/disposition and purpose-specific spend; provider
+adapters own exact serialized accounting/transport. Conversation pin/compaction
+ownership remains in chat/DB conversation adapters, not a new global coordinator.
+Summary and future titles share an explicit restart-only model, independent of chat
+and summary On/Off; keys stay captured and never fall back to another provider.
+
+Legacy semantic/vector adapters and existing lazy migration remain behind memory
+management for preserved-row operations, not ordinary chat dependencies or public
+ingestion/retrieval facades. Trainer's preserved-record review uses direct bounded
+read-only SQL, never that lazy path. Original facts/vectors/markers/configuration
+remain unchanged; no automatic re-embedding or historical export occurs.
+Optional Ollama chat remains independent.
+
+Profile normalization/read/save lives in `src/lib/profile`, independent of AI
+presentation; SQLite serialization remains in `db/profile-repository.ts`. Old legacy
+proposal/confirm/reject/forget application and SQL-writer facades are not supported
+entrypoints. `memory/legacy-contracts.ts` retains the live plain context shape;
+`memory/sqlite-storage.ts` reads preserved legacy rows for management migration.
+No schema or stored data is removed. Memory management and Profile HTTP routes
+translate transport only. Chat binds
+Profile and history/summary contracts through existing ports, not a new coordinator
+or the inactive semantic store.
+
+Memory does not own current conversation continuity, Profile, Garmin measurements
+or provider chat selection. Current corrections and authoritative tool evidence
+take precedence. Readiness/configuration failures are explicit; no hidden provider
+substitution or transcript archive is implied. See [memory](memory.md) and the
+[personalization boundary/test map](architecture/personalization-and-plans.md#personalization-application-and-adapters).
+
+### `src/lib/diagnostics`
+
+Local source-beta diagnostics and readiness reporting.
+
+Responsibilities:
+
+- report environment and configuration readiness without printing secret values;
+- support dependency/source-beta evidence;
+- detect unsafe exposure or missing local prerequisites.
+
+Non-responsibilities:
+
+- no runtime coaching behavior;
+- no credential/token content reads;
+- no destructive remediation.

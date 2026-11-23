@@ -113,4 +113,4 @@ Deep links route below. Read relevant sections only for changes, diagnosis or ex
 <a id="finite-size-aware-capacity-and-freshness-proof"></a>
 <a id="authorized-finite-luna-history-integration"></a>
 
-**[Restricted task-specific paid/private contracts and immutable claim history](smoke/live.md)**
+**[Restricted task-specific paid/private contracts and immutable claim history](history/restricted-live-recipes.md)**

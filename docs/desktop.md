@@ -2,7 +2,7 @@
 
 The source-built **macOS Apple Silicon** app is a thin Tauri host with an owned loopback Next.js service. React, HTTP/NDJSON, Next `after()`, guarded tools, SQLite and Garmin import policies remain the application, not a remote website wrapper or Rust domain rewrite. Default launches grant native commands only to the local settings document, never trainer/remote pages. An explicitly admitted isolated ordinary-artifact or debug smoke instance has only its exact-origin correlated-result callback, never settings/auth privileges; see [programmatic smoke](dev-bridge.md).
 
-Unsigned/non-notarized ARM64 builds only: no installer, auto-update, login item or background service. The current [0.1.2 stable/Latest binary](release.md#published-012) is published. The [ARM64 release runbook](release.md) records exact download identities, manual app placement and evidence limits; prepared notes/tooling alone never authorize a future publication. Public source grants none of these operations. The prepared 0.1.3 dual-platform cut adds a [Windows x64 alpha](windows.md) unsigned per-user NSIS installer, with Server 2025 x64 CI-only evidence and explicit unavailable Windows 11/ARM/trusted-input/normal-use/integration limits, not full Windows support. Preparation is not publication. Intel, Windows ARM64, Linux and universal bundles are unsupported.
+Unsigned/non-notarized ARM64 builds only: no installer, auto-update, login item or background service. The [release runbook](release.md) owns packaging and publication, and [release records](history/releases.md) hold each published download's identity. The [supported platform boundary](source-beta-readiness.md#supported-boundary) is macOS ARM64; the [Windows x64 alpha](windows.md) is an experimental build outside it.
 
 ## Build and run
 
@@ -60,108 +60,11 @@ At startup native sends validated catalog metadata, chat keys and the Garmin key
 
 Readonly existing-file/schema/integrity checks precede ordinary DB construction. Missing/corrupt/old/unsupported DBs are refused, never created/migrated by ordinary startup or existing selection. Only explicit eligible first-run Create new initializes a fresh target; it is not an upgrade/adoption path. Explicit backed-up source migration on a stopped approved target is separate. Source/desktop share `<database>.trainer-writer`; macOS also refuses another process holding the DB open, including older backends without a lease. Unknown/stale leases are never stolen. Inspect the exact owner; never kill listeners or delete a live lease to force admission.
 
-Use SQLite online backup for active-WAL copies, verify integrity and retain pre-upgrade rollback data. No schema/backfill change is introduced here. Last-active conversation selection, saved chat, Profile, memory, Trainer preference and general/original/latest weekly documents remain in the selected SQLite DB. Conversation selection is independent of the fresh loopback origin: startup resolves a valid saved row (including one outside the sidebar page), otherwise the stable most-recent existing row. Empty startup creates nothing; use explicit New chat. Existing browser selection is not imported or read. Schema18 adds [linked conversation replay/local compaction](conversation-history.md), completion sequencing and privacy invalidation; other deletion scopes remain separate. Native existing-file admission is still non-migrating: rehearse and explicitly migrate an authored disposable populated copy first. Schema17 builds refuse the new version; after new writes use a compatible forward fix or separately reconciled restore. Source delivery grants no primary migration/restart or provider-test spending.
+Use SQLite online backup for active-WAL copies, verify integrity and retain pre-upgrade rollback data. No schema/backfill change is introduced here. Last-active conversation selection, saved chat, Profile, memory, Trainer preference and general/original/latest weekly documents remain in the selected SQLite DB. Conversation selection is independent of the fresh loopback origin: startup resolves a valid saved row (including one outside the sidebar page), otherwise the stable most-recent existing row. Empty startup creates nothing; use explicit New chat. Existing browser selection is not imported or read. Schema18 adds [linked conversation replay/local compaction](conversation-history.md), completion sequencing and privacy invalidation; other deletion scopes remain separate. Native existing-file admission is still non-migrating: rehearse and explicitly migrate an authored disposable populated copy first. Schema17 builds refuse the new version; after new writes use a compatible forward fix or separately reconciled restore.
 
-Schema19 added the incremental producer; additive schema20 integrates sealed chat
-pins, manual/import state and independent title spend. Migrations18/19 are unchanged.
-Native Memory fields SUMMARY_ENABLED, SUMMARY_MODEL and SUMMARY_CHAR_LIMIT remain
-restart-only, default Off/unselected/6000. SUMMARY_MODEL selects future titles and
-summaries independently of Trainer chat. Its dropdown derives from the configured
-catalog, labels provider/exact ID and preserves unavailable choices without substitution.
-The existing scalar stores legacy unselected/Luna or version1 JSON with entryId,
-provider and modelId; subscription version2 additionally binds registrationId. Catalog edits/removal never retarget that exact choice; reselect
-explicitly. A legacy scalar with one exact OpenAI/gpt-6-luna catalog match has one
-ordinary option. Rendering and untouched Save preserve the scalar; **Use this catalog
-entry on Save** changes only the draft, and explicit Save adopts that exact entry
-identity. Cancel/reload never adopts it. Ambiguous/missing/different-case matches do
-not select an arbitrary catalog row; edited/removed saved JSON stays unavailable.
-The uncapped automatic-processing warning is beside Remember across chats.
-Old enums refuse new JSON values, not downgrade. Summary Off does not
-disable titles. Missing configuration/provider capability retains an explicit
-unavailable result or title excerpt, never chat/extractor fallback. Existing API-key routes reuse their private ownership/live-key snapshots. Subscription has its separate protected credential owner and fixed private metadata protocol; it never turns tokens into API-key fields. Explicit Save includes hidden
-SUMMARY_CONTRACT_VERSION=2 so old field parsers refuse changed semantics; schema19
-admission refuses20. Preserve originals and use a compatible build/forward fix.
-Rehearse authored copy migration first; no primary upgrade/restart is implied.
-Schema21 prospectively adds size-aware summary reservation/basis/day accounting;
-old pin payloads, gross spend, usage and unknown effects are preserved. Explicit
-migration must be rehearsed on an authored populated online copy first; schema20
-builds refuse21. Startup/Use existing never migrate. No primary migration, installation
-or restart authority is implied. Summary, titles and local compaction have no app-imposed spending/attempt caps or
-capacity/tokenizer/pricing qualification. The chosen provider may refuse a request;
-full memory is never silently clipped or sent to a fallback. Historical reservations
-and unknown costs remain distinct and retained. Settings discloses cost implications;
-Disable stops new summary work. Two-second native activity wakeups/serialized backlog drain
-and bounded eight-second explicit adoption replace delayed small-turn polling.
-Trainer Memory distinguishes latest versus selected-chat pin/use; native fixed
-status observes configuration/producer metadata, not actual selected-chat use.
-Schema22 adds staged explicit-history rebuild and an original-message authority
-watermark. It changes neither native settings/key protocol nor active summary/pin
-formats. Rehearse migration on an authored populated copy; schema21 builds refuse22.
-Startup/Use existing remain non-migrating. Pre-existing unlinked originals are
-conservatively fenced because earlier Clear operations recorded no such authority.
-No automatic backfill/regeneration, primary migration, restart or installation is
-authorized by source delivery; preserve compatible backups and use a forward fix,
-not an older writer/downgrade or blind copy-back.
+### Schema upgrades
 
-### Schema23 recovery activation (separately authorized)
-
-Source delivery is not installed adoption or recovered primary memory. Schema23
-adds a known future-Clear floor, initialized to zero without inventing historical
-Clear provenance; schema22 migration bytes and existing floor remain unchanged.
-New recovery operations seal selected-chat/legacy intent; active memory/pin formats
-and unrelated data are unchanged. Schema22 readers refuse23 through existing exact
-version admission. Startup/Use existing never migrate.
-
-For actual primary activation, separately approve the exact private DB/settings,
-qualified artifact and current owners without publishing private values. First
-make and integrity-verify a durable WAL-consistent recovery backup; rehearse the
-explicit migration/reopen/restore on an independent populated disposable copy and
-verify originals/manual/restrictions/accounting. Obtain exact target mutation and
-artifact replacement/stop/reopen authority before migrating the stopped primary.
-Use compatible forward recovery, never downgrade or blind copy-back. After launch,
-review All retained or selected conversations and explicitly permit uncertain old
-history only if wanted; confirm exact provider/export/spend/rebuild authority before
-a live recovery. Verify scope/exclusions, meaningful saved content and next-turn
-consumption separately. Nothing here grants primary access, migration, restart,
-provider spending, installation or historical cleanup.
-
-### Schema24 whole-summary activation (separately authorized)
-
-Generated memory now uses one version2 complete text and separate preferences; the
-character target guides generated text only; it is not an output ceiling. Schema24 preserves historical
-migration bytes, originals, restrictions and accounting. Proven standalone legacy
-authored notes map losslessly; source-linked/ambiguous manual edits or corrupt/
-unsupported state refuse the transition unchanged. Old active pins/staged drafts
-are invalidated/interrupted, not reported completed or refunded. Old schema23
-readers refuse24. Startup/Use existing never migrate a selected database.
-
-Rehearse on independent authored and actual-derived WAL-consistent copies, verify
-source/settings/manual/restriction/accounting preservation, integrity/FK and reopen.
-Source delivery grants no primary migration, install, stop/restart or copy-back.
-Any actual activation still needs the exact-target/backup/artifact/owner/stop/
-migration/reopen approvals above; use a compatible forward fix, never downgrade.
-
-### Schema25 freshness activation (separately authorized)
-
-Source delivery adds a forward24→25 migration dropping only ordinary-correction and
-Profile erasure triggers. It changes no stored rows. Valid generated text, preferences,
-originals, compacts and accounting remain; old24 readers refuse25. Installed24 retains
-its old effective triggers until this migration is deliberately applied; rebuild/restart
-alone does not change SQL. No lost historical summary is reconstructed.
-
-Future activation requires explicit authority for the exact DB/settings target, a verified
-WAL-consistent pre-upgrade backup, stopped/reaped app and writer owners, an exact-source
-qualified ARM64 artifact, the explicit process-env migration against that target, then
-integrity/FK/version/effective-trigger and preserved-state checks before controlled reopen.
-Startup/Use existing never migrates. Prefer compatible roll-forward; never downgrade or
-blindly copy new writes back. T0304 validates authored disposable targets only and grants
-no primary read/migration, app stop/install/reopen, private/provider spend or release.
-
-### Schema26 structured weekly KPIs (separately authorized)
-
-Schema26 adds separate structured weekly state/signatures without rewriting narrative or unrelated rows. Old25 builds refuse26; existing selection/startup never migrate. Finite semantic backfill remains a separate reviewed maintenance command, not DDL/startup/model extraction. The migration CLI now obtains the existing stopped-writer lease and verifies an exclusive SQLite-online sibling backup, including committed WAL, as a standalone DELETE-journal recovery file before DDL. Explicit canonical fresh initialization remains available without adopting env files; unknown/partial output is retained, never overwritten or blindly restored. These source safety corrections do not prove an actual installed target or grant its mutation.
-
-Rehearse first and follow the exact target/read/copy/backup/stop/install/mutation/reopen approvals and integrity/reference/source-preservation checks in [weekly KPI migration](weekly-kpis.md#storage-migration-and-recovery). Source delivery alone is not installed adoption; preserve newer writes and prefer a compatible forward fix, not an older writer or blind backup copy-back.
+Each schema version is additive and refused by older builds; startup and **Use existing data** never migrate a selected database. To activate a newer schema on real data, separately approve the exact DB/settings target, make and integrity-verify a WAL-consistent pre-upgrade backup, rehearse the explicit process-env migration on an independent populated disposable copy, stop every owner, migrate the stopped target, then check integrity, foreign keys, version and preserved state before a controlled reopen. Recover with a compatible forward fix, never a downgrade, older writer or blind backup copy-back. Per-schema details are in the [schema activation history](history/schema-activations.md).
 
 ## Optional ChatGPT subscription
 
@@ -199,4 +102,4 @@ Run `CI=true npm run validate`, `npm run eval:reliability`, `npm run desktop:bui
 
 Actual unsigned ARM64 production smoke must run outside checkout on WAL-consistent populated DB copies, with inspected sanitized local screenshots. Exercise settings/advanced fields, private-file save/reload and explicit legacy adoption/denial/re-entry, blank Create/Finish/relaunch and populated Use-existing, partial-commit/cancel/retry, ordinary save/restart-required, admission/quit/relaunch, saved feature parity, available real providers and official-path Garmin reads against the authored loopback fixture. Any real-key evidence needs separate authority and an operator-entered key; synthetic evidence is not key validity. Record exact unavailable evidence. Follow developer-process/epic evidence-first cleanup; no screenshot upload/commit.
 
-Failure recovery: check settings version/privacy and explicit paths, private file storage/migration status, readonly selected-target DB status/integrity/schema and exact other owners; rebuild missing resources/ABI on ARM64. Source CLI diagnostics do not read private settings/legacy Keychain. Do not share private settings/paths/keys/tokens/raw vendor/framework logs. Rollback is a prior compatible desktop build with preserved compatible private state/backups, not automatic downgrade, env import, browser fallback, reset or copy-back. Source delivery grants no primary restart/cutover, installation, release or scheduler-owned worktree deletion.
+Failure recovery: check settings version/privacy and explicit paths, private file storage/migration status, readonly selected-target DB status/integrity/schema and exact other owners; rebuild missing resources/ABI on ARM64. Source CLI diagnostics do not read private settings/legacy Keychain. Do not share private settings/paths/keys/tokens/raw vendor/framework logs. Rollback is a prior compatible desktop build with preserved compatible private state/backups, not automatic downgrade, env import, browser fallback, reset or copy-back.

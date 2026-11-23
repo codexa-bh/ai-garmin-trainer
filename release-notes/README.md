@@ -1,6 +1,6 @@
 # Release notes
 
-Each change records its own operator-facing note as a fragment in [`unreleased/`](unreleased/), so parallel branches never edit one shared file. Published and prepared version notes live in [`releases/<version>.md`](releases/) and are never rewritten.
+Each change records its own operator-facing note as a fragment in `unreleased/` (created by the first fragment after a release), so parallel branches never edit one shared file. Published and prepared version notes live in [`releases/<version>.md`](releases/) and are never rewritten.
 
 `npm run release -- prepare --version X.Y.Z --execute` promotes the required fragments into `releases/X.Y.Z.md` and deletes exactly those fragments; see [Version and notes](../docs/release.md#version-and-notes). Preparing a version is not a release.
 
@@ -18,7 +18,7 @@ category: Changed
 release_note_required: true
 ---
 
-- Operator-facing summary of the change (T0123 / PR #45).
+- Operator-facing summary of the change.
 ```
 
 | Field                   | Value                                                                 |
@@ -29,7 +29,7 @@ release_note_required: true
 | `release_note_required` | `true` for a published note, `false` for a no-note marker             |
 | `reason`                | Only on `false`: why no note is required                              |
 
-Every field is one `key: value` line; unknown and duplicate fields are refused. A required fragment must have a body, which is copied verbatim under its category. Write the body for the operator first and add maintainer detail as sub-bullets. Mention a migration or recovery step when there is one.
+Every field is one `key: value` line; unknown and duplicate fields are refused. A required fragment must have a body, which is copied verbatim under its category. Write one bullet with the outcome for the operator, plus at most two short sub-bullets for a required action (such as a migration or recovery step) or a limitation. Leave the implementation story to the PR, and keep task IDs out of the bullet text. Mention a migration or recovery step when there is one.
 
 ## When no note is required
 
