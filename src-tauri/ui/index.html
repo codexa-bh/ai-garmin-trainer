@@ -70,7 +70,8 @@
                 API key needed.
               </p>
               <label
-                >Connection to keep<select id="chatgpt-account">
+                ><span id="chatgpt-account-label">Connection to keep</span
+                ><select id="chatgpt-account" aria-describedby="chatgpt-status">
                   <option value="">Connect a ChatGPT account</option>
                 </select></label
               >
@@ -86,6 +87,12 @@
                 </button>
                 <button type="button" id="chatgpt-switch" hidden>
                   Switch account
+                </button>
+                <button type="button" id="chatgpt-switch-continue" hidden>
+                  Continue with selection
+                </button>
+                <button type="button" id="chatgpt-switch-back" hidden>
+                  Back
                 </button>
                 <button type="button" id="chatgpt-activate" hidden>
                   Use this account

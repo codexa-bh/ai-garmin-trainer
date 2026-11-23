@@ -17,6 +17,7 @@
     editsCancelled: false,
     captureFeedbackRejected: false,
     captureMaskRejected: false,
+    captureViewportRejected: false,
     catalogReady: false,
     catalogExercised: false,
     catalogWithoutDefaults: false,
@@ -26,6 +27,7 @@
     keysRejected: false,
     chatgptReady: false,
     chatgptExercised: false,
+    chatgptChoosing: false,
   });
   const visible = (el) =>
     el instanceof HTMLElement &&
@@ -244,6 +246,35 @@
       )
     );
   }
+  function chatgptSwitchPresentation() {
+    const account = byId("chatgpt-account");
+    return (
+      keyless() &&
+      rows("chatgpt").length === 0 &&
+      account &&
+      !account.closest("label").hidden &&
+      account.options.length === 3 &&
+      [...account.options].every(
+        (option, index) =>
+          option.value === ["", chatgptIds[0], "new-account"][index] &&
+          option.textContent ===
+            [
+              "Connect a ChatGPT account",
+              "synthetic@example.invalid · 1",
+              "New account/workspace",
+            ][index],
+      ) &&
+      [chatgptIds[0], "new-account"].includes(account.value) &&
+      byId("chatgpt-model").children.length === 0 &&
+      byId("chatgpt-model-picker").hidden &&
+      byId("chatgpt-connect").hidden &&
+      byId("chatgpt-switch").hidden &&
+      !byId("chatgpt-switch-continue").hidden &&
+      !byId("chatgpt-switch-continue").disabled &&
+      !byId("chatgpt-switch-back").hidden &&
+      !byId("chatgpt-switch-back").disabled
+    );
+  }
   function exerciseChatgpt() {
     if (!chatgptPresentation() || rows("chatgpt").length !== 0)
       throw Error("Not initial single-connection ChatGPT presentation fixture");
@@ -270,7 +301,8 @@
       !document.querySelector('.catalog-row [aria-label^="Default"]');
     value.emptyCatalog =
       safeKeys() && document.querySelectorAll(".catalog-row").length === 0;
-    value.chatgptReady = chatgptPresentation();
+    value.chatgptChoosing = chatgptSwitchPresentation();
+    value.chatgptReady = chatgptPresentation() || value.chatgptChoosing;
     value.chatgptExercised =
       chatgptExercised && rows("chatgpt").length === 2 && value.chatgptReady;
     value.keysReady = keysReady();
@@ -400,7 +432,10 @@
         (el) =>
           el instanceof HTMLElement &&
           !reveal.includes(el) &&
-          getComputedStyle(el).visibility !== "hidden",
+          getComputedStyle(el).visibility !== "hidden" &&
+          // WebKit can cache visibility inside non-rendered hidden subtrees.
+          // As with live-feedback masking, any rendered leak still refuses.
+          el.getClientRects().length > 0,
       )
     )
       throw Error("Ineffective mask");
@@ -419,7 +454,12 @@
   }
   function captureChatgpt(rowsOnly = false, controlsOnly = false) {
     restore();
-    if (!chatgptPresentation() || byId("chatgpt-welcome").open)
+    const switching = chatgptSwitchPresentation();
+    if (
+      (!chatgptPresentation() && !switching) ||
+      byId("chatgpt-welcome").open ||
+      (rowsOnly && switching)
+    )
       throw Error("Not exact fictional ChatGPT presentation");
     const root = byId("catalog-chatgpt"),
       reveal = [];
@@ -430,7 +470,7 @@
       ) ||
       [...root.querySelectorAll(":scope > .actions")].length !== 2 ||
       [...root.querySelectorAll(":scope > .actions")].some(
-        (group, index) => group.children.length !== (index === 0 ? 5 : 3),
+        (group, index) => group.children.length !== (index === 0 ? 7 : 3),
       )
     )
       throw Error("Unexpected ChatGPT structure");
@@ -450,10 +490,16 @@
     );
     verifyText(
       byId("chatgpt-status"),
-      "synthetic@example.invalid · 1 — plan permission enabled.",
+      switching
+        ? byId("chatgpt-account").value === "new-account"
+          ? "This creates a connected app. To reconnect, choose a saved connection instead. Existing access stays active until sign-in succeeds."
+          : "Continue privately in your browser to reuse this saved connection. Local labels do not identify remote app entries."
+        : "synthetic@example.invalid · 1 — plan permission enabled.",
     );
     for (const [id, text] of Object.entries({
       "chatgpt-switch": "Switch account",
+      "chatgpt-switch-continue": "Continue with selection",
+      "chatgpt-switch-back": "Back",
       "chatgpt-activate": "Use this account",
       "chatgpt-consent": "Enable plan use",
       "chatgpt-cancel": "Cancel sign-in",
@@ -475,23 +521,23 @@
     )
       throw Error("Unexpected ChatGPT sign-in branding");
     if (!rowsOnly && visible(connect)) reveal.push(connect, logo);
-    for (const [id, caption] of [["chatgpt-account", "Connection to keep"]]) {
+    for (const [id, caption] of [
+      ["chatgpt-account", switching ? "Account to use" : "Connection to keep"],
+    ]) {
       const input = byId(id),
         label = input.closest("label");
       if (
-        label.childElementCount !== 1 ||
-        [...label.childNodes]
-          .filter(
-            (node) =>
-              node.nodeType === Node.TEXT_NODE && node.textContent.trim(),
-          )
-          .map((node) => node.textContent.trim())
-          .join() !== caption ||
+        label.childElementCount !== 2 ||
+        label.querySelector("span")?.id !== "chatgpt-account-label" ||
+        [...label.childNodes].some(
+          (node) => node.nodeType === Node.TEXT_NODE && node.textContent.trim(),
+        ) ||
         [...input.children].some(
           (option) => option.tagName !== "OPTION" || option.childElementCount,
         )
       )
         throw Error("Unexpected ChatGPT picker");
+      verifyText(byId("chatgpt-account-label"), caption);
       if (!rowsOnly && visible(label))
         reveal.push(label, input, ...input.options);
     }
@@ -504,7 +550,12 @@
       "Saved models stay in the catalog below. Check only new models to add, then Save settings. Cancel discards catalog edits.",
     );
     verifyText(byId("chatgpt-select-all"), "Select all");
-    verifyText(byId("chatgpt-model-selection"), "0 selected to add.");
+    verifyText(
+      byId("chatgpt-model-selection"),
+      switching
+        ? "0 selected to add — refresh models to load available choices."
+        : "0 selected to add.",
+    );
     for (const [index, label] of [
       ...byId("chatgpt-model").children,
     ].entries()) {
@@ -830,6 +881,24 @@
         )
           throw Error("Live mask failed");
         restoreTimer = setTimeout(restore, 5000);
+      } else if (action === "chatgptSwitch") {
+        if (!chatgptPresentation() || rows("chatgpt").length !== 0)
+          throw Error("Not initial ChatGPT fixture");
+        click(byId("chatgpt-switch"));
+      } else if (action === "chatgptNew") {
+        if (
+          !chatgptSwitchPresentation() ||
+          byId("chatgpt-account").value !== chatgptIds[0]
+        )
+          throw Error("Not retained choice fixture");
+        byId("chatgpt-account").value = "new-account";
+        byId("chatgpt-account").dispatchEvent(
+          new Event("change", { bubbles: true }),
+        );
+      } else if (action === "chatgptSwitchBack") {
+        if (!chatgptSwitchPresentation())
+          throw Error("Not switch choice fixture");
+        click(byId("chatgpt-switch-back"));
       } else if (action === "chatgptExercise") {
         exerciseChatgpt();
       } else if (action === "chatgptReset") {
@@ -1119,7 +1188,10 @@
         ...empty(),
         ok: false,
         captureFeedbackRejected: error.message === "Unreviewed live feedback",
-        captureMaskRejected: error.message === "Live mask failed",
+        captureMaskRejected: ["Live mask failed", "Ineffective mask"].includes(
+          error.message,
+        ),
+        captureViewportRejected: error.message === "Provider overflow",
       };
     }
   };

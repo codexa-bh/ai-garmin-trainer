@@ -126,6 +126,58 @@ async function chatgptFixture() {
     expect(controller.__trainerSetupSmoke("observe").chatgptReady).toBe(true),
   );
 }
+it("finite switch presentation captures only saved-versus-new intent and Back without authorization", async () => {
+  await chatgptFixture();
+  expect(controller.__trainerSetupSmoke("chatgptSwitch").ok).toBe(true);
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").chatgptChoosing).toBe(
+      true,
+    ),
+  );
+  for (const action of ["captureChatgptWide", "captureChatgptNarrow"]) {
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    controller.__trainerSetupSmokeRestore();
+  }
+  expect(controller.__trainerSetupSmoke("chatgptNew").ok).toBe(true);
+  expect(document.getElementById("chatgpt-status")!.textContent).toContain(
+    "creates a connected app",
+  );
+  for (const action of ["captureChatgptWide", "captureChatgptNarrow"]) {
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(true);
+    controller.__trainerSetupSmokeRestore();
+  }
+  expect(controller.__trainerSetupSmoke("chatgptSwitchBack").ok).toBe(true);
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").chatgptChoosing).toBe(
+      false,
+    ),
+  );
+  expect(controller.__trainerSetupSmoke("observe").chatgptReady).toBe(true);
+  expect(
+    invoke.mock.calls.some(([command]) =>
+      ["chatgpt_connect", "chatgpt_action", "save_settings"].includes(command),
+    ),
+  ).toBe(false);
+});
+it.each(["chatgptSwitch", "chatgptNew", "chatgptSwitchBack"])(
+  "%s refuses absent or wrong fictional state",
+  (action) => {
+    expect(controller.__trainerSetupSmoke(action).ok).toBe(false);
+  },
+);
+it("switch capture refuses unknown labels and restores private styles", async () => {
+  await chatgptFixture();
+  controller.__trainerSetupSmoke("chatgptSwitch");
+  await waitFor(() =>
+    expect(controller.__trainerSetupSmoke("observe").chatgptChoosing).toBe(
+      true,
+    ),
+  );
+  document.getElementById("chatgpt-account-label")!.textContent =
+    "private-unit-sentinel";
+  expect(controller.__trainerSetupSmoke("captureChatgptWide").ok).toBe(false);
+  expect(document.body.style.visibility).not.toBe("hidden");
+});
 it("closed ChatGPT presentation exercises actual account/model/draft controls without auth or Save, then resets", async () => {
   await chatgptFixture();
   const before = document.querySelectorAll(".catalog-row").length;
@@ -645,6 +697,36 @@ it("accepts non-rendered closed-dialog visibility caching but refuses any render
   });
   for (const el of document.body.querySelectorAll("*"))
     expect((el as HTMLElement).style.cssText).toBe("");
+});
+it("provider capture tolerates only non-rendered cached visibility and still rejects rendered leaks", async () => {
+  await chatgptFixture();
+  expect(controller.__trainerSetupSmoke("catalogExercise").ok).toBe(true);
+  const original = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) =>
+    el.id === "chatgpt-account-label"
+      ? new Proxy(original(el, pseudo), {
+          get(target, key) {
+            return key === "visibility" ? "visible" : Reflect.get(target, key);
+          },
+        })
+      : original(el, pseudo),
+  );
+  const rects = vi.spyOn(HTMLElement.prototype, "getClientRects");
+  rects.mockImplementation(function (this: HTMLElement) {
+    return (this.closest("[hidden]")
+      ? []
+      : [{ width: 10 }]) as unknown as DOMRectList;
+  });
+  expect(controller.__trainerSetupSmoke("captureOpenai").ok).toBe(true);
+  controller.__trainerSetupSmokeRestore();
+  rects.mockImplementation(() => [{ width: 10 }] as unknown as DOMRectList);
+  expect(controller.__trainerSetupSmoke("captureOpenai")).toMatchObject({
+    ok: false,
+    captureMaskRejected: true,
+  });
+  expect(document.getElementById("chatgpt-account-label")!.style.cssText).toBe(
+    "",
+  );
 });
 it("refuses private/arbitrary actions and never reads secrets, paths or copied text back", () => {
   for (const id of ["OPENAI_API_KEY", "DATABASE_PATH"])

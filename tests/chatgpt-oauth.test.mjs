@@ -704,6 +704,118 @@ test("an expired initial code retains its issued client for a fresh explicit aut
     );
 });
 
+test.each([true, false])(
+  "returning authorization with retained hint=%s never requests a fresh registration",
+  async (hint) => {
+    let authorizationCount = 0;
+    let tokenRequests = 0;
+    let nonce;
+    const saved = {
+      ...registration,
+      idToken: hint ? registration.idToken : null,
+    };
+    const result = await signIn(
+      {
+        hostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
+        registration: saved,
+      },
+      async (url, init) => {
+        if (String(url).endsWith("oauth/token")) {
+          tokenRequests++;
+          assert.equal(init.body.get("client_id"), registration.clientId);
+          return transport({ id_token: jwt({ nonce }) })(url, init);
+        }
+        return transport()(url, init);
+      },
+      async (url) => {
+        authorizationCount++;
+        assert.equal(url.searchParams.get("client_id"), registration.clientId);
+        assert.equal(url.searchParams.has("agent_name_hint"), false);
+        assert.equal(url.searchParams.has("id_token_hint"), hint);
+        nonce = url.searchParams.get("nonce");
+        const callback = new URL(url.searchParams.get("redirect_uri"));
+        callback.search = new URLSearchParams({
+          state: url.searchParams.get("state"),
+          code: "authored-code",
+        }).toString();
+        assert.equal((await fetch(callback)).status, 200);
+      },
+    );
+    assert.equal(result.clientId, registration.clientId);
+    assert.equal(authorizationCount, 1);
+    assert.equal(tokenRequests, 1);
+  },
+);
+test.each(["network", "identity", "protocol"])(
+  "known issued-client recovery survives %s failure without replay",
+  async (kind) => {
+    let calls = 0;
+    await assert.rejects(
+      signIn(
+        { hostId: "urn:uuid:11111111-1111-4111-8111-111111111111" },
+        async () => {
+          calls++;
+          if (kind === "network") throw Error("authored");
+          return json(
+            kind === "protocol"
+              ? {}
+              : {
+                  access_token: "authored",
+                  refresh_token: "authored",
+                  token_type: "Bearer",
+                  expires_in: 3600,
+                  scope: "openid offline_access",
+                  id_token: "invalid",
+                },
+          );
+        },
+        async (url) => {
+          const callback = new URL(url.searchParams.get("redirect_uri"));
+          callback.search = new URLSearchParams({
+            state: url.searchParams.get("state"),
+            code: "authored-code",
+            client_id: registration.clientId,
+          }).toString();
+          assert.equal((await fetch(callback)).status, 200);
+        },
+      ),
+      (error) => {
+        assert.equal(error.message, kind);
+        assert.equal(
+          failureResult(error).pendingClientId,
+          registration.clientId,
+        );
+        return true;
+      },
+    );
+    assert.equal(calls, 1);
+  },
+);
+test("malformed or conflicting saved-client input never falls back to dynamic registration", () => {
+  const input = {
+    hostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
+    redirectUri: "http://127.0.0.1:12345/auth/callback",
+    state: "s",
+    nonce: "n",
+    verifier: "v",
+  };
+  for (const registration of [
+    {},
+    { clientId: "" },
+    { clientId: "dynamic_agent_client" },
+  ])
+    assert.throws(() => authorization({ ...input, registration }), /identity/);
+  assert.throws(
+    () =>
+      authorization({
+        ...input,
+        registration,
+        pendingClientId: "oaiapp_other",
+      }),
+    /identity/,
+  );
+});
+
 test("native browser opening keeps retained token hints out of argv and uses no generic URL or UI-automation command", async () => {
   const calls = [];
   let program;
