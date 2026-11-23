@@ -44,7 +44,7 @@ Captured on 18 September 2026 from the loopback development app at a 1440-pixel 
 
 ## Installation
 
-The supported product is the **local macOS ARM64 Tauri app** with bundled Node; Next.js is its internal rendering/backend technology, not a separate browser launch path. You can build from source as below or use a published DMG: published binaries are **unsigned and not notarized**, and macOS may refuse to open them. Do not disable OS protection to get around that. Windows x64 alpha installers are published as an experimental build outside the supported platform; see [Windows alpha limits](docs/windows.md). This advanced-user setup is cross-checked against scripts, not clean-machine certification; [desktop runtime](docs/desktop.md) covers build details, private-state adoption and recovery.
+The supported product is the **local macOS ARM64 Tauri app** with bundled Node; Next.js is its internal rendering/backend technology, not a separate browser launch path. You can build from source as below or use a published DMG: published binaries are **unsigned and not notarized**, and macOS may refuse to open them. Do not disable OS protection to get around that. Windows x64 alpha installers are published as an experimental build outside the supported platform; see [Windows alpha limits](docs/windows.md). This advanced-user setup is cross-checked against scripts, not clean-machine certification. [Desktop runtime](docs/desktop.md) owns build details, [private-state adoption](docs/desktop.md#explicit-private-state-adoption) and recovery.
 
 ### 1. Install prerequisites and build
 
@@ -62,7 +62,7 @@ Source reads/clones need no GitHub account. Pushing requires repository authoriz
 
 ### 2. Enter Settings
 
-First launch opens native **Settings** (also in the app menu, even without a working backend). A blank installation walks through **Data → Provider → Connect Garmin or continue → Review**: choose **Create new database** or **Use existing data**, enter at least one chat provider, then connect Garmin or continue without it. Provider keys are stored in an owner-private **plaintext** settings file (not encryption). For an existing installation, chat catalog and shared provider-key changes apply live after Save; every other setting needs an explicit quit and reopen. The [Settings guide](docs/settings.md) covers each option, model choice and memory.
+First launch opens native **Settings** (also in the app menu, even without a working backend). A blank installation walks through **Data → Provider → Connect Garmin or continue → Review**: choose **Create new database** or **Use existing data**, enter at least one chat provider, then connect Garmin or continue without it. Provider keys are stored in an owner-private **plaintext** settings file (not encryption). The [Settings guide](docs/settings.md) covers model choice, memory and [Save versus restart](docs/settings.md#save-and-activation).
 
 ### 3. Connect Garmin
 
