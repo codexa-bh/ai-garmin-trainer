@@ -1,109 +1,34 @@
 # Architecture: server, persistence and raw payloads
 
-Part of the [architecture overview](../architecture.md).
+Part of [architecture](../architecture.md).
 
 ## Main server and operational components
 
-Paths in the table are repository-relative source/test entry points. Specialized
-docs carry the deeper contract rather than duplicating it here.
+HTTP routes translate requests/results through feature composition; loopback binding is required and is not an app sign-in boundary. Read the changed area's [architecture guide](../architecture.md#area-guides), not a duplicate component inventory:
 
-- **API delivery**
-  - Owns / does not own: HTTP validation, compatible payloads, streaming/cancellation and route orchestration; not SQL schema, coaching formulas or Garmin authentication
-  - Source and tests: `src/app/api/*/route.ts`; `tests/chat-route.test.ts`, `tests/profile-route.test.ts`, `tests/memory-route.test.ts`, `tests/health-dashboard-route.test.ts`, `tests/training-plan-route.test.ts`
-  - Failure/privacy/operational reference: No app sign-in boundary: loopback binding is operationally required. [Local runtime](../local-runtime.md)
-- **Context and instructions**
-  - Owns / does not own: Bounded source precedence, user/Profile/transcript/Garmin/memory separation; prior assistant prose is not measurement authority
-  - Source and tests: `src/lib/ai/context.ts`, `trainer-instructions.ts`, `training-plan-evidence.ts`; `tests/trainer-instructions.test.ts`, `tests/training-plan-evidence.test.ts`
-  - Failure/privacy/operational reference: [Coaching instructions](../coaching-instructions-and-sources.md); plan snapshot/write rules in [design choices](../design-choices-and-boundaries.md)
-- **Providers**
-  - Owns / does not own: Explicit vendor configuration and adapters; no data repository or coaching rubric
-  - Source and tests: `src/lib/ai/providers.ts`, `provider-errors.ts`; `tests/provider-config.test.ts`, `tests/openrouter-adapter.test.ts`, `tests/env.test.ts`
-  - Failure/privacy/operational reference: Auto selection is **DeepSeek-first, OpenAI fallback**; explicit OpenRouter uses chat completions, Ollama endpoints must be loopback. Memory extraction/embeddings are separately configured. [Memory](../memory.md)
-- **Orchestration and tools**
-  - Owns / does not own: Sequential validated dispatch, same-turn evidence, budgets and bounded synthesis/failure prose; not hidden ranking weights
-  - Source and tests: `src/lib/ai/orchestrator.ts`, `tool-contracts.ts`, `tool-execution.ts`, `tool-execution-context.ts`, `tool-evidence.ts`, `execution-budget.ts`; `tests/ai-orchestrator.test.ts`, `tests/ai-tools.test.ts`, `tests/trainer-progress.test.ts`
-  - Failure/privacy/operational reference: [Orchestration budget](../component-responsibilities.md#srclibaiorchestratorts) owns the combined-attempt limit, soft target and final-answer reserve; there are no successful-result quotas.
-- **SQL and math**
-  - Owns / does not own: One allowlisted read-only SELECT/WITH, capped rows and same-turn handles; bounded generic formula/aggregation/ranking
-  - Source and tests: `src/lib/ai/sql-analysis.ts`, `math-analysis.ts`; `tests/sql-analysis.test.ts`, `tests/math-analysis.test.ts`, `tests/architecture-graph.test.mjs`
-  - Failure/privacy/operational reference: No raw archive, auth, filesystem/process/network or arbitrary scripts. Pure local math helpers require graph verification. Generated analysis is a deprecated opt-in fallback, not normal analytics. [Guardrails](../project-guardrails.md)
-- **Storage and lifecycle**
-  - Owns / does not own: SQLite schema/version integrity, repositories, conversations, plan, Profile, normalized Garmin data, memory and scoped deletion; no providers/prompts
-  - Source and tests: `src/lib/db/schema.ts`, `migrations.ts`, `repository.ts`; `tests/migrations.test.ts`, `tests/chat-history.test.ts`, `tests/training-plan-repository.test.ts`, `tests/import-summary.test.ts`
-  - Failure/privacy/operational reference: Garmin deletion is separate from chat/Profile/memory; see the persistence and lifecycle owners below. [Developer process](../developer-process.md)
-- **Garmin reader/import**
-  - Owns / does not own: Official Personal API over fixed-origin HTTPS, read-only closed endpoint set, in-process FIT, normalization, resumable checkpoints, detail availability, redacted archive, additional evidence groups with per-group coverage and the explicit history backfill ([contract](../garmin-extra-data.md)); no Garmin write-back/password collection
-  - Source and tests: `src/lib/garmin/official-*.ts`, `extra-*.ts`, `snow-{splits,backfill}.ts`, `connection.ts`, `composition.ts`, `raw-payload.ts`, `db/{extra-data,snow-split}-repository.ts`, `scripts/backfill-garmin-extra.ts`; `tests/snow-*.test.ts`; `tests/official-*.test.ts`, `tests/garmin-production-wiring.test.ts`, `tests/garmin-product-exclusion.test.ts`
-  - Failure/privacy/operational reference: New API, key expiry/revocation and undocumented rate limits. [Garmin risk](../garmin-risk.md), [key handling](../garmin-auth.md)
-- **Memory**
-  - Owns / does not own: Complete-text summary and inspectable lifecycle; preserved semantic/vector stores remain management-only, not ordinary-chat retrieval or a transcript/Garmin archive
-  - Source and tests: `src/lib/memory/*`, `src/lib/profile/*`; `tests/sqlite-memory-adapter.test.ts`, `tests/memory-contract.test.ts`, `tests/memory-config.test.ts`
-  - Failure/privacy/operational reference: Corrections, current transcript, Profile and tool facts outrank memory; diagnosis/treatment is excluded from durable memory. [Memory contract](../memory.md)
-- **Diagnostics**
-  - Owns / does not own: Allowlisted readiness/redaction reports, not token-content inspection or destructive repair
-  - Source and tests: `src/lib/diagnostics/*`, `scripts/doctor.ts`; `tests/doctor.test.ts`
-  - Failure/privacy/operational reference: Debug traces may contain private normalized context and stay local. [Source readiness](../source-beta-readiness.md)
-- **Runtime/validation**
-  - Owns / does not own: Locked install, explicit non-serving setup, native launch/build and blocking checks; not deployment/release authorization
-  - Source and tests: `package.json`, `scripts/desktop/*`, `scripts/{migrate,db-status,doctor}.ts`, `architecture-check.mjs`; `tests/desktop-only-product.test.ts`, `tests/desktop-runtime.test.ts`, `tests/guardrails.test.ts`
-  - Failure/privacy/operational reference: `npm ci`, `CI=true npm run validate`; [validation](../validation.md), E0007 live-smoke runbook and [developer process](../developer-process.md)
+- Chat/provider/tool execution: [AI and chat](ai-and-chat.md).
+- SQL/math and scoped deletion: [analytics and local data](analytics-and-local-data.md).
+- Import/normalization: [Garmin](garmin.md).
+- Profile/memory/plans: [personalization](personalization-and-plans.md).
+- Native lifecycle/private state: [desktop](../desktop.md).
+- Readiness and developer checks: [validation](../validation.md), [guardrails](../project-guardrails.md), [source readiness](../source-beta-readiness.md).
 
 ## Persistence owners
 
-- `src/lib/db/connection.ts` owns the single lazy SQLite connection, ordered
-  migrations and existing compatibility DDL. All storage owners use it directly.
-- `conversation-repository.ts` owns conversation/message persistence, pagination,
-  grounding serialization and the single monotonic message timestamp state.
-- `conversation-history.ts` owns schema18 source admission/completion sequence,
-  segment/revision/boundary/integrity compare-publication, privacy invalidation and
-  conservative durable local-compaction spend. It reuses the lazy connection and
-  existing message/title writes; generation never holds its transaction.
-  It imports pure chat-owned ID/title policy and contracts directly; callers use
-  the authoritative policy/storage owner rather than an unused repository barrel.
-- `training-plan-repository.ts` owns singleton plan SQL and row/ISO conversion.
-  Feature-owned application/rules own normalization, staleness and synchronous
-  guarded read/compare/edit/write; AI retains presentation and planner timing.
-- `conversation-lifecycle.ts` owns the complete single-conversation deletion
-  transaction: messages, conversation-derived semantic memory soft deletion, then
-  conversation. History clear delegates to it; chat application use cases own
-  fallback selection.
-- `profile-repository.ts` owns Profile SQL; `memory/sqlite-storage.ts` owns semantic
-  SQL and reads preserved legacy rows for management migration. There is no old
-  proposal/confirm SQL-writer facade. Feature applications own normalization and
-  management policy through explicit ports.
-- `local-data-lifecycle.ts` owns exact atomic bulk deletion capabilities.
-- `repository.ts` retains Garmin SQL, summaries and metadata, with feature-owned
-  local-data interpretation helpers and runtime-consumed exports only. Constants,
-  policy, types and conversation operations use their authoritative owners.
-  Extracted storage owners never
-  import the facade; semantic configuration/metadata adapters still use its
-  existing metadata operations, including narrow insert-if-absent choice initialization. `model-settings` consumes prior saved/legacy/default intent once into `ai.chat_model.choice`; original preference bytes remain unchanged.
+`db/connection.ts` owns the single lazy SQLite connection, ordered migrations and compatibility DDL. Storage adapters use it directly; extracted owners never import the `repository.ts` compatibility facade. Feature applications own policy through synchronous ports; storage owns SQL/row decoding, not prompts or provider calls.
 
-Dependency direction is delivery → outer composition → application ports, with
-storage adapters implementing those capabilities and depending on chat-owned
-contracts/policy. Storage I/O flows through connection → env/migrations. Lifecycle
-uses pure conversation ID validation, not the reverse. Debug/tool metadata use
-plain AI contracts, not implementation-owned types. Schema18 adds H journal/segment
-transactions and derivative invalidation to existing lifecycle owners, without
-widening other deletion scopes. In particular bulk chat/Profile clearing continues
-to preserve semantic memory, unlike single-conversation deletion. Rehearse explicit
-copy migration; older desktop admission refuses the new schema.
-`tests/persistence-ownership.test.ts` covers shared connection visibility, edge
-contracts, deletion scope/rollback and route fallback; existing history, memory,
-plan, summary and migration suites remain integration evidence.
+- `conversation-repository`: messages/conversations, pagination, grounding and monotonic message timestamps.
+- `conversation-history`: admission/completion journals, segments/CAS, integrity/privacy and durable local-compaction spend. Generation holds no transaction. [Conversation history](../conversation-history.md) owns migration and compatibility.
+- `conversation-lifecycle`: one atomic deletion—messages, soft deletion of semantic rows matching conversation ID **and** conversation kind, then conversation—even for a missing target. Chat application selects fallback. Saved/non-conversation memory is outside this scope.
+- `training-plan-repository`: singleton SQL/ISO conversion; feature rules own normalization/review/guarded edits.
+- `profile-repository` and `memory/sqlite-storage`: Profile and preserved semantic storage; no retired proposal/confirmation writer facade.
+- `local-data-lifecycle`: exact bulk scopes and rollback; [local-data](analytics-and-local-data.md#local-data-application-and-adapters) owns their exclusions.
+- `repository`: Garmin SQL, summaries and metadata. Local-data policy interprets selected rows. Model selection initializes `ai.chat_model.choice` once from prior intent while preserving original preference bytes.
+
+Storage may depend on plain feature contracts/policy, never AI runtime. Conversation lifecycle depends on pure ID validation, not the reverse. Bulk chat/Profile clearing preserves semantic memory, unlike single-conversation deletion. Schema changes require explicit copy rehearsal; older desktop admission refuses unsupported schemas. `persistence-ownership.test.ts` covers shared visibility, deletion/rollback and route fallback; history/memory/plan/migration suites cover integration.
 
 ## Raw payload and evidence boundary
 
-The app stores normalized facts **and** a local `garmin_raw_payload` archive where
-supported. `repository.ts` calls `redactGarminRawPayload` before archive persistence;
-credential/token/auth/cookie/command/environment/path-like fields are redacted.
-The archive is not generally exposed to the model, SQL tools, browser or public
-artifacts. Bounded analysis-bundle paths apply their own redaction and evidence
-limits. “All raw payloads are discarded after normalization” is not an accurate
-statement of current storage behavior. Raw FIT, credentials, precise streams and
-private chat must not appear in task/PR smoke evidence.
+Normalized facts coexist with a local `garmin_raw_payload` archive. The repository calls `redactGarminRawPayload` **before** persistence, removing credential/token/auth/cookie/command/environment/path-like fields. The archive is not general model/SQL-tool/renderer/public-artifact input. Bounded analysis bundles have their own redaction/evidence limits. Never put raw FIT, credentials, precise streams or private chat into task/PR evidence.
 
-Ordinary chat displays synthesized prose and a generic local-data marker. Grounding
-retains ordered server-authored tool metadata; local debug diagnostics are a separate
-explicit surface. Failures return bounded truthful limitations, not invented Garmin
-facts or raw tool dumps. These privacy rules apply independently of client structure.
+Ordinary chat displays synthesized prose and a generic local-data marker. Grounding retains ordered tool metadata; local debug is a separate explicit private surface. Failures disclose bounded truthful limitations, not invented facts or raw dumps.
