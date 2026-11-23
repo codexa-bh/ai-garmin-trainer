@@ -2,10 +2,8 @@
 
 One complete generated text plus separate authored preferences replaces the
 model-managed item ledger. [Memory](memory.md) owns user controls; [conversation
-history](conversation-history.md) owns same-chat continuity. Source delivery, authored
-tests and structural validity are not installed activation or real semantic-quality
-certificates. Historical redesign/examples retain their attributed evidence limits;
-the prospective whole-summary contract supersedes their generated-item proposals.
+history](conversation-history.md) owns same-chat continuity. Authored tests and
+structural validity are not real semantic-quality certificates.
 
 ## Shared summary/title configuration, independent chat
 
@@ -347,8 +345,7 @@ active/derived records also refuse before transition rather than resetting them.
 Rehearse authored and actual-derived online copies, integrity/FK/reopen/idempotence and
 original/accounting preservation. Startup/Use existing remain non-migrating. Schema23
 readers refuse24. Preserve originals/backups and use a compatible forward fix, never
-an old writer/downgrade/blind copy-back. Source delivery does not authorize primary DB/
-settings migration, app stop/restart/install, provider spending or historical cleanup.
+an old writer/downgrade/blind copy-back.
 
 Focused policy/provider/storage/rebuild/import/pin/composition/UI/migration suites retain
 independent no-save/Clear/suppression, CAS/lease/concurrency/cancel/unknown, whole-request
