@@ -1,8 +1,6 @@
 # Local smoke inputs
 
-Routine `smoke:native` and `smoke:ordinary` default to **entirely authored synthetic** SQLite: no personal selections, receipts, env, settings, tokens or credentials, and no normal-state fallback. Quick/nightly keeps its independent minimal Profile-only recipe and workload.
-
-Read **Finite recipe and verification** for routine input; **Explicit private route** only for authorized private use; **Task-owned rehearsal** only for backup/restore preparation. Sync/import tasks can start with the [one-page Sync card](synthetic-sync-smoke.md), not unrelated chat/onboarding scenarios. [Developer process](developer-process.md#no-new-isolated-fixture-environment-for-this-stage) owns the no-new-fixture rule and finite exceptions.
+Routine `smoke:native` and `smoke:ordinary` use authored synthetic SQLite, never personal selections/settings/env/credentials or normal-state fallback. Quick/nightly retains its separate minimal recipe. Preparation and `--prepare-only` launch nothing; runtime proof requires a [native scenario and inspected captures](dev-bridge.md). Sync/import has a [build/run card](synthetic-sync-smoke.md).
 
 ```bash
 npm run smoke:prepare -- --scratch '/canonical/0700/task-scratch' --task-id T0252 --anchor 2026-11-01
@@ -10,71 +8,37 @@ npm run smoke:native -- --scratch '/canonical/0700/task-scratch' --task-id T0252
 npm run smoke:ordinary -- --scratch '/canonical/0700/task-scratch' --task-id T0252 --bundle '/absolute/ordinary/Garmin Trainer.app'
 ```
 
-`smoke:prepare` has no launch capability. Runner `--prepare-only` also launches nothing. Only actual [native scenarios and inspected captures](dev-bridge.md) prove runtime behavior. A bundle must still match final source/artifact identity. `--task-id` defaults from `PIVAN_TASK_PATH`, otherwise `local`; `--anchor` defaults once to **UTC** today and is recorded. An explicit real YYYY-MM-DD date reproduces logical contents, not the UUID output path. Use a current anchor for current Health navigation; no product clock is overridden.
+`--task-id` defaults from `PIVAN_TASK_PATH`, otherwise `local`. The recorded anchor defaults once to UTC today; an explicit real date reproduces logical contents, not output UUIDs or the product clock. Use a current anchor for current Health navigation.
 
 ## Finite recipe and verification
 
-Recipe v1 uses authoritative migrations in memory and typed schema inserts, then exclusively publishes owner-private SQLite. It contains three distinguishable fictional conversations/twelve user-assistant turns, fourteen activity summaries (eight plain summaries, one four-lap run, one snowboard day and four snow evidence cases), a Profile and twenty Health rows spanning twenty-one UTC dates. The previous seven-date page contains one absent date, one partial row and real zero steps/intensity. Absent is not zero. It also carries finite authored additional-Garmin evidence for the Health and Activity views, anchored to the same dates: HRV baseline on some dates, lower-only and absent on others; sleep qualifiers including qualifier-only parts and a measured zero score; complete and partial stress buckets; Body Battery charged 0 with drained null; four sparse multisport VO2 readings; every coverage state; a four-lap run with zones on two laps, none on one and a recorded all-zero lap; signed battery delta with list and FIT cadence; and aggregate snow totals (12 runs) beside five stored individual runs and lifts, with measured average speed/null/zero and fractional timer/ascent. Four additional snow activities have unknown coverage, unsupported backcountry coverage, preserved runs after latest failed coverage (invalid measured window, supported Avg HR without zone limits and no samples in-window), and an unproven legacy sample clock. The populated snowboard day has a genuine first-stored-sample/activity-start anchor in the raw repository's epoch milliseconds, space-separated zone-less UTC samples, MCP-only session rows and complete consistent per-lap file limits; the preserved derivable stream retains explicit-zone input. The verifier allows exactly those relations and nothing else beyond the existing classes. Conversation storage uses the existing repository's millisecond convention, and migration metadata is anchored too. Nothing is copied or derived from personal examples.
+The recipe uses authoritative migrations in memory, typed inserts and exclusive private publication. It covers fictional chats, Profile, activities and Health, including absent/partial/zero values, additional-Garmin coverage states, multisport/HRV/sleep/stress/battery evidence, lap HR and snow runs. `scripts/desktop/smoke_recipe.ts` owns exact rows and values; no personal example is copied. Snow cases distinguish aggregate totals from individual runs, unsupported/unknown/latest-failed coverage, proven UTC/lap-file limits from unproven clocks, and null from zero.
 
-Ordinary `--conversation-selection` uses an explicit `empty-chat` authored variant by default: the same complete synthetic recipe is verified first, then only its new in-memory chat/message rows are removed and the existing empty-chat data-shape checks run before exclusive publication. Profile/activities/Health remain identical; provenance records `syntheticVariant: empty-chat`. Standard defaults retain all three chats/twelve messages. This neither clears a selected/borrowed input nor fabricates private authority: explicit private selections still require the unchanged current grant/provenance and already-empty chat classes. Renderer admission still refuses unrelated titles.
+`--conversation-selection` defaults to `empty-chat`: verify the complete authored recipe first, remove only its new in-memory chat/message rows, check the empty shape, then publish with `syntheticVariant: empty-chat`. Other fields stay identical. Explicit private input must already be empty under its own grant; borrowed input is never cleared.
 
-`smoke_recipe.ts` verifies exact current schema inventory (including rejection of extra triggers/tables), version, integrity, FK checks, bounded row counts, declared numeric/text types, Profile JSON and route-specific coverage. Synthetic coverage additionally verifies ordered turns and missing/partial/zero cases. Private coverage requires bounded numeric-summary/Health/Profile classes and at least fourteen Health rows spanning fourteen dates; it does not falsely certify missing-date/chart coverage if absent. Unreviewed metadata, auth/session/account/verification, raw/detail/GPS, memory, plans and private chat/message populations refuse. No selected input is migrated. Numeric verification preserves finite fractional
-`activity.duration_sec` and `activity.avg_heart_rate` values, as accepted by the
-existing importer despite SQLite INTEGER affinity; counters/timestamps remain
-integral and nonnumeric/nonfinite values still refuse. No rounding or data rewrite
-is performed.
+The verifier checks exact schema inventory/version, integrity/FKs, counts, types, Profile JSON and route coverage; extra tables/triggers refuse. Private coverage permits only bounded numeric summaries, Health and synthetic Profile, with at least fourteen Health rows spanning fourteen dates. It does not certify absent-date/chart cases that are not present. Unreviewed metadata, auth/session/account/verification, raw/detail/GPS, memory, plans and private chats refuse. No selected input is migrated. Finite fractional duration/average-HR values remain valid despite INTEGER affinity; counters/timestamps stay integral, invalid/nonfinite values refuse, and verification never rounds or rewrites data.
 
-The Python preparation owner requires existing canonical uid-owned `0700` directories and bounded `0600` regular single-link files; aliases, hardlinks, unknown/duplicate JSON keys, insecure/foreign files and reused destinations refuse, never chmod/adopt. A fresh private UUID output holds database-only `selection.json` (`{"database":"/canonical/prepared/input.sqlite"}`) and bounded private preparation provenance. Private copying uses SQLite online backup with a deadline and original logical/identity/DB-WAL byte checks, not a live main-file copy. Implicit SQLite sidecars must also be canonical/private/single-link; rollback journals refuse recovery. SHM lock/read marks are validated for file safety, not certified immutable. Native owners then make independent writable run copies. Copies, Goals, provenance, logs and images stay task-attributed, never back-synced/uploaded. The [resource owner](smoke/ownership.md#preparation-reuse-and-owned-disposal) places managed mutable synthetic/authorized numeric-copy DBs in registered disposable and compact provenance in evidence; it owns final-settlement/evidence-first disposal and unchanged lifetime. Standalone/prepare-only/borrowed outputs retain their immediate-disposal exclusions. Partial/failed outputs require exact reconciliation, never adoption, overwrite or blind retry. Input grants remain independent.
+Preparation requires existing canonical uid-owned `0700` directories and bounded `0600` regular single-link files. Aliases, hardlinks, insecure/foreign files, unknown/duplicate JSON keys and reused destinations refuse; never chmod/adopt. Each fresh UUID output contains database-only `selection.json` (`{"database":"/canonical/prepared/input.sqlite"}`) and private provenance. Copy through SQLite online backup, never a live main-file copy. Validate sidecars too; rollback journals refuse recovery. Compare original identity, DB/WAL bytes and logical state; SHM lock/read marks get safety validation, not an immutability claim.
+
+Native owners create independent writable copies, never back-sync/upload. [Resource ownership](smoke/ownership.md#preparation-reuse-and-owned-disposal) governs categories, settlement, evidence-first disposal and expiry. Standalone/prepare-only/borrowed outputs are excluded from immediate disposal. Partial failures remain for exact reconciliation, not adoption/overwrite/blind retry; input authority remains independent.
 
 ## Task-owned rehearsal, restore and run-backup placement
 
-Standalone `smoke:prepare` configures the [resource owner](smoke/ownership.md#preparation-reuse-and-owned-disposal) **before input access** and retains successful outputs. Parse stdout JSON records by key: one prepared result and one resource disposition, not a fixed line order. A readable managed root may contain private allocator-created categories without chmod; explicit external private scratch stays independent of ambient tasks. Incompatible tooling/invalid proof refuses, never root/evidence fallback or directory adoption.
+Standalone preparation configures resource ownership before input access and retains successful outputs. Parse stdout objects by key (`prepared` versus resource disposition), not line order. A readable managed root may contain private allocated children; external private scratch remains independent of ambient tasks. Invalid tooling/proof refuses without fallback/adoption.
 
-For a future operational rehearsal, name the actual owning task and separately
-authorize the exact source/use **before DB access**. Do not execute or adopt an old
-ad-hoc script/allocation as an owner. The finite recipe is:
+For a rehearsal, name its owning task and separately authorize the exact source/use before DB access. An old script/allocation is not an owner:
 
-1. Resolve canonical root and both categories using compatible installed tooling:
-   `pivan-harness task-scratch path "$PIVAN_TASK_PATH" --create`, then the same
-   command with `--category evidence --create` and `--category disposable --create`.
-   Use only their verified returned paths. For authored preparation, pass the
-   **root** to `smoke:prepare`, not the evidence/disposable path. `--task-id` is a
-   provenance label, not category authority. Real grants retain the private route below.
-2. Create a new exclusive `0700` UUID child under returned disposable for rehearsal,
-   restore and run-owned backup DBs and their run-owned WAL/SHM. Validate canonical
-   no-follow uid/private/single-link source files/sidecars using the existing
-   `smoke_input.database_state` boundary; refuse journals, changed/replaced parents,
-   aliases, hardlinks and reused destinations. Never chmod/adopt an input.
-3. For each copy, exclusively create a `0600` regular destination with
-   `O_CREAT | O_EXCL | O_NOFOLLOW`, then use a read-only SQLite source connection
-   and `source.backup(destination, pages=128, sleep=.01, progress=deadline_check)`
-   with the existing ten-second preparation deadline. Never independently copy
-   active WAL/SHM or use a live main-file copy. Each restore/run-backup copy uses
-   another exclusive destination; failure/cancellation retains partial outputs
-   and the original error, not an overwrite/retry or a recovery hold.
-4. Compare original identity/DB-WAL bytes and logical fingerprint before/after;
-   verify destination integrity, schema version/inventory, foreign keys, bounded
-   counts and source-equal logical state. Keep only compact non-sensitive outcomes,
-   provenance and failure facts in returned evidence. Source paths/grants/DB contents
-   are not public support evidence. Retain all promised standalone/prepare-only
-   outputs; consumption does not enroll borrowed inputs for deletion.
-5. Record purpose, source preservation, receipt and expiry/cleanup deferral in the task. [Resource lifetime](smoke/ownership.md#preparation-reuse-and-owned-disposal) is independent of immediate disposal: normally disposable six hours after canonical close and evidence seven days, subject to actual App policy; failure extends neither. Placement grants no deletion, migration, install or production use.
+1. Resolve root with `pivan-harness task-scratch path "$PIVAN_TASK_PATH" --create`, then evidence/disposable with `--category evidence` or `--category disposable`. Use verified returned paths; pass root to authored preparation. `--task-id` labels provenance, not authority.
+2. Exclusively create a `0700` UUID child in disposable. Use `smoke_input.database_state` to validate canonical no-follow uid/private/single-link source and sidecars; refuse journals, replaced parents, aliases, hardlinks and existing destinations.
+3. Exclusively create each `0600` destination with `O_CREAT | O_EXCL | O_NOFOLLOW`. Use a read-only source and `source.backup(destination, pages=128, sleep=.01, progress=deadline_check)` with the existing ten-second deadline. Restore and run-backup each need a fresh destination. Never copy active WAL/SHM independently. Failure/cancellation retains partial output and original error, not a retry or recovery hold.
+4. Compare original identity/DB-WAL bytes/logical fingerprint; verify destination integrity, schema inventory/version, FKs, bounded counts and source-equal logical state. Evidence holds compact non-sensitive outcomes/provenance/failures, not source paths/grants/contents. Retain promised outputs; consumption never enrolls borrowed input for deletion.
+5. Record purpose, preservation, receipt and expiry/deferral. Actual App policy controls lifetime: normally disposable six hours after canonical close and evidence seven days; failure extends neither. Placement grants no deletion, migration, install or production use.
 
-The executable authored proof is
-`python3 -m unittest discover -s scripts/desktop -p smoke_prepare_test.py`: actual
-CLI/adapter routing, refusal and lifetime plus fresh active-WAL rehearsal → restore
-→ run-backup copies, original preservation and compact-only evidence. Its allocator
-is a test stand-in; a real-task CLI run with compatible tooling is separately
-required for producer evidence. It is not a general migration executable.
-
-A genuine operator/pre-upgrade backup is **not** a disposable rehearsal backup.
-The stopped-target migration CLI's sibling-backup contract remains unchanged;
-production restore/migration and existing or borrowed backup disposition require
-separate exact authority. See [local data lifecycle](source-beta-readiness.md#local-data-lifecycle).
+`python3 -m unittest discover -s scripts/desktop -p smoke_prepare_test.py` covers this copy chain and preservation with a test allocator. Producer evidence additionally needs a real-task CLI run with compatible tooling; it is not a migration executable. Genuine operator/pre-upgrade backups are not disposable rehearsal copies. The stopped-target sibling-backup contract and separate production restore/migration/disposition authority remain [unchanged](source-beta-readiness.md#local-data-lifecycle).
 
 ## Explicit private route
 
-Private use is optional. **Before opening selection values, artifact provenance or a DB**, the already-authorized caller must explicitly select an attributable current authority record for that exact artifact/use. Neither a record discovered beside a fixture nor historic preparation consent creates authority. For Pivan E0007, the selected workspace's `content/private-smoke-fixture-inventory.md` is the single policy owner for approval, artifact-owner availability and retention. This implementation introduces no real personal grant, permission service, signature/authentication claim or general authorization store.
+Before opening selection values, provenance or a DB, the authorized caller explicitly selects a current attributable authority record for that exact artifact/use. Discovered records or historical preparation consent are not authority. E0007's selected-workspace `content/private-smoke-fixture-inventory.md` owns approval, artifact availability and retention; this format is not a permission service, authenticated grant store or actual personal grant.
 
 ```bash
 npm run smoke:native -- --scratch '/canonical/0700/task-scratch' --task-id T0252 \
@@ -83,45 +47,32 @@ npm run smoke:native -- --scratch '/canonical/0700/task-scratch' --task-id T0252
   --provenance-file '/canonical/0700/exact-artifact-provenance.json'
 ```
 
-Use the same options with `smoke:ordinary`; ordinary still requires `--bundle` and denies debug Health/Settings/auth controls. The existing explicit `--input-file` spelling and database-only shape remain, but authority/provenance must now be supplied. One-off approval uses the same narrow record with an exact consumer task; standing approval does **not** require a new HITL solely because the task changes. Do not turn historical consent into a grant without actual explicit operator authority. Other specialized legacy runners keep their separately scoped input contracts, not automatic new grant support.
+The same flags work with ordinary plus `--bundle`, without enabling debug Health/Settings/auth controls. Specialized legacy runners retain their own contracts. One-off grants name the exact consumer; standing approval needs no new HITL merely because the task changes. Never manufacture a grant from historical consent.
 
-An explicit private refusal is nonzero **before native launch**, never silently replaced with synthetic or another private source. Missing/expired/revoked/changed/unknown authority, source, scope or retention refuses. The independent safe synthetic option remains available by omitting private options; that is not private verification success.
+Missing/expired/revoked/changed/unknown authority, scope, source or retention refuses nonzero before launch, without private-to-synthetic fallback. Omitting private options remains an independent synthetic choice, not successful private verification.
 
 ### Grant v1 fields
 
-No extra fields are accepted. This is a serialization contract, **not a real grant template to self-approve**:
+Exact serialization, not a self-approval template; extra fields refuse:
 
-- **`schemaVersion`, `grantId`, `revision`, `status`**
-  - Required value/meaning: Integer `1`; opaque bounded identity; positive integer; current `active` (anything else, including `revoked`, refuses)
-- **`kind`, `consumerTask`**
-  - Required value/meaning: `standing` with `null`, or `one-off` with the exact consuming `Tnnnn`
-- **`approval`**
-  - Required value/meaning: Exactly nonempty bounded `operator` and `evidence` strings referencing actual explicit approval, not fixture provenance
-- **`artifactId`, `artifactVersion`**
-  - Required value/meaning: Exact bounded selected artifact/version identities
-- **`selectionSha256`, `provenanceSha256`, `logicalHash`**
-  - Required value/meaning: Lowercase 64-hex exact selection bytes, exact provenance bytes, and whole logical SQLite fingerprint from the existing smoke owner
-- **`epic`**
-  - Required value/meaning: Exactly `E0007`
-- **`scenarios`**
-  - Required value/meaning: Nonempty unique subset of `native`, `ordinary`, `health-comparison`; must include requested use
-- **`dataClasses`**
-  - Required value/meaning: Exactly ordered `["numeric-activity-summaries","daily-health","synthetic-profile"]`; excluded populated classes still refuse
-- **`validFrom`, `expiresAt`, `retentionUntil`**
-  - Required value/meaning: Explicit UTC `YYYY-MM-DDTHH:MM:SSZ`; start ≤ now < expiry ≤ owner-approved retention bound
-- **`originalReadOnly`**
-  - Required value/meaning: `true`
-- **`primaryWrite`, `credentials`, `externalTransmission`**
-  - Required value/meaning: Each exactly `false`
+- `schemaVersion`: integer 1; `grantId`: bounded opaque identity; `revision`: positive integer; `status`: `active` only.
+- `kind`/`consumerTask`: `standing`/null or `one-off`/exact consuming `Tnnnn`.
+- `approval`: exactly bounded nonempty `operator` and `evidence` strings referencing actual approval, not fixture provenance.
+- `artifactId`/`artifactVersion`: exact bounded identities.
+- `selectionSha256`/`provenanceSha256`/`logicalHash`: lowercase 64-hex hashes of exact selection/provenance bytes and whole logical SQLite state.
+- `epic`: `E0007`; `scenarios`: nonempty unique subset of `native`, `ordinary`, `health-comparison`, including requested use.
+- `dataClasses`: exactly ordered `["numeric-activity-summaries","daily-health","synthetic-profile"]`; excluded populated classes still refuse.
+- `validFrom`/`expiresAt`/`retentionUntil`: explicit UTC `YYYY-MM-DDTHH:MM:SSZ`, start ≤ now < expiry ≤ owner-approved retention bound.
+- `originalReadOnly`: true; `primaryWrite`/`credentials`/`externalTransmission`: false.
 
-Grant/selection/provenance JSON are each at most 8192 bytes. The selected SQLite is at most 16 MiB with at most 256 rows per table; this finite seam is not a full personal-backup importer. Artifact provenance has exactly `schemaVersion:1`, `artifactId`, `artifactVersion`, `logicalHash`, the same `dataClasses`, and `originalPreserved:true`. Its claim must originate from reviewed artifact preparation; a hash match alone does not prove anonymity, appropriate consent or owner lifetime. Numeric/date data can remain personal. A changed source or additional data classes require fresh exact authority, not widening a saved grant to force compatibility.
+Each JSON file is at most 8192 bytes; SQLite at most 16 MiB and 256 rows/table. Provenance contains exactly `schemaVersion:1`, artifact identities, `logicalHash`, the same `dataClasses` and `originalPreserved:true`, originating from reviewed preparation. Hash equality proves neither anonymity nor consent/lifetime; numeric dates may be personal. Changed source/classes need fresh exact authority, not a widened saved record.
 
 ### Current revision, revocation and preservation
 
-The operator/artifact owner retains the **current grant file** at its explicit canonical path. To revoke, publish a new revision with non-active status (or make the record unavailable); do not leave consumers pointed at a stale copied approval. To revise scope/identity/lifetime, publish the actual newly approved revision. Consumers re-read the current record before preparation/copy and every owned boot, and reject any changed revision/hash/selection/provenance/source during a prepared run. A fresh preparation may use a newly approved current record. Record the checked revision privately. Revocation prevents subsequent use; it is not rollback of already completed effects or a process-kill grant.
+The operator/artifact owner maintains the current canonical grant file. Revocation publishes a new non-active revision or makes it unavailable; do not point consumers to stale copied approval. Scope/identity/lifetime changes require an actually approved revision. Consumers reread before copying and every boot; any changed revision/hash/selection/provenance/source during a prepared run refuses. New preparation may use a newly approved record; record the checked revision privately. Revocation prevents later use, not completed effects, and grants no process kill.
 
-Owner resource/retention controls remain independent: a standing grant never extends scratch lifetime, authorizes deletion/relocation or overrides unavailable ownership. Unknown owner/retention means no private use. Only exact originals are opened read-only and copied; comparisons cover DB identity/logical content before/after preparation. Run-owned writable copies and seed/original preservation remain separately verified. No primary change, provider acquisition, transmission or normal-app takeover is authorized.
+Standing grants never extend resource lifetime or authorize deletion/relocation. Unknown owner/retention blocks use. Exact originals stay read-only and compared before/after copying; writable-run preservation remains independently checked. No primary change, provider acquisition, transmission or normal-app takeover follows.
 
 ## Evidence limits
 
-Preparation/private presence is not runtime proof. The bridge's [evidence classes](smoke/protocol.md#keep-evidence-classes-distinct) own synthetic/debug/ordinary/real-service limits: synthetic or isolated success alone is not provider/Garmin/auth/default-window/trusted-input certification. Deterministic checks prove exact fixture values/coverage, not masked images. Inspect every required PNG and retain local source/artifact/scenario/hash/layout/privacy analysis; upload nothing. [Developer process](developer-process.md) owns final-diff back-sync no-op and attributed cleanup/deferral; [validation](validation.md) owns applicable local/macOS/build/native requirements.
+[Evidence classes](smoke/protocol.md#keep-evidence-classes-distinct) own debug/ordinary/synthetic/real-service distinctions. Exact fixture checks do not prove masked image contents; inspect required PNGs and retain local source/artifact/scenario/hash/layout/privacy analysis, uploading nothing. [Developer process](developer-process.md) owns back-sync no-op and attributed cleanup/deferral; [validation](validation.md) owns applicable build/native gates. [Finite fixture exceptions](developer-process.md#no-new-isolated-fixture-environment-for-this-stage) do not authorize a new fixture environment.
