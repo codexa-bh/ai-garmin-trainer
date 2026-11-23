@@ -1,42 +1,35 @@
 # Developer process guardrails
 
-These rules apply to Pivan tasks changing the local Garmin trainer. Read the applicable section when planning and before handoff. They complement the E0007 catalog/runbook and grant no primary mutation, fixture infrastructure, publication or deployment authority.
+These rules apply to local Trainer changes and complement the E0007 runbook. They grant no primary mutation, publication, deployment or fixture-infrastructure authority.
 
 ## Same-task local data back-sync
 
-A change to schema, normalized/derived data, repository semantics, sync/import/detail behavior or anything that can leave existing SQLite data stale must include same-task reconciliation before handoff:
+Changes to schema, data/derivations, repository semantics or sync/import/detail behavior must reconcile potentially stale SQLite data in the same task:
 
-1. Name the affected structures and intended DB target: primary for read-only/current-data verification, disposable copy for destructive or uncertain validation.
-2. Plan the migration, backfill, back-sync, re-sync, detail refresh, checkpoint reset or explicit no-op in the task checklist/plan.
-3. Confirm the selected path privately before execution. Never print secrets, token contents, raw connector/SQLite/GPS/stream data or env values.
-4. Verify with bounded schema/status/count/coverage or smoke evidence, not raw data.
-5. If safe reconciliation cannot finish, record an explicit blocker or follow-up gate; never close as though stale data was handled.
+1. Name affected structures and the intended target: primary for read-only verification, disposable copy for destructive/uncertain work.
+2. Put migration, backfill, back-sync, re-sync, detail refresh, checkpoint reset or verified no-op in the plan/checklist.
+3. Privately confirm the exact target; never print secrets, env values or raw connector/SQLite/GPS/stream data.
+4. Verify bounded schema/status/count/coverage or smoke evidence. Record unresolved reconciliation as a blocker/follow-up gate, not completed work.
 
-Destructive migration, reset/import rewrite, Garmin deletion and ambiguous-target work require a disposable copy unless the task explicitly scopes operator-approved primary mutation. Use an online SQLite backup for active WAL and verify integrity; never use lazy app DB construction as a read-only migration probe.
+Destructive migration, reset/import rewrite, Garmin deletion and ambiguous-target work require a disposable copy unless operator-approved primary mutation is explicitly scoped. Use online SQLite backup for active WAL and verify integrity; lazy app DB construction is not a read-only migration probe.
 
-Desktop runtime/packaging, configuration, private-provider-file/key/token adoption, auth and current-schema fresh onboarding alone change no data shape and need no backfill. Fresh initialization runs authoritative migrations **in memory**, never upgrades selected existing data. Desktop refuses unsupported schemas rather than implicitly migrating primary state. Native settings/private plaintext storage, explicit legacy adoption/re-entry, preserved originals and separate maintenance CLIs follow [desktop adoption](desktop.md#explicit-private-state-adoption); desktop never loads/imports user env files.
+Packaging/configuration/auth/private-state adoption and current-schema fresh onboarding alone need no backfill. Fresh initialization migrates in memory; desktop never upgrades selected existing data or loads user env files. [Desktop adoption](desktop.md#explicit-private-state-adoption) owns private storage, preserved originals and separate maintenance CLIs.
 
 ## Task-created smoke/test/mock data cleanup
 
-Tasks creating chats, conversations, mock Profile/memory rows, Garmin test artifacts or other app-managed artifacts must clean up after evidence capture or record an explicit deferral before handoff:
+At creation, record task, route/action, artifact ID/title, DB target and mixed/ambiguous user content. After evidence capture, clean only unambiguous task-created artifacts through the least-destructive existing app behavior, or record a deferral with identifiers, result and primary-preservation reason. Destructive validation uses disposable data. External keys/tokens, raw SQLite and ambiguous operator data require separate approval.
 
-1. Record task ID, route/UI action, artifact ID/title, DB target and any mixed user-authored/ambiguous content at creation.
-2. Capture validation logs, bounded status/response excerpts, sanitized summaries and inspected screenshot analysis when applicable.
-3. Use the least-destructive existing app behavior only for unambiguous task-created artifacts. Destructive validation uses a disposable DB. External tokens/provider keys, raw SQLite files and ambiguous operator data require separate explicit approval.
-4. Record scope, identifiers, result/deferral, primary preservation and why any artifacts remain.
+The E0007 **QA test-data cleanup protocol** owns classification/approval. [Invocation-owned disposal](smoke/ownership.md#preparation-reuse-and-owned-disposal) is its finite exception: only newly exclusive enrolled copies after settlement, original preservation and compact evidence. It never covers primary/borrowed/ambiguous data, historical scratch, worktrees/aliases or accepted outputs.
 
-The E0007 runbook's **QA test-data cleanup protocol** owns deletion classification, evidence-first ordering, approval stops and disposable-copy safeguards. Its prospective exception is [verified invocation-owned disposal](smoke/ownership.md#preparation-reuse-and-owned-disposal): only newly exclusive enrolled DB/executable/bundle copies after final settlement, original preservation and compact evidence. It grants no deletion of primary/borrowed/ambiguous SQLite, historical scratch, worktrees/aliases or accepted outputs.
-
-Input preparation and original-copy verification belong to [smoke inputs](smoke-inputs.md#finite-recipe-and-verification); native [evidence classes](smoke/protocol.md#keep-evidence-classes-distinct) distinguish debug Profile-subtree capture, ordinary geometry-preserving masks, synthetic input and real integration. Goals are task/run-attributed, other copied Profile fields stay unchanged, originals are fingerprint-verified, and copy-only edits are never copied back. Inspect images: creation alone proves nothing. Safe task-needed runner/bridge changes follow the [before-use extension recipe](smoke/protocol.md#task-needed-bridge-and-runner-extensions), not an automatic separate ticket or a waiver of these safeguards.
+[Inputs](smoke-inputs.md) owns preparation/fingerprints; [evidence classes](smoke/protocol.md#keep-evidence-classes-distinct) owns inspected captures and synthetic/debug/ordinary/real-service limits. Goals are task/run-attributed; other copied Profile fields stay unchanged and no edits copy back. [Before-use extension](smoke/protocol.md#task-needed-bridge-and-runner-extensions) allows safe task-needed runner changes without an automatic second ticket or safeguard waiver.
 
 ## No new isolated fixture environment for this stage
 
-Do not introduce a new isolated test-data/fixture environment merely to meet these rules. Prefer existing local live smoke, deterministic tests, task-local artifacts and disposable SQLite copies. A durable fixture framework needs its own implementation task and justification.
+Use existing local smoke, deterministic tests, task artifacts and disposable copies. A durable fixture framework requires a separate justified implementation task. Only these finite exceptions apply:
 
-Only these finite exceptions apply; none grants production migration, global fixture deployment or unrelated recurring workload:
+- **Native/ordinary default (T0252):** existing populated-copy flow with authored input or a current exact private grant. Standing reuse extends neither lifetime nor native-mode authority. [Input owner](smoke-inputs.md).
+- **Tables:** fixed authored documents/Profile under existing ordinary ownership; no private-input approval or real-integration claim. [Scenario](smoke/features.md#finite-synthetic-markdown-table-scenario).
+- **CI quick:** `smoke:quick` / `scripts/ci/seed.ts`, one job-local current-schema Profile through in-memory migrations/typed inserts in private scratch. No operator input, auto-migration or fixture framework. Existing settings/schema/ownership and attributed disposal apply; no data-shape change means verified back-sync no-op.
+- **Hosted Windows:** authored input through in-memory serialization and exclusive private state. Goals/DB/settings and app-data preservation marker expire with the runner; no copy-back or existing registration/data adoption. Only [six synthetic PNGs and the sanitized manifest](windows.md#installed-app-scenario-and-narrow-evidence-exception) have a three-day upload exception; no other images/logs/private state.
 
-- **Local native recipe:** [Authored preparation](smoke-inputs.md) feeds the existing isolated populated-copy flow, not a durable environment. Keyless success is not provider/Garmin/private-settings/adoption proof.
-- **Representative native/ordinary default (Authority: T0252):** Authored Profile/chat/activity/Health input or an explicitly applicable current private grant. No personal input by default; standing reuse does not extend retention or relax original preservation/native mode exclusions.
-- **Presentation-only tables:** [Table scenario](smoke/features.md#finite-synthetic-markdown-table-scenario) uses the existing seed with fixed plan/review/chat documents and one Profile, ordinary artifact/copy/ownership owners. No personal input/consent is needed; seed/documents/Goals/captures remain task-attributed under evidence-first disposal or diagnostic retention, not a real-integration certificate.
-- **CI quick:** `smoke:quick` / `scripts/ci/seed.ts`: one job-local synthetic current-schema Profile through existing migrations/typed schema in canonical private scratch. No operator input, app auto-migration or fixture framework. Native settings/schema/preflight/ownership still bind; task/run-attributed seed/copy/Goals/logs follow the same disposal/retention contract, never back-sync. No data-shape change means verified primary back-sync no-op.
-- **Hosted Windows installed:** Same authored recipe through in-memory serialization and exclusive private runner state. Goals/DB/settings and real app-data preservation marker survive only to runner expiry, never copy-back or existing registration/data adoption. Only the [three-day Windows exception](windows.md#installed-app-scenario-and-narrow-evidence-exception) permits six synthetic PNGs and closed sanitized manifest as Actions artifacts; no other images/logs/private state may be published.
+None authorizes production migration, global fixture deployment or unrelated recurring workload.
