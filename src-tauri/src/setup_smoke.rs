@@ -52,6 +52,9 @@ pub enum Action {
     CaptureOpenrouter,
     ChatgptExercise,
     ChatgptReset,
+    ChatgptSwitch,
+    ChatgptNew,
+    ChatgptSwitchBack,
     CaptureChatgptWide,
     CaptureChatgptNarrow,
     CaptureChatgptRowsNarrow,
@@ -78,6 +81,8 @@ struct Observation {
     capture_feedback_rejected: bool,
     #[serde(default)]
     capture_mask_rejected: bool,
+    #[serde(default)]
+    capture_viewport_rejected: bool,
     catalog_ready: bool,
     catalog_exercised: bool,
     catalog_without_defaults: bool,
@@ -89,6 +94,8 @@ struct Observation {
     chatgpt_ready: bool,
     #[serde(default)]
     chatgpt_exercised: bool,
+    #[serde(default)]
+    chatgpt_choosing: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -198,6 +205,10 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
         action,
         Action::ChatgptExercise
             | Action::ChatgptReset
+            | Action::ChatgptSwitch
+            | Action::ChatgptNew
+            | Action::ChatgptSwitchBack
+            | Action::CaptureChatgptRowsNarrow
             | Action::CaptureChatgptWide
             | Action::CaptureChatgptNarrow
     ) && chatgpt_metadata(config)?.is_none()
@@ -375,7 +386,9 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
                 return Err(if prepared.capture_feedback_rejected {
                     "Settings sanitizer refused unreviewed live feedback"
                 } else if prepared.capture_mask_rejected {
-                    "Settings sanitizer refused ineffective live mask"
+                    "Settings sanitizer refused ineffective mask"
+                } else if prepared.capture_viewport_rejected {
+                    "Settings sanitizer refused provider viewport"
                 } else {
                     "Settings sanitizer refused"
                 }
@@ -505,6 +518,9 @@ mod tests {
             "stopBackend",
             "chatgptExercise",
             "chatgptReset",
+            "chatgptSwitch",
+            "chatgptNew",
+            "chatgptSwitchBack",
             "captureChatgptRowsNarrow",
             "captureChatgptWide",
             "captureChatgptNarrow",
@@ -517,6 +533,9 @@ mod tests {
         }
         let observation = json!({"ok":true,"ready":true,"formVisible":false,"manualControlsAbsent":true,"notConnected":true,"saved":true,"liveApplied":true,"liveUnknown":false,"savedUnapplied":false,"pendingRestart":false,"restartVisible":false,"restartFocused":false,"saveFocused":false,"editsCancelled":false,"catalogReady":true,"catalogExercised":true,"catalogWithoutDefaults":true,"emptyCatalog":false,"keysReady":false,"keysEdited":false,"keysRejected":false});
         assert!(serde_json::from_value::<Observation>(observation.clone()).is_ok());
+        let mut invalid_choice = observation.clone();
+        invalid_choice["chatgptChoosing"] = json!("private");
+        assert!(serde_json::from_value::<Observation>(invalid_choice).is_err());
         let mut private = observation;
         private["password"] = json!("private-sentinel");
         assert!(serde_json::from_value::<Observation>(private).is_err());

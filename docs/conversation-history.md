@@ -1,8 +1,7 @@
 # Conversation replay and bounded local compaction
 
 [Integrated memory](memory.md) documents the current consumer, controls and explicit
-historical transition. The original redesign contract is kept as
-[history](history/memory-redesign-contract.md).
+historical transition.
 
 ## Supported path and independent states
 
@@ -64,37 +63,9 @@ history rather than gaining general replay. Provider capacity errors remain expl
 never silent clipping or fallback. Old measured token counts and monetary reservations
 are historical metadata, not admission gates. Compaction still processes one bounded
 source batch and preserves source validation/CAS/cancellation/timeouts/local storage
-bounds; counting is not a prerequisite. The earlier numeric profiles below document
-historical compatibility arithmetic only and are no longer enforced for new calls.
+bounds; counting is not a prerequisite. Historical token allocations, price tables and counting-preflight arithmetic remain in Git history, not current admission rules.
 
-The exact Luna profile is documented by [OpenAI's model page](https://developers.openai.com/api/docs/models/gpt-6-luna)
-and [pricing](https://developers.openai.com/api/docs/pricing), rechecked 2026-11-04:
-1,050,000 context and 128,000 output tokens; standard USD0.10 input/USD0.50 output
-per million, with separately priced cache writes. These are published facts, not
-funding, latency or remote-availability evidence.
-
-The non-memory app allocation remains32768 total,4096 output reserve,1639 safety
-margin, **27033 input tokens**. The input allocation adds only the sealed pin's
-exact measured memory tokens, capped at the qualified model context minus the
-unchanged4096 output/1639 safety reserves. Memory does not consume H's existing
-history allocation or become new compaction source; no vendor-maximum history
-allocation is enabled. Exact total admission still includes policy/tool/schema and
-fresh-tail overhead and refuses genuinely impossible requests without silent clipping. Fresh user/grounding/current tool input is also
-bounded to 8192 tokens. Exact counts use the documented
-[Responses input-token endpoint](https://developers.openai.com/api/docs/guides/token-counting)
-on post-SDK model input, policy and tool definitions, with the same admitted
-origin/credentials and deadline. Full-input, fresh-tail and base/prefix allocation
-counts precede dispatch. No local Luna encoding is guessed; Unicode and tool
-framing are counted by that model's endpoint. Missing/invalid/failed counts refuse
-inference; SDK retries are disabled on this path.
-
-Compact when history reaches 80 percent of its current allocation or the whole
-request would overflow. One boundary processes one oldest contiguous batch (at
-most twenty completed turns) plus previous **conversation-only** compact state,
-retaining at least two exact recent pairs. No global snapshot/current tool payload
-is new compaction source. Generation has no tools, a 30-second total abortable,
-monotonic deadline (raised from five seconds after measured live timeouts), 8192 serialized input/2048 output tokens and no automatic retry.
-Those older token/item allocations are historical, not current admission gates.
+One compaction boundary processes the oldest contiguous batch of at most twenty completed turns plus previous **conversation-only** compact state, retaining at least two exact recent pairs. Global memory/current tool payloads are never new compaction sources. Generation has no tools or automatic retry and a 30-second total abortable monotonic deadline.
 Current generation returns strict `{summary:string}` continuity with no topic blacklist,
 negation exception, item count/text/source-ID certificate or6000-character ceiling.
 The existing65536-unit serialized transport envelope and the same finite opaque-text
@@ -146,8 +117,7 @@ active source admissions become stale, and late work cannot recreate a deleted
 conversation. Source transcripts, legacy-vector deletion exclusions, saved plan
 documents and external credentials keep their existing separate scopes.
 
-Check admission before/after token preflight, tool execution, persistence and
-final delivery. On invalidation suppress undelivered prose; report only names of
+Check admission around tool execution, persistence and final delivery. On invalidation suppress undelivered prose; report only names of
 actual completed side effects, without deleted content, and never replay them.
 Already committed writes/displayed chunks or exported context cannot be recalled.
 JSON abort before commit leaves an incomplete source; disconnect after local
@@ -166,16 +136,7 @@ admission after owned failure/abort.
 
 ## Migration and evidence
 
-Current desktop startup/Use existing remains non-migrating and requires schema25.
-Schema25 changes only four effective erasure triggers, preserving all stored rows and
-compatible compacts. Older24 readers refuse25; installed24 retains its old triggers until
-separately authorized exact-target migration. The earlier schema21 transition below is
-historical evidence, not current activation authority.
-Explicitly rehearse additive20/21 changes on an authored populated schema19/20 backup
-first; historical18/19 migration bytes are unchanged. Originals,
-legacy vectors, Profile, plan/settings/key fields are not converted/backfilled.
-Older schema19/20 desktop admission refuses schema21; after new writes use a compatible
-forward fix or separately reconciled restore, not an unsafe older writer or copy-back.
+Desktop startup/Use existing requires the current schema without migration; [desktop schema upgrades](desktop.md#schema-upgrades) owns the stopped-target, backup, rehearsal and activation procedure. [Memory compatibility](cross-chat-summary.md#compatibility-and-validation) owns schema25's removal of four erasure triggers with stored rows/compacts preserved. Historical schema18–21 migration bytes remain unchanged, not current activation authority. Originals, legacy vectors, Profile, plans and settings/keys are not converted/backfilled by replay. After new writes use a compatible forward fix or separately reconciled restore, never an older writer or blind copy-back.
 
 `conversation-replay.test.ts` captures actual locked SDK serialized requests with
 fake transport; `summary-pin.test.ts` additionally combines SQLite pins, planner/

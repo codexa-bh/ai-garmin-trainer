@@ -54,6 +54,17 @@ async function reload() {
     expect(byId<HTMLButtonElement>("cancel").disabled).toBe(false),
   );
 }
+async function openSwitch() {
+  fireEvent.click(byId("chatgpt-switch"));
+  await waitFor(() =>
+    expect(byId("chatgpt-switch-continue").hidden).toBe(false),
+  );
+  await waitFor(() =>
+    expect(byId<HTMLButtonElement>("chatgpt-switch-continue").disabled).toBe(
+      false,
+    ),
+  );
+}
 beforeEach(async () => {
   document.documentElement.innerHTML = readFileSync(
     "src-tauri/ui/index.html",
@@ -347,6 +358,8 @@ it("switching the sole connection clears only account model selections and never
   );
   const prior = structuredClone(savedEntries[0]);
   choose("second-model");
+  await openSwitch();
+  selectAccount("new-account");
   invoke.mockImplementationOnce(async (command) => {
     expect(command).toBe("chatgpt_connect");
     connections = [
@@ -361,7 +374,7 @@ it("switching the sole connection clears only account model selections and never
       message: "Replacement active; old records preserved",
     };
   });
-  fireEvent.click(byId("chatgpt-switch"));
+  fireEvent.click(byId("chatgpt-switch-continue"));
   await waitFor(() =>
     expect(byId<HTMLSelectElement>("chatgpt-account").value).toBe(otherId),
   );
@@ -408,10 +421,11 @@ it("reconnect keeps the explicit current registration target instead of creating
 });
 it("cancelled or failed Switch account leaves the old connection and saved catalog intact", async () => {
   const before = structuredClone(connections);
+  await openSwitch();
   invoke.mockImplementationOnce(async () => {
     throw "Sign-in cancelled; previous connection unchanged";
   });
-  fireEvent.click(byId("chatgpt-switch"));
+  fireEvent.click(byId("chatgpt-switch-continue"));
   await waitFor(() =>
     expect(byId("chatgpt-status").textContent).toContain(
       "previous connection unchanged",
@@ -482,18 +496,23 @@ it("refresh clears removed models without selecting replacements or losing still
 });
 it("explicit Switch account keeps the old connection while native reused outcome selects an existing unchanged registration", async () => {
   expect(byId("chatgpt-switch").hidden).toBe(false);
+  await openSwitch();
+  expect(
+    invoke.mock.calls.filter(([command]) => command === "chatgpt_connect"),
+  ).toHaveLength(0);
   invoke.mockImplementationOnce(async () => ({
     registrationId: id,
     message: "Existing registration reused; credentials unchanged",
   }));
-  fireEvent.click(byId("chatgpt-switch"));
+  fireEvent.click(byId("chatgpt-switch-continue"));
   await waitFor(() =>
     expect(byId("chatgpt-status").textContent).toContain(
       "Existing registration reused",
     ),
   );
   expect(invoke).toHaveBeenCalledWith("chatgpt_connect", {
-    registrationId: null,
+    registrationId: id,
+    newAccount: false,
     consent: false,
     context: 0,
   });
@@ -502,7 +521,8 @@ it("explicit Switch account keeps the old connection while native reused outcome
   expect(connections).toHaveLength(1);
 });
 it("shows first-success plan disclosure once with acknowledgment and focus returned to a visible control", async () => {
-  fireEvent.click(byId("chatgpt-switch"));
+  await openSwitch();
+  fireEvent.click(byId("chatgpt-switch-continue"));
   await waitFor(() =>
     expect(byId<HTMLDialogElement>("chatgpt-welcome").open).toBe(true),
   );
@@ -523,6 +543,97 @@ it("shows first-success plan disclosure once with acknowledgment and focus retur
     expect(document.activeElement).toBe(byId("chatgpt-models")),
   );
 });
+it("Switch account starts no authorization until an explicit saved-or-new choice is continued", async () => {
+  await openSwitch();
+  expect(
+    invoke.mock.calls.filter(([command]) => command === "chatgpt_connect"),
+  ).toHaveLength(0);
+  selectAccount("new-account");
+  expect(byId("chatgpt-status").textContent).toContain(
+    "creates a connected app",
+  );
+  fireEvent.click(byId("chatgpt-switch-continue"));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("chatgpt_connect", {
+      registrationId: null,
+      newAccount: true,
+      consent: false,
+      context: 0,
+    }),
+  );
+});
+it("saved recovery choices carry their opaque registration target without exposing credentials or activating on selection", async () => {
+  invoke.mockImplementationOnce(async (command, args) => {
+    expect(command).toBe("chatgpt_connections");
+    expect(args).toEqual({ switching: true });
+    return [
+      connection,
+      {
+        ...connection,
+        id: otherId,
+        label: "Another retained connection · 2",
+        state: "unavailable",
+        planEnabled: false,
+        models: [],
+      },
+    ];
+  });
+  await openSwitch();
+  selectAccount(otherId);
+  expect(byId("chatgpt-model-picker").hidden).toBe(true);
+  expect(
+    invoke.mock.calls.filter(([command]) => command === "chatgpt_connect"),
+  ).toHaveLength(0);
+  fireEvent.click(byId("chatgpt-switch-continue"));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("chatgpt_connect", {
+      registrationId: otherId,
+      newAccount: false,
+      consent: false,
+      context: 0,
+    }),
+  );
+});
+it("Back from the chooser restores the active connection without provider actions", async () => {
+  await openSwitch();
+  selectAccount("new-account");
+  fireEvent.click(byId("chatgpt-switch-back"));
+  await waitFor(() =>
+    expect(byId("chatgpt-switch-continue").hidden).toBe(true),
+  );
+  expect(byId<HTMLSelectElement>("chatgpt-account").value).toBe(id);
+  expect(
+    invoke.mock.calls.filter(([command]) => command === "chatgpt_connect"),
+  ).toHaveLength(0);
+});
+it("failed switch-choice discovery cannot fall back to fresh registration", async () => {
+  invoke.mockImplementationOnce(async () => {
+    throw Error("Unavailable");
+  });
+  fireEvent.click(byId("chatgpt-switch"));
+  await waitFor(() =>
+    expect(byId("chatgpt-status").textContent).toContain(
+      "no new registration was started",
+    ),
+  );
+  expect(byId("chatgpt-switch-continue").hidden).toBe(true);
+  expect(
+    invoke.mock.calls.filter(([command]) => command === "chatgpt_connect"),
+  ).toHaveLength(0);
+});
+it("first connection explicitly declares new registration intent", async () => {
+  connections = [];
+  await reload();
+  fireEvent.click(byId("chatgpt-connect"));
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("chatgpt_connect", {
+      registrationId: null,
+      newAccount: true,
+      consent: false,
+      context: 0,
+    }),
+  );
+});
 it("identity-only state cannot add models and asks for plan consent only by explicit action", async () => {
   connections = [
     { ...connection, state: "identity-only", planEnabled: false, models: [] },
@@ -538,12 +649,14 @@ it("identity-only state cannot add models and asks for plan consent only by expl
   await waitFor(() =>
     expect(invoke).toHaveBeenCalledWith("chatgpt_connect", {
       registrationId: id,
+      newAccount: false,
       consent: true,
       context: 0,
     }),
   );
 });
 it("a closed Settings window cannot show a late sign-in or select a late reused registration", async () => {
+  await openSwitch();
   let finish: (value: unknown) => void = () => {};
   invoke.mockImplementationOnce(
     () =>
@@ -551,7 +664,7 @@ it("a closed Settings window cannot show a late sign-in or select a late reused 
         finish = resolve;
       }),
   );
-  fireEvent.click(byId("chatgpt-switch"));
+  fireEvent.click(byId("chatgpt-switch-continue"));
   await waitFor(() => expect(byId("chatgpt-cancel").hidden).toBe(false));
   listeners["desktop-settings-closed"]();
   finish({ registrationId: id, message: "Late result" });

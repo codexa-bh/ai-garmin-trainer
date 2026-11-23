@@ -8,7 +8,7 @@ A local-first training companion with public source: import your Garmin Connect 
 - **Personalization** — an editable Profile and General Plan, chat-maintained weekly plans and reviews, and an inspectable cross-chat memory summary.
 - **Provider choice** — ChatGPT subscription, OpenAI or DeepSeek API keys, explicit loopback Ollama, or opt-in OpenRouter. Cloud providers receive bounded chat/Garmin context; local storage does not mean all AI processing stays on your machine.
 
-**Local-only, single-user, no app sign-in.** Run on loopback only; do not expose it on your LAN, a public host, or a tunnel. Garmin data comes from Garmin's official **Personal API** with a key you create for your own account; it is a new API that may change, and a key can expire or be revoked. The supported platform is **macOS ARM64**; published downloads and their limits are listed in the [release records](docs/history/releases.md).
+**Local-only, single-user, no app sign-in.** Run on loopback only; do not expose it on your LAN, a public host, or a tunnel. Garmin data comes from Garmin's official **Personal API** with a key you create for your own account; it is a new API that may change, and a key can expire or be revoked. The supported platform is **macOS ARM64**; published downloads are on [GitHub Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases), with notes in [`release-notes/releases/`](release-notes/releases/).
 
 [Installation](#installation) · [Settings guide](docs/settings.md) · [Garmin connection](docs/garmin-auth.md) · [Safety and privacy](#safety-and-privacy)
 
@@ -44,7 +44,7 @@ Captured on 18 September 2026 from the loopback development app at a 1440-pixel 
 
 ## Installation
 
-The supported product is the **local macOS ARM64 Tauri app** with bundled Node; Next.js is its internal rendering/backend technology, not a separate browser launch path. You can build from source as below or use a published DMG: published binaries are **unsigned and not notarized**, and macOS may refuse to open them. Do not disable OS protection to get around that. Windows x64 alpha installers are published as an experimental build outside the supported platform; see [Windows alpha limits](docs/windows.md). This advanced-user setup is cross-checked against scripts, not clean-machine certification; [desktop runtime](docs/desktop.md) covers build details, private-state adoption and recovery.
+The supported product is the **local macOS ARM64 Tauri app** with bundled Node; Next.js is its internal rendering/backend technology, not a separate browser launch path. You can build from source as below or use a published DMG: published binaries are **unsigned and not notarized**, and macOS may refuse to open them. Do not disable OS protection to get around that. Windows x64 alpha installers are published as an experimental build outside the supported platform; see [Windows alpha limits](docs/windows.md). This advanced-user setup is cross-checked against scripts, not clean-machine certification. [Desktop runtime](docs/desktop.md) owns build details, [private-state adoption](docs/desktop.md#explicit-private-state-adoption) and recovery.
 
 ### 1. Install prerequisites and build
 
@@ -62,7 +62,7 @@ Source reads/clones need no GitHub account. Pushing requires repository authoriz
 
 ### 2. Enter Settings
 
-First launch opens native **Settings** (also in the app menu, even without a working backend). A blank installation walks through **Data → Provider → Connect Garmin or continue → Review**: choose **Create new database** or **Use existing data**, enter at least one chat provider, then connect Garmin or continue without it. Provider keys are stored in an owner-private **plaintext** settings file (not encryption). For an existing installation, chat catalog and shared provider-key changes apply live after Save; every other setting needs an explicit quit and reopen. The [Settings guide](docs/settings.md) covers each option, model choice and memory.
+First launch opens native **Settings** (also in the app menu, even without a working backend). A blank installation walks through **Data → Provider → Connect Garmin or continue → Review**: choose **Create new database** or **Use existing data**, enter at least one chat provider, then connect Garmin or continue without it. Provider keys are stored in an owner-private **plaintext** settings file (not encryption). The [Settings guide](docs/settings.md) covers model choice, memory and [Save versus restart](docs/settings.md#save-and-activation).
 
 ### 3. Connect Garmin
 
@@ -99,7 +99,7 @@ Read only what your change touches:
 | Release                                | [Release runbook](docs/release.md), [release notes](release-notes/README.md), [redistribution](docs/redistribution.md)                                                                                |
 | Data lifecycle and support             | [Source readiness and data lifecycle](docs/source-beta-readiness.md)                                                                                                                                  |
 
-[`docs/history/`](docs/history/) holds retired contracts, task-bound recipes and published-release records; it is not current guidance. Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/api/`, `src/lib/ai/`, `src/lib/garmin/` and `src/lib/memory/`.
+Key code entry points are `src/app/trainer-dashboard.tsx`, `src/app/api/`, `src/lib/ai/`, `src/lib/garmin/` and `src/lib/memory/`.
 
 ## Validation
 
