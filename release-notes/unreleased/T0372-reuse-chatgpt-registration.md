@@ -1,6 +1,6 @@
 ---
 task: T0372
-pr: pending
+pr: 260
 category: Fixed
 release_note_required: true
 ---
