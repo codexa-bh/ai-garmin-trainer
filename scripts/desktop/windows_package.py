@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import stat
 import subprocess
 import uuid
 
@@ -133,9 +134,9 @@ def payload_inventory(destination):
         info = path.lstat()
         if platform_files.is_link(info):
             raise ValueError('Installer payload link refused')
-        if path.is_dir():
+        if stat.S_ISDIR(info.st_mode):
             continue
-        relative = PurePosixPath(*path.relative_to(destination).parts).as_posix()
+        relative = path.relative_to(destination).as_posix()
         if INSTALLER_ONLY.search(relative):
             continue
         inventory[relative] = digest(path)
