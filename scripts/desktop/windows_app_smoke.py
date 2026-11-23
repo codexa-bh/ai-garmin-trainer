@@ -27,6 +27,7 @@ import windows_release
 import windows_smoke_evidence as evidence
 import windows_smoke_state as state
 import windows_smoke_process as process
+import release_timing as timing
 
 PRODUCT_ID = 'com.codexa.garmin-trainer.desktop'
 UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\Garmin Trainer'
@@ -216,6 +217,7 @@ def inventory(root):
     return result
 
 
+@timing.stage('installed-payload-admission')
 def installed_payload(program, expected):
     actual = inventory(program)
     if set(actual) != set(expected) | {'uninstall.exe'} or any(
@@ -312,6 +314,7 @@ def assert_preserved(database, before, config, settings, appdata, markers):
         raise ValueError('Real app-data marker or run settings lost/changed during uninstall')
 
 
+@timing.stage('installer-process-tree')
 def execute_installer(executable, arguments, *, cwd, timeout=120):
     # Direct executable, no shell/elevation. NSIS /D= is the last argument.
     code = process.execute(executable, arguments, cwd=cwd, timeout=timeout)
@@ -411,6 +414,7 @@ class InstalledRun(Run):
         state.write_file(self.descriptor_path, json.dumps(self.descriptor).encode())
         self.descriptor_bytes = state.read_file(self.descriptor_path, 16 * 1024)
 
+    @timing.stage('installed-native-admission-hydration')
     def start(self, binary, timeout=100):
         try:
             super().start(binary, timeout)
@@ -431,6 +435,7 @@ class InstalledRun(Run):
                 'Own profile WebView processes not observable; settlement cannot be certified'
             )
 
+    @timing.stage('installed-current-preservation')
     def check_current(self):
         self.pin.verify()
         self.verify_current()
@@ -511,6 +516,7 @@ class InstalledRun(Run):
             raise ValueError('Verified native boot required')
         return {**super().request(command, request_id), 'expectedBoot': self.boot}
 
+    @timing.stage('installed-owned-settlement')
     def stop(self):
         if self.child is not None:
             child = self.child
@@ -568,6 +574,7 @@ class InstalledRun(Run):
             )
             self.http('/command', {**request, 'expectedBoot': self.previous_boot}, expected=400)
 
+    @timing.stage('installed-capture-restoration')
     def captures(self, staging):
         self.command({'type': 'click', 'target': 'Close Profile & data'})
         self.wait(lambda o: o['view'] == 'Trainer', 'Trainer before captures')
@@ -621,6 +628,7 @@ class InstalledRun(Run):
         return images
 
 
+@timing.stage('same-version-program-replacement')
 def replace_program(installer, program, expected, registered):
     """Only the already verified same-version installer, after owned shutdown."""
     execute_installer(installer, ['/S', '/NS', '/D=' + str(program)], cwd=installer.parent)
@@ -636,6 +644,7 @@ def scenario(args):
         raise ValueError('Only exclusive direct children of canonical RUNNER_TEMP may be allocated')
     scratch = state.mkdir(args.scratch)
     staging = state.mkdir(args.evidence)
+    timing.attach(scratch)
     outcomes = {key: 'not-run' for key in evidence.STAGES}
     started = time.monotonic()
     phase_started = started
@@ -832,7 +841,8 @@ def main():
     args = parser.parse_args()
     state.canonical(args.producer)
     state.canonical(args.record)
-    scenario(args)
+    with timing.recording('windows-installed', report=True):
+        scenario(args)
 
 
 if __name__ == '__main__':

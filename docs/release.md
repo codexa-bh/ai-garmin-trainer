@@ -85,12 +85,12 @@ The standard process for a routine version/notes cut, after the same four steps 
 
 ### Four steps
 
-| Step                      | Required outcome                                                                                                                                                                                                                                           |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Check readiness**    | Record the exact current `origin/main` SHA, clean source and read-only provider tags/releases. Review the range since the previous tag against the readiness inputs below and refresh the dependency advisory evidence.                                    |
-| **2. Cut and merge**      | Create a task worktree from that commit, `prepare` the version and reviewed notes, run installed-tree-mutating checks (Vitest, `npm run validate`) now, then deliver through a normal checked PR with exact-head hosted CI. Record the merged release SHA. |
-| **3. Build and verify**   | Build once at the recorded SHA, package the DMG, and `verify` it with the printed record. Smoke is artifact-only: no launched ordinary smoke is required for a routine cut unless the app's behaviour changed.                                             |
-| **4. Publish and verify** | `status` and `draft` plan, then `draft --execute` and `publish --execute` with identical inputs. Verify the public release anonymously: Latest, tag target, body and all three asset digests. Reconcile docs by an ordinary PR and close the task.         |
+| Step                      | Required outcome                                                                                                                                                                                                                                                                                                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. Check readiness**    | Record the exact current `origin/main` SHA, clean source and read-only provider tags/releases. Review the range since the previous tag against the readiness inputs below and refresh the dependency advisory evidence.                                                                                                            |
+| **2. Cut and merge**      | Create a task worktree from that commit, check the rendered prospective body with explicit platform/baseline/schema context, then `prepare` with that same context. Run installed-tree-mutating checks (Vitest, `npm run validate`) now and deliver through a checked PR with exact-head hosted CI. Record the merged release SHA. |
+| **3. Build and verify**   | Build once at the recorded SHA, package the DMG, and `verify` it with the printed record. Smoke is artifact-only: no launched ordinary smoke is required for a routine cut unless the app's behaviour changed.                                                                                                                     |
+| **4. Publish and verify** | `status` and `draft` plan, then `draft --execute` and `publish --execute` with identical inputs. Verify the public release anonymously: Latest, tag target, body and all three asset digests. Reconcile docs by an ordinary PR and close the task.                                                                                 |
 
 **Gates.** Authority for the cut comes from the operator's request for it; there is no separate residual-risk or tuple approval step. Failed checks or guardrails, unsafe or changed source or bytes, publication ambiguity, protection or review refusals, and missing credentials stop. Never bypass them, edit a stamp, or retarget a tag.
 
@@ -147,15 +147,47 @@ npm run release:notes:preview   # print the generated categorized text; no effec
 Metadata preparation is local, requires clean source and produces an ordinary reviewable PR diff, not a release:
 
 ```bash
-npm run release -- prepare --version "$VERSION"
+npm run release -- preflight --version "$VERSION" --notes "$REVIEWED_TEXT_FILE" --preflight-context "$CONTEXT"
+# Inspect the rendered body before freezing source or starting any native build.
 # Plans only and names the fragments it would promote; add --execute to write the diff:
-npm run release -- prepare --version "$VERSION" --execute
+npm run release -- prepare --version "$VERSION" --notes "$REVIEWED_TEXT_FILE" --preflight-context "$CONTEXT" --execute
 npm run release:check
 ```
 
-`prepare` validates the version, every mirror and every fragment before writing. It writes `releases/$VERSION.md` (Trainer heading, `Status: prepared`, the signing/upgrade/rights warnings, then the required fragments by category) and the owned version mirrors, re-checks the result and only then deletes the fragments it published. No-note markers and supporting files stay. A refusal leaves every input unchanged; if a write fails midway, inspect the partial diff with `git status` and restore it with Git, because pending fragments are never deleted ahead of success. With no required fragments the note states that no changes were recorded; routine cut bookkeeping is never a product entry.
+`prepare` validates the version, every mirror, every fragment and any supplied disclosure context before writing. Windows preparation (`--platform windows-x64`) requires the context and its Windows inclusion; legacy macOS-only callers without context retain their existing behavior, not a claim that the stronger disclosure check ran. It writes `releases/$VERSION.md` (Trainer heading, `Status: prepared`, the signing/upgrade/rights warnings, then the required fragments by category) and the owned version mirrors, re-checks the result and only then deletes the fragments it published. No-note markers and supporting files stay. A refusal leaves every input unchanged; if a write fails midway, inspect the partial diff with `git status` and restore it with Git, because pending fragments are never deleted ahead of success. With no required fragments the note states that no changes were recorded; routine cut bookkeeping is never a product entry.
 
 To add reviewed wording, pass `--notes "$REVIEWED_TEXT_FILE"`: its text is placed before the generated changes and never replaces them. Edit a fragment instead when its own wording should change. Use an unused SemVer (optional explicit prerelease; no build metadata), never a tag or path as the version. The helper preserves earlier version notes. Review all generated changes, then deliver/merge through the normal feature PR route. `Status: prepared` means notes prepared, not published or approved. Tests use temporary fixture repositories. Real preparation/publication belongs only to its explicitly scoped release task.
+
+### Rendered disclosure preflight
+
+`npm run release -- preflight --preflight-context "$CONTEXT"` checks the current versioned notes. With an unused future `--version` it composes the prospective prepared notes from `--notes` plus all required fragments, exactly as preparation will. This is a cheap read-only local check: no native build, artifact, provider access, fragment consumption or source write. The JSON `body` is the actual publisher's macOS or release-set renderer with conspicuous unresolved source/digest placeholders. It is **not** a selected tuple, approval, provenance or release eligibility. Review the rendered text, not just the exit code. A notes, fragment or context change requires another check; executed preparation revalidates rather than accepting an earlier pass.
+
+The explicit context JSON has exactly these fields (use the actual prior-release full source commit/version/schema, never inferred Latest or a guessed no-change):
+
+```json
+{
+  "version": "0.1.5",
+  "platforms": ["macos-arm64", "windows-x64"],
+  "baseline": {
+    "commit": "02fd82fd9842e93402cdc88e7e2f387fb02d3fde",
+    "version": "0.1.4",
+    "schema": 30
+  },
+  "schema": 30
+}
+```
+
+The baseline must be locally available and an ancestor of HEAD; its package version and source schema are read from that exact Git object. Current schema is read from `src/lib/db/migrations.ts`. Missing/unknown, unsupported platform, contradictory version/schema or downgrade contexts refuse. Fetch the explicit baseline before checking if absent. `release-notes/windows-preflight.json` is the maintained Windows job selection for the current notes, **not** an automatically selected release baseline; update it deliberately when preparing the next notes. It checks Windows only, not omitted macOS qualification.
+
+Disclosure assertions are narrow literal, case-insensitive phrases (Markdown bold is ignored), not an NLP classifier of fragment prose. Include the following reviewed wording when applicable; free-form changes remain free-form and human review still owns contradictory or overstated support prose elsewhere:
+
+- Windows: **Windows x64 alpha**, **no Authenticode verified publisher**, **Windows Server 2025 x64**, **not Windows 11, Windows 10 or ARM support**, and **nor qualification of trusted input, normal onboarding or real-service access**. An unsigned sentence must remain. Shared stable/Latest is not full-platform support.
+- macOS: retain the generic unsigned/not-notarized warning, and **minimum macOS 12.0 is not minimum-OS certification**. These prospective requirements do not rewrite immutable historical notes or retroactively change legacy macOS records.
+- Retain the generic matching-source CLI, stopped-owner, verified-backup, no-startup-upgrade and redistribution warnings.
+- For changed schema, state exactly `Version <baseline-version> uses schema <old>; this release uses schema <new>.` Include **explicit database upgrade**, **prior compatible app**, **database backup and settings** recovery wording, and, with Windows, **Windows existing-database migration via the source CLI is not qualified**. These assertions concern the release-level transition, not intermediate migrations mentioned in fragments.
+- With no schema change, explicitly state `No database schema change: <old> → <new>.` Unknown context is never no-change. Contradictory release-level transition declarations refuse.
+
+No DB is opened or migrated. The check generates no unsupported support claim and does not turn source-CLI instructions into Windows qualification. Historical notes/assets stay byte-for-byte unchanged.
 
 ## Build versus downloaded runtime
 
@@ -235,7 +267,7 @@ Per-platform records (`release.json` for macOS, schema 1 or 2; `release-windows-
 
 The four-step macOS recipe above remains the legacy three-asset route. For a specifically authorized macOS ARM64 + Windows x64 **alpha** cut, both final packages require actual current-byte qualification, not routine-cut artifact-only smoke or historical images. Never rebuild after a tag/draft or substitute a later main tip.
 
-1. Complete reviewed tooling/version/notes PRs, exact-head trusted Validate and manually requested Windows feedback; select one full clean **merged** SHA. Refresh actual range, target-specific rights/notices/corpus, prerequisites and dependency findings. Run `npm run validate` before final native production (Vitest changes installed cache bytes). Record native toolchains/locks and keep the same npm/PATH context through build/package/verify/remote operations. Neither host may produce the other's architecture.
+1. Before version preparation or source freeze, run and inspect the rendered disclosure preflight above with both platforms and the actual prior-release baseline/schema, then prepare using the same context. Recheck the prepared notes and update the Windows job context. Complete reviewed tooling/version/notes PRs, exact-head trusted Validate and manually requested Windows feedback; select one full clean **merged** SHA. Refresh actual range, target-specific rights/notices/corpus, prerequisites and dependency findings. Run `npm run validate` before final native production (Vitest changes installed cache bytes). Record native toolchains/locks and keep the same npm/PATH context through build/package/verify/remote operations. Neither host may produce the other's architecture.
 2. macOS: use exact-source `release build`, `package`, `verify` above. Run locked native tests, full two-instance final-DMG `smoke:ordinary --release-record`, affected feature smoke and separate `smoke:release`. Open every required current image individually, including wide/narrow Profile over navigation; masked layer painting must retain real occlusion. Check actual payload/resources/notices/private exclusions, signing profile and 140,000,000-byte budget. Preserve only owned mount/process/lease settlement; never force-detach or activate the operator app.
 3. Windows: explicitly dispatch `windows.yml` at the selected reviewed ref with `release_export=true` (default is false). Require the observed immutable `headSha` to equal the frozen merged SHA, event workflow_dispatch, and successful final run/attempt. The job builds/packages/verifies natively, exercises the **same installer** in the actual installed app, captures six masked synthetic views with restoration, shuts down owned processes, replaces program files with that exact same-version installer, rechecks payload/registration/DB/settings preservation, then preserving uninstall/settlement. It exports the exact public-safe triple plus receipt separately from the six-image artifact; both request three-day retention. It does not publish a release. Retain the exact artifact IDs/expiry and download before runner/artifact expiry.
 4. Transport from that exact successful run, using physical canonical task destinations. Do not select the newest run, wildcard download or trust archive filenames/receipt booleans. The consumer checks live workflow/run/attempt/head/artifact identity, provider archive digest/size, exact bounded regular ZIP members, exclusive extraction and all record/checksum/current-byte identities. Preserve its sibling ZIP: later requalification compares local members with that provider-authenticated archive, so a self-consistent edited record/receipt cannot forge native attribution. Foreign checks are **portable digests + attributed native run**, never native producer admission. Download the separate image artifact through its existing strict consumer and inspect all six images individually.

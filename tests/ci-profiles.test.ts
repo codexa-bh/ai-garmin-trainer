@@ -147,6 +147,19 @@ describe("economical CI profiles", () => {
     );
   });
 
+  it("checks rendered Windows disclosure context before expensive preparation", () => {
+    const windows = read(".github/workflows/windows.yml");
+    const command =
+      "npm run release -- preflight --preflight-context release-notes/windows-preflight.json";
+    expect(windows).toContain(command);
+    expect(windows).toContain("fetch-depth: 0");
+    expect(windows.indexOf(command)).toBeLessThan(
+      windows.indexOf("rustup toolchain install"),
+    );
+    expect(windows.indexOf(command)).toBeLessThan(windows.indexOf("npm ci"));
+    expect(windows).toContain("release_preflight_test");
+  });
+
   it("retains exact-source Windows x64 build checks and only finite synthetic-image uploads", () => {
     const windows = read(".github/workflows/windows.yml");
     expect(windows).toContain("runs-on: windows-2025");

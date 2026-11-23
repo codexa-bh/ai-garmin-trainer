@@ -62,7 +62,7 @@ class Recorder:
 
 
 @contextlib.contextmanager
-def recording(action, **correlation):
+def recording(action, *, report=False, **correlation):
     recorder = Recorder(action, correlation)
     token = _CURRENT.set(recorder)
     try:
@@ -77,6 +77,27 @@ def recording(action, **correlation):
             {'endedAt': utc(), 'elapsedSeconds': round(time.monotonic() - recorder.started, 3)}
         )
         recorder.save()
+        if report:
+            # Safe log observation only; private paths/references/correlation are
+            # deliberately omitted. Nested spans are not independent runner cost.
+            print(
+                json.dumps(
+                    {
+                        'timingObservation': {
+                            key: recorder.value[key]
+                            for key in (
+                                'action',
+                                'startedAt',
+                                'endedAt',
+                                'elapsedSeconds',
+                                'outcome',
+                                'stages',
+                            )
+                        }
+                    }
+                ),
+                flush=True,
+            )
         if recorder.path is not None:
             print(
                 json.dumps(

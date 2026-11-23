@@ -1090,6 +1090,24 @@ class TimingTests(unittest.TestCase):
             timing.reference('remote-journal', 'name')
         self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_safe_report_and_decorated_spans_preserve_owner_failure_without_private_data(self):
+        @timing.stage('inventory-hash')
+        def observed():
+            raise ValueError('private owner diagnostics')
+
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            with self.assertRaisesRegex(ValueError, 'private owner diagnostics'):
+                with timing.recording('windows-installed', report=True, private='never log'):
+                    timing.reference('private-journal', str(self.root))
+                    observed()
+        report = json.loads(output.getvalue())['timingObservation']
+        self.assertEqual(report['outcome'], 'failed or interrupted')
+        self.assertEqual(report['stages'][0]['error'], 'ValueError')
+        self.assertEqual(len(report['stages']), 1)
+        self.assertNotIn('private', output.getvalue())
+        self.assertNotIn(str(self.root), output.getvalue())
+        self.assertEqual(list(self.root.iterdir()), [])
+
     def test_no_scratch_actions_keep_output_and_write_no_timing(self):
         import release
 

@@ -76,6 +76,8 @@ gh run view <run-id> --repo codexa-bh/ai-garmin-trainer --json headSha,event,sta
 
 Optional `-f release_export=true` explicitly selects the exact qualified public-safe release triple export below; default dispatch does not export binaries. It grants no tag/upload/publication and changes no automatic triggers.
 
+Before Rust setup, dependencies, resource assembly or native builds, the workflow runs the read-only [rendered disclosure preflight](release.md#rendered-disclosure-preflight) against `release-notes/windows-preflight.json`. That explicit context binds the current notes' Windows selection and prior-release source/schema; it must be reviewed/updated with every cut, not inferred from Latest. Unknown/missing/contradictory context or required alpha/signing/platform/upgrade wording refuses early. Preview placeholders are not artifact identities and do not qualify an installer.
+
 The selected ref is resolved to the dispatch's immutable `github.sha`; checkout and the recorded `TESTED_SOURCE` use that SHA, and the job refuses a different HEAD. Compare the observed run `headSha` with the intended PR head before relying on evidence. A later branch push does not update an earlier dispatch's evidence; explicitly request a new run when needed. Missing automatic Windows PR checks are expected, not a green Windows result.
 
 ## Installed-app scenario and narrow evidence exception
