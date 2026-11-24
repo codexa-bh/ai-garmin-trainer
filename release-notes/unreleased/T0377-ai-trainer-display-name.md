@@ -6,5 +6,5 @@ release_note_required: true
 ---
 
 - The app is now named AI Trainer for Garmin Connect (previously Garmin Trainer).
-  - Downloads, the app, its windows and the Windows installer use the new name; your data and settings are unchanged.
-  - Installing does not replace an existing Garmin Trainer app: delete the old app on macOS, or uninstall it first on Windows.
+  - This release's macOS download, app and windows use the new name; your data and settings are unchanged. No Windows installer is included.
+  - Installing does not replace an existing Garmin Trainer app. Both names share data and settings: quit the old app before opening the new one, and retain the prior compatible app and verified backups for recovery.
