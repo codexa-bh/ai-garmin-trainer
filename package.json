@@ -1,7 +1,7 @@
 {
   "name": "ai-garmin-trainer",
   "version": "0.1.4",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "scripts": {
     "release": "node scripts/desktop/python.mjs scripts/desktop/release.py",
     "release:check": "node scripts/desktop/python.mjs scripts/desktop/release.py check",
