@@ -1,4 +1,4 @@
-# AI Garmin Connect Trainer
+# AI Trainer for Garmin Connect
 
 A local-first training companion: import Garmin history, explore activity/recovery trends and chat with a coach grounded in your data.
 
@@ -48,7 +48,7 @@ git clone https://github.com/codexa-bh/ai-garmin-trainer.git
 cd ai-garmin-trainer
 npm ci
 npm run desktop:build
-open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/AI Trainer for Garmin Connect.app'
 ```
 
 Clone needs no GitHub account; pushing needs authorization. Run commands in checkout. `desktop:dev` rebuilds production resources for native development, not HMR/browser server.

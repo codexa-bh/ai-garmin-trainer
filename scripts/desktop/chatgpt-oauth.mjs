@@ -258,7 +258,7 @@ export function authorization({
     code_challenge_method: "S256",
     code_challenge: createHash("sha256").update(verifier).digest("base64url"),
     ...(!registration && !pendingClientId
-      ? { agent_name_hint: "Garmin Trainer" }
+      ? { agent_name_hint: "AI Trainer for Garmin Connect" }
       : {}),
     ...(registration?.idToken ? { id_token_hint: registration.idToken } : {}),
     ...(consent ? { prompt: "consent" } : {}),
@@ -571,12 +571,16 @@ export async function signIn(
           "content-security-policy": "default-src 'none'",
           "referrer-policy": "no-referrer",
         })
-        .end("Return to Garmin Trainer to check the connection.");
+        .end(
+          "Return to AI Trainer for Garmin Connect to check the connection.",
+        );
       settle.resolve(value);
     } catch (error) {
       response
         .writeHead(400)
-        .end("Sign-in callback refused. Return to Garmin Trainer.");
+        .end(
+          "Sign-in callback refused. Return to AI Trainer for Garmin Connect.",
+        );
       // Wrong-state traffic cannot cancel or consume the genuine pending attempt.
       if (error.message === "denied") {
         accepted = true;

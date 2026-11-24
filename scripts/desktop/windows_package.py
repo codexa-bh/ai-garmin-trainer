@@ -19,7 +19,7 @@ import uuid
 import platform_files
 from release_timing import stage
 
-PRODUCT = 'Garmin Trainer'
+PRODUCT = 'AI Trainer for Garmin Connect'
 BINARY = 'garmin-trainer-desktop.exe'
 # 7-Zip's full extractor at its fixed install location (never PATH). A
 # prerequisite like the MSVC toolchain; its version is bound into build identity.

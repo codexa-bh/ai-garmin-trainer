@@ -682,8 +682,8 @@ export function TrainerDashboard() {
       !healthDashboardOpen ? (
         <header className="app-topbar">
           <div className="app-brand">
-            <h1 className="app-title" title="Garmin AI Trainer">
-              Garmin AI Trainer
+            <h1 className="app-title" title="AI Trainer for Garmin Connect">
+              AI Trainer for Garmin Connect
             </h1>
           </div>
           <nav className="app-nav" aria-label="Main navigation">

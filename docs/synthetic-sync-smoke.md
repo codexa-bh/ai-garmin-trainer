@@ -24,7 +24,7 @@ prepared='/exact/returned/prepared-directory'
 selection="$prepared/selection.json"
 # This is the authored database-only selection, not private input discovery.
 npm run desktop:build
-bundle="$(pwd -P)/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app"
+bundle="$(pwd -P)/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/AI Trainer for Garmin Connect.app"
 npm run smoke:history -- --scratch "$scratch" \
   --input-file "$selection" --bundle "$bundle" --synthetic-sync
 ```

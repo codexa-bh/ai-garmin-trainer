@@ -19,16 +19,17 @@ def write_platform(
     directory, platform_id, version='1.2.3', commit='a' * 40, notes=NOTES, **changes
 ):
     directory.mkdir(parents=True, exist_ok=True)
+    prefix = changes.pop('asset_prefix', 'AI-Trainer-for-Garmin-Connect')
     if platform_id == 'macos-arm64':
         name, target, record_name = (
-            f'Garmin-Trainer-{version}-macos-arm64.dmg',
+            f'{prefix}-{version}-macos-arm64.dmg',
             'aarch64-apple-darwin',
             'release.json',
         )
         signing = 'unsigned-or-linker-adhoc; not notarized; no verified publisher'
     else:
         name, target, record_name = (
-            f'Garmin-Trainer-{version}-windows-x64-setup.exe',
+            f'{prefix}-{version}-windows-x64-setup.exe',
             'x86_64-pc-windows-msvc',
             'release-windows-x64.json',
         )
@@ -78,7 +79,7 @@ class ReleaseSetTests(unittest.TestCase):
         self.assertEqual(value['verification'], release_set.VERIFICATION)
         self.assertEqual(len(files), 6)
         names = [asset['name'] for item in value['entries'] for asset in item['assets']]
-        self.assertIn('Garmin-Trainer-1.2.3-windows-x64-setup.exe', names)
+        self.assertIn('AI-Trainer-for-Garmin-Connect-1.2.3-windows-x64-setup.exe', names)
         self.assertIn('release.json', names)
         self.assertNotIn(str(self.root), json.dumps(value))  # No local paths in public data.
         release_set.validate(value)
@@ -88,6 +89,25 @@ class ReleaseSetTests(unittest.TestCase):
         value, _ = release_set.build([legacy], NOTES)
         self.assertEqual(value['platforms'], ['macos-arm64'])
         self.assertEqual(release_set.build([self.win], NOTES)[0]['platforms'], ['windows-x64'])
+
+    def test_immutable_former_name_assets_remain_readable_without_relabelling(self):
+        for platform in ('macos-arm64', 'windows-x64'):
+            with self.subTest(platform=platform):
+                path = write_platform(
+                    self.root / ('former-' + platform),
+                    platform,
+                    version='0.1.4',
+                    asset_prefix='Garmin-Trainer',
+                    legacy=platform == 'macos-arm64',
+                )
+                value, files = release_set.build([path], NOTES)
+                artifact = value['entries'][0]['assets'][0]
+                self.assertTrue(artifact['name'].startswith('Garmin-Trainer-0.1.4-'))
+                self.assertEqual(release_set.digest(files[artifact['name']])[0], artifact['sha256'])
+                record = json.loads(path.read_text())
+                record['artifact']['name'] = artifact['name'].replace('0.1.4', '0.1.3')
+                with self.assertRaisesRegex(ValueError, 'platform/version'):
+                    release_set.check_record(record, platform)
 
     def test_mixed_duplicate_unsupported_and_ambiguous_sets_refuse(self):
         cases = {
@@ -123,7 +143,7 @@ class ReleaseSetTests(unittest.TestCase):
                 release_set.build([bad], NOTES)
 
     def test_changed_corrupt_missing_or_relabelled_assets_refuse(self):
-        installer = self.win.parent / 'Garmin-Trainer-1.2.3-windows-x64-setup.exe'
+        installer = self.win.parent / 'AI-Trainer-for-Garmin-Connect-1.2.3-windows-x64-setup.exe'
         original = installer.read_bytes()
         installer.write_bytes(b'corrupt')
         with self.assertRaisesRegex(ValueError, 'changed'):
@@ -152,7 +172,7 @@ class ReleaseSetTests(unittest.TestCase):
             release_set.assemble([self.mac, self.win], NOTES, scratch)  # Never overwritten.
         with self.assertRaisesRegex(ValueError, 'version'):
             release_set.assemble([self.mac], NOTES, self.root / 'mac', version='9.9.9')
-        (self.win.parent / 'Garmin-Trainer-1.2.3-windows-x64-setup.exe').write_bytes(
+        (self.win.parent / 'AI-Trainer-for-Garmin-Connect-1.2.3-windows-x64-setup.exe').write_bytes(
             b'swapped after set'
         )
         with self.assertRaises(ValueError):

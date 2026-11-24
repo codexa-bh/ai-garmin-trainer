@@ -53,7 +53,7 @@ def candidate_preparation(repo, bundle, source, scratch, record_path=None):
                 yield payload, recheck, verified, inventory, record
 
 
-APP_NAME = 'Garmin Trainer.app'
+APP_NAME = 'AI Trainer for Garmin Connect.app'
 SIGNING = 'unsigned-or-linker-adhoc; not notarized; no verified publisher'
 
 
@@ -431,7 +431,7 @@ def package(repo, bundle, source, verified, inventory, scratch):
         run(['/usr/bin/ditto', '--rsrc', '--extattr', bundle, staging / APP_NAME])
         if payload_checks(staging / APP_NAME, version) != identity:
             raise ValueError('Staging did not preserve payload metadata')
-    dmg = workspace / ('Garmin-Trainer-' + version + '-macos-arm64.dmg')
+    dmg = workspace / ('AI-Trainer-for-Garmin-Connect-' + version + '-macos-arm64.dmg')
     if os.path.lexists(dmg):
         raise ValueError('Artifact output exists; never overwrite')
     # No -ov; exclusive workspace pins output namespace, no privileged destination.
@@ -445,7 +445,7 @@ def package(repo, bundle, source, verified, inventory, scratch):
                 '-fs',
                 'HFS+',
                 '-volname',
-                'Garmin Trainer ' + version,
+                'AI Trainer for Garmin Connect ' + version,
                 '-srcfolder',
                 staging,
                 dmg,

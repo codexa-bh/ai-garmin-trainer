@@ -84,11 +84,11 @@ jobs:
           ) | ForEach-Object { Get-ItemProperty $_ -ErrorAction SilentlyContinue } | Where-Object { $_.pv -and $_.pv -ne '0.0.0.0' }
           if (-not $runtime) { throw 'WebView2 prerequisite unavailable; no download or fallback' }
           foreach ($hive in @('HKCU:', 'HKLM:')) {
-            foreach ($key in @('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Garmin Trainer', 'SOFTWARE\codexa\Garmin Trainer')) {
+            foreach ($key in @('SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AI Trainer for Garmin Connect', 'SOFTWARE\codexa\AI Trainer for Garmin Connect')) {
               if (Test-Path "$hive\$key") { throw 'Pre-existing product registration; refusing to adopt installation' }
             }
           }
-          foreach ($path in @((Join-Path $env:LOCALAPPDATA 'Garmin Trainer'), (Join-Path $env:APPDATA 'com.codexa.garmin-trainer.desktop'))) {
+          foreach ($path in @((Join-Path $env:LOCALAPPDATA 'AI Trainer for Garmin Connect'), (Join-Path $env:APPDATA 'com.codexa.garmin-trainer.desktop'))) {
             if (Test-Path -LiteralPath $path) { throw 'Pre-existing product data/program directory; fresh runner required' }
           }
           'Prerequisites passed; installed renderer, capture and lifecycle remain unproven.'
@@ -210,8 +210,8 @@ jobs:
           compression-level: 0
           include-hidden-files: false
           path: |
-            ${{ steps.export.outputs.directory }}/Garmin-Trainer-${{ steps.export.outputs.version }}-windows-x64-setup.exe
-            ${{ steps.export.outputs.directory }}/Garmin-Trainer-${{ steps.export.outputs.version }}-windows-x64-setup.exe.sha256
+            ${{ steps.export.outputs.directory }}/AI-Trainer-for-Garmin-Connect-${{ steps.export.outputs.version }}-windows-x64-setup.exe
+            ${{ steps.export.outputs.directory }}/AI-Trainer-for-Garmin-Connect-${{ steps.export.outputs.version }}-windows-x64-setup.exe.sha256
             ${{ steps.export.outputs.directory }}/release-windows-x64.json
             ${{ steps.export.outputs.directory }}/windows-release-export.json
 

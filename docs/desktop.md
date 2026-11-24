@@ -9,7 +9,7 @@ Use ARM64 macOS, Xcode/CLT, Rust, Node 22/npm and Python 3.12 for developer scri
 ```bash
 npm ci
 npm run desktop:build
-open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/AI Trainer for Garmin Connect.app'
 ```
 
 Bundle runs outside checkout. `desktop:dev` rebuilds production resources and opens native development host, not HMR/browser server. Rebuild changes; quit/reopen startup-only settings. Native Settings/error HTML works without backend and retains startup status. Maintenance CLIs neither serve nor configure desktop.

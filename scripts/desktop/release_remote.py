@@ -11,7 +11,7 @@ import time
 from urllib.parse import quote
 
 from release_artifact import digest, regular
-from release_metadata import REPOSITORY
+from release_metadata import PRODUCT, REPOSITORY
 from release_timing import stage, utc
 
 
@@ -356,7 +356,7 @@ class Release:
             if (
                 tag is None
                 or release.get('tag_name') != self.tag
-                or release.get('name') != 'Garmin Trainer ' + self.record['version']
+                or release.get('name') != PRODUCT + ' ' + self.record['version']
                 or release.get('body') != self.body
                 or release.get('prerelease') != self.prerelease
             ):
@@ -420,7 +420,7 @@ class Release:
                     {
                         'tag_name': self.tag,
                         'target_commitish': self.record['commit'],
-                        'name': 'Garmin Trainer ' + self.record['version'],
+                        'name': PRODUCT + ' ' + self.record['version'],
                         'body': self.body,
                         'draft': True,
                         'prerelease': self.prerelease,

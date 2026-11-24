@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Garmin Trainer",
+  "productName": "AI Trainer for Garmin Connect",
   "version": "0.1.4",
   "identifier": "com.codexa.garmin-trainer.desktop",
   "build": {
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "setup",
-        "title": "Garmin Trainer — Settings",
+        "title": "AI Trainer for Garmin Connect — Settings",
         "width": 900,
         "height": 820
       }

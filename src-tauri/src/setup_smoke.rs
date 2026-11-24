@@ -229,7 +229,7 @@ pub fn execute(app: &tauri::AppHandle, config: &Config, action: Action) -> Resul
             });
             let navigating = loaded.clone();
             WebviewWindowBuilder::new(app, "setup", WebviewUrl::App("index.html".into()))
-                .title("Garmin Trainer — isolated debug Settings")
+                .title("AI Trainer for Garmin Connect — isolated debug Settings")
                 .inner_size(900.0, 820.0)
                 .focused(false)
                 .incognito(true)

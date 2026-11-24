@@ -651,7 +651,7 @@
         .map((el) => el.textContent.trim())
         .filter((s) =>
           [
-            "Garmin AI Trainer",
+            "AI Trainer for Garmin Connect",
             "Activities",
             "Daily health",
             "Health",
@@ -4502,7 +4502,7 @@
     restore();
     if (command.view === "profile") profileLayers();
     const labels = new Set([
-      "Garmin AI Trainer",
+      "AI Trainer for Garmin Connect",
       "Activities",
       "Health",
       "Training Plan",

@@ -56,6 +56,7 @@ impl Config {
             {
                 self.ordinary.is_none()
             }
+            Command::PresentNaming {} => self.ordinary.is_some() && cfg!(target_os = "macos"),
             Command::SetViewport { .. }
             | Command::CaptureView { .. }
             | Command::Composer { .. }
@@ -154,6 +155,8 @@ pub enum Command {
         value: String,
     },
     Capture {},
+    /// Explicit operator-authorized native naming presentation; no default-launch route.
+    PresentNaming {},
     SetViewport {
         preset: String,
     },
@@ -252,6 +255,7 @@ impl Command {
         match self {
             Self::Observe {}
             | Self::Capture {}
+            | Self::PresentNaming {}
             | Self::Sync { .. }
             | Self::HistorySettings { .. } => true,
             Self::SetViewport { preset } => {
@@ -914,7 +918,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                 && strings(
                     "headings",
                     &[
-                        "Garmin AI Trainer",
+                        "AI Trainer for Garmin Connect",
                         "Activities",
                         "Daily health",
                         "Health",
@@ -1218,6 +1222,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                     .iter()
                     .all(|key| value[*key].as_u64().is_some_and(|n| n <= 100_000))
         }
+        Command::PresentNaming {} => ordinary && exact_keys(value, &["ok"]),
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
         }
@@ -1313,6 +1318,38 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
     let Some(window) = app.get_webview_window("trainer") else {
         return (503, json!({"ok":false,"error":"Renderer unavailable"}));
     };
+    #[cfg(target_os = "macos")]
+    if matches!(request.command, Command::PresentNaming {}) {
+        // The authenticated current ordinary run remains the sole state/window owner.
+        // Presentation is opt-in, never called by quiet smoke or default launches.
+        let (tx, rx) = mpsc::sync_channel(1);
+        let handle = app.clone();
+        if app
+            .run_on_main_thread(move || {
+                let result = handle
+                    .set_activation_policy(tauri::ActivationPolicy::Regular)
+                    .and_then(|()| window.show())
+                    .and_then(|()| window.set_focus());
+                let _ = tx.send(result.is_ok());
+            })
+            .is_err()
+        {
+            return (
+                409,
+                json!({"ok":false,"error":"Owned presentation unavailable"}),
+            );
+        }
+        return match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(true) => (
+                200,
+                json!({"requestId":request.request_id,"result":{"ok":true}}),
+            ),
+            _ => (
+                409,
+                json!({"ok":false,"error":"Owned presentation incomplete; effect unknown"}),
+            ),
+        };
+    }
     if let Command::SetViewport { preset } = &request.command {
         let diagnostic = renderer_diagnostic(app);
         let Some(size) = viewport_size(&diagnostic, preset) else {
@@ -1801,6 +1838,26 @@ mod tests {
                 value: "T0231-smoke-unit".into()
             },
             &json!({"ok":true,"action":"Goals input","trustedInput":true})
+        ));
+    }
+    #[test]
+    fn naming_presentation_is_closed_and_denied_to_debug_runs() {
+        let command: Command = serde_json::from_value(json!({"type":"presentNaming"})).unwrap();
+        assert!(command.valid());
+        assert!(!config().permits(&command));
+        for value in [
+            json!({"type":"presentNaming","pid":123}),
+            json!({"type":"presentNaming","path":"/tmp/app"}),
+            json!({"type":"presentNaming","value":"private"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        assert!(super::safe_result(&command, &json!({"ok":true}), true));
+        assert!(!super::safe_result(&command, &json!({"ok":true}), false));
+        assert!(!super::safe_result(
+            &command,
+            &json!({"ok":true,"title":"private"}),
+            true
         ));
     }
     #[test]

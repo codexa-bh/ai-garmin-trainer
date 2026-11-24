@@ -260,7 +260,8 @@ class WindowsPayloadTests(unittest.TestCase):
 
     def test_record_shape_names_platform_signing_and_exact_installer(self):
         self.assertEqual(
-            windows_release.asset_name('1.2.3'), 'Garmin-Trainer-1.2.3-windows-x64-setup.exe'
+            windows_release.asset_name('1.2.3'),
+            'AI-Trainer-for-Garmin-Connect-1.2.3-windows-x64-setup.exe',
         )
         self.assertNotIn('notar', windows_release.SIGNING.lower())
         verified = {

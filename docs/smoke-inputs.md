@@ -5,7 +5,7 @@ Routine `smoke:native` and `smoke:ordinary` use authored synthetic SQLite, never
 ```bash
 npm run smoke:prepare -- --scratch '/canonical/0700/task-scratch' --task-id T0252 --anchor 2026-11-01
 npm run smoke:native -- --scratch '/canonical/0700/task-scratch' --task-id T0252 --health-comparison
-npm run smoke:ordinary -- --scratch '/canonical/0700/task-scratch' --task-id T0252 --bundle '/absolute/ordinary/Garmin Trainer.app'
+npm run smoke:ordinary -- --scratch '/canonical/0700/task-scratch' --task-id T0252 --bundle '/absolute/ordinary/AI Trainer for Garmin Connect.app'
 ```
 
 `--task-id` defaults from `PIVAN_TASK_PATH`, otherwise `local`. The recorded anchor defaults once to UTC today; an explicit real date reproduces logical contents, not output UUIDs or the product clock. Use a current anchor for current Health navigation.

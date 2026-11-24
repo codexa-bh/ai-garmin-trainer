@@ -1,4 +1,4 @@
-; Garmin Trainer per-user NSIS template, derived from Tauri CLI 2.12.4
+; AI Trainer for Garmin Connect per-user NSIS template, derived from Tauri CLI 2.12.4
 ; crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi (Apache-2.0 OR MIT).
 ; Reviewed deltas (see docs/windows.md, Unsigned per-user installer):
 ;  1. The uninstaller never deletes app data (settings, databases, tokens):
@@ -571,7 +571,7 @@ Section WebView2
   ${EndIf}
 
   ${If} $4 == ""
-    ; Garmin Trainer: WebView2 is a prerequisite; never download/install it.
+    ; AI Trainer for Garmin Connect: WebView2 is a prerequisite; never download/install it.
     MessageBox MB_ICONSTOP "Microsoft Edge WebView2 Runtime is required but was not found. Install it from Microsoft, then run this installer again. Nothing was installed." /SD IDOK
     Abort "WebView2 Runtime missing; nothing was installed."
   ${EndIf}
@@ -807,7 +807,7 @@ Section Uninstall
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
   ${EndIf}
 
-  ; Garmin Trainer: private settings, databases and tokens are never deleted
+  ; AI Trainer for Garmin Connect: private settings, databases and tokens are never deleted
   ; by the uninstaller; they remain for explicit operator management.
 
   !ifmacrodef NSIS_HOOK_POSTUNINSTALL

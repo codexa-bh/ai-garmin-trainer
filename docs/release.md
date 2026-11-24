@@ -97,7 +97,7 @@ Downloads bundle Node/Next/SQLite and need no system Node/Rust/checkout or Garmi
 
 Use physical canonical task checkout/bundle, independent mutable build output and canonical scratch root. Managed packaging allocates bulk in disposable and diagnostics in evidence; outputs survive immediate completion, not scheduler expiry. No worktree/history deletion.
 
-For local developer evidence, `npm ci`, `release:check`, `desktop:build`, then the package/verify commands above. Package never rebuilds/launches/signs/installs/rewrites the producer. It locks and verifies original v2 source/context/inventory, stages exclusively, and uses ditto/hdiutil without overwrite. DMG contains only Garmin Trainer.app, no Applications alias/Finder automation.
+For local developer evidence, `npm ci`, `release:check`, `desktop:build`, then the package/verify commands above. Package never rebuilds/launches/signs/installs/rewrites the producer. It locks and verifies original v2 source/context/inventory, stages exclusively, and uses ditto/hdiutil without overwrite. DMG contains only AI Trainer for Garmin Connect.app, no Applications alias/Finder automation.
 
 Readonly non-browsing mount verification compares all bytes/modes/xattrs, app/version, ARM64 app/Node/SQLite, provenance, required notices and private exclusions. Report unsigned/linker-ad-hoc, not Developer ID; no trust/notarization/quarantine action. DMG above **140,000,000 bytes** refuses before record creation. Retained `size-report.json` reports DMG/app/runtime/Next/redistribution groups for diagnosis, not as a release asset. Raise the budget only through a reviewed measured breakdown.
 
@@ -155,8 +155,8 @@ npm run release -- status --repository codexa-bh/ai-garmin-trainer --commit "$CO
 
 ## Manual download and app placement — only after an actual authorized release
 
-1. Review exact repository/tag/source and signing/rights/upgrade warnings. Download DMG/checksum; run `shasum -a 256 -c Garmin-Trainer-<version>-macos-arm64.dmg.sha256`. Same-site checksums do not authenticate the publisher.
-2. Mount and manually copy Garmin Trainer.app to an explicitly chosen Applications destination. Separately approved replacement requires quitting owners and preserving prior compatible app/backups. No release helper installs/opens it.
+1. Review exact repository/tag/source and signing/rights/upgrade warnings. Download DMG/checksum; run `shasum -a 256 -c AI-Trainer-for-Garmin-Connect-<version>-macos-arm64.dmg.sha256`. Same-site checksums do not authenticate the publisher.
+2. Mount and manually copy AI Trainer for Garmin Connect.app to an explicitly chosen Applications destination. Separately approved replacement requires quitting owners and preserving prior compatible app/backups. No release helper installs/opens it.
 3. Unsigned software may be refused. Use normal per-app OS controls only if trusted; never globally disable Gatekeeper, strip quarantine, change trust, grant automation or acquire certificates to force launch. Policy refusal needs an approved distribution path.
 4. Eject normally; launch only when authorized, then [native setup](../README.md#2-enter-settings). Private settings are plaintext and originals remain preserved; [adoption](desktop.md#explicit-private-state-adoption) owns details.
 

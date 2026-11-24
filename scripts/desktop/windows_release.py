@@ -52,7 +52,7 @@ PRIVATE = re.compile(
 
 
 def asset_name(version):
-    return 'Garmin-Trainer-' + version + '-windows-x64-setup.exe'
+    return 'AI-Trainer-for-Garmin-Connect-' + version + '-windows-x64-setup.exe'
 
 
 def regular(path):

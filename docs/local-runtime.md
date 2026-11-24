@@ -70,7 +70,7 @@ Review privacy/routing before transmitting bounded chat/Garmin context. Free ava
 ```bash
 npm run desktop:dev  # production resources/native host, no HMR
 npm run desktop:build
-open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+open 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/AI Trainer for Garmin Connect.app'
 ```
 
 Quit before rebuilt reopen; config-only startup changes need reopen, not rebuild. No browser mode/port override/listener scanner/service-killing fallback. Manage Ollama independently, e.g. `OLLAMA_HOST=http://127.0.0.1:11434 ollama serve`; legacy embeddings may use `ollama pull nomic-embed-text`, separate from chat preparation. Ordinary memory needs no embeddings; legacy degradation need not block offline views. MEMORY_TIMEOUT_MS may help appropriate cold loads. Inspect ownership/other consumers before stopping external services.

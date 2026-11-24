@@ -21,10 +21,12 @@ SCHEMA = 1
 NAME = 'release-set.json'
 VERIFICATION = 'portable-digests; per-platform original-producer verification on each native host'
 LEGACY_RECORD = 'release.json'  # Published 0.1.x macOS records keep their name and schema.
+# Readers accept immutable former-name assets; producers emit only the current name.
+ASSET_PREFIX = r'(?:AI-Trainer-for-Garmin-Connect|Garmin-Trainer)-'
 ARTIFACT = {
-    platform_target.MACOS: re.compile(r'^Garmin-Trainer-(?P<v>[^/\\\\]+)-macos-arm64\.dmg$'),
+    platform_target.MACOS: re.compile('^' + ASSET_PREFIX + r'(?P<v>[^/\\\\]+)-macos-arm64\.dmg$'),
     platform_target.WINDOWS: re.compile(
-        r'^Garmin-Trainer-(?P<v>[^/\\\\]+)-windows-x64-setup\.exe$'
+        '^' + ASSET_PREFIX + r'(?P<v>[^/\\\\]+)-windows-x64-setup\.exe$'
     ),
 }
 TARGET = {
