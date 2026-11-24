@@ -2,7 +2,7 @@
 
 **A private AI coach that answers from your own Garmin history.** It runs on your Mac, keeps your data in a local database and uses the AI model you choose.
 
-[Download for macOS](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest) · [Installation](#installation) · [Privacy](#privacy) · [Status and limits](#status-and-limits)
+[Install on macOS](#installation) · [Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest) · [Privacy](#privacy) · [Status and limits](#status-and-limits)
 
 _An independent open-source project, not affiliated with or endorsed by Garmin._
 
@@ -62,14 +62,23 @@ You need:
 
 The screenshots show a newer source build. The latest published release, 0.1.4, is still named _Garmin Trainer_; the new name will appear in a future release.
 
-1. **Download** the `.dmg` from [Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest), verify its published `.sha256` checksum, open it and copy the app to your chosen Applications destination.
-2. **Open the app.** Downloads are unsigned and not notarized; macOS may refuse them, and Open Anyway is not guaranteed to be available. Use only normal per-app macOS controls if you trust the build. If macOS refuses it, [build from source](#build-from-source) instead. Do not disable Gatekeeper, strip quarantine or change trust to force launch.
+1. **Install.** Run this in Terminal:
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/codexa-bh/ai-garmin-trainer/main/install.sh | bash
+   ```
+
+   [`install.sh`](install.sh) downloads the latest release, verifies its published checksum and copies the app to Applications. It needs no `sudo` and does not touch your data.
+
+2. **Open the app** from Applications.
 3. **Follow the first-run Settings.** Create a new database, then add a model provider. [Settings](docs/settings.md#first-run-and-settings) explains each step.
 4. **Connect Garmin.** Create a Personal API key in Garmin Connect (Settings → Personal API key), paste it into Connect Garmin, finish, then quit and reopen the app. [Garmin connection](docs/garmin-auth.md) has the details.
 5. **Import your data.** Open Sync and choose Sync latest, then Import older data for your history. A long history can take several runs.
 6. **Ask.** Pick a model under the chat box and ask your first question.
 
 ![Garmin connection settings showing that a key is saved, without exposing it](docs/screenshots/connect-garmin.png)
+
+You can also download the `.dmg` from [Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest) and copy the app to Applications yourself. The app is not signed or notarized, so macOS may refuse to open a copy downloaded in a browser; use the Terminal install if it does.
 
 ### Choose a model
 
@@ -85,7 +94,7 @@ There is no default model and no automatic fallback. How well the trainer works 
 
 ### Upgrading
 
-There is no auto-update. Quit the running app before replacing it, and retain a compatible prior app and verified database/settings backups. Versions up to 0.1.4 were named _Garmin Trainer_; installing the renamed app does not replace that app automatically. Both names use the same data and settings; do not run them together. See [app placement](docs/release.md#manual-download-and-app-placement--only-after-an-actual-authorized-release).
+There is no auto-update. Quit the app, then run the install command again; it replaces the app and leaves your data alone. Retain a compatible prior app and verified database/settings backups. Versions up to 0.1.4 were named _Garmin Trainer_; installing the renamed app does not replace that app automatically. Both names use the same data and settings; do not run them together. See [installing a release](docs/release.md#installing-a-published-release--only-after-an-actual-authorized-release).
 
 **A version that changes the database format needs a manual upgrade first.** The app never upgrades your database on its own, and today the upgrade runs from a source checkout of that version. Back up your database, then follow [database upgrades](docs/release.md#existing-database-upgrades-and-recovery). The release notes say when an upgrade is needed.
 
