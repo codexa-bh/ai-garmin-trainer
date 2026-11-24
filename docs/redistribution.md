@@ -1,12 +1,12 @@
 # Redistribution material and release conditions
 
-First-party code/docs/assets use [MIT](../LICENSE), copyright 2026 Ivan Mlinaric — individual developer, as declared in npm/Cargo. The package remains private/unpublished to registries. Commercial use is permitted without warranty/support; upstream terms and current release review still apply. Notices/metadata/checksums are not legal certification.
+First-party code/docs/assets use [Apache-2.0](../LICENSE), copyright 2026 Ivan Mlinaric — individual developer, as declared in npm/Cargo. The package remains private/unpublished to registries. Commercial use is permitted without warranty/support; upstream terms and current release review still apply. Notices/metadata/checksums are not legal certification.
 
 ## First-party license
 
-MIT also covers first-party material in earlier releases, including 0.1.1–0.1.3, without rewriting their tags/assets/notes/embedded notices. Each release's third-party conditions remain in its own `REDISTRIBUTION-REVIEW.txt`. MIT permits modification/debugging/rebuilding/relinking; no extra first-party permission is needed to exercise library rights.
+First-party material already published under MIT stays available under MIT ([text at v0.1.4](https://github.com/codexa-bh/ai-garmin-trainer/blob/v0.1.4/LICENSE)): source revisions whose `LICENSE` is MIT, and earlier releases including 0.1.1–0.1.4. Tags 0.1.1–0.1.3 carry no license file; earlier tags/assets/notes/embedded notices are not rewritten. Each release's third-party conditions remain in its own `REDISTRIBUTION-REVIEW.txt`. Apache-2.0 permits modification/debugging/rebuilding/relinking; no extra first-party permission is needed to exercise library rights.
 
-### What the MIT license does not cover
+### What the first-party license does not cover
 
 - Dependencies retain upstream licenses, notices and source obligations, including MPL-2.0.
 - OpenAI owns its names/logo (`src-tauri/ui/chatgpt-logo-white.svg`, used only on Continue with ChatGPT) and determines sign-in eligibility/plan use. [Access contract](chatgpt.md).
@@ -14,7 +14,7 @@ MIT also covers first-party material in earlier releases, including 0.1.1–0.1.
 - Runtime OpenTopoMap tiles are not bundled. Preserve map attribution: © OpenStreetMap contributors; style © OpenTopoMap, CC-BY-SA.
 - Upstream portions of `src-tauri/windows/installer.nsi` retain Tauri's Apache-2.0 OR MIT terms; its header identifies first-party modifications.
 
-MIT grants no trademark rights.
+Apache-2.0 grants no trademark rights.
 
 ### Source and binary distribution
 
@@ -24,7 +24,7 @@ Source declares dependencies in npm/Cargo manifests/locks but contains no depend
 
 macOS `Contents/Resources/resources/`, or Windows `resources\` beside the executable inside NSIS, contains:
 
-- `FIRST-PARTY-LICENSE.txt`: exact repository MIT license.
+- `FIRST-PARTY-LICENSE.txt`: exact repository Apache-2.0 license.
 - `NODE-LICENSE.txt`: complete actual LICENSE from the platform's checksum-pinned official Node archive, including embedded third-party notices—not just MIT metadata.
 - `THIRD-PARTY-NOTICES.txt`: conservative navigation/lock-metadata index, not object-by-object certification.
 - `redistribution/NOTICES.txt`: actual license/copyright/NOTICE/attribution texts from installed production npm (including Next compiled components), verified vendored crates and reviewed extra sources. Source archives may include unbuilt portions; per-file licenses govern.
@@ -48,7 +48,7 @@ Changed bytes require new source/inventory identity, never altered stamped resou
 
 ## Helpers, external tools and publication gates
 
-ChatGPT OAuth helper is first-party MIT. No Python helper/uv/Garmin connector is bundled or required; Ollama and Apple frameworks/tools are external prerequisites, not redistributed installations/configuration.
+ChatGPT OAuth helper is first-party Apache-2.0. No Python helper/uv/Garmin connector is bundled or required; Ollama and Apple frameworks/tools are external prerequisites, not redistributed installations/configuration.
 
 Official Garmin/FIT uses `fit-file-parser` 6.2.10 (MIT), buffer/base64-js (MIT) and ieee754 (BSD-3-Clause), with notices collected from production npm. `@garmin/fitsdk` is not used: its internal-business-purpose license disallows making the technology available to third parties. The operator confirmed Personal API terms permit this public per-user-key app ([decision](https://github.com/codexa-bh/ai-garmin-trainer/pull/232)); this is not legal certification. Garmin's FAQ excludes commercial multi-end-user applications, so hosted/shared-key/commercial multi-user use is unsupported.
 

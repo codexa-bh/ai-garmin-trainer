@@ -280,7 +280,7 @@ def assemble(root):
         stream.write(
             'Actual third-party license/NOTICE texts; conservative source superset.\n'
             'Per-file licenses control; this is not legal certification.\n'
-            'First-party code and assets (MIT): see ../FIRST-PARTY-LICENSE.txt.\n'
+            'First-party code and assets (Apache-2.0): see ../FIRST-PARTY-LICENSE.txt.\n'
             'Node and its embedded components: see ../NODE-LICENSE.txt.\n'
             'Source, attribution and rebuild directions: see ../REDISTRIBUTION-REVIEW.txt.\n\n'
         )
