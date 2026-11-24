@@ -158,7 +158,7 @@ npm run release -- status --repository codexa-bh/ai-garmin-trainer --commit "$CO
 1. Review exact repository/tag/source and signing/rights/upgrade warnings. Download DMG/checksum; run `shasum -a 256 -c AI-Trainer-for-Garmin-Connect-<version>-macos-arm64.dmg.sha256`. Same-site checksums do not authenticate the publisher.
 2. Mount and manually copy AI Trainer for Garmin Connect.app to an explicitly chosen Applications destination. Separately approved replacement requires quitting owners and preserving prior compatible app/backups. No release helper installs/opens it.
 3. Unsigned software may be refused. Use normal per-app OS controls only if trusted; never globally disable Gatekeeper, strip quarantine, change trust, grant automation or acquire certificates to force launch. Policy refusal needs an approved distribution path.
-4. Eject normally; launch only when authorized, then [native setup](../README.md#2-enter-settings). Private settings are plaintext and originals remain preserved; [adoption](desktop.md#explicit-private-state-adoption) owns details.
+4. Eject normally; launch only when authorized, then [native setup](settings.md#first-run-and-settings). Private settings are plaintext and originals remain preserved; [adoption](desktop.md#explicit-private-state-adoption) owns details.
 
 Developer synthetic evidence is not clean-machine/minimum-OS/Gatekeeper/singleton/trusted-input/real-service certification. App removal preserves external DBs/backups/settings/tokens/tools; no cleanup script or automatic deletion.
 
