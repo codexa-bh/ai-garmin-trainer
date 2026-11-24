@@ -10,7 +10,7 @@ Source merge grants no install/restart/migration/signing/release/deployment. Sep
 
 ## Setup flow for clean-machine validation
 
-Follow [README installation](../README.md#installation) and [native adoption](desktop.md#explicit-private-state-adoption); this route is not a completed certification. Run `npm ci` before dependency-backed tools. Desktop never imports env/old pointers; preserve originals and use supported private adoption/re-entry. Never enter credentials in chat/issues/diagnostics.
+Follow the [README source build](../README.md#build-from-source) and [native adoption](desktop.md#explicit-private-state-adoption); this route is not a completed certification. Run `npm ci` before dependency-backed tools. Desktop never imports env/old pointers; preserve originals and use supported private adoption/re-entry. Never enter credentials in chat/issues/diagnostics.
 
 Maintenance CLIs are non-serving, use explicit checkout/process configuration rather than native Settings/Keychain, and give process env precedence. Relative CLI paths use cwd; prefer approved absolute paths. Existing-data preparation needs the [stopped-target upgrade procedure](release.md#existing-database-upgrades-and-recovery), not primary mutation to test source delivery.
 

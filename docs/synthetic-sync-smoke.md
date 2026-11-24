@@ -1,6 +1,6 @@
 # Synthetic Sync — build/run card
 
-**Use:** authored, keyless macOS ARM64 Sync/import evidence on a task-owned ordinary app, not private Garmin/account proof. Prerequisites: [desktop toolchain](../README.md#1-install-prerequisites-and-build), compatible Pivan scratch tooling, registered Trainer task worktree and the [scenario's before-use checks](smoke/sync.md#current-finite-synthetic-sync-scenario). No running app, private settings, key or tokens are selected.
+**Use:** authored, keyless macOS ARM64 Sync/import evidence on a task-owned ordinary app, not private Garmin/account proof. Prerequisites: [desktop toolchain](../README.md#build-from-source), compatible Pivan scratch tooling, registered Trainer task worktree and the [scenario's before-use checks](smoke/sync.md#current-finite-synthetic-sync-scenario). No running app, private settings, key or tokens are selected.
 
 ## Prepare, build, run
 
