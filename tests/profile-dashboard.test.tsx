@@ -281,8 +281,8 @@ afterEach(() => {
 });
 
 describe("app metadata", () => {
-  it("uses the local Garmin AI Trainer tab title and favicon", () => {
-    expect(metadata.title).toBe("Garmin AI Trainer");
+  it("uses the local AI Trainer for Garmin Connect tab title and favicon", () => {
+    expect(metadata.title).toBe("AI Trainer for Garmin Connect");
     expect(metadata.icons).toEqual({
       icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
     });
@@ -1322,9 +1322,9 @@ describe("TrainerDashboard Profile hydration", () => {
         .getAttribute("aria-expanded"),
     ).toBe("false");
     const title = topbar.querySelector(".app-title");
-    expect(title?.textContent?.trim()).toBe("Garmin AI Trainer");
-    expect(title?.getAttribute("title")).toBe("Garmin AI Trainer");
-    expect(topbar.textContent).toContain("Garmin AI Trainer");
+    expect(title?.textContent?.trim()).toBe("AI Trainer for Garmin Connect");
+    expect(title?.getAttribute("title")).toBe("AI Trainer for Garmin Connect");
+    expect(topbar.textContent).toContain("AI Trainer for Garmin Connect");
     expect(topbar.textContent).not.toContain("⌁");
     expect(topbar.textContent).not.toContain("Trainer chat");
 
@@ -1538,7 +1538,7 @@ describe("TrainerDashboard Profile hydration", () => {
       workspace?.classList.contains("conversation-selector-collapsed"),
     ).toBe(false);
     expect(
-      screen.getByRole("heading", { name: "Garmin AI Trainer" }),
+      screen.getByRole("heading", { name: "AI Trainer for Garmin Connect" }),
     ).toBeTruthy();
     expect(screen.queryByText("AI Garmin Connect Trainer")).toBeNull();
 

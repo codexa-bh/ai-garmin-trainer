@@ -30,8 +30,9 @@ import windows_smoke_process as process
 import release_timing as timing
 
 PRODUCT_ID = 'com.codexa.garmin-trainer.desktop'
-UNINSTALL_KEY = r'Software\Microsoft\Windows\CurrentVersion\Uninstall\Garmin Trainer'
-MANUFACTURER_KEY = r'Software\codexa\Garmin Trainer'
+PRODUCT = windows_package.PRODUCT
+UNINSTALL_KEY = 'Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\' + PRODUCT
+MANUFACTURER_KEY = 'Software\\codexa\\' + PRODUCT
 
 
 def startup_diagnostic(root, launch, exit_code):
@@ -256,11 +257,12 @@ def registration():
 
 def shortcuts():
     # /NS promises no shortcut creation; check these exact product paths only.
+    programs = Path(os.environ['APPDATA']) / 'Microsoft/Windows/Start Menu/Programs'
+    link = PRODUCT + '.lnk'
     return [
-        Path(os.environ['USERPROFILE']) / 'Desktop/Garmin Trainer.lnk',
-        Path(os.environ['APPDATA']) / 'Microsoft/Windows/Start Menu/Programs/Garmin Trainer.lnk',
-        Path(os.environ['APPDATA'])
-        / 'Microsoft/Windows/Start Menu/Programs/Garmin Trainer/Garmin Trainer.lnk',
+        Path(os.environ['USERPROFILE']) / 'Desktop' / link,
+        programs / link,
+        programs / PRODUCT / link,
     ]
 
 
@@ -283,9 +285,7 @@ def prerequisite():
     if registration() or any(path.exists() for path in shortcuts()):
         raise ValueError('Pre-existing registration/shortcut; no foreign installation adoption')
     appdata = Path(os.environ['APPDATA']) / PRODUCT_ID
-    if os.path.lexists(appdata) or os.path.lexists(
-        Path(os.environ['LOCALAPPDATA']) / 'Garmin Trainer'
-    ):
+    if os.path.lexists(appdata) or os.path.lexists(Path(os.environ['LOCALAPPDATA']) / PRODUCT):
         raise ValueError('Pre-existing product app-data/program path refused')
     import winreg
 
@@ -693,7 +693,7 @@ def scenario(args):
                     raise ValueError('Installer registration/shortcut contract failed')
                 for key, values in registered.items():
                     if key.endswith('-uninstall') and (
-                        values.get('DisplayName') != 'Garmin Trainer'
+                        values.get('DisplayName') != PRODUCT
                         or values.get('Publisher') != 'codexa'
                         or values.get('InstallLocation', '').strip('"') != str(program)
                         or values.get('UninstallString')

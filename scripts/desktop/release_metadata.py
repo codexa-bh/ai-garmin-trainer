@@ -9,6 +9,9 @@ from ordinary_identity import document
 import release_note_fragments as fragments
 
 REPOSITORY = 'codexa-bh/ai-garmin-trainer'
+PRODUCT = 'AI Trainer for Garmin Connect'
+# Notes prepared under the former name keep their heading; they are never rewritten.
+FORMER_PRODUCT = 'Garmin Trainer'
 WARNINGS = (
     'Unsigned and not notarized; macOS may refuse to open this app.\n'
     'Existing databases require the matching source CLI, a stopped owner and verified backups; startup never upgrades them.\n'
@@ -48,6 +51,10 @@ def lock_version(text):
     return matches[0]
 
 
+def heading(product, version):
+    return '# ' + product + ' ' + version + '\n\nStatus: '
+
+
 def check(root, expected=None, *, prepared=False):
     package = document(root / 'package.json')
     version = version_value(package.get('version'))
@@ -64,7 +71,9 @@ def check(root, expected=None, *, prepared=False):
         raise ValueError('Version mirrors/expected version disagree')
     notes = root / RELEASES / (version + '.md')
     text = notes.read_text()
-    if notes.is_symlink() or not text.startswith('# Garmin Trainer ' + version + '\n\nStatus: '):
+    if notes.is_symlink() or not text.startswith(
+        (heading(PRODUCT, version), heading(FORMER_PRODUCT, version))
+    ):
         raise ValueError('Versioned notes missing or mismatched')
     status = text.splitlines()[2]
     if status not in ('Status: unreleased', 'Status: prepared') or (
@@ -89,15 +98,7 @@ def promotion(root, reviewed=''):
 
 
 def prepared_notes(version, body):
-    return (
-        '# Garmin Trainer '
-        + version
-        + '\n\nStatus: prepared\n\n'
-        + WARNINGS
-        + '\n'
-        + body.strip()
-        + '\n'
-    )
+    return heading(PRODUCT, version) + 'prepared\n\n' + WARNINGS + '\n' + body.strip() + '\n'
 
 
 def prepare(root, version, reviewed='', *, preflight_context=None):

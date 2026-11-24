@@ -94,7 +94,10 @@ test("official initial/returning authorization binds host, callback, PKCE and ex
     initial.origin + initial.pathname,
     `${ISSUER}/api/accounts/authorize`,
   );
-  assert.equal(initial.searchParams.get("agent_name_hint"), "Garmin Trainer");
+  assert.equal(
+    initial.searchParams.get("agent_name_hint"),
+    "AI Trainer for Garmin Connect",
+  );
   assert.equal(initial.searchParams.get("client_id"), "dynamic_agent_client");
   assert.equal(initial.searchParams.get("code_challenge_method"), "S256");
   assert.equal(initial.searchParams.get("resource"), RESOURCE);

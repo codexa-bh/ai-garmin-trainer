@@ -1016,7 +1016,7 @@ describe("native-installed rendered smoke boundary", () => {
     render(
       <header>
         <div className="app-brand">
-          <h1 className="app-title">Garmin AI Trainer</h1>
+          <h1 className="app-title">AI Trainer for Garmin Connect</h1>
         </div>
         <div className="app-mobile-menu">
           <button className="app-menu-toggle">Menu</button>
@@ -1035,7 +1035,7 @@ describe("native-installed rendered smoke boundary", () => {
     ).toBe(true);
     expect(
       getComputedStyle(
-        screen.getByRole("heading", { name: "Garmin AI Trainer" }),
+        screen.getByRole("heading", { name: "AI Trainer for Garmin Connect" }),
       ).visibility,
     ).toBe("visible");
     expect(

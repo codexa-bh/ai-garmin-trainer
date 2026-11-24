@@ -112,7 +112,9 @@ class MetadataTests(unittest.TestCase):
         (self.root / 'release-notes/unreleased/README.md').write_text('guide')
         metadata.prepare(self.root, '0.2.0')
         _, text = metadata.check(self.root, '0.2.0', prepared=True)
-        self.assertTrue(text.startswith('# Garmin Trainer 0.2.0\n\nStatus: prepared\n\n'))
+        self.assertTrue(
+            text.startswith('# AI Trainer for Garmin Connect 0.2.0\n\nStatus: prepared\n\n')
+        )
         self.assertIn(
             '## Changes\n\n### Added\n\n- Added thing.\n\n### Fixed\n\n- Fixed sync.\n', text
         )
@@ -164,6 +166,17 @@ class MetadataTests(unittest.TestCase):
         ):
             metadata.prepare(self.root, '0.2.0')
         self.assertTrue(fragment.exists())
+
+    def test_notes_accept_current_and_former_product_headings_only(self):
+        notes = self.root / 'release-notes/releases/0.1.0.md'
+        for product in (metadata.PRODUCT, metadata.FORMER_PRODUCT):
+            notes.write_text(
+                metadata.heading(product, '0.1.0') + 'unreleased\n\n' + metadata.WARNINGS
+            )
+            self.assertEqual(metadata.check(self.root)[0], '0.1.0')
+        notes.write_text('# Other Trainer 0.1.0\n\nStatus: unreleased\n\n' + metadata.WARNINGS)
+        with self.assertRaisesRegex(ValueError, 'mismatched'):
+            metadata.check(self.root)
 
     def test_malformed_versions_and_mirrors_refuse(self):
         for version in ['v1.2.3', '01.2.3', '1.2', '1.2.3+ambiguous', '../1.2.3', '1.2.3-01']:
@@ -421,7 +434,7 @@ class PayloadTests(unittest.TestCase):
             self.assertEqual(args[:5], (self.root, self.app, 'source', verified, inventory))
             self.assertEqual(args[5], self.root / 'release.json')
             try:
-                yield self.root / 'mounted/Garmin Trainer.app', recheck, record
+                yield self.root / 'mounted' / artifact.APP_NAME, recheck, record
             finally:
                 recheck()
 
@@ -432,7 +445,7 @@ class PayloadTests(unittest.TestCase):
             with artifact.candidate_preparation(
                 self.root, self.app, 'source', self.root, self.root / 'release.json'
             ) as selected:
-                self.assertEqual(selected[0], self.root / 'mounted/Garmin Trainer.app')
+                self.assertEqual(selected[0], self.root / 'mounted' / artifact.APP_NAME)
                 self.assertEqual(selected[2:], (verified, inventory, record))
                 selected[1]()  # First boot.
                 selected[1]()  # Restart.

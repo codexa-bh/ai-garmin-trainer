@@ -337,7 +337,8 @@ def producer(repo, platform_id):
     """The legitimate full-build output for a target (Windows: release dir)."""
     if platform_id == platform_target.WINDOWS:
         return repo / 'src-tauri/target/x86_64-pc-windows-msvc/release'
-    return repo / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+    bundles = repo / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos'
+    return bundles / 'AI Trainer for Garmin Connect.app'
 
 
 @stage('windows-producer-inventory')

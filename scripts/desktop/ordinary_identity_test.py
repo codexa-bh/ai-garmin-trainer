@@ -23,7 +23,8 @@ class OrdinaryIdentityTests(unittest.TestCase):
         self.scratch.mkdir(mode=0o700)
         self.bundle = (
             self.repo
-            / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+            / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos'
+            / 'AI Trainer for Garmin Connect.app'
         )
         self.calls = []
         self.mutate_during_build = False

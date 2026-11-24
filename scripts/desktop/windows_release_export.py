@@ -194,7 +194,7 @@ def extract(archive, destination, *, source, run, attempt):
         raise ValueError('Archive bound')
     with zipfile.ZipFile(archive) as bundle:
         entries = bundle.infolist()
-        installer = 'Garmin-Trainer-'
+        installer = 'AI-Trainer-for-Garmin-Connect-'
         receipts = [e for e in entries if e.filename == RECEIPT]
         if len(entries) != 4 or len({e.filename for e in entries}) != 4 or len(receipts) != 1:
             raise ValueError('Exact four-member archive required')

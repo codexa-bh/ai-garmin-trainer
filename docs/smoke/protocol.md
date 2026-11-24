@@ -38,6 +38,8 @@ Source declarations bind bytes/origin/inode/mode and fresh-compiled function ide
 
 ### Closed semantic surfaces
 
+For operator-authorized macOS naming inspection only, an authenticated current ordinary run may send `presentNaming` with no fields. Native changes only that owned process to regular activation and shows/focuses its Trainer window; it returns only `ok`. Default launches and debug runs have no route. Quiet smoke never sends it. The caller must retain original admission, artifact/input preservation and owned settlement, and separately inspect native window/menu captures and the Dock-facing runtime name. This command grants no operator-app, private-data, global-input, install or OS-permission authority.
+
 Shared navigation/Profile controls and Goals operate only on exact visible enabled hydrated targets and run-authored Goals. Ordinary supports documented fixed viewport/capture/feature actions; Sync/historySettings require explicit history scope. Debug alone supports finite Health/disclosure, Enter/Space WebView-local keys and native keyless Settings. Those debug modules compile out of ordinary, whose native/renderer gates reject them.
 
 No arbitrary selector/text/path/key/login, general scrolling/eval/invoke, state injection, proxy or shutdown endpoint. Fixed authored adapters are permitted only in their documented scopes. Ordinary observations are bounded view/readiness/saved booleans; debug may add fixed Health/disclosure booleans and three equal-length boolean arrays ≤128 entries. Unknown fields/text/inconsistent shapes refuse. Dates/private values remain inside renderer; no transcripts/trace text/credentials escape. DOM actions and native-generated WebView keys are not hardware/global input.

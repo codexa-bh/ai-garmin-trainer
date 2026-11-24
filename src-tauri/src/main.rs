@@ -426,7 +426,7 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     let origin = format!("http://127.0.0.1:{}", service.port);
     let url = origin.parse().map_err(|_| "Owned origin invalid.")?;
     let expected = origin.clone();
-    let title = "Garmin Trainer";
+    let title = "AI Trainer for Garmin Connect";
     #[allow(unused_mut)]
     let mut window = WebviewWindowBuilder::new(app, "trainer", WebviewUrl::External(url));
     #[cfg(any(debug_assertions, feature = "release-probe"))]
@@ -1035,7 +1035,7 @@ fn main() {
                     source: run.descriptor.source_fingerprint.clone(), port: run.descriptor.control_port, ordinary: Some(run.clone()),
                 })?;
                 let mut setup = WebviewWindowBuilder::new(app, "setup", WebviewUrl::App("index.html".into()))
-                    .title("Garmin Trainer — isolated Settings").inner_size(900.0, 820.0)
+                    .title("AI Trainer for Garmin Connect — isolated Settings").inner_size(900.0, 820.0)
                     .visible(false).focused(false).incognito(true).data_directory(run.descriptor.root.join("setup-profile"))
                     .on_navigation(|url| (url.scheme() == "tauri" && url.host_str() == Some("localhost")) || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost")))
                     .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
@@ -1062,7 +1062,7 @@ fn main() {
             // editing keys (Ctrl+Z/Y/X/C/V/A) without a menu proxy.
             #[cfg(target_os = "macos")]
             {
-                let app_menu = tauri::menu::SubmenuBuilder::new(app, "Garmin Trainer")
+                let app_menu = tauri::menu::SubmenuBuilder::new(app, "AI Trainer for Garmin Connect")
                     .text("configuration", "Settings…").separator().quit().build()?;
                 let edit_menu = tauri::menu::SubmenuBuilder::new(app, "Edit")
                     .undo().redo().separator().cut().copy().paste().select_all().build()?;

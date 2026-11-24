@@ -25,11 +25,11 @@ npm ci
 npm run desktop:build
 ```
 
-Native-host only: pinned Node 22.23.4 archive verification, in-memory Node/SQLite ABI probe and locked app build produce `src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\Garmin Trainer_<version>_x64-setup.exe`. Identity binds platform/source/dependencies/toolchain/inventory, installer and extracted payload. Neither host produces/verifies the other's platform.
+Native-host only: pinned Node 22.23.4 archive verification, in-memory Node/SQLite ABI probe and locked app build produce `src-tauri\target\x86_64-pc-windows-msvc\release\bundle\nsis\AI Trainer for Garmin Connect_<version>_x64-setup.exe`. Identity binds platform/source/dependencies/toolchain/inventory, installer and extracted payload. Neither host produces/verifies the other's platform.
 
 ## Unsigned per-user installer
 
-Installs without elevation under `%LOCALAPPDATA%\Garmin Trainer`, with shortcuts/uninstaller but no service, startup entry, updater or login item. SmartScreen may warn/refuse: do not disable protections or bypass trust. Missing WebView2 stops before installation; the installer never downloads it.
+Installs without elevation under `%LOCALAPPDATA%\AI Trainer for Garmin Connect`, with shortcuts/uninstaller but no service, startup entry, updater or login item. SmartScreen may warn/refuse: do not disable protections or bypass trust. Missing WebView2 stops before installation; the installer never downloads it.
 
 Uninstall preserves DB/settings/tokens in `%APPDATA%\com.codexa.garmin-trainer.desktop`; the stock delete-data option is removed. Program replacement preserves private state, but qualification covers only reusing the exact same-version installer after owned shutdown. Earlier/development-version upgrades and downgrades remain unqualified; silent/update downgrade refusal is a contract, not normal-use proof. **Windows existing-database migration via the source CLI is not qualified** because maintenance retains POSIX uid/mode assumptions. Startup never migrates.
 
@@ -41,7 +41,7 @@ npm run release -- package --platform windows-x64 --execute --bundle $REL --scra
 npm run release -- verify --platform windows-x64 --bundle $REL --scratch <private-scratch> --record <printed release-windows-x64.json>
 ```
 
-Keep the build's npm environment; direct `release.py` context mismatches refuse. Package copies the stamped installer to `Garmin-Trainer-<version>-windows-x64-setup.exe` and creates checksum/record, never rebuilds/relabels. Verify validates member names before owned 7-Zip extraction, then exact payload/x64 PE/resources/licenses/private exclusions. It never executes the installer. No macOS size budget applies.
+Keep the build's npm environment; direct `release.py` context mismatches refuse. Package copies the stamped installer to `AI-Trainer-for-Garmin-Connect-<version>-windows-x64-setup.exe` and creates checksum/record, never rebuilds/relabels. Verify validates member names before owned 7-Zip extraction, then exact payload/x64 PE/resources/licenses/private exclusions. It never executes the installer. No macOS size budget applies.
 
 ## On-demand execution
 
@@ -69,7 +69,7 @@ Mandatory JS/file-publication and native input/settings/validator/backend prefli
 
 Six Trainer/Sync/Profile × wide 1280×850/narrow 420×850 logical own-WebView PNGs use `CapturePreview`, hide-by-default geometry masks and confirmed restoration before private publication. Native/image dimensions must agree; unsupported DPI refuses rather than stretches. Bounded PNG framing/CRC/deflate/filter/nonuniform-pixel checks do not replace individual inspection. Failure/timeout never publishes raw pixels.
 
-After native/backend/WebView/endpoints/writer/namespace settlement, rerun the exact same-version installer. Verify unchanged payload, registration/shortcuts, synthetic DB/settings and app-data marker, then uninstall. Verify program/uninstall-registration removal, no `/NS` shortcuts and preserved synthetic state/marker. Stock `Software\codexa\Garmin Trainer` install-location metadata remains inventoried unchanged, not falsely reported deleted. Never adopt/delete unrelated state. Synthetic data expires with the runner; no primary access/copy-back.
+After native/backend/WebView/endpoints/writer/namespace settlement, rerun the exact same-version installer. Verify unchanged payload, registration/shortcuts, synthetic DB/settings and app-data marker, then uninstall. Verify program/uninstall-registration removal, no `/NS` shortcuts and preserved synthetic state/marker. Stock `Software\codexa\AI Trainer for Garmin Connect` install-location metadata remains inventoried unchanged, not falsely reported deleted. Never adopt/delete unrelated state. Synthetic data expires with the runner; no primary access/copy-back.
 
 **Upload exception:** successful complete scenarios alone may upload exactly six masked synthetic PNGs and one closed sanitized source/runtime/scenario manifest, explicitly named, with three-day requested retention. No binaries, DB/sidecars, settings/keys/tokens, descriptors/capabilities, raw/unverified captures or logs. Public-repository artifacts must be disclosure-safe; retention is not privacy or immediate erasure. Other images, including macOS, remain no-upload.
 

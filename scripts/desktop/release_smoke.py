@@ -46,7 +46,11 @@ REQUIRED = [
     b'__trainerOrdinaryIsolated',
     b'Isolated ordinary-run admission refused',
 ]
-APP = REPO / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos/Garmin Trainer.app'
+APP = (
+    REPO
+    / 'src-tauri/target/aarch64-apple-darwin/release/bundle/macos'
+    / 'AI Trainer for Garmin Connect.app'
+)
 
 
 def audit(app, extra=None):

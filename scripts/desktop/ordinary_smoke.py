@@ -103,7 +103,7 @@ class OrdinaryRun(Run):
         self.boot = None
         self.previous_boot = None
         self.rejected_pids = []
-        self.bundle = self.root / 'Garmin Trainer.app'
+        self.bundle = self.root / 'AI Trainer for Garmin Connect.app'
         if macos_metadata:
             resources.copy_tree(bundle, self.bundle, macos_metadata=True)
         else:
