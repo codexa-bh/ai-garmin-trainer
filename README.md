@@ -60,7 +60,7 @@ You need:
 - a Garmin Connect account with data from a Garmin device;
 - one AI model provider from the [table below](#choose-a-model).
 
-The screenshots show a newer source build. The latest published release, 0.1.4, is still named _Garmin Trainer_; the new name will appear in a future release.
+The latest macOS release is [AI Trainer for Garmin Connect 0.1.5](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.5). It uses the same database format as 0.1.4; no migration is needed when upgrading from that version.
 
 1. **Install.** Run this in Terminal:
 
@@ -113,7 +113,7 @@ Run the app only for yourself on your own Mac. It has no sign-in of its own, and
 ## Status and limits
 
 - **Early software.** Version 0.1.x, built by one developer.
-- **Apple Silicon Macs only.** The [Windows x64 alpha](docs/windows.md) is experimental and unsupported.
+- **Apple Silicon Macs only.** The experimental, unsupported Windows x64 alpha remains at [v0.1.4](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.4), not Latest. See [Windows limits](docs/windows.md).
 - **Unsigned.** The download is not signed or notarized.
 - **Garmin's Personal API is new.** It may change, keys can expire or be revoked, and its rate limits are not fully documented. [Garmin access risk](docs/garmin-risk.md)
 - **Personal use only.** Garmin offers the Personal API to individuals for their own data. Hosting this app for other people or sharing a key is not supported.
