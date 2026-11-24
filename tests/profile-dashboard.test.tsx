@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import React from "react";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -1138,12 +1139,16 @@ describe("TrainerDashboard Profile hydration", () => {
       ).toBe(false),
     );
 
-    expect(fireEvent.keyDown(message, { key: "Enter", code: "Enter" })).toBe(
-      false,
-    );
+    // Enter starts asynchronous request/render work; settle it explicitly rather
+    // than racing the default DOM-query deadline on a busy CI runner.
+    await act(async () => {
+      expect(fireEvent.keyDown(message, { key: "Enter", code: "Enter" })).toBe(
+        false,
+      );
+    });
 
     expect(
-      await screen.findByText("Enter submitted this composer message."),
+      screen.getByText("Enter submitted this composer message."),
     ).toBeTruthy();
     const postCalls = fetchMock.mock.calls.filter(
       ([url, init]) => String(url) === "/api/chat" && init?.method === "POST",
