@@ -97,4 +97,4 @@ Public source grants no hosting/deploy/release authority. Loopback is not protec
 
 ## License
 
-Own code/assets, including earlier versions: [MIT](LICENSE). Dependencies, names/logos/maps retain their terms; [license scope](docs/redistribution.md#first-party-license).
+Own code/assets: [Apache-2.0](LICENSE); releases up to 0.1.4 remain MIT. Dependencies, names/logos/maps retain their terms; [license scope](docs/redistribution.md#first-party-license).
