@@ -2,7 +2,9 @@
 
 **A private AI coach that answers from your own Garmin history and plans your week with targets it measures.** It runs on your Mac, keeps your data in a local database and uses the AI model you choose.
 
-[Install on macOS](#installation) · [Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest) · [Privacy](#privacy) · [Status and limits](#status-and-limits)
+Windows: the app also builds for Windows, but it has no maintainer yet. If you can help maintain and test it, [reply on this issue](../../issues/279).
+
+[Install on macOS](#installation) · [Releases](../../releases/latest) · [Privacy](#privacy) · [Status and limits](#status-and-limits)
 
 _An independent open-source project, not affiliated with or endorsed by Garmin._
 
@@ -62,12 +64,12 @@ You need:
 - a Garmin Connect account with data from a Garmin device;
 - one AI model provider from the [table below](#choose-a-model).
 
-The latest macOS release is [AI Trainer for Garmin Connect 0.1.5](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.5). It uses the same database format as 0.1.4; no migration is needed when upgrading from that version.
+The latest macOS release is [AI Trainer for Garmin Connect 0.1.5](../../releases/tag/v0.1.5). It uses the same database format as 0.1.4; no migration is needed when upgrading from that version.
 
 1. **Install.** Run this in Terminal:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/codexa-bh/ai-garmin-trainer/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/eye1/ai-garmin-trainer/main/install.sh | bash
    ```
 
    [`install.sh`](install.sh) downloads the latest release, verifies its published checksum and copies the app to Applications. It needs no `sudo` and does not touch your data.
@@ -80,7 +82,7 @@ The latest macOS release is [AI Trainer for Garmin Connect 0.1.5](https://github
 
 ![Garmin connection settings showing that a key is saved, without exposing it](docs/screenshots/connect-garmin.png)
 
-You can also download the `.dmg` from [Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest) and copy the app to Applications yourself. The app is not signed or notarized, so macOS blocks the first launch of a copy downloaded in a browser. To allow it, try to open the app once, then open System Settings → Privacy & Security, scroll to Security, click **Open Anyway** next to the message about the app and confirm. If macOS reports the app as damaged instead, use the Terminal install.
+You can also download the `.dmg` from [Releases](../../releases/latest) and copy the app to Applications yourself. The app is not signed or notarized, so macOS blocks the first launch of a copy downloaded in a browser. To allow it, try to open the app once, then open System Settings → Privacy & Security, scroll to Security, click **Open Anyway** next to the message about the app and confirm. If macOS reports the app as damaged instead, use the Terminal install.
 
 ### Choose a model
 
@@ -115,21 +117,21 @@ Run the app only for yourself on your own Mac. It has no sign-in of its own, and
 ## Status and limits
 
 - **Early software.** Version 0.1.x, built by one developer.
-- **Apple Silicon Macs only.** The experimental, unsupported Windows x64 alpha remains at [v0.1.4](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.4), not Latest. See [Windows limits](docs/windows.md).
+- **Apple Silicon Macs only.** The experimental, unsupported Windows x64 alpha remains at [v0.1.4](../../releases/tag/v0.1.4), not Latest. See [Windows limits](docs/windows.md).
 - **Unsigned.** The download is not signed or notarized.
 - **Garmin's Personal API is new.** It may change, keys can expire or be revoked, and its rate limits are not fully documented. [Garmin access risk](docs/garmin-risk.md)
 - **Personal use only.** Garmin offers the Personal API to individuals for their own data. Hosting this app for other people or sharing a key is not supported.
 - **Read-only.** The app does not send workouts, plans or settings to Garmin or to your watch.
 - **Not medical advice.** Answers come from an AI model and can be wrong, even when they cite your data. [How the trainer is instructed](docs/coaching-instructions-and-sources.md)
 
-Found a bug? Open an [issue](https://github.com/codexa-bh/ai-garmin-trainer/issues). Never paste keys, debug traces or database files into an issue or a screenshot.
+Found a bug? Open an [issue](../../issues). Never paste keys, debug traces or database files into an issue or a screenshot.
 
 ## Build from source
 
 Install Git, Node 22 or later with npm, the Xcode Command Line Tools, Rust and Python 3.12 ([pinned versions](docs/validation.md#local-tool-setup)).
 
 ```bash
-git clone https://github.com/codexa-bh/ai-garmin-trainer.git
+git clone https://github.com/eye1/ai-garmin-trainer.git
 cd ai-garmin-trainer
 npm ci
 npm run desktop:build

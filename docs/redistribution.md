@@ -4,7 +4,7 @@ First-party code/docs/assets use [Apache-2.0](../LICENSE), copyright 2026 Ivan M
 
 ## First-party license
 
-First-party material already published under MIT stays available under MIT ([text at v0.1.4](https://github.com/codexa-bh/ai-garmin-trainer/blob/v0.1.4/LICENSE)): source revisions whose `LICENSE` is MIT, and earlier releases including 0.1.1–0.1.4. Tags 0.1.1–0.1.3 carry no license file; earlier tags/assets/notes/embedded notices are not rewritten. Each release's third-party conditions remain in its own `REDISTRIBUTION-REVIEW.txt`. Apache-2.0 permits modification/debugging/rebuilding/relinking; no extra first-party permission is needed to exercise library rights.
+First-party material already published under MIT stays available under MIT ([text at v0.1.4](../../../blob/v0.1.4/LICENSE)): source revisions whose `LICENSE` is MIT, and earlier releases including 0.1.1–0.1.4. Tags 0.1.1–0.1.3 carry no license file; earlier tags/assets/notes/embedded notices are not rewritten. Each release's third-party conditions remain in its own `REDISTRIBUTION-REVIEW.txt`. Apache-2.0 permits modification/debugging/rebuilding/relinking; no extra first-party permission is needed to exercise library rights.
 
 ### What the first-party license does not cover
 
@@ -50,6 +50,6 @@ Changed bytes require new source/inventory identity, never altered stamped resou
 
 ChatGPT OAuth helper is first-party Apache-2.0. No Python helper/uv/Garmin connector is bundled or required; Ollama and Apple frameworks/tools are external prerequisites, not redistributed installations/configuration.
 
-Official Garmin/FIT uses `fit-file-parser` 6.2.10 (MIT), buffer/base64-js (MIT) and ieee754 (BSD-3-Clause), with notices collected from production npm. `@garmin/fitsdk` is not used: its internal-business-purpose license disallows making the technology available to third parties. The operator confirmed Personal API terms permit this public per-user-key app ([decision](https://github.com/codexa-bh/ai-garmin-trainer/pull/232)); this is not legal certification. Garmin's FAQ excludes commercial multi-end-user applications, so hosted/shared-key/commercial multi-user use is unsupported.
+Official Garmin/FIT uses `fit-file-parser` 6.2.10 (MIT), buffer/base64-js (MIT) and ieee754 (BSD-3-Clause), with notices collected from production npm. `@garmin/fitsdk` is not used: its internal-business-purpose license disallows making the technology available to third parties. The operator confirmed Personal API terms permit this public per-user-key app ([decision](../../../pull/232)); this is not legal certification. Garmin's FAQ excludes commercial multi-end-user applications, so hosted/shared-key/commercial multi-user use is unsupported.
 
 Before binary publication, review actual final inventory/source/notes/assets, current dependency exposure and missing/ambiguous upstream conditions. Record genuine residual-security disposition under the [release authority/gates](release.md#release-cut-runbook); source merge/local passes/predecessor completion supply no release consent. Owner approval cannot waive upstream conditions or failed guards. No certificate/key/trust profile or operator configuration is redistributed.

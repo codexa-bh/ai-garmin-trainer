@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
+from release_metadata import REPOSITORY
 import release_set
 from release_set_test import write_platform
 import windows_release_export as transport
@@ -204,7 +205,7 @@ class ExportTests(unittest.TestCase):
             'GITHUB_RUN_ID': self.run,
             'GITHUB_RUN_ATTEMPT': self.attempt,
             'GITHUB_EVENT_NAME': 'push',
-            'GITHUB_REPOSITORY': 'codexa-bh/ai-garmin-trainer',
+            'GITHUB_REPOSITORY': REPOSITORY,
         }
         with patch.dict(os.environ, env), patch.object(transport.platform_target, 'require_host'):
             with self.assertRaises(ValueError):
@@ -233,7 +234,7 @@ class ExportTests(unittest.TestCase):
             'event': 'workflow_dispatch',
             'status': 'completed',
             'conclusion': 'success',
-            'repository': {'full_name': 'codexa-bh/ai-garmin-trainer'},
+            'repository': {'full_name': REPOSITORY},
         }
         item = {
             'id': 456,

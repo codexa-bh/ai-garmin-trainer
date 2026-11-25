@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs or updates AI Trainer for Garmin Connect on an Apple Silicon Mac.
 #
-#   curl -fsSL https://raw.githubusercontent.com/codexa-bh/ai-garmin-trainer/main/install.sh | bash
+# See README.md → Installation for the download-and-run command.
 #
 # Downloads the disk image and its checksum from this repository's latest GitHub
 # release, verifies the checksum and copies the app into /Applications, or into
@@ -9,7 +9,7 @@
 # app and never touches your database or settings.
 set -euo pipefail
 
-REPOSITORY='codexa-bh/ai-garmin-trainer'
+REPOSITORY='eye1/ai-garmin-trainer'
 LATEST_RELEASE="https://api.github.com/repos/$REPOSITORY/releases/latest"
 DOWNLOADS="https://github.com/$REPOSITORY/releases/download/"
 IMAGE_SUFFIX='-macos-arm64.dmg'

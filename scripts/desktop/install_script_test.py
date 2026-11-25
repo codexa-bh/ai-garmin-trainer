@@ -9,7 +9,12 @@ import tempfile
 import unittest
 
 SCRIPT = Path(__file__).resolve().parents[2] / 'install.sh'
-DOWNLOADS = 'https://github.com/codexa-bh/ai-garmin-trainer/releases/download/v1.2.3/'
+REPOSITORY = next(
+    line.removeprefix("REPOSITORY='").removesuffix("'")
+    for line in SCRIPT.read_text().splitlines()
+    if line.startswith("REPOSITORY='")
+)
+DOWNLOADS = f'https://github.com/{REPOSITORY}/releases/download/v1.2.3/'
 IMAGE = 'AI-Trainer-for-Garmin-Connect-1.2.3-macos-arm64.dmg'
 APP = 'AI Trainer for Garmin Connect.app'
 FORMER_APP = 'Garmin Trainer.app'
