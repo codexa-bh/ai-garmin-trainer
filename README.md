@@ -1,5 +1,7 @@
 # AI Trainer for Garmin Connect
 
+![Set your targets for the week. Your Garmin data keeps score. Your AI coach reviews it with you.](docs/screenshots/banner.png)
+
 **A private AI coach that answers from your own Garmin history and plans your week with targets it measures.** It runs on your Mac, keeps your data in a local database and uses the AI model you choose.
 
 Windows: the app also builds for Windows, but it has no maintainer yet. If you can help maintain and test it, [reply on this issue](../../issues/279).
@@ -7,8 +9,6 @@ Windows: the app also builds for Windows, but it has no maintainer yet. If you c
 [Install on macOS](#installation) · [Releases](../../releases/latest) · [Privacy](#privacy) · [Status and limits](#status-and-limits)
 
 _An independent open-source project, not affiliated with or endorsed by Garmin._
-
-![Trainer chat reviewing last week against its KPI targets and saving next week's plan](docs/screenshots/chat.png)
 
 ## Why it is different
 
@@ -32,9 +32,13 @@ It works alongside Garmin Connect, not instead of it. Your watch still syncs to 
 
 ### Weekly plans and KPIs
 
+![Trainer chat reviewing last week against its KPI targets and saving next week's plan](docs/screenshots/chat.png)
+
+Plan each week with the trainer in chat. You agree a handful of KPIs, each with a target and the points it is worth. At the end of the week the trainer reviews it with you and drafts the next one. Say "draft only, do not save" when you want to discuss a plan without saving it.
+
 ![The current week's KPI targets, measured actuals and provisional points](docs/screenshots/weekly-plan.png)
 
-Plan each week with the trainer in chat. You agree a handful of KPIs, each with a target and the points it is worth, and the app measures the actual values from your Garmin data where it can. The week shows target, actual and points in one grid, and the trainer reviews it with you before drafting the next week. A General Plan holds your longer-term direction. Say "draft only, do not save" when you want to discuss a plan without saving it.
+The app measures the actual values from your Garmin data where it can and shows target, actual and points in one grid. A General Plan holds your longer-term direction.
 
 ![Weekly KPI achievement and hiking ascent compared with each week's target](docs/screenshots/weekly-progress.png)
 
