@@ -44,7 +44,7 @@ Four fixture connection states, one Sync each, healthy explicitly cancelled. Ver
 
 `npm run smoke:ordinary -- --scratch "$scratch" --bundle "$bundle" --composer-footer`
 
-Authored catalogs, no send: explicit choice, draft/restart and four captures, not OS popup proof. Full default; reviewed local feature changes may select `--smoke-scope feature --impact local-feature --impact-basis 'reviewed change'`. [Composer](smoke/ordinary.md#opt-in-composer-footer-evidence).
+Authored catalogs, no send: explicit choice, draft/restart and wide/narrow normal- and short-height captures, not OS popup proof. Full default; reviewed local feature changes may select `--smoke-scope feature --impact local-feature --impact-basis 'reviewed change'`. [Composer](smoke/ordinary.md#opt-in-composer-footer-evidence).
 
 ## eligibility — Ordinary mixed and empty keyless model catalogs
 

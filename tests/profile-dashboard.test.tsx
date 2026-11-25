@@ -1283,7 +1283,13 @@ describe("TrainerDashboard Profile hydration", () => {
       topbar.nextElementSibling?.classList.contains("chat-workspace"),
     ).toBe(true);
 
-    const transcript = screen.getByRole("log", { name: "Chat transcript" });
+    const chat = screen.getByRole("region", { name: "Trainer chat" });
+    expect(within(chat).queryByText("Daily trainer")).toBeNull();
+    expect(within(chat).queryByText("Chat with your private coach")).toBeNull();
+    expect(chat.getAttribute("aria-labelledby")).toBeNull();
+    const transcript = within(chat).getByRole("log", {
+      name: "Chat transcript",
+    });
     setTranscriptMetrics(transcript, {
       scrollHeight: 1600,
       clientHeight: 360,
@@ -5840,9 +5846,7 @@ describe("TrainerDashboard memory and new chat", () => {
     expect(screen.getByRole("menu")).toBeTruthy();
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
 
-    fireEvent.pointerDown(
-      screen.getByRole("heading", { name: "Chat with your private coach" }),
-    );
+    fireEvent.pointerDown(screen.getByRole("log", { name: "Chat transcript" }));
 
     await waitFor(() => {
       expect(screen.queryByRole("menu")).toBeNull();

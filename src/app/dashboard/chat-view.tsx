@@ -325,12 +325,7 @@ export function ChatView({
         </div>
       ) : null}
 
-      <section className="trainer-card" aria-labelledby="trainer-heading">
-        <div className="trainer-heading-row">
-          <p className="section-kicker">Daily trainer</p>
-          <h2 id="trainer-heading">Chat with your private coach</h2>
-        </div>
-
+      <section className="trainer-card" aria-label="Trainer chat">
         {selectionError ? (
           <div role="alert">
             <p>{selectionError}</p>

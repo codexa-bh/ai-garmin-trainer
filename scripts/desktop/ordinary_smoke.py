@@ -276,7 +276,7 @@ class OrdinaryRun(Run):
         self.command({'type': 'composer', 'action': 'draft'})
         self.command({'type': 'composer', 'action': 'keys'})
         images = []
-        for preset in ['wide', 'narrow']:
+        for preset in ['wide', 'narrow', 'wide-short', 'narrow-short']:
             self.command({'type': 'setViewport', 'preset': preset})
             observed = self.command({'type': 'composer', 'action': 'observe'})
             if not observed['unselectedChoice']:
@@ -297,7 +297,7 @@ class OrdinaryRun(Run):
             raise ValueError('UI model choice did not persist')
         for state in ['saved']:
             self.capture_state = state
-            for preset in ['wide', 'narrow']:
+            for preset in ['wide', 'narrow', 'wide-short', 'narrow-short']:
                 self.command({'type': 'setViewport', 'preset': preset})
                 observed = self.command({'type': 'composer', 'action': 'observe'})
                 image = self.command({'type': 'captureView', 'view': 'composer', 'preset': preset})
@@ -1085,7 +1085,7 @@ def selection_plan(args):
             group: recipe
             for group, recipe in {
                 'baseline-captures': 'Trainer/Sync/Profile wide+narrow masked geometry',
-                'composer': 'unselected/saved wide+narrow synthetic DOM',
+                'composer': 'unselected/saved wide+narrow and short-height synthetic DOM',
                 'model-eligibility': 'mixed unavailable/replacement and empty unavailable wide+narrow synthetic DOM',
                 'conversation': 'restored-first wide+narrow, delete-last wide synthetic DOM',
                 'summary-lifecycle': 'empty narrow, preflight/manual/whole-summary wide+narrow actual keyless controls',
@@ -1407,7 +1407,7 @@ def composer_scenario():
             'explicit choice, draft and geometry',
             'exact choice retained across fresh origin/boot; stale capabilities denied',
         ),
-        'unselected/saved wide+narrow synthetic DOM; not provider or trusted input',
+        'unselected/saved wide+narrow and short-height synthetic DOM; not provider or trusted input',
     )
 
 

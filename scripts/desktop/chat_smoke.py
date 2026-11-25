@@ -920,7 +920,9 @@ def main():
             # The extra-data scope is non-visual: its proof is the actual tool
             # wire/SQL cells and persisted history, and the fixed chat mask
             # admits only the canonical ordinary answer, so no capture is taken.
-            for preset in [] if args.extra_data else ['wide', 'narrow']:
+            for preset in (
+                [] if args.extra_data else ['wide', 'narrow', 'wide-short', 'narrow-short']
+            ):
                 run.command({'type': 'setViewport', 'preset': preset})
                 # Read-only fixed capture can wait for selected history hydration.
                 # No mutation retry: capture is attempted only after bounded history checks.
