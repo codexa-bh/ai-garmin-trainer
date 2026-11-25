@@ -8,7 +8,7 @@ Windows: the app also builds for Windows, but it has no maintainer yet. If you c
 
 _An independent open-source project, not affiliated with or endorsed by Garmin._
 
-![Trainer chat answering a question about a whole season of activities](docs/screenshots/chat.png)
+![Trainer chat reviewing last week against its KPI targets and saving next week's plan](docs/screenshots/chat.png)
 
 ## Why it is different
 
