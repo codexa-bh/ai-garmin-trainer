@@ -108,6 +108,12 @@ Only local setup has Settings/auth IPC. Trainer/remote pages have none except ad
 
 Quit drains HTTP/Next≤5s and bounds owned-group termination≤8s; never stop Ollama/unrelated listeners. Host death closes liveness pipe. Cancellation is not rollback: committed turns/plans/checkpoints persist; unfinished work may remain. Force-kill/power loss can leave leases needing exact inspection. Relaunch reads stored state.
 
+### Trainer window geometry
+
+On macOS the first Trainer window fills the display's usable height, including its titlebar but excluding the menu bar and Dock; preferred width is 1280 logical points, reduced to fit. Subsequent launches restore its normal size and position before showing it. Changed or missing displays translate and constrain the saved frame to a current usable desktop; smaller chosen sizes stay smaller. Settings keeps its independent geometry.
+
+Native stores this optional preference in private `trainer-window-v1.json` beside the explicitly selected Settings file, separate from credentials and SQLite. Settled normal frames are saved after a short debounce and flushed at normal exit; minimized, zoomed/fullscreen and temporary smoke viewport frames do not replace them. Debug and ordinary isolated roots never read or write the normal preference. Missing, malformed, unsupported or inaccessible state falls back onscreen without blocking startup; unsafe or unsupported existing files remain untouched.
+
 ## Validation and recovery
 
 [Validation](validation.md) and [smoke](dev-bridge.md) own checks/evidence. Full desktop path:

@@ -4481,7 +4481,15 @@
   async function maskedView(command) {
     if (
       !globalThis.__trainerOrdinaryIsolated ||
-      !viewport(command.preset) ||
+      !(
+        viewport(command.preset) ||
+        (command.view === "trainer" &&
+          command.preset === "native" &&
+          innerWidth >= 100 &&
+          innerWidth <= 4096 &&
+          innerHeight >= 100 &&
+          innerHeight <= 4096)
+      ) ||
       Object.keys(command).length !== 3 ||
       !Object.keys(command).every((key) =>
         ["type", "view", "preset"].includes(key),
