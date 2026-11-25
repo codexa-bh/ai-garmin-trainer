@@ -24,6 +24,8 @@ mod setup_smoke;
 mod smoke_config;
 mod supervisor;
 mod system_open;
+#[cfg(target_os = "macos")]
+mod window_geometry;
 #[cfg(windows)]
 mod windows_webview;
 
@@ -473,8 +475,9 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
     }
     #[cfg(all(feature = "release-probe", not(debug_assertions)))]
     let probe_app = app.clone();
-    window
+    let trainer = window
         .title(title)
+        .visible(!cfg!(target_os = "macos"))
         .inner_size(1280.0, 850.0)
         .on_navigation(move |url| {
             #[cfg(all(feature = "release-probe", not(debug_assertions)))]
@@ -507,6 +510,17 @@ fn launch(app: &tauri::AppHandle) -> Result<String, &'static str> {
             }
             "Cannot create desktop window."
         })?;
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            window_geometry::install(&handle);
+            let _ = trainer.show();
+        })
+        .map_err(|_| "Cannot show desktop window.")?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = trainer;
     *guard = Some(service);
     if let Some(setup) = app.get_webview_window("setup") {
         let _ = setup.hide();
@@ -1047,6 +1061,8 @@ fn main() {
                 setup.build()?;
             }
             let settings = settings_path(app.handle()).map_err(std::io::Error::other)?;
+            #[cfg(target_os = "macos")]
+            window_geometry::initialize(app.handle(), &settings);
             let root = if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
                 if run.descriptor.history_setup.is_some() { run.descriptor.root.clone() }
                 else { run.descriptor.root.join("app-data") }
@@ -1120,6 +1136,11 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 let runtime = handle.state::<Runtime>();
                 if runtime.quitting.load(Ordering::SeqCst) { break; }
+                #[cfg(target_os = "macos")]
+                {
+                    let app = handle.clone();
+                    let _ = handle.run_on_main_thread(move || window_geometry::tick(&app, false));
+                }
                 if let Ok(mut guard) = runtime.service.try_lock() {
                     if guard.as_mut().map(|service| service.exited()).unwrap_or(false) {
                         guard.take(); // Drop terminates any owned descendants.
@@ -1136,6 +1157,8 @@ fn main() {
         .expect("Native desktop initialization failed");
     app.run(|handle, event| {
         if let tauri::RunEvent::ExitRequested { api, .. } = event {
+            #[cfg(target_os = "macos")]
+            window_geometry::tick(handle, true);
             let runtime = handle.state::<Runtime>();
             if !runtime.quitting.swap(true, Ordering::SeqCst) {
                 api.prevent_exit();

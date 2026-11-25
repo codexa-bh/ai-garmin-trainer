@@ -42,6 +42,16 @@ For operator-authorized macOS naming inspection only, an authenticated current o
 
 Shared navigation/Profile controls and Goals operate only on exact visible enabled hydrated targets and run-authored Goals. Ordinary supports documented fixed viewport/capture/feature actions; Sync/historySettings require explicit history scope. Debug alone supports finite Health/disclosure, Enter/Space WebView-local keys and native keyless Settings. Those debug modules compile out of ordinary, whose native/renderer gates reject them.
 
+On macOS, ordinary-only `windowGeometry` accepts exactly `action: observe|arrange`. Observe returns native outer frame/work area/display ID in AppKit logical points; Arrange sets one fixed 900×650 outer frame at a bounded work-area offset, without activation or global input. Results originate on the native main thread, never renderer callbacks. Existing request/boot/run/window admission and five-second unknown-effect deadline apply. Trainer-only `captureView` preset `native` uses the existing privacy mask at the current bounded viewport without resizing. Fixed presentation viewport overrides suspend geometry persistence for that boot; Arrange explicitly resumes normal tracking.
+
+Run the finite geometry composition with the required shared-native full baseline from the physical checkout:
+
+```bash
+npm run env -- python3 scripts/desktop/geometry_smoke.py --scratch <canonical-task-root> --bundle <canonical-ordinary-app> --full
+```
+
+It checks initial usable outer height, native move/resize and settled quit/fresh-boot restoration, then fixed narrow viewport isolation across another boot. Inspect its initial/restored PNGs alongside native observations. Current attached-display evidence does not prove physical multi-monitor/scaling changes or trusted drag input; native model tests cover unavailable display arrangements.
+
 No arbitrary selector/text/path/key/login, general scrolling/eval/invoke, state injection, proxy or shutdown endpoint. Fixed authored adapters are permitted only in their documented scopes. Ordinary observations are bounded view/readiness/saved booleans; debug may add fixed Health/disclosure booleans and three equal-length boolean arrays ≤128 entries. Unknown fields/text/inconsistent shapes refuse. Dates/private values remain inside renderer; no transcripts/trace text/credentials escape. DOM actions and native-generated WebView keys are not hardware/global input.
 
 ## Task-needed bridge and runner extensions

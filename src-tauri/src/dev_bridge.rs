@@ -56,7 +56,9 @@ impl Config {
             {
                 self.ordinary.is_none()
             }
-            Command::PresentNaming {} => self.ordinary.is_some() && cfg!(target_os = "macos"),
+            Command::PresentNaming {} | Command::WindowGeometry { .. } => {
+                self.ordinary.is_some() && cfg!(target_os = "macos")
+            }
             Command::SetViewport { .. }
             | Command::CaptureView { .. }
             | Command::Composer { .. }
@@ -125,6 +127,12 @@ pub enum SupplementAction {
 }
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum GeometryAction {
+    Observe,
+    Arrange,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SyncAction {
     Details,
     Observe,
@@ -157,6 +165,9 @@ pub enum Command {
     Capture {},
     /// Explicit operator-authorized native naming presentation; no default-launch route.
     PresentNaming {},
+    WindowGeometry {
+        action: GeometryAction,
+    },
     SetViewport {
         preset: String,
     },
@@ -256,6 +267,7 @@ impl Command {
             Self::Observe {}
             | Self::Capture {}
             | Self::PresentNaming {}
+            | Self::WindowGeometry { .. }
             | Self::Sync { .. }
             | Self::HistorySettings { .. } => true,
             Self::SetViewport { preset } => {
@@ -280,6 +292,7 @@ impl Command {
                 .contains(&view.as_str())
                     && (["wide", "narrow"].contains(&preset.as_str())
                         || (view == "terrain" && preset == "medium")
+                        || (view == "trainer" && preset == "native")
                         || (["weeklyKpis", "composer", "ordinary-chat"].contains(&view.as_str())
                             && ["wide-short", "narrow-short"].contains(&preset.as_str())))
             }
@@ -1222,6 +1235,9 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                     .iter()
                     .all(|key| value[*key].as_u64().is_some_and(|n| n <= 100_000))
         }
+        // Geometry results originate only in the native main-thread handler;
+        // renderer callbacks may never supply or spoof them.
+        Command::WindowGeometry { .. } => false,
         Command::PresentNaming {} => ordinary && exact_keys(value, &["ok"]),
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
@@ -1350,6 +1366,30 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
             ),
         };
     }
+    #[cfg(target_os = "macos")]
+    if let Command::WindowGeometry { action } = &request.command {
+        let arrange = matches!(action, GeometryAction::Arrange);
+        let (tx, rx) = mpsc::sync_channel(1);
+        let handle = app.clone();
+        if app
+            .run_on_main_thread(move || {
+                let _ = tx.send(crate::window_geometry::smoke(&handle, arrange));
+            })
+            .is_err()
+        {
+            return (
+                409,
+                json!({"ok":false,"error":"Owned geometry dispatch unavailable"}),
+            );
+        }
+        return match rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(result)) => (200, json!({"requestId":request.request_id,"result":result})),
+            _ => (
+                409,
+                json!({"ok":false,"error":"Owned geometry incomplete; effect unknown"}),
+            ),
+        };
+    }
     if let Command::SetViewport { preset } = &request.command {
         let diagnostic = renderer_diagnostic(app);
         let Some(size) = viewport_size(&diagnostic, preset) else {
@@ -1358,6 +1398,8 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
                 json!({"ok":false,"error":"Bounded native viewport insets unavailable"}),
             );
         };
+        #[cfg(target_os = "macos")]
+        crate::window_geometry::suspend(app);
         if window.set_size(size).is_err() {
             return (409, json!({"ok":false,"error":"Viewport unavailable"}));
         }
@@ -1383,6 +1425,8 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         } else {
             420.0
         };
+        #[cfg(target_os = "macos")]
+        crate::window_geometry::suspend(app);
         if window
             .set_size(tauri::LogicalSize::new(width, 900.0))
             .is_err()
@@ -1501,6 +1545,40 @@ mod tests {
     use super::*;
     fn safe_result(command: &Command, value: &Value) -> bool {
         super::safe_result(command, value, false)
+    }
+    #[test]
+    fn geometry_is_finite_ordinary_only_and_has_no_caller_dimensions() {
+        let debug = Config {
+            run_id: "test".into(),
+            token: "test".into(),
+            root: "/missing".into(),
+            source: "test".into(),
+            port: 1,
+            ordinary: None,
+        };
+        for action in ["observe", "arrange"] {
+            let command: Command =
+                serde_json::from_value(json!({"type":"windowGeometry","action":action})).unwrap();
+            assert!(command.valid());
+            assert!(!debug.permits(&command));
+        }
+        for value in [
+            json!({"type":"windowGeometry","action":"resize"}),
+            json!({"type":"windowGeometry","action":"arrange","width":900}),
+            json!({"type":"windowGeometry","action":"observe","path":"private"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        let native: Command = serde_json::from_value(
+            json!({"type":"captureView","view":"trainer","preset":"native"}),
+        )
+        .unwrap();
+        assert!(native.valid());
+        let foreign: Command = serde_json::from_value(
+            json!({"type":"captureView","view":"profile","preset":"native"}),
+        )
+        .unwrap();
+        assert!(!foreign.valid());
     }
     #[test]
     fn sync_and_history_results_do_not_accept_private_or_generic_controls() {

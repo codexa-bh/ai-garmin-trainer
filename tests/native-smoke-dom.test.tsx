@@ -1005,6 +1005,62 @@ describe("native-installed rendered smoke boundary", () => {
     expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
     expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
   });
+  it("captures bounded native Trainer geometry with the same privacy mask only in ordinary mode", async () => {
+    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+    vi.stubGlobal("innerWidth", 900);
+    vi.stubGlobal("innerHeight", 622);
+    render(
+      <>
+        <nav>
+          <button>Sync</button>
+        </nav>
+        <p data-testid="private-native">private transcript</p>
+      </>,
+    );
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "trainer",
+          preset: "native",
+        })
+      ).result.ok,
+    ).toBe(true);
+    expect(
+      getComputedStyle(screen.getByTestId("private-native")).visibility,
+    ).toBe("hidden");
+    smoke.__trainerSmokeRestore();
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "profile",
+          preset: "native",
+        })
+      ).result.ok,
+    ).toBe(false);
+    vi.stubGlobal("innerHeight", 5000);
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "trainer",
+          preset: "native",
+        })
+      ).result.ok,
+    ).toBe(false);
+    vi.stubGlobal("innerHeight", 622);
+    delete smoke.__trainerOrdinaryIsolated;
+    expect(
+      (
+        await command({
+          type: "captureView",
+          view: "trainer",
+          preset: "native",
+        })
+      ).result.ok,
+    ).toBe(false);
+  });
   it("keeps reviewed native-mobile chrome visible without revealing copied content", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     vi.stubGlobal("innerWidth", 420);
