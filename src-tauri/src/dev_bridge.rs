@@ -280,7 +280,7 @@ impl Command {
                 .contains(&view.as_str())
                     && (["wide", "narrow"].contains(&preset.as_str())
                         || (view == "terrain" && preset == "medium")
-                        || (view == "weeklyKpis"
+                        || (["weeklyKpis", "composer", "ordinary-chat"].contains(&view.as_str())
                             && ["wide-short", "narrow-short"].contains(&preset.as_str())))
             }
             Self::WeeklyKpis { action } => [
@@ -1777,6 +1777,15 @@ mod tests {
             preset: "wide-short".into()
         }
         .valid());
+        for view in ["composer", "ordinary-chat"] {
+            for preset in ["wide-short", "narrow-short"] {
+                assert!(Command::CaptureView {
+                    view: view.into(),
+                    preset: preset.into(),
+                }
+                .valid());
+            }
+        }
         assert!(!Command::CaptureView {
             view: "trainer".into(),
             preset: "wide-short".into()

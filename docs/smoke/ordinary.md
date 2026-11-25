@@ -43,7 +43,7 @@ Assert advancement, loss/recovery, same panel/progress/Cancel DOM, focus/scroll 
 
 ## Opt-in composer-footer evidence
 
-`--composer-footer` prepares native v3 with two synthetic Ollama entries, one long label, no default and empty prior compatibility, preserving input/v2. Fixed draft/choice/key actions prove initial unselected state, explicit selection, draft preservation/order/fit and fresh-origin/boot restart against DTO-v3. No caller values/IDs/keys, Reset or provider calls. Four wide/narrow composer images show initial and saved long-label states at actual geometry; copied/unknown content stays hidden. DOM Enter/Space is not hardware/native-generated input.
+`--composer-footer` prepares native v3 with two synthetic Ollama entries, one long label, no default and empty prior compatibility, preserving input/v2. Fixed draft/choice/key actions prove initial unselected state, explicit selection, draft preservation/order/fit and fresh-origin/boot restart against DTO-v3. No caller values/IDs/keys, Reset or provider calls. Wide/narrow and short-height composer images show initial and saved long-label states at actual geometry; copied/unknown content stays hidden. DOM Enter/Space is not hardware/native-generated input.
 
 #### Missing-key eligibility evidence
 

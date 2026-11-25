@@ -232,10 +232,6 @@ function composerFixture(eligibility?: "mixed" | "empty") {
     const [draft, setDraft] = useState("");
     return (
       <>
-        <div className="trainer-heading-row">
-          <p className="section-kicker">Daily trainer</p>
-          <h2>Chat with your private coach</h2>
-        </div>
         <div className="transcript">private copied transcript</div>
         <div className="composer-dock">
           <textarea

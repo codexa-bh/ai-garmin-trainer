@@ -524,7 +524,9 @@ class OrdinaryContracts(unittest.TestCase):
         self.assertFalse(any(command['type'] == 'captureView' for command in calls))
         self.assertFalse(any(command['type'] == 'composer' for command in calls))
 
-    def test_composer_scenario_uses_finite_ui_actions_four_captures_and_persisted_choice(self):
+    def test_composer_scenario_uses_finite_ui_actions_responsive_captures_and_persisted_choice(
+        self,
+    ):
         run = self.run_fixture()
         calls = []
         observation = {
@@ -569,7 +571,7 @@ class OrdinaryContracts(unittest.TestCase):
             [
                 ('composer', preset)
                 for _state in ['unselected', 'saved']
-                for preset in ['wide', 'narrow']
+                for preset in ['wide', 'narrow', 'wide-short', 'narrow-short']
             ],
         )
         receipt = json.loads((run.root / 'composer-scenario.json').read_text())
@@ -595,7 +597,7 @@ class OrdinaryContracts(unittest.TestCase):
             sum(command == {'type': 'composer', 'action': 'choose'} for command in calls), 1
         )
         self.assertEqual(
-            sum(command['type'] == 'captureView' for command in calls), 2
+            sum(command['type'] == 'captureView' for command in calls), 4
         )  # Initial no-selection captures only.
         self.assertFalse((run.root / 'composer-scenario.json').exists())
 

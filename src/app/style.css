@@ -2209,12 +2209,6 @@ p {
   padding: 18px clamp(14px, 2vw, 28px) 0;
 }
 
-.trainer-heading-row {
-  max-width: var(--measure);
-  width: 100%;
-  margin: 0 auto 10px;
-}
-
 .chat-model-control {
   display: flex;
   flex-wrap: wrap;
@@ -2308,6 +2302,14 @@ h2 {
   overflow: auto;
   padding: 20px 0 160px;
   scroll-behavior: auto;
+}
+
+.trainer-card > .transcript {
+  grid-row: 2;
+}
+
+.trainer-card > .composer-dock {
+  grid-row: 3;
 }
 
 .load-older,
