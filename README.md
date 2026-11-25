@@ -1,6 +1,6 @@
 # AI Trainer for Garmin Connect
 
-**A private AI coach that answers from your own Garmin history.** It runs on your Mac, keeps your data in a local database and uses the AI model you choose.
+**A private AI coach that answers from your own Garmin history and plans your week with targets it measures.** It runs on your Mac, keeps your data in a local database and uses the AI model you choose.
 
 [Install on macOS](#installation) · [Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest) · [Privacy](#privacy) · [Status and limits](#status-and-limits)
 
@@ -10,12 +10,12 @@ _An independent open-source project, not affiliated with or endorsed by Garmin._
 
 ## Why it is different
 
+- **Weekly plans with your own KPIs.** Agree targets with the trainer in chat, such as weekly ascent or time on your longest outing. The app measures them from your Garmin data and scores the week against the plan, then the trainer reviews it with you and drafts the next one.
 - **Ask anything about your training.** The trainer runs read-only queries and calculations over your whole imported history, in every sport you record, instead of showing a fixed set of insights.
 - **No black-box scores.** The app adds no readiness, recovery or difficulty score of its own. The trainer is instructed to state the criteria it used and to say when data is missing.
 - **Official Garmin access.** Data comes through Garmin's Personal API with a key you create yourself. Access is read-only, and the app never asks for your Garmin password.
 - **Local data, no app account.** The app stores your history on your Mac and has no server of its own. Each question sends bounded context to the model you selected; cloud models process that context off-device.
 - **Your model, your cost.** Use a ChatGPT subscription, an OpenAI, DeepSeek or OpenRouter key, or a local Ollama model. The app never switches provider on its own.
-- **Plans checked against what you did.** Agree weekly targets in chat. The app measures them from your Garmin data, and the trainer reviews the week with you.
 
 It works alongside Garmin Connect, not instead of it. Your watch still syncs to Garmin; this app reads a copy and never writes anything back.
 
@@ -28,6 +28,16 @@ It works alongside Garmin Connect, not instead of it. Your watch still syncs to 
 
 ## What is inside
 
+### Weekly plans and KPIs
+
+![The current week's KPI targets, measured actuals and provisional points](docs/screenshots/weekly-plan.png)
+
+Plan each week with the trainer in chat. You agree a handful of KPIs, each with a target and the points it is worth, and the app measures the actual values from your Garmin data where it can. The week shows target, actual and points in one grid, and the trainer reviews it with you before drafting the next week. A General Plan holds your longer-term direction. Say "draft only, do not save" when you want to discuss a plan without saving it.
+
+![Weekly KPI achievement and hiking ascent compared with each week's target](docs/screenshots/weekly-progress.png)
+
+Progress charts show each KPI against its weekly target over the last one to twelve months.
+
 ### Activities
 
 ![A hike with its route map, heart-rate, elevation and speed charts, and heart-rate zones](docs/screenshots/activity.png)
@@ -37,14 +47,6 @@ Search your activities and open any of them: heart rate, elevation and speed cha
 ![A resort day listed run by run](docs/screenshots/snow-runs.png)
 
 Resort skiing and snowboarding days are listed run by run, with lift totals.
-
-### Training Plan
-
-![The current week's KPI targets, measured actuals and provisional points](docs/screenshots/weekly-plan.png)
-
-![Weekly KPI achievement and hiking ascent compared with each week's target](docs/screenshots/weekly-progress.png)
-
-Keep one General Plan and let the trainer write weekly plans and reviews with you in chat. Each week shows its targets, the measured actual values and the points earned, with progress charts over the last one to twelve months. Say "draft only, do not save" when you want to discuss a plan without saving it.
 
 ### Health
 
@@ -78,7 +80,7 @@ The latest macOS release is [AI Trainer for Garmin Connect 0.1.5](https://github
 
 ![Garmin connection settings showing that a key is saved, without exposing it](docs/screenshots/connect-garmin.png)
 
-You can also download the `.dmg` from [Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest) and copy the app to Applications yourself. The app is not signed or notarized, so macOS may refuse to open a copy downloaded in a browser; use the Terminal install if it does.
+You can also download the `.dmg` from [Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases/latest) and copy the app to Applications yourself. The app is not signed or notarized, so macOS blocks the first launch of a copy downloaded in a browser. To allow it, try to open the app once, then open System Settings → Privacy & Security, scroll to Security, click **Open Anyway** next to the message about the app and confirm. If macOS reports the app as damaged instead, use the Terminal install.
 
 ### Choose a model
 
@@ -104,7 +106,7 @@ There is no auto-update. Quit the app, then run the install command again; it re
 - **Sent to Garmin:** read-only requests to Garmin's Personal API with your key. The app never asks for your Garmin email, password or verification code.
 - **Sent to the AI model:** your question plus bounded context: your profile, the conversation and the data the trainer looks up for it. With supported models, requested activity-panel images (including route maps) may also be sent. With a cloud provider this leaves your Mac. Chat titles and memory use a model you select separately, even when chat uses local Ollama. Your Garmin key, the database file and raw activity files are never sent.
 - **Sent to OpenTopoMap:** opening an activity with a route loads map tiles, so the map server sees which area you are viewing.
-- **Keys are stored in plain text** in an owner-private settings file, not encrypted storage or the Keychain. Backups, privileged processes and other programs running as you can read it.
+- **Your API keys stay on your Mac** in a settings file that only your macOS user can open. Like many developer tools' config files, it is not encrypted, so it is as safe as your Mac account and your backups. [Key storage](docs/garmin-auth.md#storage-and-privacy)
 - **Memory across chats is off by default.** When it is on, deleting a chat does not clear what the trainer already remembered; clear it in Memory. [Memory](docs/memory.md)
 - **Local debug traces** can contain your chats and Garmin data. Do not share them.
 
@@ -152,6 +154,6 @@ Read the guide that owns the area you are changing:
 
 ## License
 
-Own code/assets: [Apache-2.0](LICENSE); releases up to 0.1.4 remain MIT. Dependencies, names/logos/maps retain their terms; [license scope](docs/redistribution.md#first-party-license).
+Own code/assets: [Apache-2.0](LICENSE). Dependencies, names/logos/maps retain their terms; [license scope](docs/redistribution.md#first-party-license).
 
 Garmin and Garmin Connect are trademarks of Garmin Ltd. or its subsidiaries. ChatGPT and OpenAI are trademarks of OpenAI. This project is not affiliated with, endorsed by or sponsored by either company.
