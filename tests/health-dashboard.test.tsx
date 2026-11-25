@@ -15,6 +15,7 @@ import { stubNativeDialog } from "./native-dialog-stub";
 beforeEach(stubNativeDialog);
 import { TrainerDashboard } from "../src/app/trainer-dashboard";
 import { HealthDashboardView } from "../src/app/dashboard/health-metrics";
+import { HealthView } from "../src/app/dashboard/health-view";
 import type { HealthDashboardDay } from "../src/app/dashboard/contracts";
 
 const emptyChat = {
@@ -316,6 +317,34 @@ function expectRollupChartGraphics(
 }
 
 describe("TrainerDashboard Health dashboard", () => {
+  it("labels populated Health across modes, but not empty, loading or error states", () => {
+    const props = {
+      closeHealthDashboard: vi.fn(),
+      healthDashboardCloseRef: { current: null },
+      healthDashboardState: "loaded" as const,
+      healthDashboardError: "Unavailable",
+      healthDashboardData: healthDashboard(),
+      healthRangeEnd: null,
+      healthRangeNotice: "",
+      setHealthRangeEnd: vi.fn(),
+    };
+    const { rerender } = render(<HealthView {...props} />);
+    for (const name of ["Daily", "Weekly", "Monthly"]) {
+      fireEvent.click(screen.getByRole("tab", { name }));
+      expect(screen.getAllByText("Source: Garmin")).toHaveLength(1);
+    }
+    for (const state of ["loading", "error"] as const) {
+      rerender(<HealthView {...props} healthDashboardState={state} />);
+      expect(screen.queryByText("Source: Garmin")).toBeNull();
+    }
+    rerender(
+      <HealthView
+        {...props}
+        healthDashboardData={{ ...healthDashboard(), days: [] }}
+      />,
+    );
+    expect(screen.queryByText("Source: Garmin")).toBeNull();
+  });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();

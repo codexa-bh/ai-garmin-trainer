@@ -5,6 +5,7 @@ import {
   type Status,
 } from "./contracts";
 import { numberLabel } from "./formatting";
+import { GarminSourceLabel } from "./garmin-source-label";
 import {
   formatDetailCoverageSummary,
   formatHealthCoverageSummary,
@@ -146,6 +147,13 @@ export function SyncView({
         <div>
           <p className="section-kicker">Garmin sync</p>
           <h1 id="sync-view-heading">Sync</h1>
+          {importSummary &&
+          (importSummary.activities > 0 ||
+            importSummary.healthDays > 0 ||
+            importSummary.athleteBaseline.source ||
+            importSummary.bodyMetrics.source) ? (
+            <GarminSourceLabel />
+          ) : null}
         </div>
         <button
           type="button"

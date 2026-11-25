@@ -356,6 +356,23 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+it("uses the same exact current Snow oracle in debug Health supplements and refuses tampered cells", async () => {
+  delete (window as unknown as { __trainerOrdinaryIsolated?: object })
+    .__trainerOrdinaryIsolated;
+  render(<Fixture />);
+  document
+    .querySelector("[aria-label='AI trainer dashboard']")!
+    .classList.add("selected-activity-detail");
+  expect(
+    (await command({ type: "supplement", action: "activity-snow" })).ok,
+  ).toBe(true);
+  document.querySelector(".snow-runs tbody td")!.textContent =
+    "private unexpected value";
+  expect(
+    (await command({ type: "supplement", action: "activity-snow" })).ok,
+  ).toBe(false);
+  expect(document.querySelector("[data-smoke-supplement]")).toBeNull();
+});
 it("validates all authored states, contains only boolean observations and restores masks", async () => {
   render(<Fixture />);
   for (const variant of variants) {

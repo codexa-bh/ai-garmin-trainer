@@ -100,6 +100,21 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
+it("does not attribute targets, user-reported actuals or incomplete reads to Garmin", () => {
+  const { rerender } = render(
+    <WeeklyKpiScorecard kpis={sample} loadSet={vi.fn()} />,
+  );
+  expect(screen.queryByText("Measured actuals: Garmin")).toBeNull();
+  rerender(<WeeklyKpiScorecard kpis={null} loadSet={vi.fn()} />);
+  expect(screen.queryByText("Measured actuals: Garmin")).toBeNull();
+  rerender(
+    <WeeklyKpiScorecard
+      kpis={{ ...sample, complete: false }}
+      loadSet={vi.fn()}
+    />,
+  );
+  expect(screen.queryByText("Measured actuals: Garmin")).toBeNull();
+});
 it("renders shared automatic points compactly beside reviewed zero, with pending qualification and exact cutoff", () => {
   const read = structuredClone(sample);
   const item = read.sets[0].items[0];
@@ -140,6 +155,7 @@ it("renders shared automatic points compactly beside reviewed zero, with pending
   const { rerender } = render(
     <WeeklyKpiScorecard kpis={read} loadSet={vi.fn()} />,
   );
+  expect(screen.getByText("Measured actuals: Garmin")).toBeTruthy();
   expect(screen.getByText("0 / 60")).toBeTruthy();
   expect(screen.getByText("Auto · Pending")).toBeTruthy();
   expect(screen.getByText("12.5 / 100 points · 12.5%")).toBeTruthy();

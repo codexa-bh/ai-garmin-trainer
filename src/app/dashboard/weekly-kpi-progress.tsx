@@ -1,4 +1,5 @@
 import { useId } from "react";
+import { GarminSourceLabel } from "./garmin-source-label";
 import { PROGRESS_PERIODS } from "@/lib/weekly/calendar";
 import {
   CartesianGrid,
@@ -77,11 +78,49 @@ export function WeeklyKpiProgress({
           tracks.length > 1
             ? `${item.label} · ${kpiTrackLabel(track, tracks)}${kpiTrackLabel(track, tracks) === track.unit ? "" : ` (${track.unit})`}`
             : `${item.label} (${track.unit})`,
+        measurements: weeks.map(({ weekStart, kpis }) => {
+          // Each week's own latest-set target, joined by exact meaning.
+          const set = latestKpiScore(kpis).set;
+          const weekTrack = set?.items
+            .find((value) => value.conceptId === item.conceptId)
+            ?.tracks.find(
+              (value) =>
+                value.key === track.key &&
+                value.kind === track.kind &&
+                value.unit === track.unit &&
+                value.meaning === track.meaning,
+            );
+          const point = weekTrack
+            ? kpiActual(kpis, item.conceptId, weekTrack)
+            : null;
+          return {
+            weekStart,
+            point,
+            weekTrack,
+            actual:
+              typeof point?.value === "number" && Number.isFinite(point.value)
+                ? point.value
+                : null,
+            target:
+              typeof weekTrack?.target?.value === "number"
+                ? weekTrack.target.value
+                : null,
+          };
+        }),
       }));
     }) ?? [];
   return (
     <section aria-label="Saved KPI progress" className="weekly-kpi-progress">
       <h2>Weekly achievement</h2>
+      {weekly.state === "loaded" &&
+      charts.some(({ measurements }) =>
+        measurements.some(
+          ({ point, actual }) =>
+            point?.source === "measured" && actual !== null,
+        ),
+      ) ? (
+        <GarminSourceLabel context="Measured actuals" />
+      ) : null}
       <p>
         {scores.some((point) => point.automatic)
           ? "Points against each week’s latest plan · Auto is provisional."
@@ -209,37 +248,7 @@ export function WeeklyKpiProgress({
                   Latest established plan · {latest?.weekStart}. Dashed: target.
                   Solid: recorded actual.
                 </p>
-                {charts.map(({ item, track, label }) => {
-                  const measurements = weeks.map(({ weekStart, kpis }) => {
-                    // Each week's own latest-set target, joined by exact meaning.
-                    const set = latestKpiScore(kpis).set;
-                    const weekTrack = set?.items
-                      .find((value) => value.conceptId === item.conceptId)
-                      ?.tracks.find(
-                        (value) =>
-                          value.key === track.key &&
-                          value.kind === track.kind &&
-                          value.unit === track.unit &&
-                          value.meaning === track.meaning,
-                      );
-                    const point = weekTrack
-                      ? kpiActual(kpis, item.conceptId, weekTrack)
-                      : null;
-                    return {
-                      weekStart,
-                      point,
-                      weekTrack,
-                      actual:
-                        typeof point?.value === "number" &&
-                        Number.isFinite(point.value)
-                          ? point.value
-                          : null,
-                      target:
-                        typeof weekTrack?.target?.value === "number"
-                          ? weekTrack.target.value
-                          : null,
-                    };
-                  });
+                {charts.map(({ item, track, label, measurements }) => {
                   return (
                     <ProgressChart
                       key={`${item.conceptId}/${track.key}`}

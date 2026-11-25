@@ -5,6 +5,7 @@ import {
   type SetStateAction,
 } from "react";
 import { TerrainTable } from "./terrain-table";
+import { GarminSourceLabel } from "./garmin-source-label";
 import { type RefObject, type UIEvent } from "react";
 import {
   averageSpeedLabel,
@@ -375,6 +376,11 @@ export function ActivityView({
         <div>
           <p className="section-kicker">Activity charts</p>
           <h1>Activity dashboard</h1>
+          {!activitySelectorCollapsed &&
+          activityListState !== "loading" &&
+          activities.length > 0 ? (
+            <GarminSourceLabel />
+          ) : null}
         </div>
         <button
           type="button"
@@ -510,6 +516,7 @@ export function ActivityView({
             <div className="selected-activity-heading">
               <div>
                 <h2>{activityDashboard.activity.label}</h2>
+                <GarminSourceLabel />
                 <p>
                   {activityDashboard.activity.date} ·{" "}
                   {activityTypeLabel(activityDashboard.activity.sport)} · Garmin

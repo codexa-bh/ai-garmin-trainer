@@ -271,28 +271,11 @@
         throw Error("Noncanonical lap-zone evidence refused");
       supplementScrollEnd = action === "activity-laps-end";
     } else {
-      region = detail.querySelector(".snow-section");
-      const totals = [
-        ...(region?.querySelectorAll(".snow-totals:not(.snow-runs) tbody tr") ??
-          []),
-      ].map((row) => row.textContent);
-      const runs = [
-        ...(region?.querySelectorAll(".snow-runs tbody tr") ?? []),
-      ].map((row) => row.textContent);
-      const same = (left, right) =>
-        JSON.stringify(left) === JSON.stringify(right);
-      if (
-        !same(totals, [
-          "Runs121h 00m31 km4.2 km",
-          "Lifts1150m 00s8.4 km1.3 km",
-        ]) ||
-        !same(runs, [
-          "13m 10.4s2.6 km0.5 m340 m36 km/h64.1 km/h",
-          "2——0 m0 m——",
-          "33m 25s2.9 km0 m360 m0 km/h70.2 km/h",
-        ])
-      )
-        throw Error("Noncanonical snow evidence refused");
+      // Share the current exact authored totals/run/HR oracle with ordinary Snow
+      // smoke; the old duplicate table oracle drifted from the actual view.
+      snowVariant = "populated";
+      region = snowRegion();
+      if (!region) throw Error("Noncanonical snow evidence refused");
     }
     if (!region || !visible(region)) throw Error("Authored region unavailable");
     supplementReveal = region;
@@ -4457,6 +4440,44 @@
       innerHeight === (preset.endsWith("-short") ? 600 : 850)
     );
   };
+  function revealGarminSourceLabels(root) {
+    const labels = [...(root?.querySelectorAll(".garmin-source-label") ?? [])];
+    for (const label of labels) {
+      if (
+        label.tagName !== "SPAN" ||
+        label.attributes.length !== 1 ||
+        label.className !== "garmin-source-label" ||
+        label.childElementCount ||
+        ![
+          "Source: Garmin",
+          "Measured actuals: Garmin",
+          "Imported facts: Garmin",
+        ].includes(label.textContent)
+      )
+        throw Error("Noncanonical Garmin source label refused");
+      for (
+        let node = label.parentElement;
+        node && node !== document.body;
+        node = node.parentElement
+      ) {
+        if (
+          [...node.childNodes].some(
+            (child) =>
+              child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+          )
+        )
+          throw Error("Private direct source-label ancestor refused");
+      }
+    }
+    for (const label of labels) {
+      for (
+        let node = label;
+        node && node !== document.body;
+        node = node.parentElement
+      )
+        node.setAttribute("data-smoke-reveal", "");
+    }
+  }
   async function maskedView(command) {
     if (
       !globalThis.__trainerOrdinaryIsolated ||
@@ -4501,6 +4522,16 @@
     }
     restore();
     if (command.view === "profile") profileLayers();
+    const sourceRoot = {
+      profile: ".settings-sheet",
+      sync: ".sync-view-panel",
+      activityLabels: ".activity-dashboard-panel",
+      weeklyKpis: ".weekly-plan-panel",
+      "ordinary-chat": ".chat-message.assistant",
+    }[command.view];
+    if (sourceRoot)
+      for (const root of document.querySelectorAll(sourceRoot))
+        revealGarminSourceLabels(root);
     const labels = new Set([
       "AI Trainer for Garmin Connect",
       "Activities",
@@ -5021,11 +5052,15 @@
         restore();
         const style = document.createElement("style");
         style.id = "trainer-smoke-sanitizer";
+        revealGarminSourceLabels(
+          document.querySelector(".health-dashboard-panel"),
+        );
         // Hide by default, revealing only fixed static Health controls/card chrome.
         // Helper boxes retain their chrome with transparent text and fixed overlays.
         // Source-derived dates, values, plot marks/ticks, coverage and HRV context
         // stay hidden at unchanged geometry; even unexpected descendants stay private.
         style.textContent = `body * {visibility:hidden !important}
+          [data-smoke-reveal] {visibility:visible !important}
           .health-dashboard-panel, .health-dashboard-header, .health-dashboard-header h1,
           .health-dashboard-header button, .health-mode-controls, .health-mode-controls button,
           .health-daily-actions, .health-daily-actions button, .health-rollup-chart,

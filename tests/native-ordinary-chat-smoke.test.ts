@@ -63,6 +63,37 @@ it("reveals only the exact authored answer without private siblings or geometry 
   smoke.__trainerSmokeRestore();
   expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
 });
+it("reveals the exact public Garmin label without revealing siblings and restores it", async () => {
+  fixture();
+  const label = document.createElement("span");
+  label.className = "garmin-source-label";
+  label.textContent = "Source: Garmin";
+  document.querySelector(".chat-message")!.prepend(label);
+  expect((await capture()).ok).toBe(true);
+  expect(label.hasAttribute("data-smoke-reveal")).toBe(true);
+  expect(
+    label.parentElement!.lastElementChild!.hasAttribute("data-smoke-reveal"),
+  ).toBe(false);
+  smoke.__trainerSmokeRestore();
+  expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+});
+it.each(["private suffix", "nested", "attribute", "ancestor"])(
+  "refuses unsafe source labels: %s",
+  async (variant) => {
+    fixture();
+    const label = document.createElement("span");
+    label.className = "garmin-source-label";
+    label.textContent = "Source: Garmin";
+    document.querySelector(".chat-message")!.prepend(label);
+    if (variant === "private suffix") label.append(" private");
+    if (variant === "nested") label.innerHTML = "<b>Source: Garmin</b>";
+    if (variant === "attribute") label.setAttribute("title", "private");
+    if (variant === "ancestor")
+      label.parentElement!.append("private direct text");
+    expect((await capture()).ok).toBe(false);
+    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+  },
+);
 it.each(["private model answer", "", answer + " private suffix"])(
   "refuses noncanonical text: %s",
   async (text) => {
