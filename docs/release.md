@@ -1,6 +1,6 @@
 # Dual-platform release runbook
 
-Published assets/checksums are on [GitHub Releases](https://github.com/codexa-bh/ai-garmin-trainer/releases), with immutable notes in [`release-notes/releases/`](../release-notes/releases/). Stable Latest [0.1.5](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.5) is macOS ARM64 only: DMG, checksum and `release.json`, built from `bf1861d3b54dcf9a5b6e85057b773c0fb92e3805`. Later documentation commits are not binary source. macOS ships an unsigned/non-notarized DMG, not PKG; minimum macOS 12.0 is not minimum-OS certification. The last [Windows x64 alpha is v0.1.4](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.4), unsigned NSIS qualified only on hosted Server 2025. Shared stable/Latest does not expand platform support. No updater, installer hook, service, login item or release worker.
+Published assets/checksums are on [GitHub Releases](../../../releases), with immutable notes in [`release-notes/releases/`](../release-notes/releases/). Stable Latest [0.1.5](../../../releases/tag/v0.1.5) is macOS ARM64 only: DMG, checksum and `release.json`, built from `bf1861d3b54dcf9a5b6e85057b773c0fb92e3805`. Later documentation commits are not binary source. macOS ships an unsigned/non-notarized DMG, not PKG; minimum macOS 12.0 is not minimum-OS certification. The last [Windows x64 alpha is v0.1.4](../../../releases/tag/v0.1.4), unsigned NSIS qualified only on hosted Server 2025. Shared stable/Latest does not expand platform support. No updater, installer hook, service, login item or release worker.
 
 ## Release cut runbook
 
@@ -19,7 +19,7 @@ Readiness review covers npm/Cargo/Tauri version/locks, runtime and redistributio
 
 ### Command reference
 
-`$SCRATCH` is the canonical task root, not a category child; `$REPO` is `codexa-bh/ai-garmin-trainer`; `$BUNDLE` is the physical canonical ordinary app, not a worktree alias. COMMIT/VERSION/channels are explicit reviewed values.
+`$SCRATCH` is the canonical task root, not a category child; `$REPO` is the `REPOSITORY` constant in `scripts/desktop/release_metadata.py`; `$BUNDLE` is the physical canonical ordinary app, not a worktree alias. COMMIT/VERSION/channels are explicit reviewed values.
 
 ```bash
 git fetch origin main --tags
@@ -135,13 +135,13 @@ A specifically authorized macOS ARM64 + Windows x64 alpha cut requires current-b
 4. Before expiry, download exact run/attempt/artifact IDs through the [strict export and image consumers](windows.md#explicit-exact-candidate-release-export), retaining sibling ZIP and separate images. No newest-run/wildcard/filename inference or foreign producer-admission claim.
 
 ```bash
-gh workflow run windows.yml --repo codexa-bh/ai-garmin-trainer --ref "$REVIEWED_REF" -f release_export=true
+gh workflow run windows.yml --ref "$REVIEWED_REF" -f release_export=true
 python3 scripts/desktop/windows_release_export.py download --source "$COMMIT" \
   --run "$RUN" --attempt "$ATTEMPT" --artifact "$ARTIFACT" --directory "$WINDOWS_DIRECTORY"
 python3 scripts/desktop/windows_release_export.py verify --source "$COMMIT" --directory "$WINDOWS_DIRECTORY"
 npm run release -- release-set --version "$VERSION" --scratch "$SET_DIRECTORY" \
   --platform-record "$MAC_RECORD" --platform-record "$WINDOWS_RECORD"
-npm run release -- status --repository codexa-bh/ai-garmin-trainer --commit "$COMMIT" --version "$VERSION" \
+npm run release -- status --repository "$REPO" --commit "$COMMIT" --version "$VERSION" \
   --scratch "$SCRATCH" --bundle "$BUNDLE" --record "$MAC_RECORD" \
   --release-set "$SET_DIRECTORY/release-set.json" --platform-record "$MAC_RECORD" \
   --platform-record "$WINDOWS_RECORD" --prerelease no --latest yes

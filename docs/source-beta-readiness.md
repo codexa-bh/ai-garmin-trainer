@@ -1,6 +1,6 @@
 # Source-beta readiness foundation
 
-The supported product is the advanced-user local **macOS ARM64 Tauri app**, from source or [published binaries](https://github.com/codexa-bh/ai-garmin-trainer/releases). [Windows x64 alpha](windows.md) is experimental/unsupported. Availability is not clean-machine certification, a beta invitation or commercial multi-user support.
+The supported product is the advanced-user local **macOS ARM64 Tauri app**, from source or [published binaries](../../../releases). [Windows x64 alpha](windows.md) is experimental/unsupported. Availability is not clean-machine certification, a beta invitation or commercial multi-user support.
 
 ## Supported boundary
 

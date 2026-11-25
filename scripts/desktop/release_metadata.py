@@ -8,7 +8,7 @@ import subprocess
 from ordinary_identity import document
 import release_note_fragments as fragments
 
-REPOSITORY = 'codexa-bh/ai-garmin-trainer'
+REPOSITORY = 'eye1/ai-garmin-trainer'
 PRODUCT = 'AI Trainer for Garmin Connect'
 # Notes prepared under the former name keep their heading; they are never rewritten.
 FORMER_PRODUCT = 'Garmin Trainer'

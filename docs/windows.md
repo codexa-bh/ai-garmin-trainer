@@ -1,6 +1,6 @@
 # Windows x64 alpha
 
-The last Windows x64 alpha is [v0.1.4](https://github.com/codexa-bh/ai-garmin-trainer/releases/tag/v0.1.4), with its original _Garmin Trainer_ installer name. Latest is macOS-only 0.1.5 and contains no Windows installer. Windows is experimental and outside supported macOS ARM64. Qualification is **hosted Windows Server 2025 x64 only**: not Windows 11, Windows 10 or ARM support. ARM runner availability is not testing.
+The last Windows x64 alpha is [v0.1.4](../../../releases/tag/v0.1.4), with its original _Garmin Trainer_ installer name. Latest is macOS-only 0.1.5 and contains no Windows installer. Windows is experimental and outside supported macOS ARM64. Qualification is **hosted Windows Server 2025 x64 only**: not Windows 11, Windows 10 or ARM support. ARM runner availability is not testing.
 
 The mechanisms and build instructions below describe current `x86_64-pc-windows-msvc` source, including the renamed unsigned per-user NSIS installer, not a newly published or currently qualified Windows build.
 
@@ -50,9 +50,9 @@ Keep the build's npm environment; direct `release.py` context mismatches refuse.
 `windows.yml` is manual-only and non-required in protection; PRs/pushes allocate nothing. Ubuntu Validate/macOS nightly triggers are unchanged.
 
 ```bash
-gh workflow run windows.yml --repo codexa-bh/ai-garmin-trainer --ref <branch>
-gh run list --repo codexa-bh/ai-garmin-trainer --workflow windows.yml --event workflow_dispatch --branch <branch> --limit 5
-gh run view <run-id> --repo codexa-bh/ai-garmin-trainer --json headSha,event,status,conclusion,url
+gh workflow run windows.yml --ref <branch>
+gh run list --workflow windows.yml --event workflow_dispatch --branch <branch> --limit 5
+gh run view <run-id> --json headSha,event,status,conclusion,url
 ```
 
 Default `release_export=false` omits binary export, **not qualification**. Explicit `-f release_export=true` selects the separate export below, not publication.
