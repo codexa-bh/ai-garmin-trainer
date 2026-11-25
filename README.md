@@ -2,7 +2,7 @@
 
 ![Set your targets for the week. Your Garmin data keeps score. Your AI coach reviews it with you.](docs/screenshots/banner.png)
 
-**A private AI coach that answers from your own Garmin history and plans your week with targets it measures.** It runs on your Mac, keeps your data in a local database and uses the AI model you choose.
+**A private AI coach for your Garmin data.** It runs on your Mac, keeps your history in a local database and uses the AI model you choose.
 
 Windows: the app also builds for Windows, but it has no maintainer yet. If you can help maintain and test it, [reply on this issue](../../issues/279).
 
@@ -12,21 +12,24 @@ _An independent open-source project, not affiliated with or endorsed by Garmin._
 
 ## Why it is different
 
-- **Weekly plans with your own KPIs.** Agree targets with the trainer in chat, such as weekly ascent or time on your longest outing. The app measures them from your Garmin data and scores the week against the plan, then the trainer reviews it with you and drafts the next one.
-- **Ask anything about your training.** The trainer runs read-only queries and calculations over your whole imported history, in every sport you record, instead of showing a fixed set of insights.
-- **No black-box scores.** The app adds no readiness, recovery or difficulty score of its own. The trainer is instructed to state the criteria it used and to say when data is missing.
-- **Official Garmin access.** Data comes through Garmin's Personal API with a key you create yourself. Access is read-only, and the app never asks for your Garmin password.
-- **Local data, no app account.** The app stores your history on your Mac and has no server of its own. Each question sends bounded context to the model you selected; cloud models process that context off-device.
-- **Your model, your cost.** Use a ChatGPT subscription, an OpenAI, DeepSeek or OpenRouter key, or a local Ollama model. The app never switches provider on its own.
+- **You set the targets. Your data keeps score.** Agree a few goals for the week in chat, like 1,000 m of climbing or a two-and-a-half-hour outing. The app measures what it can from your Garmin data, and the week ends with lines like "Weekly ascent: 1,068 / 1,000 m → 20/20". Then the trainer goes through it with you and drafts the next week.
+- **Any question, your whole history.** Ask which of your last three hikes was the hardest, or how you slept before a race. The trainer looks it up across everything you have recorded, in every sport, and does the math.
+- **No mystery scores.** The app adds no readiness or recovery number of its own. The only score is the one you agreed, and when the trainer compares or ranks, it says what it counted and what was missing.
+- **It never asks for your Garmin password.** You create a key in Garmin Connect and paste it in. The app uses Garmin's official Personal API and can only read.
+- **Your history lives on your computer.** There is no account to create and no server behind the app. Only what a question needs is sent to the AI model you chose.
+- **Use the AI you already pay for.** Sign in with your ChatGPT subscription, bring an OpenAI, DeepSeek or OpenRouter key, or run a local model with Ollama. The app never switches models on its own.
 
 It works alongside Garmin Connect, not instead of it. Your watch still syncs to Garmin; this app reads a copy and never writes anything back.
 
 ### Things you can ask
 
-- "Compare my last three hikes. Which was the hardest, and why?"
-- "Summarize all my snowboarding days this season."
-- "How were my sleep and HRV in the week before that race?"
-- "Review last week against the plan and draft next week with two rest days."
+- "Am I actually getting fitter? Compare my heart rate on similar hikes two years ago and now."
+- "Compare my snowboard seasons. A season runs November to May."
+- "Give me July and August side by side: steps, kilometres, ascent, calories and time in each heart-rate zone."
+- "We're two-thirds through the month. Am I on track to beat last month's ascent?"
+- "Yesterday's hike felt much harder than it should have. Look at the week before it and tell me why."
+- "How does the terrain on today's hike line up with my heart-rate zones?"
+- "Sync my data, score last week against our KPIs and set targets for the next one."
 
 ## What is inside
 
@@ -42,13 +45,17 @@ The app measures the actual values from your Garmin data where it can and shows 
 
 ![Weekly KPI achievement and hiking ascent compared with each week's target](docs/screenshots/weekly-progress.png)
 
-Progress charts show each KPI against its weekly target over the last one to twelve months.
+Progress charts show each KPI against its weekly target over the last one to twelve months. You don't enter anything by hand: every time you sync, the app re-measures this week and last week from the new Garmin data and updates the points.
 
 ### Activities
 
 ![A hike with its route map, heart-rate, elevation and speed charts, and heart-rate zones](docs/screenshots/activity.png)
 
-Search your activities and open any of them: heart rate, elevation and speed charts, time in heart-rate zones, laps, a route map and Garmin's training effect. Hikes and walks get terrain sections with grade.
+Search your activities and open any of them: heart rate, elevation and speed charts, time in heart-rate zones, laps, a route map and Garmin's training effect.
+
+![A hike split into climbs, descents and rolling sections, each with distance, ascent, grade, duration, pace and average heart rate](docs/screenshots/terrain-sections.png)
+
+Hikes and walks are split into climbs, descents and flatter sections, each with its distance, ascent, grade, pace and average heart rate. The sections are estimated from the elevation data. The trainer reads the same breakdown, so you can ask where on the route your heart rate climbed.
 
 ![A resort day listed run by run](docs/screenshots/snow-runs.png)
 
