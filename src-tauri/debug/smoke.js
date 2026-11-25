@@ -271,28 +271,11 @@
         throw Error("Noncanonical lap-zone evidence refused");
       supplementScrollEnd = action === "activity-laps-end";
     } else {
-      region = detail.querySelector(".snow-section");
-      const totals = [
-        ...(region?.querySelectorAll(".snow-totals:not(.snow-runs) tbody tr") ??
-          []),
-      ].map((row) => row.textContent);
-      const runs = [
-        ...(region?.querySelectorAll(".snow-runs tbody tr") ?? []),
-      ].map((row) => row.textContent);
-      const same = (left, right) =>
-        JSON.stringify(left) === JSON.stringify(right);
-      if (
-        !same(totals, [
-          "Runs121h 00m31 km4.2 km",
-          "Lifts1150m 00s8.4 km1.3 km",
-        ]) ||
-        !same(runs, [
-          "13m 10.4s2.6 km0.5 m340 m36 km/h64.1 km/h",
-          "2——0 m0 m——",
-          "33m 25s2.9 km0 m360 m0 km/h70.2 km/h",
-        ])
-      )
-        throw Error("Noncanonical snow evidence refused");
+      // Share the current exact authored totals/run/HR oracle with ordinary Snow
+      // smoke; the old duplicate table oracle drifted from the actual view.
+      snowVariant = "populated";
+      region = snowRegion();
+      if (!region) throw Error("Noncanonical snow evidence refused");
     }
     if (!region || !visible(region)) throw Error("Authored region unavailable");
     supplementReveal = region;
