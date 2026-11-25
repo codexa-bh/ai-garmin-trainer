@@ -161,7 +161,7 @@ Manual placement remains available:
 
 1. Review exact repository/tag/source and signing/rights/upgrade warnings. Download DMG/checksum; run `shasum -a 256 -c AI-Trainer-for-Garmin-Connect-<version>-macos-arm64.dmg.sha256`.
 2. Mount and manually copy AI Trainer for Garmin Connect.app to an explicitly chosen Applications destination, then eject normally.
-3. macOS may refuse a copy downloaded in a browser; use `install.sh` instead, whose curl download carries no quarantine attribute. Never globally disable Gatekeeper, strip quarantine, change trust, grant automation or acquire certificates to force launch. Policy refusal needs an approved distribution path.
+3. macOS blocks the first launch of a copy downloaded in a browser. Allow that one app in System Settings → Privacy & Security → Open Anyway, or use `install.sh`, whose curl download carries no quarantine attribute; if macOS reports the app as damaged, only `install.sh` applies. Never globally disable Gatekeeper, strip quarantine, change trust, grant automation or acquire certificates to force launch. Policy refusal needs an approved distribution path.
 
 On either route, separately approved replacement requires quitting owners and preserving prior compatible app/backups. Launch only when authorized, then [native setup](settings.md#first-run-and-settings). Private settings are plaintext and originals remain preserved; [adoption](desktop.md#explicit-private-state-adoption) owns details.
 
