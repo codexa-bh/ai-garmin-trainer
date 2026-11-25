@@ -4457,6 +4457,44 @@
       innerHeight === (preset.endsWith("-short") ? 600 : 850)
     );
   };
+  function revealGarminSourceLabels(root) {
+    const labels = [...(root?.querySelectorAll(".garmin-source-label") ?? [])];
+    for (const label of labels) {
+      if (
+        label.tagName !== "SPAN" ||
+        label.attributes.length !== 1 ||
+        label.className !== "garmin-source-label" ||
+        label.childElementCount ||
+        ![
+          "Source: Garmin",
+          "Measured actuals: Garmin",
+          "Imported facts: Garmin",
+        ].includes(label.textContent)
+      )
+        throw Error("Noncanonical Garmin source label refused");
+      for (
+        let node = label.parentElement;
+        node && node !== document.body;
+        node = node.parentElement
+      ) {
+        if (
+          [...node.childNodes].some(
+            (child) =>
+              child.nodeType === Node.TEXT_NODE && child.textContent.trim(),
+          )
+        )
+          throw Error("Private direct source-label ancestor refused");
+      }
+    }
+    for (const label of labels) {
+      for (
+        let node = label;
+        node && node !== document.body;
+        node = node.parentElement
+      )
+        node.setAttribute("data-smoke-reveal", "");
+    }
+  }
   async function maskedView(command) {
     if (
       !globalThis.__trainerOrdinaryIsolated ||
@@ -4501,6 +4539,16 @@
     }
     restore();
     if (command.view === "profile") profileLayers();
+    const sourceRoot = {
+      profile: ".settings-sheet",
+      sync: ".sync-view-panel",
+      activityLabels: ".activity-dashboard-panel",
+      weeklyKpis: ".weekly-plan-panel",
+      "ordinary-chat": ".chat-message.assistant",
+    }[command.view];
+    if (sourceRoot)
+      for (const root of document.querySelectorAll(sourceRoot))
+        revealGarminSourceLabels(root);
     const labels = new Set([
       "AI Trainer for Garmin Connect",
       "Activities",
@@ -5021,11 +5069,15 @@
         restore();
         const style = document.createElement("style");
         style.id = "trainer-smoke-sanitizer";
+        revealGarminSourceLabels(
+          document.querySelector(".health-dashboard-panel"),
+        );
         // Hide by default, revealing only fixed static Health controls/card chrome.
         // Helper boxes retain their chrome with transparent text and fixed overlays.
         // Source-derived dates, values, plot marks/ticks, coverage and HRV context
         // stay hidden at unchanged geometry; even unexpected descendants stay private.
         style.textContent = `body * {visibility:hidden !important}
+          [data-smoke-reveal] {visibility:visible !important}
           .health-dashboard-panel, .health-dashboard-header, .health-dashboard-header h1,
           .health-dashboard-header button, .health-mode-controls, .health-mode-controls button,
           .health-daily-actions, .health-daily-actions button, .health-rollup-chart,

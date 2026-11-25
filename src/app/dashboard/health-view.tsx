@@ -4,6 +4,7 @@ import {
   type HealthDashboardPayload,
 } from "./contracts";
 import { HealthDashboardView } from "./health-metrics";
+import { GarminSourceLabel } from "./garmin-source-label";
 
 export function HealthView({
   closeHealthDashboard,
@@ -33,6 +34,11 @@ export function HealthView({
         <div>
           <p className="section-kicker">Health</p>
           <h1 id="health-dashboard-heading">Health</h1>
+          {healthDashboardState === "loaded" &&
+          healthDashboardData &&
+          healthDashboardData.days.length > 0 ? (
+            <GarminSourceLabel />
+          ) : null}
         </div>
         <button
           type="button"

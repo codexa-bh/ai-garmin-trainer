@@ -22,6 +22,8 @@ The persistent Health hook owns civil range-end date. Tabs/away-back preserve it
 
 Shared rollups exclude separate Calories and REM/Deep/Light stacks with independently recorded sleep duration. Additional evidence uses bounded real-key supplements in existing payloads, not per-row detail or automatic Sync. Resort skiing/snowboarding card distance alone uses stored `SKI_RUN_SPLIT`; missing/invalid is a dash, while duration/other sports stay session-based.
 
+Garmin-backed views use one plain, secondary-text source label at the heading, not per row or metric. Activity list/detail, Health modes, Sync coverage and imported Profile facts label only displayed data; manual Profile fields and KPI targets do not. KPI labels name measured actuals, not reviewed/user-reported values. Chat uses the same label before answers under the existing persisted visible-grounding condition, including reloaded history; it does not infer provenance from prose.
+
 Memory presents state/coverage, not semantic search or new eligibility/privacy policy. Passive reads preserve mounted content; privacy mutations revoke it. Sync state/log disclosure persists across navigation; imported facts stay in Profile & data.
 
 ## Selected-activity chart and route calculations

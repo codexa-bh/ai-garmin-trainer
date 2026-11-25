@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { GarminSourceLabel } from "./garmin-source-label";
 import type {
   KpiRead,
   KpiTrack,
@@ -134,6 +135,18 @@ function kpiRows(items: KpiItem[]): KpiRow[] {
   });
 }
 
+function hasMeasuredKpiActuals(kpis: KpiRead | null): boolean {
+  return (
+    latestKpiScore(kpis).set?.items.some((item) =>
+      item.tracks.some((track) => {
+        if (track.kind !== "numeric") return false;
+        const actual = kpiActual(kpis, item.conceptId, track);
+        return actual?.source === "measured" && actual.value !== null;
+      }),
+    ) ?? false
+  );
+}
+
 export function WeeklyKpiScorecard({
   kpis,
   loadSet,
@@ -168,6 +181,9 @@ export function WeeklyKpiScorecard({
   return (
     <section className="weekly-kpis" aria-label="Saved weekly KPIs">
       <h2>Weekly KPIs</h2>
+      {hasMeasuredKpiActuals(kpis) ? (
+        <GarminSourceLabel context="Measured actuals" />
+      ) : null}
       {kpis?.complete === false ? (
         <p role="status">
           Latest-plan KPIs need a complete read.{" "}

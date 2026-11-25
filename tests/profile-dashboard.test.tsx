@@ -20,6 +20,10 @@ import { ActivityView } from "../src/app/dashboard/activity-view";
 import { analyzeTerrainSections } from "../src/lib/analytics/terrain-sections";
 import { buildActivityDashboardRoute } from "../src/lib/analytics/activity-dashboard-calculations";
 import type { ActivityDashboardPayload } from "../src/app/dashboard/contracts";
+import {
+  emptyAthleteBaseline,
+  emptyBodyMetrics,
+} from "../src/app/dashboard/contracts";
 
 const emptyChat = {
   conversationId: "default",
@@ -376,6 +380,8 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(sports.placeholder).toBe("hiking\nmountaineering");
     expect(sports.placeholder).not.toContain("\\n");
     expect(sports.value).toBe("");
+    expect(screen.queryByText("Source: Garmin")).toBeNull();
+    expect(screen.queryByText("Imported facts: Garmin")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalledWith(
       "/api/profile",
       expect.objectContaining({ method: "POST" }),
@@ -715,7 +721,16 @@ describe("TrainerDashboard Profile hydration", () => {
     expect(
       screen.queryByText("Active chat context · local evidence"),
     ).toBeNull();
-    expect(screen.getByText("Used local Garmin data.")).toBeTruthy();
+    expect(screen.getAllByText("Source: Garmin")).toHaveLength(1);
+    const answer = screen.getByText(
+      "Synthesized trainer answer from local evidence.",
+    );
+    expect(
+      answer
+        .closest(".chat-message")
+        ?.querySelector(".garmin-source-label")
+        ?.nextElementSibling?.contains(answer),
+    ).toBe(true);
     expect(screen.queryByText(/local messages/i)).toBeNull();
     expect(screen.queryByText(/recent local turns/i)).toBeNull();
     expect(screen.queryByText(/ · grounded/i)).toBeNull();
@@ -2046,6 +2061,10 @@ describe("TrainerDashboard athlete baseline summary", () => {
     expect(screen.queryByText("Running threshold HR")).toBeNull();
     expect(screen.queryByText("Running VO2 max")).toBeNull();
     expect(screen.getByText("250 W (2026-07-19)")).toBeTruthy();
+    expect(screen.getAllByText("Imported facts: Garmin")).toHaveLength(1);
+    expect(
+      document.querySelector(".profile-settings-card .garmin-source-label"),
+    ).toBeNull();
     expect(
       screen.getAllByText("Unavailable from current Garmin source").length,
     ).toBeGreaterThan(0);
@@ -2310,6 +2329,7 @@ describe("strength activity detail visibility", () => {
     data.activity.label = "Title_with_underscores";
     const original = structuredClone(data);
     const { container } = render(detailView(data));
+    expect(screen.getAllByText("Source: Garmin")).toHaveLength(2);
     expect(
       container.querySelector(".activity-list-item small")?.textContent,
     ).toBe(`2026-10-13 · ${expected}`);
@@ -4828,6 +4848,51 @@ describe("TrainerDashboard dedicated Sync view", () => {
     },
   );
 
+  it("does not label empty Sync coverage or ungrounded chat as Garmin data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/conversations/selection")
+          return selectionResponse(init);
+        if (
+          url.startsWith("/api/chat") ||
+          url.startsWith("/api/conversations/")
+        )
+          return jsonResponse({
+            ...emptyChat,
+            messages: [
+              {
+                id: "plain-answer",
+                role: "assistant",
+                createdAt: "2026-11-25T12:00:00Z",
+                content: "A general suggestion without local data.",
+                grounding: null,
+              },
+            ],
+          });
+        if (url === "/api/profile") return jsonResponse(profile([]));
+        if (url === "/api/summary")
+          return jsonResponse(
+            importSummary({
+              activities: 0,
+              healthDays: 0,
+              detailedActivities: 0,
+              athleteBaseline: emptyAthleteBaseline,
+              bodyMetrics: emptyBodyMetrics,
+            }),
+          );
+        return jsonResponse({ ok: true });
+      }),
+    );
+    render(<TrainerDashboard />);
+    await screen.findByText("A general suggestion without local data.");
+    expect(screen.queryByText("Source: Garmin")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sync" }));
+    await screen.findByText("Stored activities");
+    expect(screen.queryByText("Source: Garmin")).toBeNull();
+  });
+
   it("opens Sync as navigation without starting a sync and renders metrics", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -4863,6 +4928,10 @@ describe("TrainerDashboard dedicated Sync view", () => {
     const metricsSection = screen.getByRole("region", {
       name: "Local Garmin coverage",
     });
+    expect(screen.getAllByText("Source: Garmin")).toHaveLength(1);
+    expect(
+      document.querySelector(".sync-view-header .garmin-source-label"),
+    ).toBeTruthy();
     const metricLabels = Array.from(
       metricsSection.querySelectorAll("dt"),
       (term) => term.textContent,

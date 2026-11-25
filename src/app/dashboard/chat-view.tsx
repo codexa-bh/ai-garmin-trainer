@@ -2,6 +2,7 @@ import { type TrainerProgress } from "@/lib/ai/trainer-progress";
 import type { Dispatch, SetStateAction } from "react";
 import { type RefObject } from "react";
 import { hasVisibleGrounding } from "./chat-presentation";
+import { GarminSourceLabel } from "./garmin-source-label";
 import {
   type ChatMessage,
   type ConversationSummary,
@@ -390,19 +391,14 @@ export function ChatView({
                   {new Date(item.createdAt).toLocaleString()}
                 </time>
               </div>
+              {hasVisibleGrounding(item.grounding) ? (
+                <GarminSourceLabel />
+              ) : null}
               {item.role === "assistant" ? (
                 <AssistantContent content={item.content} />
               ) : (
                 <p>{item.content}</p>
               )}
-              {hasVisibleGrounding(item.grounding) ? (
-                <div
-                  className="tool-evidence"
-                  aria-label="Hidden grounding metadata available"
-                >
-                  <span>Used local Garmin data.</span>
-                </div>
-              ) : null}
             </div>
           ))}
           {isChatLoading && chatPendingStatus !== null ? (

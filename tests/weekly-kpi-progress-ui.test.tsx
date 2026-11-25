@@ -475,6 +475,7 @@ it("requests the default Refresh, keeps the period, shows measured actuals and l
   });
   expect(refresh.textContent).toBe("Refresh");
   expect(refresh.getAttribute("title")).toBe("Refresh this and last week");
+  expect(screen.queryByText("Measured actuals: Garmin")).toBeNull();
   const achievementBefore = series(screen.getAllByTestId("saved-chart")[0]);
   fireEvent.click(refresh);
   await waitFor(() => expect(refresh).toHaveProperty("disabled", true));
@@ -495,6 +496,7 @@ it("requests the default Refresh, keeps the period, shows measured actuals and l
     },
   ]);
   expect(figure.textContent).toContain("Measured");
+  expect(screen.getAllByText("Measured actuals: Garmin")).toHaveLength(1);
   expect(screen.getByRole("combobox", { name: "Period" })).toHaveProperty(
     "value",
     "6m",

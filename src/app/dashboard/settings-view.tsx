@@ -11,6 +11,7 @@ import {
 } from "./contracts";
 import { dateLabel, dayListLabel, valueLabel } from "./formatting";
 import { ProfileCard } from "./profile-card";
+import { GarminSourceLabel } from "./garmin-source-label";
 export function SettingsView({
   closeSettingsSheet,
   settingsCloseRef,
@@ -76,6 +77,9 @@ export function SettingsView({
           <div>
             <p className="section-kicker">Profile &amp; data</p>
             <h2 id="settings-heading">Profile &amp; data</h2>
+            {athleteBaseline?.source || bodyMetrics?.source ? (
+              <GarminSourceLabel context="Imported facts" />
+            ) : null}
           </div>
           <button
             type="button"

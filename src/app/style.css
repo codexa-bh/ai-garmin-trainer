@@ -367,7 +367,6 @@ body::before {
 .card-title-row,
 .button-row,
 .chat-meta,
-.tool-evidence,
 .composer-actions,
 .settings-card summary {
   display: flex;
@@ -2280,8 +2279,7 @@ h2 {
   font-size: clamp(19px, 2.8vw, 28px);
 }
 
-.pill,
-.tool-evidence span {
+.pill {
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
@@ -2516,14 +2514,13 @@ pre code {
   background: transparent;
 }
 
-.tool-evidence {
-  margin-top: 10px;
+.garmin-source-label {
+  display: block;
+  margin: 4px 0 0;
+  color: var(--muted);
   font-size: 12px;
-}
-
-.tool-evidence span {
-  display: inline-flex;
-  padding: 5px 9px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .composer-dock {

@@ -355,6 +355,7 @@ export const presentationModules = new Set([
   "app/use-active-conversation.ts",
   ...[
     "formatting",
+    "garmin-source-label",
     "markdown",
     "chat-view",
     "sync-view",
