@@ -12,6 +12,8 @@ _An independent open-source project, not affiliated with or endorsed by Garmin._
 
 ## Why it is different
 
+I use Garmin for hiking and navigation, but wanted a training plan built around my own goals: climbing, longer outings, strength and consistency. So I built a separate coach that uses the data I already record.
+
 - **You set the targets. Your data keeps score.** Agree a few goals for the week in chat, like 1,000 m of climbing or a two-and-a-half-hour outing. The app measures what it can from your Garmin data, and the week ends with lines like "Weekly ascent: 1,068 / 1,000 m → 20/20". Then the trainer goes through it with you and drafts the next week.
 - **Any question, your whole history.** Ask which of your last three hikes was the hardest, or how you slept before a race. The trainer looks it up across everything you have recorded, in every sport, and does the math.
 - **No mystery scores.** The app adds no readiness or recovery number of its own. The only score is the one you agreed, and when the trainer compares or ranks, it says what it counted and what was missing.
@@ -19,7 +21,7 @@ _An independent open-source project, not affiliated with or endorsed by Garmin._
 - **Your history lives on your computer.** There is no account to create and no server behind the app. Only what a question needs is sent to the AI model you chose.
 - **Use the AI you already pay for.** Sign in with your ChatGPT subscription, bring an OpenAI, DeepSeek or OpenRouter key, or run a local model with Ollama. The app never switches models on its own.
 
-It works alongside Garmin Connect, not instead of it. Your watch still syncs to Garmin; this app reads a copy and never writes anything back.
+It is an independent app, not an interface to Garmin Coach or Garmin's suggested workouts: you build your own weekly plan with the AI. It works alongside Garmin Connect, not instead of it. Your watch still syncs to Garmin; this app reads a copy, uses that data as evidence for coaching and measurement, and never writes anything back.
 
 ### Things you can ask
 
