@@ -17,12 +17,16 @@ const options = ts.parseJsonConfigFileContent(
 // rules only. Zod is the existing schema-only exception, not an SDK wrapper.
 const allowed = new Set([
   "ai/analytics/contracts.ts",
+  "ai/analytics/schema.ts",
+  "ai/analytics/extra-schema.ts",
   "ai/debug-trace.ts",
   "ai/debug-types.ts",
   "ai/execution-budget.ts",
   "ai/math-analysis.ts",
   "ai/orchestration-ports.ts",
   "ai/orchestrator.ts",
+  "ai/planning-preload.ts",
+  "ai/planning-preload-contracts.ts",
   "ai/provider-errors.ts",
   // Shared pure closed projector; no SDK, storage or ambient capability.
   "diagnostics/provider-failure.ts",

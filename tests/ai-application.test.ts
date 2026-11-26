@@ -511,6 +511,43 @@ describe("AI application through supplied capabilities (no infrastructure mocks)
     expect(test.requests[2].system).toContain("14");
   });
 
+  it("does not let same-batch SQL create prior-visible math evidence", async () => {
+    const ports = capabilities();
+    ports.analytics.runReadOnlySql = () => rows(7);
+    const math = {
+      toolName: "runMathAnalysis",
+      input: {
+        inputResult: "facts",
+        operation: "score",
+        formula: "value * 2",
+        outputName: "scores",
+      },
+    };
+    const test = scripted(
+      [
+        {
+          toolCalls: [
+            { toolName: "runReadOnlySql", input: { sql: "select 7 as value" } },
+            math,
+          ],
+        },
+        {
+          text: "SQL rows are available, but the unobserved math handle was rejected.",
+        },
+      ],
+      ports,
+    );
+    const result = await test.run();
+    expect(result.toolSteps.map(({ tool, status }) => [tool, status])).toEqual([
+      ["runReadOnlySql", "succeeded"],
+      ["runMathAnalysis", "rejected"],
+    ]);
+    expect(result.toolSteps[1].reason).toBe("unknown_result");
+    expect(result.toolSteps[1].correctionAllowed).not.toBe(true);
+    expect(result.providerCalls + test.executions.length).toBe(4);
+    expect(test.requests[1].purpose).toBe("final_synthesis");
+  });
+
   it("recovers math on a fresh pass, drops stale batch work and grounds only corrected cells", async () => {
     const ports = capabilities();
     ports.analytics.runReadOnlySql = () => rows(7);

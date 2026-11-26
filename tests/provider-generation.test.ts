@@ -39,10 +39,10 @@ it("maps exact planner and synthesis options while retaining selected model and 
     prompt: "prompt",
     tools: trainerToolDefinitions,
     toolChoice: "auto",
-    parallelToolCalls: false,
+    parallelToolCalls: true,
     providerOptions: {
-      openai: { parallelToolCalls: false },
-      deepseek: { parallelToolCalls: false },
+      openai: { parallelToolCalls: true },
+      deepseek: { parallelToolCalls: true },
     },
     abortSignal: expect.any(AbortSignal),
   });

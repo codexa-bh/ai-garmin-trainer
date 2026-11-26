@@ -172,6 +172,7 @@ it.each([
       stream: true,
       model: admission.model,
     });
+    expect(body.parallel_tool_calls).toBe(purpose === "planner");
     expect(body.input[0].role).toBe("developer");
     expect(
       body.input.some((item: { role?: string }) => item.role === "system"),
@@ -392,6 +393,105 @@ it.each([
     ).toBe(true);
   },
 );
+it("preserves distinct repeated-tool calls and ordered paired outputs through the locked SDK", async () => {
+  const first = events("", true);
+  const second = events("", true)
+    .slice(1, -1)
+    .map((event) =>
+      JSON.parse(
+        JSON.stringify(event)
+          .replaceAll("fc_1", "fc_2")
+          .replaceAll("call_1", "call_2")
+          .replaceAll('"output_index":0', '"output_index":1'),
+      ),
+    );
+  const terminal = first.at(-1)!;
+  const receipt = terminal.response as { output: unknown[] };
+  receipt.output.push({
+    ...(receipt.output[0] as object),
+    id: "fc_2",
+    call_id: "call_2",
+  });
+  const { model, network } = setup([
+    ...first.slice(0, -1),
+    ...second,
+    terminal,
+  ]);
+  const generate = createTrainerGeneration(model);
+  const result = await generate({
+    purpose: "planner",
+    system: { policy: "Stable", context: "Fresh" },
+    prompt: "Question",
+  });
+  expect(result.toolCalls).toMatchObject([
+    { toolName: "getSyncStatus", toolCallId: "call_1" },
+    { toolName: "getSyncStatus", toolCallId: "call_2" },
+  ]);
+  await generate({
+    purpose: "planner",
+    system: { policy: "Stable", context: "Fresh follow-up" },
+    prompt: "Question",
+    exchanges: [
+      {
+        callId: "call_1",
+        toolName: "getSyncStatus",
+        input: {},
+        output: "first result",
+      },
+      {
+        callId: "call_2",
+        toolName: "getSyncStatus",
+        input: {},
+        output: "second result",
+      },
+    ],
+  });
+  const bodies = network.mock.calls.map((call) =>
+    JSON.parse(String((call as unknown as [string, RequestInit])[1].body)),
+  );
+  expect(bodies[0].parallel_tool_calls).toBe(true);
+  expect(bodies[0].input[0]).toEqual(bodies[1].input[0]);
+  expect(bodies[0].tools).toEqual(bodies[1].tools);
+  expect(bodies[1].input.slice(-4)).toMatchObject([
+    { type: "function_call", call_id: "call_1", name: "getSyncStatus" },
+    { type: "function_call_output", call_id: "call_1", output: "first result" },
+    { type: "function_call", call_id: "call_2", name: "getSyncStatus" },
+    {
+      type: "function_call_output",
+      call_id: "call_2",
+      output: "second result",
+    },
+  ]);
+});
+
+it.each([undefined, 0, 80])(
+  "keeps subscription wire cache-counter presence through the locked SDK: %s",
+  async (cached) => {
+    const values = events();
+    Object.assign(values.at(-1)!.response!, {
+      usage: {
+        input_tokens: 100,
+        output_tokens: 5,
+        ...(cached !== undefined
+          ? { input_tokens_details: { cached_tokens: cached } }
+          : {}),
+      },
+    });
+    const { model } = setup(values);
+    const result = await createTrainerGeneration(model)({
+      purpose: "planner",
+      system: "Policy",
+      prompt: "Question",
+    });
+    if (cached === undefined) {
+      expect(result.tokenUsage?.cacheReadTokens).toBeUndefined();
+      expect(JSON.parse(JSON.stringify(result.tokenUsage))).not.toHaveProperty(
+        "cacheReadTokens",
+      );
+    } else expect(result.tokenUsage?.cacheReadTokens).toBe(cached);
+  },
+);
+
 it("completed inference without counters preserves unknown usage, not invented zeroes", async () => {
   const values = events();
   delete (values.at(-1)!.response as { usage?: unknown }).usage;

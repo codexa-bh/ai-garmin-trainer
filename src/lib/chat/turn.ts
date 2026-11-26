@@ -186,6 +186,8 @@ export function createChatTurns(ports: ChatTurnPorts) {
         input.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
     const weeklyContext = ports.weeklyContext?.(weeklyTurn);
+    const planningPreload = ports.planningPreload?.(weeklyTurn);
+    input.assertCurrent?.();
     const cadenceHistory = (replay ? [] : input.previousMessages)
       .slice(-8)
       .map((message) => `${message.role}: ${message.content.slice(0, 1000)}`)
@@ -210,6 +212,7 @@ export function createChatTurns(ports: ChatTurnPorts) {
           )
         : system,
       weeklyTurn,
+      planningPreload,
       turnContext,
       userRequest: input.latestMessage,
       ...(options.onStatus ? { onStatus: options.onStatus } : {}),

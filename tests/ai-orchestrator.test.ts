@@ -276,10 +276,10 @@ describe("trainer orchestrator fail-closed policy", async () => {
     expect(result.text).not.toContain("multiple_tool_calls_with_side_effect");
     expect(result.text).not.toContain("Tool step");
     expect(generateText.mock.calls[0][0]).toMatchObject({
-      parallelToolCalls: false,
+      parallelToolCalls: true,
       providerOptions: {
-        openai: { parallelToolCalls: false },
-        deepseek: { parallelToolCalls: false },
+        openai: { parallelToolCalls: true },
+        deepseek: { parallelToolCalls: true },
       },
     });
   });

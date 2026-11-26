@@ -24,7 +24,11 @@ import {
   listRecentActivities,
   listTrainerRecoveryPreview,
 } from "@/lib/local-data/composition";
-import { trainingPlanStatus } from "@/lib/training-plan/composition";
+import {
+  trainingPlanStatus,
+  readCompleteTrainingPlan,
+} from "@/lib/training-plan/composition";
+import { readPlanningPreload } from "@/lib/ai/planning-preload";
 import { trainerProfile } from "@/lib/profile/composition";
 import { createChatContext } from "./context";
 import { createChatTurns } from "./turn";
@@ -53,6 +57,16 @@ const turns = createChatTurns({
   generateConversationTitle,
   currentDate: () => new Date().toISOString().slice(0, 10),
   weeklyContext: weekly.context,
+  planningPreload: (turn) =>
+    readPlanningPreload(
+      {
+        now: () => new Date(),
+        trainingPlan: readCompleteTrainingPlan,
+        readWeek: weekly.read,
+        readKpis: weekly.readKpis,
+      },
+      turn,
+    ),
   appendChatMessage,
   ensureConversation,
   listRecentChatMessages,
@@ -74,6 +88,7 @@ const turns = createChatTurns({
       system,
       userRequest,
       weeklyTurn,
+      planningPreload,
       turnContext,
       onStatus,
       debugTraceEnabled,
@@ -86,6 +101,7 @@ const turns = createChatTurns({
         system,
         userRequest,
         weeklyTurn,
+        planningPreload,
         turnContext,
         ...(onStatus ? { onStatus } : {}),
         debug: { enabled: debugTraceEnabled, provider, model: modelName },

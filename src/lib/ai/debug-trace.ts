@@ -15,7 +15,7 @@ const LLM_DEBUG_TRACE_CAPS = {
   arrayItems: 20,
   objectKeys: 40,
   depth: 5,
-  providerCalls: 12,
+  providerCalls: 30,
   toolSteps: 4,
 } as const;
 
@@ -84,6 +84,7 @@ function boundedDebugValue(
 export function debugProviderCall(input: {
   index: number;
   purpose: LlmDebugProviderCallPurpose;
+  elapsedMs?: number;
   tokenUsage?: LlmDebugProviderCall["tokenUsage"];
   toolCalls?: TrainerToolCall[];
   text?: string;
@@ -125,6 +126,14 @@ export function debugProviderCall(input: {
   return {
     index: input.index,
     purpose: input.purpose,
+    ...(typeof input.elapsedMs === "number" &&
+    Number.isFinite(input.elapsedMs) &&
+    input.elapsedMs >= 0
+      ? {
+          elapsedMs: Math.floor(input.elapsedMs),
+          outcome: input.error ? ("failed" as const) : ("returned" as const),
+        }
+      : {}),
     ...(input.tokenUsage ? { tokenUsage: input.tokenUsage } : {}),
     ...(toolCalls?.length ? { toolCalls } : {}),
     ...(text ? { text: text.value as string } : {}),
@@ -144,6 +153,7 @@ export function buildLlmDebugTrace(input: {
   finalAnswer: string;
   finalAnswerSource?: LlmDebugTrace["finalAnswerSource"];
   capturedAt?: string;
+  planningPreloaded?: boolean;
 }): LlmDebugTrace {
   let truncated = false;
   const weeklyTurn = input.toolSteps.some((step) =>
@@ -159,18 +169,36 @@ export function buildLlmDebugTrace(input: {
       "applyWeeklyProposal",
     ].includes(step.tool),
   );
+  const documentContext = weeklyTurn || input.planningPreloaded;
   const userRequest = compactString(
-    weeklyTurn ? "Weekly turn content omitted" : input.userRequest,
+    documentContext ? "Weekly turn content omitted" : input.userRequest,
     LLM_DEBUG_TRACE_CAPS.userRequest,
   );
   const finalAnswer = compactString(
-    weeklyTurn ? "Weekly answer content omitted" : input.finalAnswer,
+    documentContext
+      ? "Planning-context answer content omitted"
+      : input.finalAnswer,
     LLM_DEBUG_TRACE_CAPS.finalAnswer,
   );
   truncated = userRequest.truncated || finalAnswer.truncated;
   const providerCalls = input.providerCalls
     .slice(0, LLM_DEBUG_TRACE_CAPS.providerCalls)
-    .map((call) => (weeklyTurn ? { ...call, text: undefined } : call));
+    .map((call) =>
+      documentContext
+        ? {
+            ...call,
+            text: undefined,
+            ...(input.planningPreloaded
+              ? {
+                  toolCalls: call.toolCalls?.map(({ toolName }) => ({
+                    toolName,
+                    input: "omitted for planning context",
+                  })),
+                }
+              : {}),
+          }
+        : call,
+    );
   truncated =
     truncated ||
     input.providerCalls.length > providerCalls.length ||
@@ -179,15 +207,20 @@ export function buildLlmDebugTrace(input: {
     .slice(0, LLM_DEBUG_TRACE_CAPS.toolSteps)
     .map((step) => {
       const result = boundedDebugValue(
-        [
-          "getTrainingPlan",
-          "getWeeklyPlan",
-          "getWeeklyKpis",
-          "getKpiProgress",
-          "proposeWeeklyDocuments",
-        ].includes(step.tool)
-          ? { documentContent: "omitted; see compact step summary" }
-          : step.result,
+        input.planningPreloaded
+          ? {
+              resultContent:
+                "omitted for planning context; see compact step summary",
+            }
+          : [
+                "getTrainingPlan",
+                "getWeeklyPlan",
+                "getWeeklyKpis",
+                "getKpiProgress",
+                "proposeWeeklyDocuments",
+              ].includes(step.tool)
+            ? { documentContent: "omitted; see compact step summary" }
+            : step.result,
       );
       truncated = truncated || result.truncated;
       const summary = compactString(step.summary, LLM_DEBUG_TRACE_CAPS.string);

@@ -40,7 +40,8 @@ export async function chatgptText(options: Record<string, unknown>): Promise<{
         store: false,
         forceReasoning: false,
         systemMessageMode: "developer",
-        parallelToolCalls: false,
+        // Multiple calls are planning output only; the app still executes serially.
+        parallelToolCalls: Boolean(options.tools),
       },
     },
   } as unknown as Parameters<typeof streamText>[0]);
@@ -83,7 +84,7 @@ export async function chatgptText(options: Record<string, unknown>): Promise<{
   return {
     text: await result.text,
     toolCalls: calls,
-    usage: await result.usage,
+    usage: (await result.steps).at(-1)?.usage ?? (await result.usage),
     finishReason: await result.finishReason,
   };
 }

@@ -8,11 +8,20 @@ import json
 import os
 from pathlib import Path
 import signal
+import time
 import sqlite3
 import uuid
 import smoke_resources as resources
-from chat_smoke import AuthoredProvider, api, seed_run
-from weekly_kpi_provider import ANSWER, NO_SAVE, RECOVERED, MISSING, EXACT_MISSING
+from chat_smoke import AuthoredProvider, api, seed_run, record_chat_measurement
+from weekly_kpi_provider import (
+    ANSWER,
+    NO_SAVE,
+    RECOVERED,
+    MISSING,
+    EXACT_MISSING,
+    CONFLICT_ORIGINAL,
+    CONFLICT_EXTERNAL,
+)
 from native_smoke import REPO, Observer, canonical, private_json, readonly, source_identity
 from ordinary_identity import inventory_hash
 from release_artifact import candidate_preparation
@@ -108,6 +117,7 @@ def exercise(run, provider, receipt):
             if action == 'no-save'
             else 'Authored structured weekly ' + action + '.'
         )
+        started = time.monotonic()
         raw = api(
             run,
             'POST',
@@ -119,6 +129,7 @@ def exercise(run, provider, receipt):
                 'stream': stream,
             },
         )
+        record_chat_measurement(run, provider, conversation, started)
         expected = NO_SAVE if action == 'no-save' else ANSWER
         if stream:
             events = [json.loads(line) for line in raw.splitlines() if line]
@@ -138,7 +149,6 @@ def exercise(run, provider, receipt):
             if value['assistant']['content'] != expected or [
                 (s['tool'], s['status']) for s in value['toolSteps']
             ] != [
-                ('getWeeklyKpis', 'succeeded'),
                 ('saveWeeklyDocuments' if action == 'correct' else 'saveWeeklyKpis', 'succeeded'),
             ]:
                 raise ValueError('Actual JSON KPI tool sequence failed')
@@ -288,6 +298,7 @@ def exercise(run, provider, receipt):
     ):
         receipt['lastAction'] = action
         before = weekly_snapshot(run)
+        started = time.monotonic()
         raw = json.loads(
             api(
                 run,
@@ -305,6 +316,7 @@ def exercise(run, provider, receipt):
                 },
             )
         )
+        record_chat_measurement(run, provider, conversation, started)
         steps = raw.get('toolSteps', [])
         if (
             raw['assistant']['content'] != expected
@@ -341,13 +353,58 @@ def exercise(run, provider, receipt):
                 'exactlyOncePersistence': True,
             }
         )
-    if len(provider.calls) != 19:
+    if len(provider.calls) != 16:
         raise ValueError('Unexpected authored provider call count')
     return (
         conversation,
         evidence,
         hashlib.sha256(json.dumps(state(run, provider.week), sort_keys=True).encode()).hexdigest(),
     )
+
+
+def exercise_preload_conflict(run, provider, receipt):
+    before = weekly_snapshot(run)
+    api(run, 'PUT', '/api/training-plan', {'contentMarkdown': CONFLICT_ORIGINAL})
+    conversation = 'authored-preload-conflict-' + str(uuid.uuid4())
+    provider.conflict_run = run
+    started = time.monotonic()
+    result = json.loads(
+        api(
+            run,
+            'POST',
+            '/api/chat',
+            {
+                'conversationId': conversation,
+                'message': 'Replace the authored conflict original with the authored stale proposal.',
+                'timeZone': 'UTC',
+            },
+        )
+    )
+    record_chat_measurement(run, provider, conversation, started)
+    if [
+        (step['tool'], step['status'], step.get('reason')) for step in result.get('toolSteps', [])
+    ] != [('saveTrainingPlan', 'rejected', 'training_plan_changed_read_again')]:
+        raise ValueError('Concurrent General Plan edit did not reject stale preloaded save')
+    if (
+        json.loads(api(run, 'GET', '/api/training-plan'))['plan']['contentMarkdown']
+        != CONFLICT_EXTERNAL
+        or weekly_snapshot(run) != before
+    ):
+        raise ValueError('Conflict proof changed external plan or weekly data')
+    with contextlib.closing(readonly(run.database)) as db:
+        counts = db.execute(
+            'select role,count(*) from message where conversation_id=? group by role',
+            (conversation,),
+        ).fetchall()
+    if sorted(counts) != [('assistant', 1), ('user', 1)]:
+        raise ValueError('Conflict history was not persisted once')
+    receipt['preloadedConflict'] = {
+        'conversation': conversation,
+        'rejectedStaleSave': True,
+        'externalEditPreserved': True,
+        'weeklyDataUnchanged': True,
+        'providerCalls': 1,
+    }
 
 
 @resources.invocation
@@ -371,7 +428,7 @@ def main():
     source = source_identity()
     run = provider = observer = None
     receipt = {
-        'scenario': 'T0376-deterministic-canonical-recovery-missing-exact-version-read-only-and-protected-save-native-chat',
+        'scenario': 'preloaded-planning-canonical-recovery-no-save-and-concurrent-edit-native-chat',
         'passed': False,
         'privateInputs': 'none',
         'realServices': 'not exercised; finite authored provider',
@@ -418,6 +475,7 @@ def main():
             run.observer = observer
             run.start(run.binary)
             conversation, outcomes, expected = exercise(run, provider, receipt)
+            exercise_preload_conflict(run, provider, receipt)
             old_boot = run.boot
             run.stop()
             run.start(run.binary)
@@ -440,8 +498,13 @@ def main():
                 or history[-1][1] != EXACT_MISSING
             ):
                 raise ValueError('Recovery history restart persistence failed')
-            if len(provider.calls) != 19:
+            if len(provider.calls) != 17:
                 raise ValueError('Restart replayed a provider call')
+            if (
+                json.loads(api(run, 'GET', '/api/training-plan'))['plan']['contentMarkdown']
+                != CONFLICT_EXTERNAL
+            ):
+                raise ValueError('Conflict-preserved General Plan did not survive restart')
             receipt['exactlyOnceHistoryRestart'] = True
             if (
                 source_identity() != source
@@ -457,6 +520,7 @@ def main():
                     'conversation': conversation,
                     'outcomes': outcomes,
                     'calls': provider.calls,
+                    'measurements': provider.measurements,
                     'restartPersistence': True,
                     'passed': True,
                 }

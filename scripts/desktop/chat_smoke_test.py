@@ -335,6 +335,28 @@ class ChatSmokeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Stopped exclusive'):
                 chat_smoke.seed_import_dates(run)
 
+    def test_independent_reads_share_one_planner_response_without_losing_identities(self):
+        body = {**self.body(), 'parallel_tool_calls': True}
+        for index in [1, 4]:
+            calls = response(index, body, batch_reads=True)['tool_calls']
+            self.assertEqual(
+                [call['function']['name'] for call in calls],
+                ['analyzeActivityTerrain', 'getActivityDashboard'],
+            )
+            self.assertEqual(len({call['id'] for call in calls}), 2)
+        self.assertEqual(
+            response(2, {**self.valid_body(), 'parallel_tool_calls': True}, batch_reads=True)[
+                'content'
+            ],
+            ANSWER,
+        )
+        self.assertEqual(response(6, body, batch_reads=True)['content'], FOLLOWUP)
+        for index, bad in [(7, body), (1, self.body()), (2, body)]:
+            with self.assertRaises(ValueError):
+                response(index, bad, batch_reads=True)
+        with self.assertRaises(ValueError):
+            response(1, body, activity_images=True, batch_reads=True)
+
     def test_fixed_order_plain_text_and_extra_call_refusal(self):
         for index in [0, 4]:
             call = response(index, self.body())['tool_calls'][0]['function']
@@ -469,6 +491,65 @@ class ChatSmokeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'four'):
             response(3, body, activity_images=True)
 
+    def test_conflict_hook_uses_only_the_explicit_owned_run_and_fixed_manual_plan_route(self):
+        from weekly_kpi_provider import CONFLICT_ORIGINAL, CONFLICT_EXTERNAL
+
+        provider = AuthoredProvider(weekly_kpis=True)
+        provider.calls = [{} for _ in range(16)]
+        body = {
+            **self.body(),
+            'tools': [{'function': {'name': 'saveTrainingPlan'}}],
+            'messages': [
+                {
+                    'role': 'system',
+                    'content': 'Foreground planning preload (not tool execution). Authored.\n'
+                    + json.dumps(
+                        {
+                            'source': 'foreground_preload',
+                            'trainingPlan': {
+                                'status': 'complete',
+                                'value': {'plan': {'contentMarkdown': CONFLICT_ORIGINAL}},
+                            },
+                        }
+                    ),
+                }
+            ],
+        }
+        client = http.client.HTTPConnection(
+            '127.0.0.1', provider.server.server_address[1], timeout=2
+        )
+        try:
+            with patch.object(chat_smoke, 'api') as mutate:
+                client.request(
+                    'POST',
+                    '/v1/chat/completions',
+                    json.dumps(body),
+                    {'Content-Type': 'application/json'},
+                )
+                reply = client.getresponse()
+                self.assertEqual(reply.status, 400)
+                reply.read()
+                mutate.assert_not_called()
+                provider.conflict_run = object()
+                client.request(
+                    'POST',
+                    '/v1/chat/completions',
+                    json.dumps(body),
+                    {'Content-Type': 'application/json'},
+                )
+                reply = client.getresponse()
+                self.assertEqual(reply.status, 200)
+                reply.read()
+                mutate.assert_called_once_with(
+                    provider.conflict_run,
+                    'PUT',
+                    '/api/training-plan',
+                    {'contentMarkdown': CONFLICT_EXTERNAL},
+                )
+        finally:
+            client.close()
+            provider.stop()
+
     def test_actual_loopback_protocol_and_owned_shutdown(self):
         provider = AuthoredProvider()
         client = http.client.HTTPConnection(
@@ -482,14 +563,21 @@ class ChatSmokeTests(unittest.TestCase):
             client.request(
                 'POST',
                 '/v1/chat/completions',
-                json.dumps(self.body()),
+                json.dumps({**self.body(), 'parallel_tool_calls': True}),
                 {'Content-Type': 'application/json'},
             )
             reply = client.getresponse()
             self.assertEqual(reply.status, 200)
             self.assertEqual(json.loads(reply.read())['choices'][0]['finish_reason'], 'tool_calls')
             self.assertEqual(
-                provider.calls, [{'tool': 'verifyActivityReference', 'ordinaryText': False}]
+                provider.calls,
+                [
+                    {
+                        'tool': 'verifyActivityReference',
+                        'tools': ['verifyActivityReference'],
+                        'ordinaryText': False,
+                    }
+                ],
             )
         finally:
             client.close()

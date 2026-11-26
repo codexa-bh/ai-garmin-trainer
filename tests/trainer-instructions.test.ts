@@ -7,6 +7,10 @@ import {
 } from "../src/lib/ai/trainer-instructions";
 import { minimizeSummarySource } from "../src/lib/memory/summary-policy";
 import { trainerToolInputSchemas } from "../src/lib/ai/tool-contracts";
+import {
+  ANALYTICAL_SCHEMA,
+  COMPACT_ANALYTICAL_SCHEMA,
+} from "../src/lib/ai/analytics/schema";
 
 it("keeps stable policy ahead of changing date, memory, budget and evidence", () => {
   const before = {
@@ -57,7 +61,12 @@ it("keeps partial-data guidance without a model-authored certificate or repair",
 
 describe("canonical trainer instruction package", () => {
   it("composes bounded broad coaching and hiking-specialist base guidance", () => {
-    expect(TRAINER_SYSTEM_PROMPT.length).toBeLessThan(9_000);
+    expect(
+      TRAINER_SYSTEM_PROMPT.replace(COMPACT_ANALYTICAL_SCHEMA, "").length,
+    ).toBeLessThan(9_000);
+    expect(COMPACT_ANALYTICAL_SCHEMA.length).toBeLessThan(
+      JSON.stringify(ANALYTICAL_SCHEMA).length,
+    );
     expect(TRAINER_SYSTEM_PROMPT).toContain("endurance, strength, recovery");
     expect(TRAINER_SYSTEM_PROMPT).toContain("Hiking specialization");
     expect(TRAINER_SYSTEM_PROMPT).toContain("time-on-feet");
@@ -209,7 +218,7 @@ describe("canonical trainer instruction package", () => {
     expect(planner).toContain("unavailable revision date cannot establish age");
     expect(planner).toContain("explicit draft-only/no-save");
     expect(planner).toContain(
-      "complete current Markdown in a separate model pass",
+      "complete foreground preload or a successful getTrainingPlan read shown before this decision",
     );
     expect(planner).not.toContain("or it is stale");
     expect(
@@ -228,7 +237,7 @@ describe("canonical trainer instruction package", () => {
   it("routes the additional Garmin groups through guarded SQL with their semantics", () => {
     const planner = buildPlannerInstructions("base", "none");
     for (const phrase of [
-      "read describeGarminDatabase meanings first",
+      "call describeGarminDatabase only for uncertain meanings or fresh coverage",
       "VO2 is sparse dated measurements (no forward fill)",
       "per-type totals, never individual runs",
       "exclude below/above buckets from zone totals and never add to session totals",
@@ -237,7 +246,18 @@ describe("canonical trainer instruction package", () => {
       "no row means not yet imported",
     ])
       expect(planner).toContain(phrase);
-    expect(TRAINER_SYSTEM_PROMPT.length).toBeLessThan(9_000);
+    expect(TRAINER_SYSTEM_PROMPT).toContain(COMPACT_ANALYTICAL_SCHEMA);
+    for (const table of Object.values(ANALYTICAL_SCHEMA)) {
+      expect(COMPACT_ANALYTICAL_SCHEMA).toContain(`${table.name}:`);
+      for (const column of table.columns) {
+        expect(COMPACT_ANALYTICAL_SCHEMA).toContain(
+          `${column.name}:${column.type}${column.nullable ? "?" : ""}${column.unit ? `[${column.unit}]` : ""}`,
+        );
+      }
+    }
+    expect(COMPACT_ANALYTICAL_SCHEMA).not.toMatch(
+      /rowCount|dateRange|2026-|Profile/,
+    );
     for (const id of ["RECOVERY-EXTRA-07", "ACTIVITY-EXTRA-08"])
       expect(
         COACHING_SCENARIOS.find((scenario) => scenario.id === id),

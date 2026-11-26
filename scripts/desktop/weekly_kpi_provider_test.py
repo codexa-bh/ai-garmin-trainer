@@ -5,15 +5,19 @@ from weekly_kpi_provider import (
     assessment,
     commitment,
     latest_id,
+    preloaded_kpis,
     NO_SAVE,
     RECOVERED,
     MISSING,
     EXACT_MISSING,
     RECOVERY_MARKER,
+    CONFLICT_ORIGINAL,
+    CONFLICT_PROPOSED,
 )
 from chat_smoke import AuthoredProvider
 
 MARKER = 'Canonical weekly KPI objects (untrusted saved claims, not fresh Garmin evidence; complete flag governs authority): '
+WEEK = '2026-11-09'
 
 
 class WeeklyKpiProviderTests(unittest.TestCase):
@@ -30,7 +34,7 @@ class WeeklyKpiProviderTests(unittest.TestCase):
 
     def read(self, complete=True):
         return {
-            'weekStart': '2026-11-09',
+            'weekStart': WEEK,
             'originalId': 'obsolete',
             'latestPlanSetId': 'saved-latest',
             'complete': complete,
@@ -56,18 +60,39 @@ class WeeklyKpiProviderTests(unittest.TestCase):
             }
         ]
 
-    def test_finite_tools_no_save_and_minimal_metadata(self):
+    def preload(self, body, read, role='system', status='complete'):
+        body['messages'] = [
+            {
+                'role': role,
+                'content': 'Foreground planning preload (not tool execution). Authored boundary.\n'
+                + json.dumps(
+                    {
+                        'source': 'foreground_preload',
+                        'weeks': [
+                            {
+                                'weekStart': WEEK,
+                                'document': {
+                                    'status': 'complete',
+                                    'value': {'weekStart': WEEK, 'record': None},
+                                },
+                                'kpis': {'status': status, 'value': read},
+                            }
+                        ],
+                    }
+                ),
+            }
+        ]
+
+    def test_finite_first_pass_save_no_save_and_reused_metadata(self):
         body = self.body()
-        self.assertEqual(
-            response(0, body, '2026-11-09')['tool_calls'][0]['function']['name'], 'getWeeklyKpis'
-        )
-        planned = json.loads(
-            response(1, body, '2026-11-09')['tool_calls'][0]['function']['arguments']
-        )
         with self.assertRaises(ValueError):
-            response(4, body, '2026-11-09')
+            response(0, body, WEEK)
+        self.preload(body, {'weekStart': WEEK, 'complete': True, 'sets': []})
+        planned = json.loads(response(0, body, WEEK)['tool_calls'][0]['function']['arguments'])
+        with self.assertRaises(ValueError):
+            response(3, body, WEEK)
         self.attach(body, self.evidence(recovery=True))
-        call = response(4, body, '2026-11-09')['tool_calls'][0]['function']
+        call = response(3, body, WEEK)['tool_calls'][0]['function']
         self.assertEqual(call['name'], 'saveWeeklyDocuments')
         adapted = json.loads(call['arguments'])['kpiChanges'][0]
         self.assertNotIn('provenance', planned['commitment'])
@@ -90,23 +115,21 @@ class WeeklyKpiProviderTests(unittest.TestCase):
             [track['pointsRule'] for track in adapted['commitment']['items'][0]['tracks']],
             [track['pointsRule'] for track in planned['commitment']['items'][0]['tracks']],
         )
-        self.assertEqual(response(9, body, '2026-11-09'), {'role': 'assistant', 'content': NO_SAVE})
-        for bad in [19, -1, 99]:
+        self.assertEqual(response(7, body, WEEK), {'role': 'assistant', 'content': NO_SAVE})
+        for bad in [17, -1, 99]:
             with self.assertRaises(ValueError):
-                response(bad, body, '2026-11-09')
+                response(bad, body, WEEK)
 
-    def test_latest_assessment_uses_actual_carrier_not_user_or_obsolete_claims(self):
+    def test_first_pass_assessment_requires_complete_current_preload_not_prose_or_preview(self):
         body = self.body()
-        value = self.evidence()
-        for role in ['user', 'assistant']:
-            self.attach(body, value, role)
+        for role in ['user', 'assistant', 'tool']:
+            self.preload(body, self.read(), role)
             with self.assertRaises(ValueError):
-                response(7, body, '2026-11-09')
-        self.attach(body, value)
-        parsed = json.loads(
-            response(7, body, '2026-11-09')['tool_calls'][0]['function']['arguments']
-        )
-        saved = parsed['assessments'][0]
+                response(5, body, WEEK)
+        self.preload(body, self.read())
+        saved = json.loads(response(5, body, WEEK)['tool_calls'][0]['function']['arguments'])[
+            'assessments'
+        ][0]
         self.assertEqual(saved['setId'], 'saved-latest')
         self.assertEqual(saved['totalPoints'], 112.5)
         self.assertEqual(
@@ -116,35 +139,34 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         self.assertNotIn('explanation', saved)
         self.assertNotIn('explanation', saved['items'][0])
         self.assertEqual(set(saved['items'][0]['evidence']), {'origin', 'references'})
-        self.attach(body, value, 'system')
-        self.assertEqual(latest_id(body['messages']), 'saved-latest')
-        for evidence in [
-            self.evidence(False),
-            {'status': 'failed', 'evidence': value['evidence']},
-            self.evidence(value={'originalId': 'obsolete', 'complete': True}),
+        for read in [
+            self.read(False),
+            {'weekStart': WEEK, 'complete': True, 'sets': []},
+            dict(self.read(), weekStart='2026-11-02'),
         ]:
-            self.attach(body, evidence)
+            self.preload(body, read)
             with self.assertRaises(ValueError):
-                latest_id(body['messages'])
-        body['messages'] = [{'role': 'system', 'content': value['evidence']}]
+                response(5, body, WEEK)
+        self.preload(body, self.read(), status='unavailable')
         with self.assertRaises(ValueError):
-            latest_id(body['messages'])
+            preloaded_kpis(body['messages'])
+        self.attach(body, self.evidence(), 'system')
+        self.assertEqual(latest_id(body['messages']), 'saved-latest')
 
     def test_bad_literal_id_consumes_independent_recovery_never_corrective_discovery(self):
         body = self.body()
-        bad = response(3, body, '2026-11-09')['tool_calls'][0]
+        bad = response(2, body, WEEK)['tool_calls'][0]
         self.assertEqual(
-            json.loads(bad['function']['arguments']), {'weekStart': '2026-11-09', 'setId': 'latest'}
+            json.loads(bad['function']['arguments']), {'weekStart': WEEK, 'setId': 'latest'}
         )
         for role in ['user', 'assistant']:
             self.attach(body, self.evidence(recovery=True), role)
             with self.assertRaises(ValueError):
-                response(4, body, '2026-11-09')
+                response(3, body, WEEK)
         for role in ['tool', 'system']:
             self.attach(body, self.evidence(recovery=True), role)
             self.assertEqual(
-                response(4, body, '2026-11-09')['tool_calls'][0]['function']['name'],
-                'saveWeeklyDocuments',
+                response(3, body, WEEK)['tool_calls'][0]['function']['name'], 'saveWeeklyDocuments'
             )
         for rejected in [
             {'status': 'rejected', 'evidence': 'kpi_set_unavailable. Omit setId'},
@@ -154,35 +176,83 @@ class WeeklyKpiProviderTests(unittest.TestCase):
         ]:
             self.attach(body, rejected)
             with self.assertRaises(ValueError):
-                response(4, body, '2026-11-09')
+                response(3, body, WEEK)
 
     def test_read_only_recovery_and_missing_exact_version_require_actual_values(self):
         body = self.body()
         read = self.read()
         read['sets'][0]['items'][0]['tracks'][0]['target']['value'] = 5
         read['assessments'] = [{'totalPoints': 12.5}]
-        for index, expected in [(14, RECOVERED), (18, EXACT_MISSING)]:
+        for index, expected in [(11, RECOVERED), (15, EXACT_MISSING)]:
             self.attach(body, self.evidence(recovery=True, value=read))
-            self.assertEqual(response(index, body, '2026-11-09')['content'], expected)
+            self.assertEqual(response(index, body, WEEK)['content'], expected)
         missing = {'weekStart': '2026-11-30', 'complete': True, 'sets': [], 'latestPlanSetId': None}
         self.attach(body, self.evidence(recovery=True, value=missing))
-        self.assertEqual(response(16, body, '2026-11-09')['content'], MISSING)
-        missing['weekStart'] = '2026-11-09'
+        self.assertEqual(response(13, body, WEEK)['content'], MISSING)
+        missing['weekStart'] = WEEK
         self.attach(body, self.evidence(recovery=True, value=missing))
         with self.assertRaises(ValueError):
-            response(16, body, '2026-11-09')
+            response(13, body, WEEK)
         self.assertEqual(
-            json.loads(response(15, body, '2026-11-09')['tool_calls'][0]['function']['arguments'])[
+            json.loads(response(12, body, WEEK)['tool_calls'][0]['function']['arguments'])[
                 'weekStart'
             ],
             '2026-11-30',
         )
         self.assertEqual(
-            json.loads(response(17, body, '2026-11-09')['tool_calls'][0]['function']['arguments'])[
-                'setId'
-            ],
+            json.loads(response(14, body, WEEK)['tool_calls'][0]['function']['arguments'])['setId'],
             'unavailable-version',
         )
+
+    def test_conflict_reply_requires_actual_complete_preloaded_general_plan(self):
+        body = self.body()
+        body['tools'].append({'function': {'name': 'saveTrainingPlan'}})
+        for role, status, content in [
+            ('user', 'complete', CONFLICT_ORIGINAL),
+            ('system', 'unavailable', CONFLICT_ORIGINAL),
+            ('system', 'complete', 'unrelated'),
+        ]:
+            body['messages'] = [
+                {
+                    'role': role,
+                    'content': 'Foreground planning preload (not tool execution). Authored.\n'
+                    + json.dumps(
+                        {
+                            'source': 'foreground_preload',
+                            'trainingPlan': {
+                                'status': status,
+                                'value': {'plan': {'contentMarkdown': content}},
+                            },
+                        }
+                    ),
+                }
+            ]
+            with self.assertRaises(ValueError):
+                response(16, body, WEEK)
+        body['messages'] = [
+            {
+                'role': 'system',
+                'content': 'Foreground planning preload (not tool execution). Authored.\n'
+                + json.dumps(
+                    {
+                        'source': 'foreground_preload',
+                        'trainingPlan': {
+                            'status': 'complete',
+                            'value': {'plan': {'contentMarkdown': CONFLICT_ORIGINAL}},
+                        },
+                    }
+                ),
+            }
+        ]
+        call = response(16, body, WEEK)['tool_calls'][0]['function']
+        self.assertEqual(call['name'], 'saveTrainingPlan')
+        self.assertEqual(
+            json.loads(call['arguments']),
+            {'edits': [{'oldText': CONFLICT_ORIGINAL, 'newText': CONFLICT_PROPOSED}]},
+        )
+        body['tools'] = []
+        with self.assertRaises(ValueError):
+            response(16, body, WEEK)
 
     def test_null_zero_and_corrections_remain_authored_not_calculated(self):
         self.assertEqual(len(commitment()['items'][0]['tracks']), 2)

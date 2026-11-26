@@ -53,7 +53,7 @@ Assembler-only follows same-input successful build. Resources-ready verifies fin
 
 ### Deterministic checks and diagnostics
 
-Use focused affected tests early; load-sensitive failures need affected file then normal-concurrency Vitest, not dropped assertions or enlarged timeouts. Real CLI refusal/DOM/byte-preservation tests remain meaningful boundaries.
+Use focused affected tests early; load-sensitive failures need affected file then normal-concurrency Vitest, not dropped assertions or enlarged timeouts. Trainer changes include real locked-SDK serialized wire checks for batching/prefix/counter presence, prior-visible preload/save/freshness regressions and long-turn trace storage/reload pressure. Native authored round/time comparisons remain distinct from separately authorized live subscription latency/cache/answer-quality proof. Real CLI refusal/DOM/byte-preservation tests remain meaningful boundaries.
 
 ```bash
 npm run doctor -- --json

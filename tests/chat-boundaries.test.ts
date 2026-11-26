@@ -15,6 +15,20 @@ const f = vi.hoisted(() => ({
   selected: vi.fn(),
   context: vi.fn(),
   weeklyContext: vi.fn(),
+  preloadPlan: vi.fn(() => ({ plan: null, stale: false, staleAfterDays: 60 })),
+  weeklyRead: vi.fn((weekStart: string) => ({ weekStart, record: null })),
+  weeklyKpis: vi.fn((weekStart: string) => ({
+    weekStart,
+    revision: null,
+    timeZone: null,
+    originalId: null,
+    latestId: null,
+    reviewDefinedId: null,
+    complete: true,
+    sets: [],
+    assessments: [],
+    availableSets: [],
+  })),
   bindWeekly: vi.fn(),
   search: vi.fn(),
   memory: vi.fn(),
@@ -33,7 +47,12 @@ vi.mock("@/lib/chat/title-adapter", () => ({
   generateConversationTitle: f.titleGenerate,
 }));
 vi.mock("@/lib/weekly/composition", () => ({
-  weekly: { context: f.weeklyContext, bindDisplayed: f.bindWeekly },
+  weekly: {
+    context: f.weeklyContext,
+    bindDisplayed: f.bindWeekly,
+    read: f.weeklyRead,
+    readKpis: f.weeklyKpis,
+  },
 }));
 vi.mock("@/lib/env", async (original) => ({
   ...(await original<typeof import("@/lib/env")>()),
@@ -74,6 +93,7 @@ vi.mock("@/lib/db/repository", () => ({
   },
 }));
 vi.mock("@/lib/training-plan/composition", () => ({
+  readCompleteTrainingPlan: f.preloadPlan,
   trainingPlanStatus: () => {
     f.order.push("plan");
     return null;
@@ -297,6 +317,25 @@ describe("chat application production wiring", () => {
       expect.not.stringContaining("exact pending draft"),
     );
   });
+  it("preloads full planning context for ordinary turns without an intent classifier or fake tools", async () => {
+    expect(
+      (await post({ message: "How should I breathe?", timeZone: "UTC" }))
+        .status,
+    ).toBe(200);
+    expect(f.preloadPlan).toHaveBeenCalledTimes(1);
+    expect(f.weeklyRead).toHaveBeenCalledTimes(2);
+    expect(f.weeklyKpis).toHaveBeenCalledTimes(2);
+    expect(f.orchestrate.mock.calls[0][0].planningPreload).toMatchObject({
+      source: "foreground_preload",
+      trainingPlan: { status: "complete", value: { plan: null } },
+    });
+    expect((await post({ message: "Thanks", timeZone: "UTC" })).status).toBe(
+      200,
+    );
+    expect(f.preloadPlan).toHaveBeenCalledTimes(2);
+    expect(f.weeklyRead).toHaveBeenCalledTimes(4);
+  });
+
   it("imports composition without selecting providers, reading storage or initializing memory", async () => {
     await import("@/lib/chat/composition");
     await import("@/lib/chat/conversation-composition");

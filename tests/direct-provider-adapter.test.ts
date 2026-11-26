@@ -92,7 +92,7 @@ it.each(["planner", "final_synthesis"] as const)(
     );
     if (purpose === "planner") {
       expect(body.tool_choice).toBe("auto");
-      expect(body.parallel_tool_calls).toBe(false);
+      expect(body.parallel_tool_calls).toBe(true);
       for (const name of ["runReadOnlySql", "runMathAnalysis"])
         expect(body.tools).toContainEqual(expect.objectContaining({ name }));
     } else {
