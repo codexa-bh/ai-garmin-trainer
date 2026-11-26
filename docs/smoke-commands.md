@@ -134,7 +134,7 @@ Actual two-week Refresh/persistence plus fixed score/gap/layout proof. `--automa
 
 `npm run smoke:weekly-kpi-chat -- --scratch "$scratch" --bundle "$bundle"`
 
-Exclusive fake provider and closed 14-call sequence: establishment/adaptation, assessment/no-save/correction, discovery-before-save, automatic points and restart. Textual tool/SQLite evidence, not KPI screenshots or real reasoning. [KPI chat](smoke/features.md#finite-authored-weekly-kpis).
+Exclusive fake provider and closed 16-call sequence: preload-backed establishment/assessment/correction, adaptation with canonical recovery, no-save, read-only unavailable-version/empty-week evidence, automatic points and restart, plus one separate preloaded General Plan concurrent-edit rejection. Textual tool/SQLite evidence, not KPI screenshots or real reasoning. [KPI chat](smoke/features.md#finite-authored-weekly-kpis).
 
 ## quick — CI-minimal debug synthetic Profile; not full regression
 

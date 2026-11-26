@@ -62,6 +62,9 @@ export type LlmDebugProviderCallPurpose =
 export type LlmDebugProviderCall = {
   index: number;
   purpose: LlmDebugProviderCallPurpose;
+  /** Monotonic elapsed time around this actual generation attempt; legacy unknown stays absent. */
+  elapsedMs?: number;
+  outcome?: "returned" | "failed";
   tokenUsage?: TrainerTokenUsage;
   toolCalls?: Array<{ toolName: string; input: unknown; truncated?: boolean }>;
   text?: string;

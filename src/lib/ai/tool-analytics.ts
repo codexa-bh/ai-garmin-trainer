@@ -89,7 +89,7 @@ export function executeAnalyticsTool(
       const args = input.input;
       const result = runMathAnalysis({
         ...args,
-        rowsByResult: input.context.analysisResults,
+        rowsByResult: input.analysisSnapshot ?? input.context.analysisResults,
       });
       if (result.status === "succeeded")
         input.context.analysisResults.set(result.resultName, result.rows);

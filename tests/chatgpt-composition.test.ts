@@ -1139,7 +1139,7 @@ it("chat write and application readback independently reproject invalid whole op
   expect(JSON.stringify(read)).not.toContain(hostile);
 });
 
-it("readback keeps pre-receipt rows readable and omits the whole trace when the grounding cap requires it", async () => {
+it("readback keeps pre-receipt rows readable and preserves call diagnostics under grounding pressure", async () => {
   initializeLiveConfiguration(boot);
   modelSettings.save({ modelId: entry.id });
   routeUpstream(() =>
@@ -1152,8 +1152,8 @@ it("readback keeps pre-receipt rows readable and omits the whole trace when the 
   delete legacyCall.failure?.receipt;
   delete legacyCall.failure?.dropped;
   delete legacyCall.failure?.responseCorrelation;
-  // An oversized trace is compacted; when even compaction cannot fit, the
-  // whole debug trace (and so every diagnostic) is omitted, never truncated.
+  // Oversized adjacent grounding yields before compact call diagnostics;
+  // omission is explicit without evicting elapsed/usage/failure metadata.
   const huge = "x".repeat(30000);
   for (const [conversation, grounding] of [
     [
@@ -1184,7 +1184,10 @@ it("readback keeps pre-receipt rows readable and omits the whole trace when the 
         status: 200,
       });
     } else {
-      expect(read?.debugTrace).toBeUndefined();
+      expect(read?.debugTrace?.providerCalls[0].failure).toEqual(
+        stored.debugTrace!.providerCalls[0].failure,
+      );
+      expect(read?.debugTrace?.truncated).toBe(true);
     }
   }
 });

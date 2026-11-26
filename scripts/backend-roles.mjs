@@ -12,6 +12,7 @@ const groups = [
       "execution-budget",
       "math-analysis",
       "orchestration-ports",
+      "planning-preload-contracts",
       "provider-errors",
       "reliability-fixtures",
       "tool-contracts",
@@ -32,6 +33,7 @@ const groups = [
     "lib/ai",
     [
       "orchestrator",
+      "planning-preload",
       "tool-analytics",
       "tool-execution",
       "tool-local-data",

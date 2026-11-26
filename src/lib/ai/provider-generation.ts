@@ -259,16 +259,16 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
           ? {
               tools: trainerToolDefinitions,
               toolChoice: "auto",
-              parallelToolCalls: false,
+              parallelToolCalls: true,
               providerOptions: {
                 openai: {
-                  parallelToolCalls: false,
+                  parallelToolCalls: true,
                   ...(hasImages ? { store: false } : {}),
                   ...(cachePolicy
                     ? { promptCacheOptions: { mode: "explicit", ttl: "30m" } }
                     : {}),
                 },
-                deepseek: { parallelToolCalls: false },
+                deepseek: { parallelToolCalls: true },
               },
             }
           : {
@@ -303,7 +303,9 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
                         systemMessageMode: "developer",
                       }
                     : {}),
-                  parallelToolCalls: false,
+                  ...(request.purpose === "planner"
+                    ? { parallelToolCalls: true }
+                    : {}),
                   ...(cachePolicy
                     ? { promptCacheOptions: { mode: "explicit", ttl: "30m" } }
                     : {}),
@@ -317,13 +319,24 @@ export function createTrainerGeneration(model: unknown): TrainerGeneration {
       const result = (
         generateText as unknown as (
           options: Record<string, unknown>,
-        ) => Promise<TrainerGenerationResult & { usage?: LanguageModelUsage }>
+        ) => Promise<
+          TrainerGenerationResult & {
+            usage?: LanguageModelUsage;
+            steps?: { usage?: LanguageModelUsage }[];
+          }
+        >
       )(options);
       const generated = await Promise.race([result, timeout]);
+      const observedUsage = generated.steps?.at(-1)?.usage;
       return {
         text: generated.text,
         toolCalls: generated.toolCalls,
-        tokenUsage: tokenUsage(generated.usage),
+        // SDK totalUsage/usage aggregation drops raw presence and can turn
+        // missing cache counters into adapter-default zeroes. One generation
+        // has one SDK step here; retain that step's observed wire usage.
+        tokenUsage: tokenUsage(
+          observedUsage?.raw ? observedUsage : generated.usage,
+        ),
       };
     } catch (error) {
       // Subscription errors are already closed/sanitized and retain actionable

@@ -1,4 +1,10 @@
 import type { WeeklyRead, WeeklyTurn } from "../weekly/contracts";
+import {
+  currentPlanningPreload,
+  invalidatesWeeklyEvidence,
+  renderPlanningPreload,
+  type PlanningPreload,
+} from "./planning-preload";
 import type { KpiLookupRecovery, KpiRead } from "../weekly/kpi-contracts";
 import {
   ConversationCapacityError,
@@ -72,6 +78,7 @@ export type OrchestrateTrainerChatInput = {
   userRequest: string;
   turnContext?: ChatTurnContext;
   weeklyTurn?: WeeklyTurn;
+  planningPreload?: PlanningPreload;
   onStatus?: OrchestrateTrainerStatus;
   debug?: {
     enabled: boolean;
@@ -135,10 +142,12 @@ function assertConversationCurrent(
 
 function systemWithTurnContext(
   input: OrchestrateTrainerChatInput,
+  steps: TrainerToolStep[],
 ): TrainerSystemPrompt {
+  const preload = currentPlanningPreload(input.planningPreload, steps);
   return appendTrainerContext(
     input.system,
-    `Explicit server turn context (date basis and recorded prior failures, not current-turn evidence):\n${JSON.stringify(input.turnContext ?? {})}`,
+    `Explicit server turn context (date basis and recorded prior failures, not current-turn evidence):\n${JSON.stringify(input.turnContext ?? {})}${preload ? `\n\n${renderPlanningPreload(preload)}` : ""}`,
   );
 }
 
@@ -154,6 +163,21 @@ function plannerSystem(
   return buildPlannerInstructions(baseSystem, prior, budget);
 }
 
+function generationFailureMessage(
+  input: OrchestrateTrainerChatInput,
+  error: unknown,
+): string {
+  if (
+    !input.planningPreload ||
+    ["chatgpt", "openrouter"].includes(input.debug?.provider ?? "")
+  )
+    return providerFailureMessage(input.debug?.provider, error);
+  // Legacy direct-provider errors may echo the fresh document-bearing request.
+  return error instanceof Error && error.message === "provider_timeout"
+    ? "provider_timeout"
+    : "provider_generation_unavailable";
+}
+
 function providerSelectionFailureText(step: TrainerToolStep): string {
   if (step.reason === "multiple_tool_calls")
     return "I tried to continue the local Garmin analysis, but the model selected multiple tools at once. I did not run an unsafe action. Please ask me to retry the ranking with one SQL query, or narrow the criteria you want me to use.";
@@ -166,12 +190,30 @@ function providerSelectionFailureText(step: TrainerToolStep): string {
   return "I could not select a safe local Garmin tool for that response, so I did not execute any tool. Please retry with one narrower request.";
 }
 
+function planningReadInvalidated(
+  step: TrainerToolStep,
+  steps: TrainerToolStep[],
+): boolean {
+  if (["getWeeklyPlan", "getWeeklyKpis", "getKpiProgress"].includes(step.tool))
+    return steps.some(
+      (later) => later.index > step.index && invalidatesWeeklyEvidence(later),
+    );
+  return (
+    step.tool === "getTrainingPlan" &&
+    steps.some(
+      (later) => later.index > step.index && later.tool === "saveTrainingPlan",
+    )
+  );
+}
+
 function synthesisEvidenceForSteps(steps: TrainerToolStep[]): string {
   const latestRead = [...steps]
     .reverse()
     .find((step) => step.tool === "getTrainingPlan");
   return steps
     .map((step) => {
+      if (planningReadInvalidated(step, steps))
+        return `Evidence step ${step.index}: ${step.tool} is historical and invalidated by a later mutation attempt; read again before treating it as current.`;
       if (
         step.status === "succeeded" &&
         ["saveWeeklyDocuments", "saveWeeklyKpis", "saveKpiRecipes"].includes(
@@ -246,10 +288,12 @@ function requestEvidence(
 ): string {
   if (!nativeResults) return synthesisEvidenceForSteps(steps);
   return [
-    "Executed-step details are in paired native tool results, not this index. The latest General Plan read and last two successful weekly reads are the applicable document evidence; earlier reads remain historical. A failed exact read does not establish completeness for that target; separately labelled complete canonical recovery objects are independent prior-pass evidence. This index alone proves neither measurements, complete coverage nor write authorization.",
+    "Executed-step details are in paired native tool results, not this index. The latest General Plan read and last two successful weekly reads are applicable only until a later relevant mutation attempt; invalidated reads remain historical and require fresh reads. A failed exact read does not establish completeness for that target; separately labelled complete canonical recovery objects are independent prior-pass evidence. This index alone proves neither measurements, complete coverage nor write authorization.",
     ...steps.map((step) => {
       if (step.tool === "providerToolSelection")
         return synthesisEvidenceForSteps([step]);
+      if (planningReadInvalidated(step, steps))
+        return `Evidence step ${step.index}: ${step.tool} historical; invalidated by a later mutation attempt, read again for current evidence.`;
       const result = step.result as { resultName?: unknown } | undefined;
       const handle =
         step.status === "succeeded" && typeof result?.resultName === "string"
@@ -404,6 +448,19 @@ function savedPlanningResultText(steps: TrainerToolStep[]): string {
     : "";
 }
 
+async function timedGeneration(
+  generate: TrainerOrchestrationPorts["generate"],
+  request: Parameters<TrainerOrchestrationPorts["generate"]>[0],
+  captureElapsed: (elapsedMs: number) => void,
+): Promise<TrainerGenerationResult> {
+  const started = performance.now();
+  try {
+    return await generate(request);
+  } finally {
+    captureElapsed(performance.now() - started);
+  }
+}
+
 async function synthesizeFinalAnswer(
   input: OrchestrateTrainerChatInput,
   steps: TrainerToolStep[],
@@ -413,23 +470,30 @@ async function synthesizeFinalAnswer(
   exchanges: TrainerNativeExchange[] = [],
 ): Promise<string | null> {
   let result: TrainerGenerationResult;
+  let elapsedMs: number | undefined;
   try {
     assertConversationCurrent(input, steps);
-    result = await generate({
-      ...(input.conversation
-        ? { conversation: input.conversation, exchanges }
-        : exchanges.length
-          ? { exchanges }
-          : {}),
-      purpose: "final_synthesis",
-      system: finalAnswerSystem(
-        systemWithTurnContext(input),
-        steps,
-        budgetStopped,
-        Boolean(input.conversation),
-      ),
-      prompt: input.userRequest,
-    });
+    result = await timedGeneration(
+      generate,
+      {
+        ...(input.conversation
+          ? { conversation: input.conversation, exchanges }
+          : exchanges.length
+            ? { exchanges }
+            : {}),
+        purpose: "final_synthesis",
+        system: finalAnswerSystem(
+          systemWithTurnContext(input, steps),
+          steps,
+          budgetStopped,
+          Boolean(input.conversation),
+        ),
+        prompt: input.userRequest,
+      },
+      (elapsed) => {
+        elapsedMs = elapsed;
+      },
+    );
   } catch (error) {
     if (
       error instanceof Error &&
@@ -440,7 +504,8 @@ async function synthesizeFinalAnswer(
       debugProviderCall({
         index: 0,
         purpose: "final_synthesis",
-        error: providerFailureMessage(input.debug?.provider, error),
+        elapsedMs,
+        error: generationFailureMessage(input, error),
         failure: providerFailureDiagnostic(input.debug?.provider, error),
       }),
     );
@@ -449,8 +514,17 @@ async function synthesizeFinalAnswer(
   if (
     !result ||
     (result.toolCalls !== undefined && !Array.isArray(result.toolCalls))
-  )
+  ) {
+    recordProviderCall(
+      debugProviderCall({
+        index: 0,
+        purpose: "final_synthesis",
+        elapsedMs,
+        error: "invalid_provider_response",
+      }),
+    );
     return null;
+  }
 
   assertConversationCurrent(input, steps);
   const text = typeof result.text === "string" ? result.text.trim() : "";
@@ -461,6 +535,7 @@ async function synthesizeFinalAnswer(
     debugProviderCall({
       index: 0,
       purpose: "final_synthesis",
+      elapsedMs,
       toolCalls,
       text,
       tokenUsage: result.tokenUsage,
@@ -534,6 +609,7 @@ async function orchestrateTurn(
         model: input.debug?.model,
         userRequest: input.userRequest,
         providerCalls: debugProviderCalls,
+        planningPreloaded: Boolean(input.planningPreload),
         toolSteps: result.toolSteps,
         finalAnswer: completed.text,
         finalAnswerSource:
@@ -604,23 +680,30 @@ async function orchestrateTurn(
     providerCalls += 1;
     progress(modelWaitMessage(steps));
     let result: TrainerGenerationResult;
+    let elapsedMs: number | undefined;
     try {
       assertConversationCurrent(input, steps);
-      result = await ports.generate({
-        ...(input.conversation
-          ? { conversation: input.conversation, exchanges }
-          : exchanges.length
-            ? { exchanges }
-            : {}),
-        purpose: "planner",
-        system: plannerSystem(
-          systemWithTurnContext(input),
-          steps,
-          budget(),
-          Boolean(input.conversation),
-        ),
-        prompt: input.userRequest,
-      });
+      result = await timedGeneration(
+        ports.generate,
+        {
+          ...(input.conversation
+            ? { conversation: input.conversation, exchanges }
+            : exchanges.length
+              ? { exchanges }
+              : {}),
+          purpose: "planner",
+          system: plannerSystem(
+            systemWithTurnContext(input, steps),
+            steps,
+            budget(),
+            Boolean(input.conversation),
+          ),
+          prompt: input.userRequest,
+        },
+        (elapsed) => {
+          elapsedMs = elapsed;
+        },
+      );
     } catch (error) {
       if (
         error instanceof Error &&
@@ -633,7 +716,8 @@ async function orchestrateTurn(
         debugProviderCall({
           index: 0,
           purpose: steps.length ? "failure_fallback" : "planner",
-          error: providerFailureMessage(input.debug?.provider, error),
+          elapsedMs,
+          error: generationFailureMessage(input, error),
           failure: providerFailureDiagnostic(input.debug?.provider, error),
         }),
       );
@@ -667,6 +751,14 @@ async function orchestrateTurn(
     assertConversationCurrent(input, steps);
     if (!result) result = {};
     if (result.toolCalls !== undefined && !Array.isArray(result.toolCalls)) {
+      recordProviderCall(
+        debugProviderCall({
+          index: 0,
+          purpose: "planner",
+          elapsedMs,
+          error: "invalid_provider_response",
+        }),
+      );
       return finish(
         {
           text: INVALID_PROVIDER_RESPONSE,
@@ -689,6 +781,7 @@ async function orchestrateTurn(
           : steps.length
             ? "final_synthesis"
             : "direct_answer",
+        elapsedMs,
         toolCalls,
         text,
         tokenUsage: result.tokenUsage,
@@ -747,36 +840,64 @@ async function orchestrateTurn(
     const priorPlanRead = [...steps]
       .reverse()
       .find((step) => step.tool === "getTrainingPlan");
+    const visiblePreload = currentPlanningPreload(input.planningPreload, steps);
     const snapshot =
       priorPlanRead?.status === "succeeded"
         ? completeTrainingPlanSchema.safeParse(priorPlanRead.result)
-        : null;
-    const weeklySnapshots = steps
-      .filter(
-        (step) => step.tool === "getWeeklyPlan" && step.status === "succeeded",
-      )
-      .slice(-2)
-      .map((step) => step.result as WeeklyRead);
-    const kpiSnapshots = steps.flatMap((step) => {
-      // Only actual independent objects, shown in an earlier planner pass.
-      // The rejected exact ID and discovery headers never become snapshots.
-      if (
-        step.tool === "getWeeklyKpis" &&
-        step.status === "rejected" &&
-        step.reason === "kpi_set_unavailable"
-      ) {
-        const canonical = (step.result as KpiLookupRecovery | undefined)
-          ?.canonical;
-        return canonical ? [canonical] : [];
-      }
-      if (step.status !== "succeeded") return [];
-      if (step.tool === "getWeeklyKpis") return [step.result as KpiRead];
-      if (step.tool === "getWeeklyPlan") {
-        const kpis = (step.result as { kpis?: KpiRead })?.kpis;
-        return kpis ? [kpis] : [];
-      }
-      return [];
-    });
+        : visiblePreload?.trainingPlan.status === "complete"
+          ? completeTrainingPlanSchema.safeParse(
+              visiblePreload.trainingPlan.value,
+            )
+          : null;
+    const preloadedWeeks =
+      visiblePreload?.weeks.flatMap(({ document }) =>
+        document.status === "complete" ? [document.value] : [],
+      ) ?? [];
+    const preloadedKpis =
+      visiblePreload?.weeks.flatMap(({ kpis }) =>
+        kpis.status === "complete" ? [kpis.value] : [],
+      ) ?? [];
+    const lastWeeklyMutation = [...steps]
+      .reverse()
+      .find(invalidatesWeeklyEvidence);
+    const freshWeeklySteps = steps.filter(
+      (step) => step.index > (lastWeeklyMutation?.index ?? 0),
+    );
+    const weeklySnapshots = [
+      ...preloadedWeeks,
+      ...freshWeeklySteps
+        .filter(
+          (step) =>
+            step.tool === "getWeeklyPlan" && step.status === "succeeded",
+        )
+        .slice(-2)
+        .map((step) => step.result as WeeklyRead),
+    ];
+    const kpiSnapshots = [
+      ...preloadedKpis,
+      ...freshWeeklySteps.flatMap((step) => {
+        // Only actual independent objects, shown in an earlier planner pass.
+        // The rejected exact ID and discovery headers never become snapshots.
+        if (
+          step.tool === "getWeeklyKpis" &&
+          step.status === "rejected" &&
+          step.reason === "kpi_set_unavailable"
+        ) {
+          const canonical = (step.result as KpiLookupRecovery | undefined)
+            ?.canonical;
+          return canonical ? [canonical] : [];
+        }
+        if (step.status !== "succeeded") return [];
+        if (step.tool === "getWeeklyKpis") return [step.result as KpiRead];
+        if (step.tool === "getWeeklyPlan") {
+          const kpis = (step.result as { kpis?: KpiRead })?.kpis;
+          return kpis ? [kpis] : [];
+        }
+        return [];
+      }),
+    ];
+    const analysisSnapshot = new Map(context.analysisResults);
+    const batchStart = steps.length;
     let skippedForTurnBudget = selection.skippedForTurnBudget;
     for (const selected of selection.calls) {
       const stepIndex = steps.length + 1;
@@ -840,14 +961,18 @@ async function orchestrateTurn(
         throw new Error("conversation_native_call_identity_missing");
       progress(toolProgressMessage(accepted.toolName));
       toolAttempts += 1;
+      const weeklyEvidenceInvalidated = steps
+        .slice(batchStart)
+        .some(invalidatesWeeklyEvidence);
       const step = await ports.executeTool({
         context,
+        analysisSnapshot,
         index: stepIndex,
         ...accepted,
         trainingPlanSnapshot: snapshot?.success ? snapshot.data : undefined,
         weeklyTurn: input.weeklyTurn,
-        weeklySnapshots: weeklySnapshots,
-        kpiSnapshots,
+        weeklySnapshots: weeklyEvidenceInvalidated ? [] : weeklySnapshots,
+        kpiSnapshots: weeklyEvidenceInvalidated ? [] : kpiSnapshots,
         activityImagesSupported:
           ports.activityImagesSupported === true && Boolean(native?.toolCallId),
       });

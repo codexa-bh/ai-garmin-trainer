@@ -27,7 +27,7 @@ from ordinary_identity import ordinary_preparation
 from ordinary_smoke import OrdinaryRun, private_directory
 from release_smoke import audit
 from smoke_input import prepare
-from weekly_kpi_provider import response as weekly_kpi_response
+from weekly_kpi_provider import response as weekly_kpi_response, CONFLICT_EXTERNAL
 import extra_data_provider
 
 ANSWER = 'Authored weekday hike: 6543 m in 4321 s, 321 m ascent, mean HR 123. The elevation section averages 10% across 1000 m. Keep weekday climbing practice manageable; surface and technicality remain unknown.'
@@ -182,7 +182,19 @@ def image_parts(body):
     return parts
 
 
-def response(index, body, expected_zones=None, activity_images=False):
+def response(index, body, expected_zones=None, activity_images=False, batch_reads=False):
+    if batch_reads:
+        phases = ((0,), (1, 2), (3,), (4,), (5, 6), (7,), (8,))
+        if (
+            activity_images
+            or not 0 <= index < len(phases)
+            or body.get('parallel_tool_calls') is not True
+        ):
+            raise ValueError('Finite multi-call planning wire required')
+        replies = [response(phase, body, expected_zones) for phase in phases[index]]
+        if len(replies) == 2:
+            replies[0]['tool_calls'].extend(replies[1]['tool_calls'])
+        return replies[0]
     if (
         body.get('model') != (VISION_MODEL if activity_images else MODEL)
         or body.get('stream') is True
@@ -289,8 +301,10 @@ class AuthoredProvider:
         ):
             raise ValueError('Authored KPI/extra-data scopes are exclusive')
         self.weekly_kpis = weekly_kpis
+        self.conflict_run = None
         self.extra_data = extra_data
         self.calls = []
+        self.measurements = []
         self.memory_curation = memory_curation
         self.summary_calls = []
         today = datetime.date.today()
@@ -331,6 +345,15 @@ class AuthoredProvider:
                     memory = owner.memory_curation and body.get('model') == MEMORY_MODEL
                     if owner.weekly_kpis:
                         message = weekly_kpi_response(len(owner.calls), body, owner.week)
+                        if len(owner.calls) == 16:
+                            if owner.conflict_run is None:
+                                raise ValueError('Owned conflict scenario required')
+                            api(
+                                owner.conflict_run,
+                                'PUT',
+                                '/api/training-plan',
+                                {'contentMarkdown': CONFLICT_EXTERNAL},
+                            )
                     elif owner.extra_data:
                         message = extra_data_provider.response(len(owner.calls), body)
                     elif memory:
@@ -339,7 +362,11 @@ class AuthoredProvider:
                         message = memory_chat_response(len(owner.calls), body, owner.week)
                     else:
                         message = response(
-                            len(owner.calls), body, owner.expected_zones, owner.activity_images
+                            len(owner.calls),
+                            body,
+                            owner.expected_zones,
+                            owner.activity_images,
+                            batch_reads=not owner.memory_curation and not owner.activity_images,
                         )
                     if owner.screenshots and len(owner.calls) == 3:
                         for panel, raw_image in image_parts(body):
@@ -375,6 +402,10 @@ class AuthoredProvider:
                             'tool': message.get('tool_calls', [{}])[0]
                             .get('function', {})
                             .get('name'),
+                            'tools': [
+                                call.get('function', {}).get('name')
+                                for call in message.get('tool_calls', [])
+                            ],
                             'ordinaryText': isinstance(message.get('content'), str),
                         }
                     )
@@ -537,6 +568,38 @@ def exercise_extra_data(run, provider):
     return [conversation]
 
 
+def record_chat_measurement(run, provider, conversation, started):
+    wall_ms = round((time.monotonic() - started) * 1000)
+    with contextlib.closing(readonly(run.database)) as db:
+        row = db.execute(
+            "select grounding_json from message where conversation_id=? and role='assistant' order by created_at desc limit 1",
+            (conversation,),
+        ).fetchone()
+    trace = json.loads(row[0]).get('debugTrace', {}) if row and row[0] else {}
+    calls = trace.get('providerCalls', [])
+    if not calls or any(
+        not isinstance(call.get('elapsedMs'), int) or call['elapsedMs'] < 0 for call in calls
+    ):
+        raise ValueError('Durable per-call elapsed measurement missing or invalid')
+    provider.measurements.append(
+        {
+            'wallMs': wall_ms,
+            'providerCallCount': len(provider.calls)
+            - sum(value['providerCallCount'] for value in provider.measurements),
+            'providerTiming': 'observed durable trace',
+            'providerCalls': [
+                {
+                    key: call[key]
+                    for key in ['index', 'purpose', 'elapsedMs', 'outcome', 'tokenUsage']
+                    if key in call
+                }
+                for call in calls
+            ],
+            'usageBasis': 'authored fixture counters; missing cache counters stay unknown, not zero or live-service proof',
+        }
+    )
+
+
 def exercise(run, provider):
     if getattr(provider, 'extra_data', False):
         return exercise_extra_data(run, provider)
@@ -546,12 +609,14 @@ def exercise(run, provider):
     for stream in [False, True]:
         conversation = 't0296-authored-' + str(uuid.uuid4())
         ids.append(conversation)
+        started = time.monotonic()
         raw = api(
             run,
             'POST',
             '/api/chat',
             {'conversationId': conversation, 'message': PROMPT, 'stream': stream},
         )
+        record_chat_measurement(run, provider, conversation, started)
         if stream:
             events = [json.loads(line) for line in raw.splitlines() if line]
             if (
@@ -578,6 +643,7 @@ def exercise(run, provider):
             ).fetchall()
             if rows != [(ANSWER,)]:
                 raise ValueError('Exactly-one assistant persistence failed')
+    started = time.monotonic()
     continued = json.loads(
         api(
             run,
@@ -586,7 +652,9 @@ def exercise(run, provider):
             {'conversationId': ids[0], 'message': 'Continue that weekday advice.'},
         )
     )
-    if continued['assistant']['content'] != FOLLOWUP or len(provider.calls) != 9:
+    record_chat_measurement(run, provider, ids[0], started)
+    expected_calls = 9 if provider.activity_images or provider.memory_curation else 7
+    if continued['assistant']['content'] != FOLLOWUP or len(provider.calls) != expected_calls:
         raise ValueError('Continued conversation/call accounting mismatch')
     with contextlib.closing(readonly(run.database)) as db:
         dump = '\n'.join(db.iterdump())
@@ -958,6 +1026,7 @@ def main():
                     'runId': run.id,
                     'conversations': ids,
                     'calls': provider.calls,
+                    'measurements': provider.measurements,
                     'captures': captures,
                     'jsonNdjsonPersistenceContinuationRestart': not args.extra_data,
                     'jsonPersistenceRestart': True,

@@ -42,14 +42,14 @@ Each turn captures model/config **before context awaits**; new selection affects
 
 ## Trainer prompt caching and token diagnostics
 
-Stable policy precedes fresh dates/Profile/memory/transcript/weekly status/budgets/evidence. No local context cache: corrections/deletion/date rollover remain immediate; tool order/synthesis unchanged.
+Stable policy, including deterministic allowlisted analytical names/types/units/joins and essential source/coverage caveats, precedes fresh dates/Profile/memory/transcript/planning preloads/budgets/evidence. Schema capability is not live availability or measurements; explicit discovery remains available for uncertain details and fresh coverage. No local context cache: corrections/deletion/date rollover remain immediate.
 
 - Direct OpenAI allowlist Luna/Astra/Sol marks stable-policy end and requests explicit-only default 30-minute writes. Compatible defaults elsewhere; no routing key/extended retention. Visible-input threshold 1024, provider read reporting in 128-token increments. Prefix/model/settings/tool/routing/expiry changes can miss; breakpoint is no reuse guarantee.
 - DeepSeek uses automatic best-effort disk prefix caching, no OpenAI options. Hit/miss counters do not report writes; construction/eviction vary, no universal interval/minimum promised.
 
 Check current [OpenAI caching](https://developers.openai.com/api/docs/guides/prompt-caching)/[pricing](https://developers.openai.com/api/docs/pricing) and [DeepSeek caching](https://api-docs.deepseek.com/guides/kv_cache). Historical prices/benchmarks belong in Git, not a current savings guarantee. Retention minimum is not deletion deadline; app does not opt into extended retention.
 
-Private per-call usage may record input/read/write/uncached/output counts. Missing is unknown, not zero; misses imply no writes. Check raw presence before SDK default zeros, retain no raw usage object, count one call rather than steps plus aggregate. Historical caps/unknown coverage forbid invented turn totals. No added private payloads; [trace privacy](settings.md#cross-chat-memory-and-debug-traces) applies. Cache misses never trigger generation.
+Private per-call diagnostics record monotonic generation elapsed milliseconds, outcome and available input/read/write/uncached/output counts. Time excludes foreground/tool preparation and includes failed generation attempts; historical missing timing stays unknown. Missing counters are unknown, not zero; misses imply no writes. Check observed single-step wire presence before SDK aggregate/default zeros, retain no raw usage object, count one call rather than steps plus aggregate. Chronological compact metadata survives storage pressure for the unchanged 30-execution envelope; verbose text/arguments/results yield first within the 24,000-character grounding limit. Truncation remains explicit. Historical caps/unknown coverage forbid invented turn totals. [Trace privacy](settings.md#cross-chat-memory-and-debug-traces) applies. Cache misses never trigger generation.
 
 ### Observed local comparison (not a savings guarantee)
 

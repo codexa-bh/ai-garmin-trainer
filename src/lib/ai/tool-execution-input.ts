@@ -7,6 +7,8 @@ import type { CompleteTrainingPlan } from "../training-plan/snapshot";
 export type TrainerToolExecutionInput = ValidatedTrainerToolCall & {
   index: number;
   context: TrainerToolExecutionContext;
+  /** Analysis handles actually visible before this planner decision. */
+  analysisSnapshot?: TrainerToolExecutionContext["analysisResults"];
   activityImagesSupported?: boolean;
   trainingPlanSnapshot?: CompleteTrainingPlan;
   weeklyTurn?: WeeklyTurn;

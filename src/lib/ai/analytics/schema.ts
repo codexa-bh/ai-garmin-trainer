@@ -549,6 +549,27 @@ export const ANALYTICAL_SCHEMA: Record<
   ...EXTRA_ANALYTICAL_SCHEMA,
 };
 
+/** Public deterministic capability metadata only; never statistics or availability. */
+export const COMPACT_ANALYTICAL_SCHEMA = [
+  "Stable allowlisted analytical schema (capability, NOT evidence of rows or coverage). ?: nullable, missing is not zero. Epoch timestamps are milliseconds; date is YYYY-MM-DD. Source local clocks require proven timezone/offset; never guess. VO2 is sparse, never forward-fill. Feedback values are Garmin enum codes, not prose. Split summaries and individual snow runs/lifts are distinct; no proven lap link. Historical activity-file HR zones differ from current baseline. Check actual rows and garmin_data_coverage; missing coverage means not imported, failed/unavailable can retain old rows. Aggregate one-to-many relations separately before joins; do not duplicate session totals. Calculated grade is smoothed derived evidence, not source grade. Use describeGarminDatabase for uncertain meanings/source notes or fresh coverage, not routine discovery.",
+  ...Object.values(ANALYTICAL_SCHEMA)
+    .sort((a, b) => a.name.localeCompare(b.name, "en"))
+    .map((table) =>
+      [
+        `${table.name}:`,
+        table.columns
+          .map(
+            (column) =>
+              `${column.name}:${column.type}${column.nullable ? "?" : ""}${column.unit ? `[${column.unit}]` : ""}`,
+          )
+          .join("; "),
+        table.joins?.length ? `Joins: ${table.joins.join("; ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ),
+].join("\n\n");
+
 export function describeAnalyticalSchema(
   statistics: Record<string, AnalyticalTableStatistics>,
 ): GarminDatabaseDescription {

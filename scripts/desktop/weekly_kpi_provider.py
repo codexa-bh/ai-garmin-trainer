@@ -13,6 +13,9 @@ MISSING = (
 )
 EXACT_MISSING = 'The requested saved version is unavailable. Canonical targets are separate evidence, not that version; no data changed.'
 RECOVERY_MARKER = 'Independent canonical week recovery: '
+CONFLICT_ORIGINAL = 'Authored conflict original.'
+CONFLICT_EXTERNAL = 'Authored concurrent edit.'
+CONFLICT_PROPOSED = 'Authored stale proposal.'
 
 
 def commitment(origin='planned'):
@@ -49,6 +52,32 @@ def commitment(origin='planned'):
             }
         ],
     }
+
+
+def planning_preload(messages):
+    marker = 'Foreground planning preload (not tool execution).'
+    for message in messages:
+        raw = message.get('content', '')
+        if message.get('role') != 'system' or not isinstance(raw, str) or marker not in raw:
+            continue
+        try:
+            value, _end = json.JSONDecoder().raw_decode(raw.split(marker, 1)[1].split('\n', 1)[1])
+            if value.get('source') != 'foreground_preload':
+                continue
+            return value
+        except (ValueError, TypeError, KeyError, IndexError):
+            continue
+    raise ValueError('Complete current foreground preload required')
+
+
+def preloaded_kpis(messages, week=None):
+    for entry in planning_preload(messages).get('weeks', []):
+        evidence = entry['kpis']
+        if (week is None or entry['weekStart'] == week) and evidence['status'] == 'complete':
+            read = evidence['value']
+            if read['complete'] is True and read['weekStart'] == entry['weekStart']:
+                return read
+    raise ValueError('Complete current foreground preload required')
 
 
 def kpi_evidence(messages, recovery_only=False):
@@ -89,6 +118,8 @@ def kpi_evidence(messages, recovery_only=False):
             continue
         if value.get('complete') is True:
             return value
+    if not recovery_only:
+        return preloaded_kpis(messages)
     raise ValueError('Complete current canonical tool result required')
 
 
@@ -167,7 +198,49 @@ def response(index, body, week):
         or not isinstance(body.get('messages'), list)
     ):
         raise ValueError('Fixed authored KPI provider protocol required')
-    # Deliberately no cooperative corrected discovery call after index 3.
+    # Same eight authored requests as the baseline, with three redundant
+    # discovery rounds removed. Keep explicit unavailable-version recovery.
+    if index == 16:
+        if 'saveTrainingPlan' not in [
+            tool.get('function', {}).get('name') for tool in body.get('tools', [])
+        ]:
+            raise ValueError('Actual General Plan tool schema missing')
+        plan = planning_preload(body['messages']).get('trainingPlan', {})
+        document = plan.get('value', {}).get('plan')
+        if (
+            plan.get('status') != 'complete'
+            or not isinstance(document, dict)
+            or document.get('contentMarkdown') != CONFLICT_ORIGINAL
+        ):
+            raise ValueError('Actual complete General Plan preload required for conflict proof')
+        return {
+            'role': 'assistant',
+            'content': None,
+            'tool_calls': [
+                {
+                    'id': 'authored-conflict',
+                    'type': 'function',
+                    'function': {
+                        'name': 'saveTrainingPlan',
+                        'arguments': json.dumps(
+                            {
+                                'edits': [
+                                    {'oldText': CONFLICT_ORIGINAL, 'newText': CONFLICT_PROPOSED}
+                                ]
+                            }
+                        ),
+                    },
+                }
+            ],
+        }
+    original_indices = (1, 2, 3, 4, 5, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18)
+    if not 0 <= index < len(original_indices):
+        raise ValueError('Unexpected authored KPI provider call')
+    index = original_indices[index]
+    if index in (1, 7, 11):
+        read = preloaded_kpis(body['messages'], week)
+        if index == 1 and (read.get('sets') or read.get('latestPlanSetId')):
+            raise ValueError('Complete empty-week preload required before establishment')
     # Adaptation must consume actual independent prior-pass recovery objects.
     if index in (14, 16, 18):
         read = kpi_evidence(body['messages'], recovery_only=True)
@@ -197,7 +270,7 @@ def response(index, body, week):
         return {'role': 'assistant', 'content': ANSWER}
     if index == 9:
         return {'role': 'assistant', 'content': NO_SAVE}
-    if index in (0, 3, 6, 10):
+    if index == 3:
         name, args = 'getWeeklyKpis', {'weekStart': week}
     elif index in (1, 4):
         name, args = (

@@ -82,34 +82,73 @@ function truncateJsonString(value: string, max: number): string {
 }
 
 function compactGroundingForStorage(grounding: ChatGrounding): ChatGrounding {
-  if (!grounding.debugTrace) return grounding;
   const trace = grounding.debugTrace;
   return {
     ...grounding,
-    debugTrace: {
-      ...trace,
-      userRequest: trace.userRequest
-        ? truncateJsonString(trace.userRequest, 1200)
-        : trace.userRequest,
-      finalAnswer: truncateJsonString(trace.finalAnswer, 2400),
-      providerCalls: trace.providerCalls.slice(0, 8).map((call) => ({
-        ...call,
-        text: call.text ? truncateJsonString(call.text, 700) : call.text,
-        truncated:
-          call.truncated || trace.providerCalls.length > 8 || undefined,
-      })),
-      toolSteps: trace.toolSteps.slice(0, 4).map((step) => ({
-        ...step,
-        result: step.result,
-        summary: step.summary
-          ? truncateJsonString(step.summary, 700)
-          : step.summary,
-        privacy: step.privacy
-          ? truncateJsonString(step.privacy, 500)
-          : step.privacy,
-      })),
-      truncated: trace.truncated || trace.providerCalls.length > 8 || undefined,
-    },
+    summary: grounding.summary
+      ? truncateJsonString(grounding.summary, 300)
+      : undefined,
+    privacy: grounding.privacy
+      ? truncateJsonString(grounding.privacy, 300)
+      : undefined,
+    toolSteps: grounding.toolSteps?.map((step) => ({
+      index: step.index,
+      tool: step.tool,
+      status: step.status,
+      summary: truncateJsonString(step.summary, 160),
+      privacy: truncateJsonString(step.privacy, 100),
+      reason: step.reason,
+    })),
+    ...(trace
+      ? {
+          debugTrace: {
+            ...trace,
+            userRequest: undefined,
+            finalAnswer:
+              "Omitted under storage pressure; see assistant message.",
+            // Keep the chronological measurement spine, not just the first few calls.
+            providerCalls: trace.providerCalls.slice(0, 30).map((call) => ({
+              index: call.index,
+              purpose: call.purpose,
+              ...(call.elapsedMs !== undefined
+                ? { elapsedMs: call.elapsedMs }
+                : {}),
+              ...(call.outcome ? { outcome: call.outcome } : {}),
+              ...(call.tokenUsage ? { tokenUsage: call.tokenUsage } : {}),
+              ...(call.toolCalls?.length
+                ? {
+                    toolCalls: [
+                      ...new Set(
+                        call.toolCalls.map(({ toolName }) => toolName),
+                      ),
+                    ]
+                      .slice(0, 3)
+                      .map((toolName) => ({
+                        toolName: truncateJsonString(toolName, 80),
+                        input: "omitted",
+                      })),
+                  }
+                : {}),
+              ...(call.error
+                ? { error: truncateJsonString(call.error, 160) }
+                : {}),
+              ...(call.failure ? { failure: call.failure } : {}),
+              truncated: true,
+            })),
+            toolSteps: trace.toolSteps.slice(0, 4).map((step) => ({
+              index: step.index,
+              tool: step.tool,
+              status: step.status,
+              summary: step.summary
+                ? truncateJsonString(step.summary, 160)
+                : undefined,
+              reason: step.reason,
+              truncated: true,
+            })),
+            truncated: true,
+          },
+        }
+      : {}),
   };
 }
 
@@ -117,41 +156,30 @@ function groundingJsonForStorage(
   grounding: ChatGrounding | null | undefined,
 ): string | null {
   if (!grounding) return null;
-  let candidate: ChatGrounding = projectFailures(grounding);
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const json = JSON.stringify(candidate);
-    if (json.length <= MAX_GROUNDING_JSON_CHARS) return json;
-    candidate = compactGroundingForStorage(candidate);
-    if (candidate.debugTrace) {
-      candidate = {
-        ...candidate,
-        debugTrace: {
-          ...candidate.debugTrace,
-          userRequest: candidate.debugTrace.userRequest
-            ? truncateJsonString(candidate.debugTrace.userRequest, 600)
-            : candidate.debugTrace.userRequest,
-          finalAnswer: truncateJsonString(
-            candidate.debugTrace.finalAnswer,
-            1200,
-          ),
-          providerCalls: candidate.debugTrace.providerCalls.slice(0, 4),
-          toolSteps: candidate.debugTrace.toolSteps.map((step) => ({
-            index: step.index,
-            tool: step.tool,
-            status: step.status,
-            summary: step.summary
-              ? truncateJsonString(step.summary, 300)
-              : step.summary,
-            reason: step.reason,
-            truncated: true,
-          })),
-          truncated: true,
-        },
-      };
-    }
-  }
-  const fallback = { ...candidate, debugTrace: undefined };
-  return JSON.stringify(fallback);
+  const candidate = projectFailures(grounding);
+  const json = JSON.stringify(candidate);
+  if (json.length <= MAX_GROUNDING_JSON_CHARS) return json;
+  const compact = compactGroundingForStorage(candidate);
+  const compactJson = JSON.stringify(compact);
+  if (compactJson.length <= MAX_GROUNDING_JSON_CHARS) return compactJson;
+  // Oversized non-debug grounding must not evict long-turn timing/usage.
+  const minimal = {
+    conversationContext: compact.conversationContext,
+    debugTrace: compact.debugTrace,
+    toolSteps: compact.toolSteps?.map(({ index, tool, status, reason }) => ({
+      index,
+      tool,
+      status,
+      reason,
+    })),
+    summary: "Grounding details omitted under storage pressure.",
+  };
+  const minimalJson = JSON.stringify(minimal);
+  return minimalJson.length <= MAX_GROUNDING_JSON_CHARS
+    ? minimalJson
+    : JSON.stringify({
+        summary: "Grounding unavailable: exceeded storage envelope.",
+      });
 }
 
 function mapStoredMessage(row: StoredMessageRow): StoredChatMessage {

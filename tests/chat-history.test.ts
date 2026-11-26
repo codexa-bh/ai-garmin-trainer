@@ -113,7 +113,7 @@ describe("local chat history repository", () => {
     expect(row.groundingJson.length).toBeLessThanOrEqual(24000);
   });
 
-  it("keeps optional failure diagnostics compatible with legacy rows, compaction and whole-trace omission", async () => {
+  it("keeps optional failure diagnostics compatible with legacy rows and compaction without evicting the trace", async () => {
     const repository = await import("./storage-fixture");
     const { debugProviderCall, buildLlmDebugTrace } =
       await import("../src/lib/ai/debug-trace");
@@ -183,7 +183,91 @@ describe("local chat history repository", () => {
     const readback = repository
       .listRecentChatMessages("diagnostic-cap")
       .find((m) => m.id === saved.id)!;
-    expect(readback.grounding?.debugTrace).toBeUndefined();
+    expect(readback.grounding?.debugTrace?.providerCalls[0].failure).toEqual(
+      call.failure,
+    );
+    expect(readback.grounding?.debugTrace?.truncated).toBe(true);
+  });
+
+  it("retains every chronological call timing and known/unknown cache counter through long-turn pressure and reload", async () => {
+    const repository = await import("./storage-fixture");
+    const { debugProviderCall, buildLlmDebugTrace } =
+      await import("../src/lib/ai/debug-trace");
+    const calls = Array.from({ length: 30 }, (_, i) =>
+      debugProviderCall({
+        index: i + 1,
+        purpose: i === 29 ? "final_synthesis" : "planner",
+        elapsedMs: i * 113,
+        tokenUsage:
+          i % 2
+            ? { inputTokens: 20000 + i, cacheReadTokens: 0, outputTokens: 100 }
+            : { inputTokens: 20000 + i, outputTokens: 100 },
+        toolCalls: [
+          { toolName: "runReadOnlySql", input: { sql: "x".repeat(5000) } },
+        ],
+        text: "x".repeat(5000),
+        ...(i === 28
+          ? {
+              error: "Authored failure",
+              failure: {
+                category: "stream_interrupted",
+                stage: "generation" as const,
+              },
+            }
+          : {}),
+      }),
+    );
+    const trace = buildLlmDebugTrace({
+      userRequest: "Authored long request",
+      providerCalls: calls,
+      toolSteps: [],
+      finalAnswer: "Authored answer",
+    });
+    expect(trace.providerCalls).toHaveLength(30);
+    const saved = repository.appendChatMessage({
+      conversationId: "long-turn",
+      role: "assistant",
+      content: "Authored answer",
+      grounding: { summary: "x".repeat(40000), debugTrace: trace },
+    });
+    const raw = repository
+      .getDatabase()
+      .prepare("select grounding_json as value from message where id=?")
+      .get(saved.id) as { value: string };
+    expect(raw.value.length).toBeLessThanOrEqual(24000);
+    const readback =
+      repository.listRecentChatMessages("long-turn")[0].grounding!.debugTrace!;
+    expect(
+      readback.providerCalls.map(
+        ({ index, purpose, elapsedMs, tokenUsage, outcome }) => ({
+          index,
+          purpose,
+          elapsedMs,
+          tokenUsage,
+          outcome,
+        }),
+      ),
+    ).toEqual(
+      calls.map(({ index, purpose, elapsedMs, tokenUsage, outcome }) => ({
+        index,
+        purpose,
+        elapsedMs,
+        tokenUsage,
+        outcome,
+      })),
+    );
+    expect(readback.providerCalls[28]).toMatchObject({
+      outcome: "failed",
+      failure: { category: "stream_interrupted" },
+    });
+    expect(readback.providerCalls[29].toolCalls?.[0].toolName).toBe(
+      "runReadOnlySql",
+    );
+    expect(readback.providerCalls[0].tokenUsage).not.toHaveProperty(
+      "cacheReadTokens",
+    );
+    expect(readback.providerCalls[1].tokenUsage!.cacheReadTokens).toBe(0);
+    expect(readback.truncated).toBe(true);
   });
 
   it("reads historical checker failure diagnostics without changing their answer, reasons or saved bytes", async () => {
