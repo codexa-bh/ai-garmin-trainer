@@ -4,7 +4,9 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -75,6 +77,9 @@ class OrdinaryIdentityTests(unittest.TestCase):
                 'sourceFingerprint': current['source'],
                 'buildSourceFingerprint': current['buildSource'],
                 'buildContext': identity.context_key(self.repo, current),
+                'buildContextComponents': identity.context_identity(self.repo, current)[
+                    'components'
+                ],
                 'files': [],
             }
         else:
@@ -132,6 +137,69 @@ class OrdinaryIdentityTests(unittest.TestCase):
         report = json.loads(next(self.scratch.glob('ordinary-reuse-*.json')).read_text())
         self.assertEqual(report['decision'], 'hit')
         self.assertEqual(sum(report['stageRequests'].values()), 0)
+
+    def test_fresh_process_readmits_original_bytes_without_environment_replay_or_build(self):
+        self.build()
+        before = audit(self.bundle)
+        stamp = self.repo / 'dist' / identity.STAMP
+        original_stamp = stamp.read_bytes()
+        script = textwrap.dedent("""\
+            import json, subprocess, sys
+            from pathlib import Path
+            from unittest.mock import patch
+            import ordinary_identity as identity
+            repo, bundle, scratch = map(Path, sys.argv[1:])
+            real_output = subprocess.check_output
+            def output(command, **kwargs):
+                if command[0] == 'git':
+                    return real_output(command, **kwargs)
+                return b'controlled toolchain and SDK v1'
+            with patch('smoke_build.subprocess.check_output', side_effect=output), \\
+                 patch('ordinary_identity.run_build', side_effect=AssertionError('second build')):
+                source = identity.source_snapshot(repo)['source']
+                with identity.ordinary_preparation(repo, bundle, source, scratch) as (value, _):
+                    print(json.dumps({'context': value['context'], 'inventory': value['inventory']}))
+            """)
+        for launch in ('first-shell', 'fresh-shell'):
+            result = subprocess.run(
+                [sys.executable, '-c', script, str(self.repo), str(self.bundle), str(self.scratch)],
+                cwd=Path(identity.__file__).parent,
+                env={**os.environ, 'SHLVL': '7', 'TERM': launch, 'PWD': launch},
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(result.stdout)['context'], self.produced['buildContext'])
+        self.assertEqual(audit(self.bundle), before)
+        self.assertEqual(stamp.read_bytes(), original_stamp)
+        self.assertEqual(len(self.calls), 2)
+        reports = list(self.scratch.glob('ordinary-reuse-*.json'))
+        self.assertEqual(len(reports), 2)
+        for report in reports:
+            value = json.loads(report.read_text())
+            self.assertEqual(value['decision'], 'hit')
+            self.assertEqual(sum(value['stageRequests'].values()), 0)
+
+    def test_changed_context_diagnostics_and_legacy_exact_key_admission(self):
+        self.build()
+        with patch.dict(os.environ, {'RUSTFLAGS': 'private-value-not-for-diagnostics'}):
+            with self.assertRaisesRegex(ValueError, 'mismatch: environment;') as error:
+                self.verify()
+            self.assertNotIn('private-value', str(error.exception))
+        with patch('smoke_build.toolchain', return_value=[['synthetic-new-tool']]):
+            with self.assertRaisesRegex(ValueError, 'mismatch: tools;'):
+                self.verify()
+        # A real legacy v2 build lacks diagnostic components. Exact identity is
+        # still required; the components never grant a compatible-key shortcut.
+        value = self.produced.copy()
+        value.pop('buildContextComponents')
+        self.assertIn('unknown', identity.context_difference(value, {'components': {}}))
+        with patch('ordinary_identity.provenance', return_value=value):
+            self.verify()
+            with patch.dict(os.environ, {'RUSTFLAGS': 'changed'}):
+                with self.assertRaisesRegex(ValueError, 'mismatch: unknown'):
+                    self.verify()
+        self.assertEqual(len(self.calls), 2)
 
     def test_default_included_dirty_deleted_unknown_renamed_and_untracked_inputs_refuse(self):
         self.build()
