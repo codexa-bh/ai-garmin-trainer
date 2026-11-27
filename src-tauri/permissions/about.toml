@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-about"
+description = "Read-only local About metadata, fixed project links and dismissal; no Settings/backend access."
+commands.allow = ["about_metadata", "about_link", "about_close"]

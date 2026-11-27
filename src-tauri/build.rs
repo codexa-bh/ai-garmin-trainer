@@ -27,6 +27,7 @@ fn main() {
         std::fs::create_dir_all(&directory).unwrap();
         for (source, name) in [
             ("permissions/setup.toml", "setup.toml"),
+            ("permissions/about.toml", "about.toml"),
             ("permissions/isolated.toml", "isolated.toml"),
             ("debug/smoke-permission.toml", "smoke.toml"),
         ] {
