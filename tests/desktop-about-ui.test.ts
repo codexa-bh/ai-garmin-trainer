@@ -32,7 +32,7 @@ beforeEach(() => {
       ? {
           name: "AI Trainer for Garmin Connect",
           version: "9.8.7",
-          build: "1234",
+          build: "2802a3e modified",
         }
       : undefined,
   );
@@ -42,7 +42,9 @@ it("reads independent running metadata without starting or reading Settings/back
   await waitFor(() =>
     expect(document.getElementById("version")?.textContent).toBe("9.8.7"),
   );
-  expect(document.getElementById("build")?.textContent).toBe("1234");
+  expect(document.getElementById("build")?.textContent).toBe(
+    "2802a3e modified",
+  );
   expect(invoke.mock.calls.map(([command]) => command)).toEqual([
     "about_metadata",
   ]);
