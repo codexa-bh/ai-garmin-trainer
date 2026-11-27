@@ -1,4 +1,4 @@
-//! Closed ordinary-only About proof; public metadata only, no browser launch.
+//! Closed ordinary-only About proof; browser actions require an explicitly presented app.
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{sync::mpsc, time::Duration};
@@ -21,7 +21,13 @@ struct Observation {
     ready: bool,
     metadata_matches: bool,
     close_focused: bool,
-    link_refused: bool,
+    links_match: bool,
+    link_opened: bool,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn browser_allowed(action: &Action, activation_policy: isize) -> bool {
+    !matches!(action, Action::Repository | Action::Licence) || activation_policy == 0
 }
 
 #[cfg(target_os = "macos")]
@@ -29,6 +35,11 @@ fn evaluate(window: &tauri::WebviewWindow, action: &Action) -> Result<Observatio
     use objc2::{class, msg_send, runtime::AnyObject};
     let expected = serde_json::to_string(&crate::about::bundle_metadata()?)
         .map_err(|_| "Metadata encoding")?;
+    let links = serde_json::to_string(&json!({
+        "repository": crate::system_open::project_url("repository").map_err(|_| "Repository unavailable")?,
+        "licence": crate::system_open::project_url("licence").map_err(|_| "Licence unavailable")?,
+    })).map_err(|_| "Links encoding")?;
+    let activates_browser = matches!(action, Action::Repository | Action::Licence);
     let mutation = match action {
         Action::Close => "document.getElementById('close').click();",
         Action::Escape => {
@@ -39,11 +50,21 @@ fn evaluate(window: &tauri::WebviewWindow, action: &Action) -> Result<Observatio
         _ => "",
     };
     let script = std::ffi::CString::new(format!(
-        "(()=>{{const expected={expected};const ready=!!document.getElementById('close');if(!ready)return JSON.stringify({{ready:false,metadataMatches:false,closeFocused:false,linkRefused:false}});const metadataMatches=document.getElementById('app-name').textContent===expected.name&&document.getElementById('version').textContent===expected.version&&document.getElementById('build').textContent===expected.build;const closeFocused=document.activeElement.id==='close';const linkRefused=document.getElementById('status').textContent.startsWith('Link could not open');{mutation}return JSON.stringify({{ready,metadataMatches,closeFocused,linkRefused}});}})()"
+        "(()=>{{const expected={expected},links={links};const ready=!!document.getElementById('close');if(!ready)return JSON.stringify({{ready:false,metadataMatches:false,closeFocused:false,linksMatch:false,linkOpened:false}});const metadataMatches=document.getElementById('app-name').textContent===expected.name&&document.getElementById('version').textContent===expected.version&&document.getElementById('build').textContent===expected.build;const closeFocused=document.activeElement.id==='close';const linksMatch=['repository','licence'].every(key=>document.querySelector('[data-destination='+key+']').href===links[key]);const linkOpened=document.getElementById('status').textContent==='Opened in your browser.';{mutation}return JSON.stringify({{ready,metadataMatches,closeFocused,linksMatch,linkOpened}});}})()"
     )).map_err(|_| "Script encoding")?;
     let (tx, rx) = mpsc::sync_channel(1);
     window
         .with_webview(move |webview| {
+            // SAFETY: AppKit policy is read on the WebView's main thread.
+            // Only the existing operator-authorized presentNaming route makes
+            // an isolated ordinary process Regular (0); quiet runs are Accessory.
+            let policy = crate::about::activation_policy();
+            if activates_browser && !browser_allowed(&Action::Repository, policy) {
+                let _ = tx.try_send(Err(
+                    "Browser activation requires an operator-presented app".into()
+                ));
+                return;
+            }
             let completion =
                 block2::RcBlock::new(move |result: *mut AnyObject, error: *mut AnyObject| {
                     // SAFETY: fixed script returns only the bounded closed boolean DTO.
@@ -96,9 +117,29 @@ pub fn execute(app: &tauri::AppHandle, action: Action, request: &str) -> Result<
             .and_then(|menu| menu.items().ok())
             .map(|items| {
                 items.iter().any(|item| {
-                    item.as_submenu()
-                        .and_then(|submenu| submenu.get("about"))
-                        .is_some()
+                    let Some(submenu) = item.as_submenu() else {
+                        return false;
+                    };
+                    let about = submenu
+                        .get("about")
+                        .and_then(|item| item.as_menuitem().and_then(|item| item.text().ok()));
+                    let settings = submenu
+                        .get("configuration")
+                        .and_then(|item| item.as_menuitem().and_then(|item| item.text().ok()));
+                    let quit = submenu
+                        .items()
+                        .map(|items| {
+                            items.iter().any(|item| {
+                                item.as_predefined_menuitem()
+                                    .and_then(|item| item.text().ok())
+                                    .as_deref()
+                                    == Some("Quit")
+                            })
+                        })
+                        .unwrap_or(false);
+                    about.as_deref() == Some("About")
+                        && settings.as_deref() == Some("Settings…")
+                        && quit
                 })
             })
             .unwrap_or(false);
@@ -150,7 +191,7 @@ pub fn execute(app: &tauri::AppHandle, action: Action, request: &str) -> Result<
         Err(_) if matches!(action, Action::Observe) => return pending(),
         Err(error) => return Err(error),
     };
-    let ready = observation.ready && observation.metadata_matches;
+    let ready = observation.ready && observation.metadata_matches && observation.links_match;
     let mut result = serde_json::to_value(observation).map_err(|_| "Observation encoding")?;
     result["ok"] = json!(true);
     result["visible"] = json!(visible);
@@ -174,14 +215,24 @@ pub fn execute(app: &tauri::AppHandle, action: Action, request: &str) -> Result<
 mod tests {
     use super::*;
     #[test]
+    fn quiet_or_unknown_policy_never_activates_the_browser() {
+        for action in [Action::Repository, Action::Licence] {
+            assert!(browser_allowed(&action, 0));
+            assert!(!browser_allowed(&action, 1));
+            assert!(!browser_allowed(&action, 2));
+            assert!(!browser_allowed(&action, -1));
+        }
+        assert!(browser_allowed(&Action::Observe, 1));
+    }
+    #[test]
     fn closed_observation_rejects_text_and_extra_fields() {
         assert!(serde_json::from_value::<Observation>(
-            json!({"ready":true,"metadataMatches":true,"closeFocused":true,"linkRefused":false})
+            json!({"ready":true,"metadataMatches":true,"closeFocused":true,"linksMatch":true,"linkOpened":false})
         )
         .is_ok());
-        assert!(serde_json::from_value::<Observation>(json!({"ready":true,"metadataMatches":true,"closeFocused":true,"linkRefused":false,"private":"secret"})).is_err());
+        assert!(serde_json::from_value::<Observation>(json!({"ready":true,"metadataMatches":true,"closeFocused":true,"linksMatch":true,"linkOpened":false,"private":"secret"})).is_err());
         assert!(serde_json::from_value::<Observation>(
-            json!({"ready":"text","metadataMatches":true,"closeFocused":true,"linkRefused":false})
+            json!({"ready":"text","metadataMatches":true,"closeFocused":true,"linksMatch":true,"linkOpened":false})
         )
         .is_err());
     }

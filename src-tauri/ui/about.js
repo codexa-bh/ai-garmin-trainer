@@ -19,9 +19,9 @@
       status.textContent = "";
       try {
         await invoke("about_link", { destination: link.dataset.destination });
+        status.textContent = "Opened in your browser.";
       } catch {
-        status.textContent =
-          "Link could not open. Try again from the app menu in an interactive session.";
+        status.textContent = "Link could not open in your browser. Try again.";
       }
     });
   }

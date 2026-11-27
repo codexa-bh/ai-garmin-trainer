@@ -59,12 +59,25 @@ pub(crate) fn document(url: &tauri::Url) -> bool {
         && url.fragment().is_none()
 }
 
+/// Main-thread AppKit state; isolated quiet runs are Accessory, while the
+/// explicitly operator-presented route is Regular (0). No ambient OS input.
+#[cfg(target_os = "macos")]
+pub(crate) fn activation_policy() -> isize {
+    use objc2::{class, msg_send, runtime::AnyObject};
+    unsafe {
+        let application: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        msg_send![application, activationPolicy]
+    }
+}
+
 pub fn show(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     let isolated = app
         .try_state::<std::sync::Arc<crate::isolated_run::Admission>>()
         .is_some();
     #[cfg(any(debug_assertions, feature = "release-probe"))]
     let isolated = isolated || app.try_state::<crate::smoke_config::Config>().is_some();
+    #[cfg(target_os = "macos")]
+    let isolated = isolated && activation_policy() != 0;
     if let Some(window) = app.get_webview_window("about") {
         window.show()?;
         if !isolated {
@@ -74,7 +87,7 @@ pub fn show(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
     }
     WebviewWindowBuilder::new(app, "about", WebviewUrl::App("about.html".into()))
         .title("About AI Trainer for Garmin Connect")
-        .inner_size(420.0, 330.0)
+        .inner_size(420.0, 250.0)
         .resizable(false)
         .maximizable(false)
         .minimizable(false)
@@ -95,23 +108,9 @@ pub fn about_metadata(window: tauri::WebviewWindow) -> Result<Metadata, String> 
 #[tauri::command]
 pub fn about_link(window: tauri::WebviewWindow, destination: String) -> Result<(), String> {
     local(&window)?;
-    // Quiet isolated smoke must never launch/focus the operator's browser.
-    let app = window.app_handle();
-    if app
-        .try_state::<std::sync::Arc<crate::isolated_run::Admission>>()
-        .is_some()
-    {
-        return Err("Browser links require an ordinary interactive session.".into());
-    }
-    #[cfg(any(debug_assertions, feature = "release-probe"))]
-    if app.try_state::<crate::smoke_config::Config>().is_some() {
-        return Err("Browser links require an ordinary interactive session.".into());
-    }
-    system_link(&destination)
-}
-
-fn system_link(destination: &str) -> Result<(), String> {
-    crate::system_open::project_page(destination)
+    // Fixed explicit local UI action, also usable in an operator-presented copy.
+    // Quiet automation observes the links without activating the browser.
+    crate::system_open::project_page(&destination)
         .map_err(|_| "Project link could not open in your browser.".into())
 }
 

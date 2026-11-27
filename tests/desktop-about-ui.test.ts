@@ -57,6 +57,11 @@ it("opens only the explicit fixed link action, preventing WebView navigation", a
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("about_link", { destination }),
     );
+    await waitFor(() =>
+      expect(document.getElementById("status")?.textContent).toBe(
+        "Opened in your browser.",
+      ),
+    );
   }
   expect(document.querySelectorAll("a")).toHaveLength(2);
 });

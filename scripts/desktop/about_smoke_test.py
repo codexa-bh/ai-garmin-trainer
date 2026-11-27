@@ -10,7 +10,7 @@ class FakeRun:
     def __init__(self, root):
         self.root, self.id, self.boot = root, 'authored-run', 'authored-boot'
         self.capture_results, self.actions = [], []
-        self.visible, self.refused = False, False
+        self.visible = False
 
     def command(self, command):
         action = command['action']
@@ -19,14 +19,12 @@ class FakeRun:
             self.visible = True
         elif action in ('escape', 'close'):
             self.visible = False
-        elif action in ('repository', 'licence'):
-            self.refused = True
         return {
             'ok': True,
             'ready': self.visible,
             'visible': self.visible,
             'closeFocused': True,
-            'linkRefused': self.refused,
+            'linksMatch': True,
         }
 
     def wait(self, predicate, label):
@@ -42,14 +40,14 @@ class AboutTests(unittest.TestCase):
         self.assertEqual(plan['instances'], 2)
         self.assertIn('about-dialog', plan['selected'])
 
-    def test_lifecycle_is_finite_and_links_are_explicit(self):
+    def test_quiet_lifecycle_never_activates_browser_links(self):
         with tempfile.TemporaryDirectory() as directory:
             run = FakeRun(Path(directory))
             about(run)
             self.assertFalse(run.visible)
             self.assertEqual(run.actions.count('open'), 3)
-            self.assertEqual(run.actions.count('repository'), 1)
-            self.assertEqual(run.actions.count('licence'), 1)
+            self.assertNotIn('repository', run.actions)
+            self.assertNotIn('licence', run.actions)
             self.assertEqual(len(run.capture_results), 1)
             self.assertTrue((run.root / 'about.json').is_file())
 

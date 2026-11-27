@@ -28,12 +28,10 @@ def about(run):
     run.capture_results.append(
         {'view': 'about', 'state': 'opened', 'runId': run.id, 'boot': run.boot, **capture}
     )
-    # Explicit DOM link activation reaches native IPC but isolated admission must
-    # refuse the operator-browser side effect. This is not browser handoff proof.
-    run.command({'type': 'about', 'action': 'repository'})
-    wait_about(run, 'linkRefused', True)
-    run.command({'type': 'about', 'action': 'licence'})
-    wait_about(run, 'linkRefused', True)
+    # Quiet smoke checks actual hrefs against the native fixed destinations;
+    # browser activation belongs only to the explicitly presented check.
+    if not initial['linksMatch']:
+        raise ValueError('About link destinations do not match fixed native routes')
     run.command({'type': 'about', 'action': 'escape'})
     wait_about(run, 'visible', False)
     run.command({'type': 'about', 'action': 'open'})
@@ -50,7 +48,7 @@ def about(run):
             'reopened': reopened,
             'capture': capture,
             'metadataComparedToRunningBundle': True,
-            'browserActions': 'explicit activation refused in isolated run; real browser handoff untested',
+            'browserActions': 'fixed native destinations match rendered hrefs; quiet smoke never activates browser',
             'inputLimit': 'local DOM/native owner only; no OS menu clicks or hardware keyboard input',
         },
     )
@@ -64,7 +62,7 @@ def about_scenario():
         (
             'bundle metadata matches rendered content',
             'repeat-open, Escape, reopen and Close',
-            'isolated browser refusal; Trainer preserved',
+            'fixed link destinations match; quiet browser actuation absent; Trainer preserved',
         ),
         'Public About WebView capture; no OS chrome, actual menu click, browser handoff or trusted input proof',
     )

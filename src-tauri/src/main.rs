@@ -1088,8 +1088,8 @@ fn main() {
             #[cfg(target_os = "macos")]
             {
                 let app_menu = tauri::menu::SubmenuBuilder::new(app, "AI Trainer for Garmin Connect")
-                    .text("about", "About AI Trainer for Garmin Connect…").separator()
-                    .text("configuration", "Settings…").separator().quit().build()?;
+                    .text("about", "About").separator()
+                    .text("configuration", "Settings…").separator().quit_with_text("Quit").build()?;
                 let edit_menu = tauri::menu::SubmenuBuilder::new(app, "Edit")
                     .undo().redo().separator().cut().copy().paste().select_all().build()?;
                 let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).item(&edit_menu).build()?;

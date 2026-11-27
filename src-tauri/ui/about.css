@@ -40,12 +40,6 @@ a {
   color: #49d6c8;
   text-underline-offset: 3px;
 }
-p {
-  color: #9aa8bb;
-  font-size: 12px;
-  line-height: 1.5;
-  margin: 16px 0 0;
-}
 #status {
   min-height: 32px;
   margin-top: 8px;

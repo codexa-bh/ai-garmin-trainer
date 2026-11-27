@@ -32,7 +32,7 @@ pub fn usage_page() -> Result<(), ()> {
 pub fn garmin_key_page() -> Result<(), ()> {
     fixed(GARMIN_KEY_PAGE)
 }
-fn project_url(destination: &str) -> Result<&'static str, ()> {
+pub(crate) fn project_url(destination: &str) -> Result<&'static str, ()> {
     match destination {
         "repository" => Ok("https://github.com/eye1/ai-garmin-trainer"),
         "licence" => Ok("https://github.com/eye1/ai-garmin-trainer/blob/main/LICENSE"),
