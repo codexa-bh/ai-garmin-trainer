@@ -1,6 +1,6 @@
 # Ordinary Memory, composer and conversation scenarios
 
-[Playbook](../dev-bridge.md) · [Commands](../smoke-commands.md). [Ownership](ownership.md) and [protocol](protocol.md) supply admission, current build, copy-only state, masks, original preservation and settlement. Default full regression remains unless explicitly selecting reviewed feature scope. These scenarios prove synthetic DOM/layout or the specified keyless lifecycle, not trusted input/default singleton/real services. Unknown effects never authorize mutation replay.
+[Playbook](../dev-bridge.md) · [Commands](../smoke-commands.md). [Ownership](ownership.md) and [protocol](protocol.md) supply admission, current build, copy-only state, masks, original preservation and settlement. Default full behavioral regression remains unless explicitly selecting reviewed feature scope. [Independent image selection](ownership.md#full-baseline-and-captures) defaults to no successful-run PNGs: the state/viewport sets below are exercised opportunities, not mandatory pictures. These scenarios prove synthetic DOM/layout or the specified keyless lifecycle, not trusted input/default singleton/real services. Unknown effects never authorize mutation replay.
 
 ## Keyless summary producer lifecycle
 
@@ -26,7 +26,7 @@ Prove generated summary/preference separation, edits, restart of both, preferenc
 
 The finite fixture family covers ready, unavailable default, busy, review, shorter accepted, discarded and no-reduction. Only fixture-authorized actions may click production Densify controls. Optional fixed alternative uses labelled **Model for this run** and exact authored identity; unknown options/settlement overrides refuse. Missing default never substitutes it automatically.
 
-Original is 13250 scalars at target 6000; candidate 7000 or equal-count refusal. No provider/backend or simulated persistence. Capture real hook/components wide/narrow, including busy cancellation/saved-summary limits. Reset/close/120-second expiry restores original fetch; default launch installs nothing. This proves UI/wire presentation, not eligibility/inference/fidelity/save. SQLite supplied-generation tests cover shorter-only publication/preservation; actual native manual save/restart covers persistence.
+Original is 13250 scalars at target 6000; candidate 7000 or equal-count refusal. No provider/backend or simulated persistence. Exercise real hook/components wide/narrow, including busy cancellation/saved-summary limits; select images of the changed states (for example `summary-densify:densify-review:memory:narrow:1`) rather than an automatic matrix. Reset/close/120-second expiry restores original fetch; default launch installs nothing. This proves UI/wire presentation, not eligibility/inference/fidelity/save. SQLite supplied-generation tests cover shorter-only publication/preservation; actual native manual save/restart covers persistence.
 
 ### Fixed Memory presentation evidence
 
@@ -39,15 +39,15 @@ Temporal tests use actual hook polling, not caller stepping:
 - Progressive:20,20,40,60,unavailable,80,complete 184.
 - Ordinary: pending 41,41,intermediate revision/pending 21,21,unavailable,pending 1, then fresh/pending 0 or failure/interruption retaining pending work; success begins without a saved summary.
 
-Assert advancement, loss/recovery, same panel/progress/Cancel DOM, focus/scroll and exact terminal state. No mutation/Refresh/resize/capture during measurement; capture terminal wide/narrow afterward. This is temporal DOM, not compositor flicker/provider/Retry persistence. Failure/cancellation images disclose previous-memory disposition, not real paid cancellation or resumable staging.
+Assert advancement, loss/recovery, same panel/progress/Cancel DOM, focus/scroll and exact terminal state. No mutation/Refresh/resize/capture during measurement; exercise terminal wide/narrow afterward and generate only selected images. This is temporal DOM, not compositor flicker/provider/Retry persistence. Failure/cancellation images disclose previous-memory disposition, not real paid cancellation or resumable staging.
 
 ## Opt-in composer-footer evidence
 
-`--composer-footer` prepares native v3 with two synthetic Ollama entries, one long label, no default and empty prior compatibility, preserving input/v2. Fixed draft/choice/key actions prove initial unselected state, explicit selection, draft preservation/order/fit and fresh-origin/boot restart against DTO-v3. No caller values/IDs/keys, Reset or provider calls. Wide/narrow and short-height composer images show initial and saved long-label states at actual geometry; copied/unknown content stays hidden. DOM Enter/Space is not hardware/native-generated input.
+`--composer-footer` prepares native v3 with two synthetic Ollama entries, one long label, no default and empty prior compatibility, preserving input/v2. Fixed draft/choice/key actions prove initial unselected state, explicit selection, draft preservation/order/fit and fresh-origin/boot restart against DTO-v3. No caller values/IDs/keys, Reset or provider calls. Selected wide/narrow or short-height composer images show initial or saved long-label states at actual geometry; all those viewport assertions still execute without pictures, and copied/unknown content stays hidden. DOM Enter/Space is not hardware/native-generated input.
 
 #### Missing-key eligibility evidence
 
-`--model-eligibility` adds two catalogs: mixed two eligible Ollama/four missing-key cloud, then all-cloud/ineligible. Both keep an unavailable saved identity and no default. Seed only stopped exclusive copies without existing preferences. Prove unavailable intent/no fallback, eligible replacement only, all-ineligible disablement and restart. Six wide/narrow images cover unavailable/replaced/all-ineligible; no OS popup/provider claim.
+`--model-eligibility` adds two catalogs: mixed two eligible Ollama/four missing-key cloud, then all-cloud/ineligible. Both keep an unavailable saved identity and no default. Seed only stopped exclusive copies without existing preferences. Prove unavailable intent/no fallback, eligible replacement only, all-ineligible disablement and restart. Wide/narrow assertions cover unavailable/replaced/all-ineligible independently of image selection; empty catalog instance 2 never offers a replacement capture. No OS popup/provider claim.
 
 ### Opt-in conversation selection evidence
 

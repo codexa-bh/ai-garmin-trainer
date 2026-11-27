@@ -21,7 +21,7 @@ At creation, record task, route/action, artifact ID/title, DB target and mixed/a
 
 The E0007 **QA test-data cleanup protocol** owns classification/approval. [Invocation-owned disposal](smoke/ownership.md#preparation-reuse-and-owned-disposal) is its finite exception: only newly exclusive enrolled copies after settlement, original preservation and compact evidence. It never covers primary/borrowed/ambiguous data, historical scratch, worktrees/aliases or accepted outputs.
 
-[Inputs](smoke-inputs.md) owns preparation/fingerprints; [evidence classes](smoke/protocol.md#keep-evidence-classes-distinct) owns inspected captures and synthetic/debug/ordinary/real-service limits. Goals are task/run-attributed; other copied Profile fields stay unchanged and no edits copy back. [Before-use extension](smoke/protocol.md#task-needed-bridge-and-runner-extensions) allows safe task-needed runner changes without an automatic second ticket or safeguard waiver.
+[Inputs](smoke-inputs.md) owns preparation/fingerprints; [evidence classes](smoke/protocol.md#keep-evidence-classes-distinct) owns inspected captures and synthetic/debug/ordinary/real-service limits. [Image selection](smoke/ownership.md#full-baseline-and-captures) separates image demand from behavioral coverage; record actual generated counts, relied-on original inspection or justified nonvisual N/A, not omitted-image passes. Goals are task/run-attributed; other copied Profile fields stay unchanged and no edits copy back. [Before-use extension](smoke/protocol.md#task-needed-bridge-and-runner-extensions) allows safe task-needed runner changes without an automatic second ticket or safeguard waiver.
 
 ## No new isolated fixture environment for this stage
 

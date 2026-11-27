@@ -969,42 +969,46 @@ describe("native-installed rendered smoke boundary", () => {
     expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
     expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
   });
-  it("masks private content without reflow and restores on callback rejection", async () => {
-    smoke.__trainerOrdinaryIsolated = { runId: "unit" };
-    vi.stubGlobal("innerWidth", 1280);
-    vi.stubGlobal("innerHeight", 850);
-    render(
-      <>
-        <nav>
-          <button>Sync</button>
-        </nav>
-        <p data-testid="private">private transcript</p>
-      </>,
-    );
-    const result = await command({
-      type: "captureView",
-      view: "trainer",
-      preset: "wide",
-    });
-    expect(result.result.ok).toBe(true);
-    const style = document.getElementById("trainer-smoke-sanitizer");
-    expect(style?.textContent).not.toMatch(
-      /position|width|height|display|top:|left:/,
-    );
-    expect(getComputedStyle(screen.getByTestId("private")).visibility).toBe(
-      "hidden",
-    );
-    expect(
-      getComputedStyle(screen.getByRole("button", { name: "Sync" })).visibility,
-    ).toBe("visible");
-    expect(JSON.stringify(result)).not.toContain("private transcript");
-    smoke.__trainerSmokeRestore();
-    expect(style?.isConnected).toBe(false);
-    invoke.mockRejectedValueOnce(new Error("permission refused"));
-    await command({ type: "captureView", view: "trainer", preset: "wide" });
-    expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
-    expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
-  });
+  it.each(["captureView", "inspectView"])(
+    "%s masks private content without reflow and restores on callback rejection",
+    async (type) => {
+      smoke.__trainerOrdinaryIsolated = { runId: "unit" };
+      vi.stubGlobal("innerWidth", 1280);
+      vi.stubGlobal("innerHeight", 850);
+      render(
+        <>
+          <nav>
+            <button>Sync</button>
+          </nav>
+          <p data-testid="private">private transcript</p>
+        </>,
+      );
+      const result = await command({
+        type,
+        view: "trainer",
+        preset: "wide",
+      });
+      expect(result.result.ok).toBe(true);
+      const style = document.getElementById("trainer-smoke-sanitizer");
+      expect(style?.textContent).not.toMatch(
+        /position|width|height|display|top:|left:/,
+      );
+      expect(getComputedStyle(screen.getByTestId("private")).visibility).toBe(
+        "hidden",
+      );
+      expect(
+        getComputedStyle(screen.getByRole("button", { name: "Sync" }))
+          .visibility,
+      ).toBe("visible");
+      expect(JSON.stringify(result)).not.toContain("private transcript");
+      smoke.__trainerSmokeRestore();
+      expect(style?.isConnected).toBe(false);
+      invoke.mockRejectedValueOnce(new Error("permission refused"));
+      await command({ type, view: "trainer", preset: "wide" });
+      expect(document.getElementById("trainer-smoke-sanitizer")).toBeNull();
+      expect(document.querySelector("[data-smoke-reveal]")).toBeNull();
+    },
+  );
   it("captures bounded native Trainer geometry with the same privacy mask only in ordinary mode", async () => {
     smoke.__trainerOrdinaryIsolated = { runId: "unit" };
     vi.stubGlobal("innerWidth", 900);

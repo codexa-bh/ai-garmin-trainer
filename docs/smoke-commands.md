@@ -14,13 +14,13 @@ After `npm ci`, exclusively prepares synthetic SQLite/provenance. Use the stdout
 
 `npm run env -- python3 scripts/desktop/snow_runs_smoke.py --scratch "$scratch" --bundle "$bundle"`
 
-Full two-instance baseline plus snow captures prove populated/preserved tables, unsupported/unknown coverage and honest clock/zone/window limits through real SQLite/HTTP/UI. [Snow scenario and exact masks](smoke/features.md#finite-authored-snow-runs).
+Full two-instance behavior plus independently selected Snow images prove populated/preserved tables, unsupported/unknown coverage and honest clock/zone/window limits through real SQLite/HTTP/UI. [Snow scenario and exact masks](smoke/features.md#finite-authored-snow-runs).
 
 ## ordinary — Full ordinary synthetic native regression
 
 `npm run smoke:ordinary -- --scratch "$scratch" --bundle "$bundle"`
 
-Two isolated nonactivating copies exercise navigation, Goals save/restart, security and responsive geometry. Shared/native/mask or uncertain changes require full plus affected features. `--prepare-only` launches nothing and is not a pass. [Coverage and ownership](smoke/ownership.md#ordinary-artifact-isolated-scenario).
+Two isolated nonactivating copies exercise navigation, Goals save/restart, security and responsive geometry. Success PNGs default to none; `--plan-only` lists finite image opportunities, and `--capture KEY=REASON --image-basis '<scope>'` selects changed-state proof independently of behavior. [Image contract](smoke/ownership.md#full-baseline-and-captures). Shared/native/mask or uncertain changes require full plus affected features. `--prepare-only` launches nothing and is not a pass. [Coverage and ownership](smoke/ownership.md#ordinary-artifact-isolated-scenario).
 
 ## synthetic-sync — Ordinary authored Sync/import/cancel/discovery/finality
 
@@ -44,13 +44,13 @@ Four fixture connection states, one Sync each, healthy explicitly cancelled. Ver
 
 `npm run smoke:ordinary -- --scratch "$scratch" --bundle "$bundle" --composer-footer`
 
-Authored catalogs, no send: explicit choice, draft/restart and wide/narrow normal- and short-height captures, not OS popup proof. Full default; reviewed local feature changes may select `--smoke-scope feature --impact local-feature --impact-basis 'reviewed change'`. [Composer](smoke/ordinary.md#opt-in-composer-footer-evidence).
+Authored catalogs, no send: explicit choice, draft/restart and wide/narrow normal- and short-height checks, with images independently selected; not OS popup proof. Full default; reviewed local feature changes may select `--smoke-scope feature --impact local-feature --impact-basis 'reviewed change'`. [Composer](smoke/ordinary.md#opt-in-composer-footer-evidence).
 
 ## eligibility — Ordinary mixed and empty keyless model catalogs
 
 `npm run smoke:ordinary -- --scratch "$scratch" --bundle "$bundle" --model-eligibility`
 
-Implies composer. Both mixed and all-ineligible catalogs remain required in feature scope: unavailable intent, no fallback, replacement/restart and six captures. [Eligibility](smoke/ordinary.md#missing-key-eligibility-evidence).
+Implies composer. Both mixed and all-ineligible catalogs remain required in feature scope: unavailable intent, no fallback and replacement/restart; image selection never removes either configuration. [Eligibility](smoke/ordinary.md#missing-key-eligibility-evidence).
 
 ## conversations — Ordinary authored create/rename/select/delete lifecycle
 

@@ -663,6 +663,139 @@ class OrdinaryContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 selection_plan(self.selection_args(**options))
 
+    def test_images_are_independent_of_full_behavior_and_prevalidated(self):
+        from ordinary_smoke import image_plan, selection_plan, composition_plan, composer_scenario
+
+        plan = selection_plan(self.selection_args())
+        key = 'baseline-captures:profile:profile:narrow:2'
+        images = image_plan(
+            plan,
+            [key + '=Adjacent saved Goals geometry on second instance'],
+            'One adjacent visual invariant',
+        )
+        self.assertEqual(
+            images['requested'], {key: 'Adjacent saved Goals geometry on second instance'}
+        )
+        self.assertEqual(len(images['omitted']), 11)
+        self.assertEqual(image_plan(plan)['requested'], {})
+        for request in (key, key + '=', 'unknown=x', key.replace(':2', ':3') + '=x', key + '=x'):
+            requests = [request, request] if request == key + '=x' else [request]
+            with self.subTest(request=request), self.assertRaises(ValueError):
+                image_plan(plan, requests)
+        eligibility = selection_plan(
+            self.selection_args(model_eligibility=True, composer_footer=True)
+        )
+        with self.assertRaises(ValueError):
+            image_plan(
+                eligibility,
+                ['model-eligibility:replacement:composer:wide:2=Impossible empty catalog'],
+            )
+        _, composition = composition_plan(
+            (composer_scenario(),), 'shared', 'Shared capture owner', True
+        )
+        composed = image_plan(
+            composition,
+            ['composer:saved:composer:narrow:1=Changed footer'],
+            'Targeted',
+            (composer_scenario(),),
+        )
+        self.assertEqual(len(composed['requested']), 1)
+        self.assertIn('baseline-captures:trainer:trainer:wide:2', composed['omitted'])
+
+    def test_nonvisual_and_targeted_capture_keep_native_inspection_and_navigation(self):
+        from ordinary_smoke import image_plan, selection_plan
+        from native_smoke import Run
+
+        key = 'baseline-captures:sync:sync:narrow:1'
+        traces = []
+        for requests in ((), (key + '=Narrow Sync state',)):
+            run = self.run_fixture()
+            run.current_group, run.capture_instance, run.captured_keys = 'baseline-captures', 1, []
+            run.image_selection = image_plan(selection_plan(self.selection_args()), requests)
+            run.wait = lambda *_args: None
+            with patch.object(
+                Run, 'command', return_value={'ok': True, 'capture': 'selected.png'}
+            ) as native:
+                run.captures()
+            calls = [call.args[0] for call in native.call_args_list]
+            traces.append(
+                [
+                    {**call, 'type': 'inspectView'} if call['type'] == 'captureView' else call
+                    for call in calls
+                ]
+            )
+            self.assertEqual(sum(call['type'] == 'captureView' for call in calls), len(requests))
+            self.assertEqual(
+                sum(call['type'] == 'inspectView' for call in calls), 6 - len(requests)
+            )
+            self.assertEqual(run.captured_keys, [key] if requests else [])
+            self.assertEqual(len(run.capture_results), len(requests))
+        self.assertEqual(traces[0], traces[1])
+
+    def test_capture_failure_unknown_and_duplicate_never_claim_visual_success_or_replay(self):
+        from ordinary_smoke import image_plan, selection_plan
+        from native_smoke import Run
+
+        run = self.run_fixture()
+        run.current_group, run.capture_state = 'baseline-captures', 'trainer'
+        run.capture_instance, run.captured_keys = 1, []
+        key = 'baseline-captures:trainer:trainer:wide:1'
+        run.image_selection = image_plan(
+            selection_plan(self.selection_args()), [key + '=Selected state']
+        )
+        command = {'type': 'captureView', 'view': 'trainer', 'preset': 'wide'}
+        with patch.object(Run, 'command', side_effect=TimeoutError('effect unknown')) as native:
+            with self.assertRaisesRegex(TimeoutError, 'unknown'):
+                run.command(command)
+            native.assert_called_once()
+        self.assertEqual(run.captured_keys, [])
+        self.assertEqual(run.capture_results, [])
+        with patch.object(
+            Run, 'command', return_value={'ok': True, 'capture': 'native.png'}
+        ) as native:
+            run.command(command)
+            with self.assertRaisesRegex(ValueError, 'repeated'):
+                run.command(command)
+            self.assertEqual(native.call_count, 1)
+        # A failure-only diagnostic bypasses success selection but retains native masks/restoration.
+        with patch.object(
+            Run, 'command', return_value={'ok': True, 'capture': 'failure.png'}
+        ) as native:
+            run.command(command, diagnostic=True)
+            self.assertEqual(native.call_count, 1)
+        self.assertTrue(run.capture_results[-1]['diagnostic'])
+
+    def test_unexercised_capture_prevents_aggregate_success_and_settles(self):
+        args = self.selection_args(
+            capture=['baseline-captures:trainer:trainer:wide:1=Required visual proof']
+        )
+        runs, receipt, *_ = self.orchestration(args, expected_failure=True)
+        self.assertIsInstance(self.execution_error, ValueError)
+        self.assertFalse(receipt['scenarioPassed'])
+        self.assertFalse(receipt['assertionsPassed'])
+        for run in runs:
+            run.stop.assert_called_once()
+
+    def test_plan_only_and_invalid_images_never_prepare_or_launch(self):
+        from ordinary_smoke import main
+
+        argv = ['ordinary', '--scratch', '/unavailable', '--bundle', '/unavailable', '--plan-only']
+        with (
+            patch('sys.argv', argv),
+            patch('ordinary_smoke.resources.configure') as configure,
+            patch('smoke_input.prepare') as prepare,
+        ):
+            main.__wrapped__()
+            configure.assert_not_called()
+            prepare.assert_not_called()
+        with (
+            patch('sys.argv', argv + ['--capture', 'unknown=Not a supported state']),
+            patch('ordinary_smoke.resources.configure') as configure,
+        ):
+            with self.assertRaises(SystemExit):
+                main.__wrapped__()
+            configure.assert_not_called()
+
     def selection_args(self, **options):
         return SimpleNamespace(
             **{
