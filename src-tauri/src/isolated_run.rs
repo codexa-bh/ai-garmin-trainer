@@ -549,7 +549,18 @@ impl Admission {
                 return Path::new(value) == self.descriptor.root.join("trainer.sqlite");
             }
             if key == "GARMIN_HISTORY_START_DATE" {
-                return value.is_empty() || value == "2024-01-01";
+                return value.is_empty()
+                    || value == "2024-01-01"
+                    || saved.fields.get(key) == Some(value);
+            }
+            if key == "GARMIN_AUTO_SYNC" {
+                return matches!(value.as_str(), "true" | "false")
+                    && (saved.fields.get(key) == Some(value)
+                        || (matches!(
+                            self.descriptor.history_setup,
+                            Some(HistorySetup::UseExisting)
+                        ) && saved.version == 3)
+                        || (saved.version == 0 && value == "true"));
             }
             if let Some(expected) = saved.fields.get(key) {
                 return value == expected;
@@ -1153,7 +1164,7 @@ pin.close()
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    fn summary_save_accepts_only_two_keyless_existing_presets_without_other_mutations() {
+    fn summary_and_auto_sync_save_accept_only_finite_existing_presets_without_other_mutations() {
         let (root, path) = fixture();
         let mut descriptor: serde_json::Value =
             serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -1168,6 +1179,7 @@ pin.close()
             ("SUMMARY_ENABLED".into(), "false".into()),
             ("SUMMARY_MODEL".into(), "unselected".into()),
             ("SUMMARY_CHAR_LIMIT".into(), "6000".into()),
+            ("GARMIN_HISTORY_START_DATE".into(), "2026-09-01".into()),
         ]);
         let authored_catalog: crate::chat_catalog::Catalog = serde_json::from_value(serde_json::json!({"version":1,"entries":[{"id":"entry_summary_local","provider":"ollama","modelId":"synthetic-memory:small"},{"id":"entry_summary_cloud","provider":"openai","modelId":"gpt-6-luna"}],"defaultEntryId":null})).unwrap();
         let saved = serde_json::json!({"version":3,"fields":fields,"keys":{},"chatCatalog":authored_catalog.clone()});
@@ -1183,6 +1195,26 @@ pin.close()
             garmin_key: Default::default(),
         };
         input.chat_catalog = authored_catalog;
+        for enabled in ["true", "false"] {
+            input
+                .fields
+                .insert("GARMIN_AUTO_SYNC".into(), enabled.into());
+            assert!(admission.accepts_history_settings(&input));
+        }
+        for invalid in ["", "yes", "private-value"] {
+            input
+                .fields
+                .insert("GARMIN_AUTO_SYNC".into(), invalid.into());
+            assert!(!admission.accepts_history_settings(&input));
+        }
+        input.fields.remove("GARMIN_AUTO_SYNC");
+        input
+            .fields
+            .insert("GARMIN_HISTORY_START_DATE".into(), "2020-01-01".into());
+        assert!(!admission.accepts_history_settings(&input));
+        input
+            .fields
+            .insert("GARMIN_HISTORY_START_DATE".into(), "2026-09-01".into());
         input
             .fields
             .insert("SUMMARY_MODEL".into(), "gpt-6-luna".into());

@@ -67,6 +67,8 @@
       legacyLimit:
         byId("history-limited")?.checked === true &&
         date?.value === "2024-01-01",
+      autoSyncOn: byId("GARMIN_AUTO_SYNC")?.value === "true",
+      autoSyncOff: byId("GARMIN_AUTO_SYNC")?.value === "false",
       summaryScalar:
         byId("SUMMARY_MODEL")?.value === "gpt-6-luna" &&
         visible(byId("memory-bind-catalog")),
@@ -316,6 +318,15 @@
           if (byId("SUMMARY_MODEL").value !== cloudSummaryChoice)
             throw Error("Exact catalog binding required");
           break;
+        case "autoSyncOn":
+        case "autoSyncOff":
+          if (observe().firstRun)
+            throw Error("Existing-installation scope required");
+          set(
+            byId("GARMIN_AUTO_SYNC"),
+            action === "autoSyncOn" ? "true" : "false",
+          );
+          break;
         case "summaryOn":
         case "summaryOff":
           if (observe().firstRun)
@@ -403,6 +414,39 @@
             )
               throw Error("Unknown history heading");
             if (choice.checked) labels.push(date.closest("label"));
+            const auto = byId("GARMIN_AUTO_SYNC");
+            const autoLabel = auto?.parentElement;
+            const autoLegend =
+              byId("auto-sync-options")?.querySelector("legend");
+            if (
+              !autoLabel ||
+              autoLabel.tagName !== "LABEL" ||
+              autoLabel.childNodes.length !== 2 ||
+              autoLabel.firstChild.textContent !== "Auto-sync" ||
+              autoLabel.childElementCount !== 1 ||
+              autoLabel.firstElementChild !== auto ||
+              !(auto instanceof HTMLSelectElement) ||
+              !["true", "false"].includes(auto.value) ||
+              auto.options.length !== 2 ||
+              [...auto.options].some(
+                (option, index) =>
+                  option.childElementCount ||
+                  option.value !== ["true", "false"][index] ||
+                  option.textContent !== ["On", "Off"][index],
+              ) ||
+              !autoLegend ||
+              autoLegend.childElementCount ||
+              autoLegend.textContent !== "Garmin auto-sync"
+            )
+              throw Error("Unknown auto-sync copy/state");
+            labels.push(
+              autoLegend,
+              autoLabel,
+              staticCopy(
+                "auto-sync-help",
+                "Refresh latest data hourly after history import completes, only while the app runs. Save, then quit and reopen to apply.",
+              ),
+            );
             // History is at the end of Settings; after a resize, stale scroll
             // geometry can leave it below the viewport. Native settles resize
             // before this fixed scroll, without changing page layout.
@@ -452,9 +496,11 @@
               throw Error("Unknown draft copy");
             labels.push(draft);
           }
-          byId(history ? "history-options" : "memory-section").scrollIntoView({
-            block: "start",
-          });
+          byId(history ? "auto-sync-options" : "memory-section").scrollIntoView(
+            {
+              block: "start",
+            },
+          );
           for (const el of document.body.querySelectorAll("*"))
             if (el instanceof HTMLElement) style(el, "visibility", "hidden");
           // WebKit can omit visible descendants of a hidden scrolling ancestor.

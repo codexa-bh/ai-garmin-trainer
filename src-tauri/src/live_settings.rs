@@ -202,6 +202,17 @@ pub fn restart_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn auto_sync_is_default_on_startup_only_and_off_requires_restart() {
+        let absent = BTreeMap::new();
+        let on = BTreeMap::from([("GARMIN_AUTO_SYNC".into(), "true".into())]);
+        let off = BTreeMap::from([("GARMIN_AUTO_SYNC".into(), "false".into())]);
+        assert!(!restart_delta(&absent, &on, Some(&absent)));
+        assert!(restart_delta(&on, &off, Some(&absent)));
+        assert!(!restart_delta(&off, &off, Some(&absent)));
+        assert!(!restart_delta(&off, &on, Some(&absent)));
+        assert!(LiveSettings::new(absent, None).pending_fields(&off));
+    }
     fn endpoint(
         revision: &'static str,
         generation: u64,

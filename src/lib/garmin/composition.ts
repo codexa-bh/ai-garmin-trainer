@@ -8,7 +8,7 @@ import {
   listActivityDetailAvailability,
   listRecentActivities,
 } from "../local-data/composition";
-import { requireRuntimeEnv } from "../env";
+import { liveConfigurationStatus, requireRuntimeEnv } from "../env";
 import {
   finishSyncRun,
   healthHistoryBounds,
@@ -51,6 +51,7 @@ import {
 import { createConnectionCheck } from "./connection-check";
 import { createActivityDetailRequests } from "./detail-requests";
 import { kpiMeasurements } from "../weekly/composition";
+import { autoSyncLifetime } from "./auto-sync-lifetime";
 
 // Bind functions only: no environment validation, DB opening, clock capture or
 // reader construction until the corresponding invocation reaches that step.
@@ -123,6 +124,31 @@ export const runGarminSync = ((onProgress, options) =>
   measuredAfterSync(
     imports.runGarminSync(onProgress, options ?? {}),
   )) as typeof imports.runGarminSync;
+/** Only the ready native launcher's exact boot may ask for an automatic tick. */
+export function garminAutoSyncOwner(identity: string | null): boolean {
+  try {
+    return (
+      process.env.TRAINER_DESKTOP === "1" &&
+      identity === liveConfigurationStatus().boot
+    );
+  } catch {
+    return false;
+  }
+}
+/** Desktop owner only: local configuration and lifetime precede all DB/network work. */
+export async function runGarminAutoSync(signal: AbortSignal) {
+  if (
+    autoSyncLifetime().stopping ||
+    signal.aborted ||
+    requireRuntimeEnv().GARMIN_AUTO_SYNC !== "true" ||
+    !garminConnectionReady().ok
+  )
+    return null;
+  const result = await imports.runAutoSync(
+    () => autoSyncLifetime().stopping || signal.aborted,
+  );
+  return result ? measuredAfterSync(Promise.resolve(result)) : null;
+}
 export const {
   syncSummary,
   backfillActivityDetail,

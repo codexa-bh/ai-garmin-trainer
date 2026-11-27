@@ -356,6 +356,64 @@ class HistoryTokenContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'synthetic-only'):
                 prepare_connection_scenario(run, 'healthy')
 
+    def test_overdue_metadata_changes_only_settled_latest_in_exact_stopped_synthetic_copy(self):
+        import sqlite3
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        from history_fixture import SYNTHETIC_KEY
+        from history_smoke import prepare_overdue_auto_sync
+
+        (self.destination / 'config').mkdir(mode=0o700)
+        settings = self.destination / 'config/settings-v3.json'
+        private_json(settings, {'keys': {}, 'fields': {}, 'garminApiKey': SYNTHETIC_KEY})
+        database = self.destination / 'trainer.sqlite'
+        operation = {
+            'version': 1,
+            'intent': 'latest',
+            'outcome': 'settled',
+            'updatedAt': '2026-11-20T12:00:00Z',
+        }
+        with sqlite3.connect(database) as db:
+            db.execute('create table sync_checkpoint(key text primary key,value text)')
+            db.executemany(
+                'insert into sync_checkpoint values (?,?)',
+                [
+                    ('garmin_sync_v1', json.dumps(operation)),
+                    ('garmin_history_v1', 'authored-history-bytes'),
+                ],
+            )
+        database.chmod(0o600)
+        run = SimpleNamespace(
+            root=self.destination,
+            database=database,
+            verify_settled=Mock(),
+            child=None,
+            config={'port': 1},
+            fixture=object(),
+        )
+        prepare_overdue_auto_sync(run)
+        with sqlite3.connect(database) as db:
+            rows = dict(db.execute('select key,value from sync_checkpoint'))
+        aged = json.loads(rows['garmin_sync_v1'])
+        self.assertNotEqual(aged.pop('updatedAt'), operation['updatedAt'])
+        self.assertEqual(
+            aged, {key: value for key, value in operation.items() if key != 'updatedAt'}
+        )
+        self.assertEqual(rows['garmin_history_v1'], 'authored-history-bytes')
+        before = database.read_bytes()
+        run.child = object()
+        with self.assertRaises(ValueError):
+            prepare_overdue_auto_sync(run)
+        run.child = None
+        run.verify_settled.side_effect = RuntimeError('live owner')
+        with self.assertRaises(RuntimeError):
+            prepare_overdue_auto_sync(run)
+        run.verify_settled.side_effect = None
+        settings.write_text(json.dumps({'keys': {}, 'fields': {}, 'garminApiKey': 'foreign-key'}))
+        with self.assertRaises(ValueError):
+            prepare_overdue_auto_sync(run)
+        self.assertEqual(database.read_bytes(), before)
+
     def test_mixed_presentation_seeds_only_stopped_owned_synthetic_closed_state(self):
         import sqlite3
         from types import SimpleNamespace

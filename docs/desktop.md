@@ -42,13 +42,15 @@ Catalog max 32 entries, durable ID 80/model ID 256/optional legacy name 80 chara
 
 ### History and memory controls
 
+Auto-sync is a default-On startup-only switch beside Garmin history. Its [hourly latest policy](sync-and-health.md#hourly-auto-sync) is independent of renderer visibility; it never imports older data automatically.
+
 History limit On reveals required YYYY-MM-DD; Off hides/disables, preserves toggled draft but Off-and-Save clears saved limit. No manufactured date. Invalid saved text stays visible for correction; blank selects automatic discovery after reopen, not proven remote inception.
 
 [Settings](settings.md) owns model/key/Memory controls; [memory](memory.md) owns use/privacy. Catalog and key controls persist through row edits/correction/reconciliation. Setup-only identity-bound `read_memory_status` returns active metadata, never content/probes/provider work. Normal Settings has no diagnostic timer/button/automatic read. Draft/saved is not active readiness; missing/stale status is unknown.
 
 ### First-run commit and retry
 
-Native captures genuine absence once; corrupt/unsupported/crashed installations do not become blank. Finish validates required config before DB creation, commits DB/settings separately and waits owned readiness, with no cloud/login/Sync/fallback. Duplicate operations serialize.
+Native captures genuine absence once; corrupt/unsupported/crashed installations do not become blank. Finish validates required config before DB creation, commits DB/settings separately and waits owned readiness, with no cloud/login/explicit Sync/fallback. Eligible hourly latest work starts only after backend readiness. Duplicate operations serialize.
 
 Cancel/quit is not rollback. Retry reconciles exact committed DB identity or opens committed settings only. After DB-only commit/relaunch, select retained file as existing. Unknown versions remain untouched; use compatible build/forward fix, not deletion/permissions/env fallback.
 
@@ -106,7 +108,7 @@ Native owns one fresh process group/ephemeral 127.0.0.1 listener (Windows [Job O
 
 Only local setup has Settings/auth IPC. Trainer/remote pages have none except admitted smoke's closed correlated results. Fixed ChatGPT usage opener is not generic; external navigation/new windows refuse. Second launch focuses singleton and ignores arguments, no second writer. Startup bound 90s, actionable setup on failure without hidden retry.
 
-Quit drains HTTP/Next≤5s and bounds owned-group termination≤8s; never stop Ollama/unrelated listeners. Host death closes liveness pipe. Cancellation is not rollback: committed turns/plans/checkpoints persist; unfinished work may remain. Force-kill/power loss can leave leases needing exact inspection. Relaunch reads stored state.
+Quit stops hourly admission/timers and cooperatively cancels automatic Sync. It drains HTTP/Next≤5s and bounds owned-group termination≤8s; never stop Ollama/unrelated listeners. Host death closes liveness pipe. Cancellation is not rollback: committed turns/plans/checkpoints persist; unfinished work may remain. Force-kill/power loss can leave leases needing exact inspection. Relaunch reads stored state.
 
 ### Trainer window geometry
 

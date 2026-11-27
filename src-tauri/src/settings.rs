@@ -207,6 +207,15 @@ fn decode(bytes: &[u8]) -> Result<Settings, &'static str> {
     }) {
         return Err("Saved settings contain unsupported fields; no values are returned.");
     }
+    if settings
+        .fields
+        .get("GARMIN_AUTO_SYNC")
+        .is_some_and(|value| value != "true" && value != "false")
+    {
+        return Err(
+            "Saved auto-sync setting is invalid; preserve originals and use a compatible build.",
+        );
+    }
     if let Some(prior) = &settings.selection_compatibility {
         if settings.version != 3
             || prior
@@ -873,6 +882,34 @@ pub fn validate(
 mod tests {
     use super::*;
     use std::cell::Cell;
+    #[test]
+    fn auto_sync_legacy_absence_and_explicit_off_roundtrip_but_invalid_refuses() {
+        let mut settings = Settings {
+            version: 1,
+            ..Default::default()
+        };
+        assert!(!decode(&serde_json::to_vec(&settings).unwrap())
+            .unwrap()
+            .fields
+            .contains_key("GARMIN_AUTO_SYNC"));
+        for value in ["true", "false"] {
+            settings
+                .fields
+                .insert("GARMIN_AUTO_SYNC".into(), value.into());
+            assert_eq!(
+                decode(&serde_json::to_vec(&settings).unwrap())
+                    .unwrap()
+                    .fields["GARMIN_AUTO_SYNC"],
+                value
+            );
+        }
+        for value in ["", "yes", "FALSE"] {
+            settings
+                .fields
+                .insert("GARMIN_AUTO_SYNC".into(), value.into());
+            assert!(decode(&serde_json::to_vec(&settings).unwrap()).is_err());
+        }
+    }
     #[test]
     fn validation_failure_metadata_never_forwards_unknown_text_paths_or_fields() {
         assert_eq!(

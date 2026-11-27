@@ -21,11 +21,13 @@ Add/remove literal Model IDs grouped by ChatGPT subscription, OpenAI API, DeepSe
 
 ### Save and activation
 
-Save commits privately, then live-applies **only catalog/shared provider keys**. Inspect Applied/saved-not-applied/unknown. Reload reconciles without replay; Trainer choice is preserved. DB/Garmin/endpoints/memory need explicit quit/reopen. Restart-required notice appears for this confirmed Save's effective startup changes, not unchanged/repeated/live-only edits with old pending state or restoration to active values. Dismissal does not restart; Save never starts backend/live DB/account switch. [Activation](desktop.md#save-and-live-activation) owns uncertainty.
+Save commits privately, then live-applies **only catalog/shared provider keys**. Inspect Applied/saved-not-applied/unknown. Reload reconciles without replay; Trainer choice is preserved. DB/Garmin/Auto-sync/endpoints/memory need explicit quit/reopen. Restart-required notice appears for this confirmed Save's effective startup changes, not unchanged/repeated/live-only edits with old pending state or restoration to active values. Dismissal does not restart; Save never starts backend/live DB/account switch. [Activation](desktop.md#save-and-live-activation) owns uncertainty.
 
 ## Garmin access in Settings
 
-Create key privately in Garmin Connect, enter via native Connect Garmin, Save/Finish and reopen. Never put key in chat/screenshots/issues. Key saved is configuration, not validity; Sync → Garmin maintenance → Verify connection is explicit check. [Connection](garmin-auth.md) owns replacement/recovery; legacy Reconnect needed leaves history/token files untouched. No startup contact/offline gating.
+Create key privately in Garmin Connect, enter via native Connect Garmin, Save/Finish and reopen. Never put key in chat/screenshots/issues. Key saved is configuration, not validity; Sync → Garmin maintenance → Verify connection is explicit check. [Connection](garmin-auth.md) owns replacement/recovery; legacy Reconnect needed leaves history/token files untouched. No startup Verify probe or offline gating. [Hourly auto-sync](sync-and-health.md#hourly-auto-sync) owns eligible latest refreshes.
+
+**Auto-sync** defaults On and refreshes latest data hourly after history import completes, only while the app runs. Off prevents automatic work; manual Sync stays available. Save, then quit and reopen to apply.
 
 Garmin history → Limit how far back reveals required Import from date. Otherwise explicit Sync uses bounded automatic discovery. Off-and-Save/reopen restores automatic mode; [date rules](desktop.md#history-and-memory-controls) preserve drafts/invalid-date correction. [Sync](sync-and-health.md) owns progress; [extra data](garmin-extra-data.md) owns fields/backfill.
 

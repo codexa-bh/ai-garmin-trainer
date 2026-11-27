@@ -67,6 +67,26 @@ it("bounds the two-document v4 frame without widening legacy commands or bypassi
   );
 });
 describe("desktop editable settings", () => {
+  it("defaults hourly auto-sync On, preserves explicit Off through startup, and refuses invalid values", () => {
+    const base = baseline();
+    expect(validateSettings(base.fields).GARMIN_AUTO_SYNC).toBe("true");
+    for (const enabled of ["true", "false"]) {
+      const values = { ...base.fields, GARMIN_AUTO_SYNC: enabled };
+      expect(validateSettings(values).GARMIN_AUTO_SYNC).toBe(enabled);
+      expect(
+        activationEnvironment({
+          version: 1,
+          fields: values,
+          secrets: { OPENAI_API_KEY: "synthetic-key" },
+        }).GARMIN_AUTO_SYNC,
+      ).toBe(enabled);
+    }
+    for (const value of ["", "yes", "FALSE", true, 1, null]) {
+      expect(() =>
+        validateSettings({ ...base.fields, GARMIN_AUTO_SYNC: value }),
+      ).toThrow();
+    }
+  });
   it("activates existing or new configurations without a date, preserves a valid legacy limit and clears it explicitly", () => {
     const base = baseline();
     const automatic: Record<string, string> = { ...base.fields };
