@@ -1,0 +1,6 @@
+{
+  "identifier": "about",
+  "description": "Local About document only; no remote origin or Settings grants.",
+  "windows": ["about"],
+  "permissions": ["allow-about"]
+}

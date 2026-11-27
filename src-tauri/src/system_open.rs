@@ -32,6 +32,16 @@ pub fn usage_page() -> Result<(), ()> {
 pub fn garmin_key_page() -> Result<(), ()> {
     fixed(GARMIN_KEY_PAGE)
 }
+pub(crate) fn project_url(destination: &str) -> Result<&'static str, ()> {
+    match destination {
+        "repository" => Ok("https://github.com/eye1/ai-garmin-trainer"),
+        "licence" => Ok("https://github.com/eye1/ai-garmin-trainer/blob/main/LICENSE"),
+        _ => Err(()),
+    }
+}
+pub fn project_page(destination: &str) -> Result<(), ()> {
+    fixed(project_url(destination)?)
+}
 fn fixed(url: &'static str) -> Result<(), ()> {
     #[cfg(target_os = "macos")]
     return std::process::Command::new("/usr/bin/open")
@@ -39,8 +49,8 @@ fn fixed(url: &'static str) -> Result<(), ()> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .map(drop)
-        .map_err(drop);
+        .map_err(drop)
+        .and_then(|status| if status.success() { Ok(()) } else { Err(()) });
     #[cfg(windows)]
     return windows::open(url);
 }
@@ -102,6 +112,26 @@ mod windows {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn project_links_have_only_two_fixed_destinations() {
+        assert_eq!(
+            project_url("repository"),
+            Ok("https://github.com/eye1/ai-garmin-trainer")
+        );
+        assert_eq!(
+            project_url("licence"),
+            Ok("https://github.com/eye1/ai-garmin-trainer/blob/main/LICENSE")
+        );
+        for bad in [
+            "",
+            "https://evil.invalid",
+            "Repository",
+            "usage",
+            "file:///tmp/test",
+        ] {
+            assert!(project_url(bad).is_err());
+        }
+    }
     #[test]
     fn only_the_exact_official_authorization_route_is_accepted() {
         assert!(authorization_url(

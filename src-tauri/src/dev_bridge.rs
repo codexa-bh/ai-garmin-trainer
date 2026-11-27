@@ -56,7 +56,7 @@ impl Config {
             {
                 self.ordinary.is_none()
             }
-            Command::PresentNaming {} | Command::WindowGeometry { .. } => {
+            Command::PresentNaming {} | Command::WindowGeometry { .. } | Command::About { .. } => {
                 self.ordinary.is_some() && cfg!(target_os = "macos")
             }
             Command::SetViewport { .. }
@@ -145,6 +145,9 @@ pub enum SyncAction {
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Command {
     Observe {},
+    About {
+        action: crate::about_smoke::Action,
+    },
     Sync {
         action: SyncAction,
     },
@@ -268,6 +271,7 @@ impl Command {
             | Self::Capture {}
             | Self::PresentNaming {}
             | Self::WindowGeometry { .. }
+            | Self::About { .. }
             | Self::Sync { .. }
             | Self::HistorySettings { .. } => true,
             Self::SetViewport { preset } => {
@@ -957,7 +961,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
                     })
                     .unwrap_or(false)
         }
-        Command::HistorySettings { .. } => false, // Native-local typed completion only.
+        Command::About { .. } | Command::HistorySettings { .. } => false, // Native-local typed completion only.
         Command::Sync { .. } => {
             let keys = [
                 "ok",
@@ -1293,6 +1297,16 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         );
     }
     drop(seen);
+    if let Command::About { action } = request.command {
+        let result = crate::about_smoke::execute(app, action, &request.request_id);
+        return match result {
+            Ok(value) => (200, json!({"requestId":request.request_id,"result":value})),
+            Err(error) => (
+                409,
+                json!({"requestId":request.request_id,"result":{"ok":false,"error":error}}),
+            ),
+        };
+    }
     if let Command::HistorySettings { action } = request.command {
         let result = crate::history_setup::execute(app, action);
         let (status, value) = match result {
@@ -1542,6 +1556,35 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn about_actions_are_closed_and_never_accept_renderer_callbacks() {
+        for action in [
+            "open",
+            "observe",
+            "capture",
+            "close",
+            "escape",
+            "repository",
+            "licence",
+        ] {
+            let command: super::Command =
+                serde_json::from_value(serde_json::json!({"type":"about","action":action}))
+                    .unwrap();
+            assert!(command.valid());
+            assert!(!super::safe_result(
+                &command,
+                &serde_json::json!({"ok":true}),
+                true
+            ));
+        }
+        for value in [
+            serde_json::json!({"type":"about","action":"eval"}),
+            serde_json::json!({"type":"about","action":"open","url":"https://evil.invalid"}),
+            serde_json::json!({"type":"about","action":"capture","path":"/tmp/other"}),
+        ] {
+            assert!(serde_json::from_value::<super::Command>(value).is_err());
+        }
+    }
     use super::*;
     fn safe_result(command: &Command, value: &Value) -> bool {
         super::safe_result(command, value, false)

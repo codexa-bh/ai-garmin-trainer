@@ -18,7 +18,7 @@
     ],
     "security": {
       "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' ipc: http://ipc.localhost",
-      "capabilities": ["setup"]
+      "capabilities": ["setup", "about"]
     }
   },
   "bundle": {

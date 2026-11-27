@@ -2,6 +2,9 @@
     any(not(debug_assertions), all(test, windows)),
     windows_subsystem = "windows"
 )]
+mod about;
+#[cfg(any(debug_assertions, not(feature = "release-probe")))]
+mod about_smoke;
 mod chat_catalog;
 mod chatgpt;
 #[cfg(any(debug_assertions, not(feature = "release-probe")))]
@@ -976,6 +979,9 @@ fn main() {
         .manage(Runtime::default());
     #[cfg(any(debug_assertions, not(feature = "release-probe")))]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        about::about_metadata,
+        about::about_link,
+        about::about_close,
         setup_status,
         read_onboarding,
         finish_onboarding,
@@ -994,6 +1000,9 @@ fn main() {
     ]);
     #[cfg(all(not(debug_assertions), feature = "release-probe"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
+        about::about_metadata,
+        about::about_link,
+        about::about_close,
         setup_status,
         read_onboarding,
         finish_onboarding,
@@ -1079,7 +1088,8 @@ fn main() {
             #[cfg(target_os = "macos")]
             {
                 let app_menu = tauri::menu::SubmenuBuilder::new(app, "AI Trainer for Garmin Connect")
-                    .text("configuration", "Settings…").separator().quit().build()?;
+                    .text("about", "About").separator()
+                    .text("configuration", "Settings…").separator().quit_with_text("Quit").build()?;
                 let edit_menu = tauri::menu::SubmenuBuilder::new(app, "Edit")
                     .undo().redo().separator().cut().copy().paste().select_all().build()?;
                 let menu = tauri::menu::MenuBuilder::new(app).item(&app_menu).item(&edit_menu).build()?;
@@ -1093,6 +1103,9 @@ fn main() {
                 app.set_menu(menu)?;
             }
             app.on_menu_event(|app, event| {
+                if event.id().as_ref() == "about" && about::show(app).is_err() {
+                    eprintln!("About window could not open.");
+                }
                 if event.id().as_ref() == "configuration" {
                     if let Some(setup) = app.get_webview_window("setup") { let _ = setup.show(); let _ = setup.set_focus(); }
                 }
