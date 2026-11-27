@@ -17,6 +17,7 @@ const PLACEHOLDER_SECRET_PATTERNS = [
 const optionalEnvSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
   DATABASE_PATH: z.string().default("./data/trainer.sqlite"),
+  GARMIN_AUTO_SYNC: z.enum(["true", "false"]).default("true"),
   GARMIN_HISTORY_START_DATE: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z

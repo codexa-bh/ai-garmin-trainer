@@ -614,7 +614,7 @@ async fn save_settings(
     setup_only(&window)?;
     if let Some(run) = app.try_state::<std::sync::Arc<isolated_run::Admission>>() {
         if run.descriptor.history_setup.is_some() && !run.accepts_history_settings(&input) {
-            let refusal = "Keyless Settings scope permits unchanged run-local settings, a fixed optional limit, or existing-installation summary On/Off with Luna/6000 only.";
+            let refusal = "Keyless Settings scope permits unchanged run-local settings, a fixed optional limit, existing-installation Auto-sync On/Off, or summary On/Off with Luna/6000 only.";
             if let Ok(mut failure) = app.state::<Runtime>().setup_failure.lock() {
                 *failure = Some(refusal);
             }

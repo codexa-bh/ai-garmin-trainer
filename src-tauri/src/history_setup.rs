@@ -22,6 +22,8 @@ pub enum Action {
     Capture,
     SummaryOn,
     SummaryOff,
+    AutoSyncOn,
+    AutoSyncOff,
     BindSummary,
     CancelDraft,
     CaptureSummaryWide,
@@ -57,6 +59,8 @@ struct Observation {
     private_controls_absent: bool,
     summary_on: bool,
     summary_off: bool,
+    auto_sync_on: bool,
+    auto_sync_off: bool,
     summary_scalar: bool,
     summary_bound: bool,
     history_date_visible: bool,
@@ -74,7 +78,7 @@ pub fn document(url: &tauri::Url) -> bool {
 fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, String> {
     use objc2::{class, msg_send, runtime::AnyObject};
     let (tx, rx) = mpsc::sync_channel(1);
-    let script = format!("JSON.stringify(window.__trainerHistorySetup ? window.__trainerHistorySetup({}) : {{ok:true,ready:false,formValid:false,firstRun:false,dataStep:false,reviewStep:false,automaticHistory:false,legacyLimit:false,savedForNextLaunch:false,saveSubmitted:false,saveRequested:false,historyValidationBlocked:false,historyBadInput:false,historyValueMissing:false,otherValidationBlocked:false,documentVisible:false,formConnected:false,saveRejected:false,settingsUnavailable:false,commandPermissionDenied:false,commandArgumentsInvalid:false,privateControlsAbsent:false,summaryOn:false,summaryOff:false,summaryScalar:false,summaryBound:false,historyDateVisible:false,historyDateRequired:false,technicalControlsAbsent:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
+    let script = format!("JSON.stringify(window.__trainerHistorySetup ? window.__trainerHistorySetup({}) : {{ok:true,ready:false,formValid:false,firstRun:false,dataStep:false,reviewStep:false,automaticHistory:false,legacyLimit:false,savedForNextLaunch:false,saveSubmitted:false,saveRequested:false,historyValidationBlocked:false,historyBadInput:false,historyValueMissing:false,otherValidationBlocked:false,documentVisible:false,formConnected:false,saveRejected:false,settingsUnavailable:false,commandPermissionDenied:false,commandArgumentsInvalid:false,privateControlsAbsent:false,summaryOn:false,summaryOff:false,autoSyncOn:false,autoSyncOff:false,summaryScalar:false,summaryBound:false,historyDateVisible:false,historyDateRequired:false,technicalControlsAbsent:false}})", serde_json::to_string(action).map_err(|_| "Action encoding")?);
     let script = std::ffi::CString::new(script).map_err(|_| "Action encoding")?;
     window
         .with_webview(move |webview| {
@@ -90,7 +94,7 @@ fn evaluate(window: &WebviewWindow, action: &Action) -> Result<Observation, Stri
                                 Err("History setup result missing".into())
                             } else {
                                 let bytes = std::ffi::CStr::from_ptr(bytes).to_bytes();
-                                if bytes.len() > 1024 {
+                                if bytes.len() > 2048 {
                                     Err("History setup result bound".into())
                                 } else {
                                     serde_json::from_slice::<Observation>(bytes)

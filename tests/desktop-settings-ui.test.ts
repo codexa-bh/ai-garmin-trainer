@@ -101,6 +101,26 @@ function visible(id: string) {
 }
 
 describe("trusted local desktop settings UI", () => {
+  it("shows default-on Auto-sync with hourly eligibility help and saves explicit Off", async () => {
+    const control = input("GARMIN_AUTO_SYNC");
+    expect(control.value).toBe("true");
+    expect(control.getAttribute("aria-describedby")).toBe("auto-sync-help");
+    expect(document.getElementById("auto-sync-help")?.textContent).toMatch(
+      /hourly after history import completes/,
+    );
+    fireEvent.change(control, { target: { value: "false" } });
+    fireEvent.click(document.getElementById("save")!);
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "save_settings",
+        expect.objectContaining({
+          input: expect.objectContaining({
+            fields: expect.objectContaining({ GARMIN_AUTO_SYNC: "false" }),
+          }),
+        }),
+      ),
+    );
+  });
   async function savedKeys() {
     let sent: unknown;
     const original = invoke.getMockImplementation()!;

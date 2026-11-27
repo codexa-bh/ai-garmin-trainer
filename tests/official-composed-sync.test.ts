@@ -145,6 +145,67 @@ function populate(account: Account) {
 }
 
 describe("official reader composed with import and SQLite", () => {
+  it("unlocks hourly latest only after actual history settlement, preserves scoped bytes, and never retries cancelled/failed work", async () => {
+    const account = newAccount();
+    populate(account);
+    const h = await harness(account, { limit: "2026-09-01" });
+    expect(await h.imports.runAutoSync()).toBeNull();
+    expect(h.api.requests).toHaveLength(0);
+    await h.imports.runGarminSync(undefined, {
+      intent: "latest",
+      interactive: true,
+    });
+    expect(await h.imports.runAutoSync()).toBeNull(); // Latest is not history completion.
+    const history = await h.imports.runGarminSync(undefined, {
+      intent: "history",
+      interactive: true,
+    });
+    expect(history.status).toBe("completed");
+    expect(h.imports.syncSummary().sync.historical.state).toBe("complete");
+    const keys = ["garmin_history_v1", "garmin_discovery_v1"];
+    const before = keys.map(h.repo.getCheckpoint);
+    vi.setSystemTime(new Date(NOW.getTime() + 3_599_999));
+    expect(await h.imports.runAutoSync()).toBeNull();
+    vi.setSystemTime(new Date(NOW.getTime() + 3_600_000));
+    const pending = h.imports.runAutoSync();
+    expect(await h.imports.runAutoSync()).toBeNull();
+    expect(await pending).toMatchObject({
+      status: "completed",
+      intent: "latest",
+    });
+    expect(keys.map(h.repo.getCheckpoint)).toEqual(before);
+    const count = h.api.requests.length;
+    expect(await h.imports.runAutoSync()).toBeNull();
+    expect(h.api.requests).toHaveLength(count);
+    vi.setSystemTime(new Date(NOW.getTime() + 8 * 3_600_000)); // Wake: only one overdue operation.
+    const active = h.imports.runAutoSync();
+    expect(h.imports.requestCancel()).toBe(true);
+    expect(await active).toMatchObject({ status: "cancelled" });
+    const cancelledCount = h.api.requests.length;
+    vi.setSystemTime(new Date(NOW.getTime() + 24 * 3_600_000));
+    expect(await h.imports.runAutoSync()).toBeNull();
+    expect(h.api.requests).toHaveLength(cancelledCount);
+    // An explicit successful latest is recovery, not an automatic cancellation retry.
+    await h.imports.runGarminSync(undefined, {
+      intent: "latest",
+      interactive: true,
+    });
+    vi.setSystemTime(new Date(NOW.getTime() + 25 * 3_600_000));
+    account.failPaths.set("activities", 429);
+    expect(await h.imports.runAutoSync()).toMatchObject({
+      status: "failed",
+      stopReason: "rate-limit",
+    });
+    const failedCount = h.api.requests.length;
+    vi.setSystemTime(new Date(NOW.getTime() + 48 * 3_600_000));
+    expect(await h.imports.runAutoSync()).toBeNull();
+    expect(h.api.requests).toHaveLength(failedCount);
+    expect(keys.map(h.repo.getCheckpoint)).toEqual(before);
+    expect(h.db.prepare("pragma integrity_check").get()).toEqual({
+      integrity_check: "ok",
+    });
+    expect(h.db.prepare("pragma foreign_key_check").all()).toEqual([]);
+  });
   it("imports activities, health, body facts and required details with official provenance", async () => {
     const account = newAccount();
     populate(account);

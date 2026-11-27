@@ -26,6 +26,7 @@ const allowed = new Set([
   "discovery-policy.ts",
   "scope-policy.ts",
   "sync-policy.ts",
+  "auto-sync-policy.ts",
   "latest-policy.ts",
   "primary-upload.ts",
   "types.ts",

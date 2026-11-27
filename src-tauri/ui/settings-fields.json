@@ -5,6 +5,12 @@
     "type": "path"
   },
   {
+    "key": "GARMIN_AUTO_SYNC",
+    "label": "Auto-sync",
+    "options": ["true", "false"],
+    "default": "true"
+  },
+  {
     "key": "GARMIN_HISTORY_START_DATE",
     "label": "Import from",
     "type": "date",

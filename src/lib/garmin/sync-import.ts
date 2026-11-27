@@ -1,5 +1,10 @@
 import type { GarminImportPorts } from "./import-ports";
 import {
+  AUTO_SYNC_CHECKPOINT,
+  autoSyncAttempt,
+  dueAutoSync,
+} from "./auto-sync-policy";
+import {
   historicalAction,
   historicalIntentAdmitted,
   latestSyncState,
@@ -1153,8 +1158,65 @@ export function createGarminImports({
       }
     }
   }
+  async function runAutoSync(cancelled: () => boolean = () => false) {
+    if (running || cancelled()) return null;
+    // Validate even legacy latest bytes; passive summary deliberately tolerates
+    // them for display, but automatic work must preserve/refuse unknown state.
+    latestSyncState(store.getCheckpoint(LATEST_CHECKPOINT));
+    const attempt = dueAutoSync({
+      ...syncSummary(),
+      attempt: autoSyncAttempt(store.getCheckpoint(AUTO_SYNC_CHECKPOINT)),
+      now: clock().getTime(),
+    });
+    if (!attempt) return null;
+    // Commit admission before constructing any reader. Even a preflight throw
+    // cannot become a timer/reopen retry of the same successful basis.
+    store.saveCheckpoints([[AUTO_SYNC_CHECKPOINT, JSON.stringify(attempt)]]);
+    try {
+      return await runGarminSync(undefined, {
+        intent: "latest",
+        interactive: true,
+        cancelled,
+      });
+    } catch (error) {
+      // Reader construction/close can throw outside normal settlement. Preserve
+      // committed progress and expose uncertainty through the existing owner.
+      const current = syncOperation(store.getCheckpoint(SYNC_CHECKPOINT));
+      if (
+        !current ||
+        current.outcome === "settled" ||
+        current.outcome === "running"
+      ) {
+        const progress =
+          current &&
+          Date.parse(current.updatedAt) >= Date.parse(attempt.attemptedAt)
+            ? current
+            : {
+                detailsAttempted: 0,
+                detailsProcessed: 0,
+                detailsFailed: 0,
+                detailsRemaining: store.listActivityIdsNeedingDetail().length,
+              };
+        store.saveCheckpoints([
+          [
+            SYNC_CHECKPOINT,
+            JSON.stringify({
+              ...progress,
+              version: 1,
+              intent: "latest",
+              outcome: "failed",
+              updatedAt: clock().toISOString(),
+              stopReason: "connector",
+            } satisfies SyncOperation),
+          ],
+        ]);
+      }
+      throw error;
+    }
+  }
   return {
     runGarminSync,
+    runAutoSync,
     syncSummary,
     isSyncRunning: () => running,
     /** Ask the active operation to stop at its next safe point. */

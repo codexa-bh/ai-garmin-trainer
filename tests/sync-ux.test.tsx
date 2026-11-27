@@ -492,7 +492,9 @@ describe("live Sync feedback", () => {
       expect(
         within(card).getByText("Sync in progress").hasAttribute("disabled"),
       ).toBe(true);
-      expect(within(card).queryByText("Cancel sync") !== null).toBe(!backend);
+      expect(
+        within(card).getByRole("button", { name: "Cancel sync" }),
+      ).toBeTruthy();
       if (backend) expect(within(card).queryByText("Old counts")).toBeNull();
       view.rerender(syncElement());
       expect(card.querySelector(".sync-busy-cue")).toBeNull();
@@ -572,7 +574,129 @@ describe("live Sync feedback", () => {
     expect(screen.queryByText("Latest refresh finished.")).toBeNull();
     expect(view.container.querySelector(".sync-busy-cue")).toBeNull();
   });
-  it("reconciles backend-only activity through existing summary refresh without polling or Cancel", async () => {
+  it("does not let passive polling supersede a pending explicit summary refresh", async () => {
+    vi.useFakeTimers();
+    try {
+      let complete!: (value: Response) => void;
+      const fetch = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            complete = resolve;
+          }),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const { result } = renderHook(() => useSyncFeature(ports()));
+      let pending!: Promise<void>;
+      act(() => {
+        pending = result.current.refreshSummary();
+      });
+      await act(() => vi.advanceTimersByTimeAsync(15000));
+      expect(fetch).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        complete(response(mixedSummary()));
+        await pending;
+      });
+      expect(result.current.summaryKnown).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("uses the durable failed outcome for the status pill on a fresh reopen", async () => {
+    const value = mixedSummary();
+    value.sync = {
+      ...value.sync!,
+      operation: {
+        version: 1,
+        intent: "latest",
+        outcome: "failed",
+        updatedAt: "2026-11-20T12:00:00Z",
+        stopReason: "rate-limit",
+        detailsAttempted: 0,
+        detailsProcessed: 0,
+        detailsFailed: 0,
+        detailsRemaining: 0,
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => response(value)),
+    );
+    const { result } = renderHook(() => useSyncFeature(ports()));
+    await act(() => result.current.loadImportSummary("startup", false));
+    expect(result.current.syncPillLabel).toBe("Failed");
+    expect(result.current.syncPillKind).toBe("error");
+  });
+  it("passively observes automatic work and settlement across hidden views, refreshes data once, and cancels the backend owner", async () => {
+    vi.useFakeTimers();
+    try {
+      let value = mixedSummary();
+      value.sync = {
+        ...value.sync!,
+        operation: {
+          version: 1,
+          intent: "latest",
+          outcome: "settled",
+          updatedAt: "2026-11-20T12:00:00Z",
+          stopReason: null,
+          detailsAttempted: 0,
+          detailsProcessed: 0,
+          detailsFailed: 0,
+          detailsRemaining: 0,
+        },
+      };
+      const fetch = vi.fn(async (url: string) =>
+        response(url === "/api/sync" ? { cancelled: true } : value),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const dependencies = ports();
+      const refresh = vi.spyOn(dependencies, "refreshHealthAfterSync");
+      const { result, unmount } = renderHook(() =>
+        useSyncFeature(dependencies),
+      );
+      await act(() => result.current.loadImportSummary("startup", false));
+      value = {
+        ...value,
+        syncActive: true,
+        sync: {
+          ...value.sync!,
+          operation: {
+            ...value.sync!.operation!,
+            outcome: "running",
+            updatedAt: "2026-11-20T13:00:00Z",
+          },
+        },
+      };
+      await act(() => vi.advanceTimersByTimeAsync(5000));
+      expect(result.current.syncPillLabel).toBe("Syncing");
+      expect(result.current.summaryKnown).toBe(true);
+      await act(async () => result.current.cancelSync());
+      expect(fetch).toHaveBeenCalledWith("/api/sync", { method: "DELETE" });
+      value = {
+        ...value,
+        syncActive: false,
+        sync: {
+          ...value.sync!,
+          operation: {
+            ...value.sync!.operation!,
+            outcome: "settled",
+            updatedAt: "2026-11-20T13:00:05Z",
+          },
+        },
+      };
+      await act(() => vi.advanceTimersByTimeAsync(5000));
+      expect(result.current.syncPillLabel).toBe("Complete");
+      expect(refresh).toHaveBeenCalledTimes(1);
+      await act(() => vi.advanceTimersByTimeAsync(5000));
+      expect(refresh).toHaveBeenCalledTimes(1);
+      const calls = fetch.mock.calls.length;
+      unmount();
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(fetch).toHaveBeenCalledTimes(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("reconciles backend-only activity through an explicit summary refresh", async () => {
     let complete!: (response: Response) => void;
     const value = mixedSummary();
     value.syncActive = true;

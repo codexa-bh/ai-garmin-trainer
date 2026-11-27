@@ -961,6 +961,7 @@ function renderStep() {
       : "Finish and open Trainer"
     : "Save settings";
   byId("memory-section").hidden = wizard && step !== 3;
+  byId("auto-sync-options").hidden = wizard && step !== 3;
   byId("history-options").hidden = wizard && step !== 3;
   renderMemory();
   renderHistory();
@@ -1130,6 +1131,7 @@ function createField(field) {
       option.value = value;
       option.textContent =
         {
+          GARMIN_AUTO_SYNC: { true: "On", false: "Off" },
           MEMORY_ENABLED: { true: "On", false: "Off" },
           SUMMARY_ENABLED: { true: "On", false: "Off" },
           SUMMARY_MODEL: {
@@ -1199,6 +1201,7 @@ function createField(field) {
     SUMMARY_ENABLED: "memory-off-help",
     SUMMARY_MODEL: "memory-model-help",
     SUMMARY_CHAR_LIMIT: "memory-size-help",
+    GARMIN_AUTO_SYNC: "auto-sync-help",
     GARMIN_HISTORY_START_DATE: "history-help",
   }[field.key];
   if (help) input.setAttribute("aria-describedby", help);
@@ -1209,11 +1212,13 @@ function createField(field) {
         ? "memory-control"
         : field.key === "OLLAMA_BASE_URL"
           ? "catalog-ollama-config"
-          : field.key === "GARMIN_HISTORY_START_DATE"
-            ? "history-options"
-            : field.key === "DATABASE_PATH"
-              ? "data-fields"
-              : "normal",
+          : field.key === "GARMIN_AUTO_SYNC"
+            ? "auto-sync-options"
+            : field.key === "GARMIN_HISTORY_START_DATE"
+              ? "history-options"
+              : field.key === "DATABASE_PATH"
+                ? "data-fields"
+                : "normal",
   );
   parent.append(label);
   if (help && field.key.startsWith("SUMMARY_")) parent.append(byId(help));

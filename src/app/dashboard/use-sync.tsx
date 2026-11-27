@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import { useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   emptyAthleteBaseline,
   emptyBodyMetrics,
@@ -68,6 +68,25 @@ export function useSyncFeature({
   const summaryGeneration = useRef(0);
   const isSyncingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  const observedOperation = useRef<string | null>(null);
+  const passiveRead = useRef(false);
+  const summaryReads = useRef(0);
+  const observeSync = useEffectEvent(async () => {
+    if (isSyncingRef.current || passiveRead.current || summaryReads.current > 0)
+      return;
+    passiveRead.current = true;
+    try {
+      await loadImportSummary("passive", false);
+    } finally {
+      passiveRead.current = false;
+    }
+  });
+  useEffect(() => {
+    const timer = setInterval(() => {
+      observeSync().catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
   function cancelSync() {
     // Tell the server directly; a dropped stream alone may not reach it.
     fetch("/api/sync", { method: "DELETE" }).catch(() => undefined);
@@ -295,14 +314,17 @@ export function useSyncFeature({
   }
 
   async function loadImportSummary(
-    trigger: "startup" | "manual" | "sync",
+    trigger: "startup" | "manual" | "sync" | "passive",
     showStatus = true,
   ) {
     const generation = ++summaryGeneration.current;
-    summaryKnownRef.current = false;
-    setSummaryKnown(false);
-    setAthleteBaselineMessage("Loading athlete baseline…");
-    setBodyMetricsMessage("Loading body metrics…");
+    summaryReads.current += 1;
+    if (trigger !== "passive") {
+      summaryKnownRef.current = false;
+      setSummaryKnown(false);
+      setAthleteBaselineMessage("Loading athlete baseline…");
+      setBodyMetricsMessage("Loading body metrics…");
+    }
     if (showStatus)
       setStatus({ kind: "busy", message: "Import summary: loading…" });
     try {
@@ -319,7 +341,18 @@ export function useSyncFeature({
         athleteBaseline: nextBaseline,
         bodyMetrics: nextBodyMetrics,
       };
-      if (payload.syncActive && !isSyncingRef.current) setBackendObserved(true);
+      const operation = payload.sync?.operation;
+      const stamp = operation
+        ? `${operation.updatedAt}:${operation.outcome}`
+        : null;
+      const changed = stamp !== observedOperation.current;
+      const previous = observedOperation.current;
+      observedOperation.current = stamp;
+      if (
+        !isSyncingRef.current &&
+        (payload.syncActive || (changed && previous !== null))
+      )
+        setBackendObserved(true);
       setImportSummary(nextSummary);
       setAthleteBaseline(nextBaseline);
       setBodyMetrics(nextBodyMetrics);
@@ -329,6 +362,14 @@ export function useSyncFeature({
           ? "Weigh-in refresh failed. Open Sync to retry the import refresh."
           : "",
       );
+      if (
+        trigger === "passive" &&
+        changed &&
+        !payload.syncActive &&
+        operation &&
+        operation.outcome !== "running"
+      )
+        await refreshHealthAfterSync();
       if (showStatus)
         setStatus({
           kind: "ok",
@@ -349,6 +390,8 @@ export function useSyncFeature({
           kind: "error",
           message: `Import summary failed: ${errorMessage}`,
         });
+    } finally {
+      summaryReads.current -= 1;
     }
   }
 
@@ -385,21 +428,27 @@ export function useSyncFeature({
     : syncRun;
   const syncActive =
     isSyncing || (summaryKnown && importSummary?.syncActive === true);
+  const backendOutcome =
+    backendObserved || syncRun.kind === "idle"
+      ? importSummary?.sync?.operation?.outcome
+      : undefined;
   const syncPillKind: Status["kind"] = syncActive
     ? "busy"
-    : displayedRun.kind === "completed"
+    : backendOutcome === "settled" || displayedRun.kind === "completed"
       ? "ok"
-      : displayedRun.kind === "failed"
+      : backendOutcome === "failed" || displayedRun.kind === "failed"
         ? "error"
         : "idle";
 
   const syncPillLabel = syncActive
     ? "Syncing"
-    : displayedRun.kind === "completed"
+    : backendOutcome === "settled" || displayedRun.kind === "completed"
       ? "Complete"
-      : displayedRun.kind === "failed"
+      : backendOutcome === "failed" || displayedRun.kind === "failed"
         ? "Failed"
-        : displayedRun.kind === "paused"
+        : backendOutcome === "cancelled" ||
+            backendOutcome === "budget-limited" ||
+            displayedRun.kind === "paused"
           ? "Paused"
           : "Ready";
   return {

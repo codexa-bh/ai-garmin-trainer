@@ -171,6 +171,7 @@ const groups = [
       "discovery-policy",
       "scope-policy",
       "sync-policy",
+      "auto-sync-policy",
       "latest-policy",
       "primary-upload",
       "import-ports",
@@ -199,6 +200,7 @@ const groups = [
     [
       "connection",
       "connection-check",
+      "auto-sync-lifetime",
       "official-client",
       "official-error",
       "official-fit",
@@ -331,6 +333,7 @@ const groups = [
       "profile/route",
       "summary/route",
       "sync/route",
+      "sync/auto/route",
       "training-plan/route",
       "weekly/route",
     ],

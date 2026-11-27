@@ -1,12 +1,20 @@
 # Sync, history import and Health views
 
-[Garmin connection](garmin-auth.md) owns keys; [additional Garmin data](garmin-extra-data.md) owns extra fields and their separate backfill. This guide owns explicit Sync, historical exploration, health finality and Health views.
+[Garmin connection](garmin-auth.md) owns keys; [additional Garmin data](garmin-extra-data.md) owns extra fields and their separate backfill. This guide owns manual/hourly Sync, historical exploration, health finality and Health views.
 
 ## Sync latest and historical import
 
 **Sync latest** refreshes recent health/activity/body facts and baseline/details without changing historical exploration. **Import older data** explores the automatic or selected scope; **Continue historical import** appears only for verified executable saved work. A history record or unknown remote boundary alone is not backlog. Completed ranges stay completed on refresh. Upsert counts are processed/refreshed records, not proven new records; stored totals are separate.
 
 One Sync drains all eligible known activity details, including activities admitted later in history import, with no count quota/selection ceiling. Available, partial and unsupported details are terminal. Failures stop rather than loop; attempted/completed/remaining counts differ. Phase, incomplete reason and next action stay visible outside collapsed **Technical details**. `garmin_sync_v1` retains operation truth across latest/history/reload; legacy absence means unknown. Cancellation/safety stops remain incomplete in `sync_run`. Internal pre-dispatch batches continue within the same claim without resetting timeouts/cumulative limits.
+
+### Hourly auto-sync
+
+Native **Auto-sync** defaults On, including settings saved before this field existed; explicit Off is retained. Save takes effect after quit/reopen. While the app runs, the backend refreshes **latest only** every 60 elapsed minutes after validated successful completion of the current history scope, with no executable family/repair/detail backlog. A missing, incomplete, failed, interrupted, corrupt or differently scoped history checkpoint never unlocks it. A selected limit and automatic discovery keep their existing completion semantics; no new inception probe is required.
+
+Successful manual or automatic Sync postpones the next refresh. Reopen/wake admits at most one overdue latest operation, not one per missed hour. No work runs while the app is closed or asleep. Native readiness, active setting and local key configuration precede admission; there is no startup Verify probe. View visibility does not own scheduling. Passive summary observation shows current work/results across navigation, offers Cancel for backend work and refreshes loaded Health after settlement without success toasts or focus changes.
+
+Automatic work shares the importer, claim, budgets, KPI measurement and recovery rules. Cancellation, failure or interruption blocks later automatic work until explicit successful recovery, never immediate retry or historical resume. Additive `garmin_auto_sync_v1` records scope, successful cadence basis and attempted admission before reader construction, preventing uncertain attempts from replaying after reopen. Existing valid settled history/operation timestamps initialize cadence without migration; unknown checkpoint bytes remain untouched.
 
 ### Bounds and discovery
 

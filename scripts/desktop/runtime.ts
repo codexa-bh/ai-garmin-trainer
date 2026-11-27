@@ -24,6 +24,7 @@ import {
   stopSummaryLifetime,
 } from "../../src/lib/memory/summary-lifetime";
 import { SUMMARY_DEADLINE_MS } from "../../src/lib/memory/summary-policy";
+import { createAutoSyncSchedule } from "../../src/lib/garmin/auto-sync-lifetime";
 
 const protocol = process.stdout.write.bind(process.stdout);
 const report = (value: object) => protocol(`${JSON.stringify(value)}\n`);
@@ -200,10 +201,20 @@ async function main(): Promise<void> {
       return false;
     }
   });
+  const autoSyncSchedule = createAutoSyncSchedule(async (signal) => {
+    if (!ready || stopping) return;
+    const result = await fetch(`${origin}/api/sync/auto`, {
+      method: "POST",
+      headers: { "x-trainer-identity": nonce },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(1_802_000)]),
+    });
+    await result.arrayBuffer();
+  });
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
     ready = false;
+    autoSyncSchedule.stop();
     summarySchedule.stop();
     stopSummaryLifetime();
     // Drain HTTP and Next after() for at most 5s; native kills the owned group
@@ -256,6 +267,7 @@ async function main(): Promise<void> {
   stage = "ready";
   ready = true;
   report({ type: "ready", version: 1, port: address.port });
+  autoSyncSchedule.run().catch(() => undefined);
 }
 
 // Consume exactly one bounded line; leave stdin open as the ownership pipe.

@@ -406,6 +406,42 @@ def prepare_automatic_history(run):
     _publish_settings(root, saved, 'automatic')
 
 
+def prepare_overdue_auto_sync(run):
+    """Age only a settled latest timestamp in this stopped authored run.
+
+    This is controlled due metadata, never a shortened product interval,
+    fabricated history completion or a private/primary database mutation.
+    """
+    from history_fixture import SYNTHETIC_KEY
+
+    run.verify_settled()
+    root = _stopped_synthetic(run)
+    database = canonical(run.database)
+    info = database.stat()
+    saved = _saved(root)
+    if (
+        database != root / 'trainer.sqlite'
+        or info.st_uid != os.getuid()
+        or info.st_mode & 0o777 != 0o600
+        or info.st_nlink != 1
+        or saved['keys']
+        or saved.get('garminApiKey') != SYNTHETIC_KEY
+        or getattr(run, 'fixture', None) is None
+    ):
+        raise ValueError('Exact stopped authored synthetic database required')
+    with contextlib.closing(sqlite3.connect(database)) as db:
+        row = db.execute("select value from sync_checkpoint where key='garmin_sync_v1'").fetchone()
+        operation = json.loads(row[0]) if row else None
+        if not operation or operation['outcome'] != 'settled' or operation['intent'] != 'latest':
+            raise ValueError('Settled latest required before controlled overdue metadata')
+        operation['updatedAt'] = (datetime.now(timezone.utc) - timedelta(hours=8)).isoformat()
+        with db:
+            db.execute(
+                "update sync_checkpoint set value=? where key='garmin_sync_v1'",
+                (json.dumps(operation),),
+            )
+
+
 def prepare_mixed_sync_presentation(run, outcome):
     """Fixed authored 6/14 + no-progress history, after real scenario settlement.
 
@@ -900,7 +936,7 @@ class HistoryRun(OrdinaryRun):
             self.command({'type': 'sync', 'action': 'refresh'})
             self.wait_sync(
                 lambda value: (
-                    value['running'] and not value['cancelEnabled'] and not value['startEnabled']
+                    value['running'] and value['cancelEnabled'] and not value['startEnabled']
                 ),
                 15,
             )
@@ -938,6 +974,159 @@ class HistoryRun(OrdinaryRun):
             'historyBytesPreserved': True,
             'backendOnly': True,
         }
+
+    def sync_run_count(self):
+        with contextlib.closing(readonly(self.database)) as db:
+            return db.execute('select count(*) from sync_run').fetchone()[0]
+
+    def wait_auto_result(self, outcome, seconds=60):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            value = self.summary()
+            if not value['active'] and value['latestOutcome'] == outcome:
+                return value
+            time.sleep(0.1)
+        raise TimeoutError('Automatic settlement unknown; no mutation replay')
+
+    def auto_setting(self, enabled):
+        self.settings_action('open')
+        self.wait_settings(
+            lambda value: value['ready'] and not value['firstRun'], 'auto-sync Settings ready'
+        )
+        self.settings_action('autoSyncOn' if enabled else 'autoSyncOff')
+        self.settings_action('save')
+        self.wait_settings(
+            lambda value: value['ready'] and value['savedForNextLaunch'], 'auto-sync Save settled'
+        )
+        self.settings_action('dismissRestart')
+        # Capture only fixed public controls; temporarily use the existing blank
+        # history draft for its finite mask, then reload without saving that draft.
+        self.settings_action('automatic')
+        self.sync_captures.append(
+            {
+                'scenario': 'auto-sync-on' if enabled else 'auto-sync-off',
+                **self.settings_action('captureHistoryWide'),
+            }
+        )
+        self.settings_action('cancelDraft')
+        self.wait_settings(
+            lambda value: value['autoSyncOn' if enabled else 'autoSyncOff'],
+            'saved auto-sync roundtrip',
+        )
+        self.settings_action('close')
+
+    def hourly_auto_sync(self):
+        """Finite opt-in proof on the already imported populated owned copy.
+
+        Three automatic latest attempts + two explicit recoveries, never history
+        automation. Controlled stopped due metadata; actual ordinary lifetime,
+        reader/claims/cancellation/settlement and native Save/reopen remain real.
+        """
+        if self.summary()['historicalState'] != 'complete':
+            raise ValueError('Actual completed history required')
+        digest, before = self.history_digest(), self.latest_snapshot()
+        self.auto_setting(False)
+        self.stop()
+        prepare_overdue_auto_sync(self)
+        before_calls = synthetic_calls(self)
+        self.start(self.binary)
+        self.settings_action('open')
+        self.wait_settings(lambda value: value['autoSyncOff'], 'Off survived reopen')
+        self.settings_action('close')
+        time.sleep(31)
+        if synthetic_calls(self) != before_calls or self.summary()['active']:
+            raise ValueError('Off admitted automatic work')
+        self.auto_setting(True)
+        time.sleep(31)
+        if synthetic_calls(self) != before_calls:
+            raise ValueError('Save live-activated auto-sync')
+        self.stop()
+        self.start(self.binary)  # One eight-hour-overdue refresh, not eight jobs.
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.command({'type': 'sync', 'action': 'refresh'})
+        self.wait_sync(lambda value: value['running'] and value['cancelEnabled'], 15)
+        self.sync_captures.append(
+            {'scenario': 'automatic-latest-running', **self.synthetic_sync_capture('wide')}
+        )
+        self.command({'type': 'click', 'target': 'Back to chat'})
+        success = self.wait_auto_result('settled')
+        time.sleep(6)  # Persistent-shell observer settles while Sync is hidden.
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.wait_sync(lambda value: value['completed'] and not value['running'], 10)
+        after = self.latest_snapshot()
+        after_calls = synthetic_calls(self)
+        if after_calls.get('activity-list', 0) - before_calls.get('activity-list', 0) != 1:
+            raise ValueError('Overdue refresh replayed or never admitted')
+        self.stop()
+        self.start(self.binary)
+        time.sleep(31)
+        if synthetic_calls(self) != after_calls:
+            raise ValueError('Reopen reset successful hourly cadence')
+        self.stop()
+        prepare_overdue_auto_sync(self)
+        self.start(self.binary)
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.command({'type': 'sync', 'action': 'refresh'})
+        self.wait_sync(lambda value: value['running'] and value['cancelEnabled'], 15)
+        self.command({'type': 'sync', 'action': 'cancel'})
+        cancelled = self.wait_auto_result('cancelled')
+        cancelled_runs = self.sync_run_count()
+        # An aborted HTTP request may still finish the fixture's fixed .4s
+        # accounting after the importer releases its claim. That is not replay.
+        time.sleep(1)
+        if self.sync_run_count() != cancelled_runs:
+            raise ValueError('Cancellation immediately started another operation')
+        cancelled_calls = synthetic_calls(self)
+        time.sleep(31)
+        if synthetic_calls(self) != cancelled_calls or self.sync_run_count() != cancelled_runs:
+            raise ValueError('Timer undid explicit cancellation')
+        self.stop()
+        self.start(self.binary)
+        if synthetic_calls(self) != cancelled_calls:
+            raise ValueError('Reopen retried cancelled automatic work')
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.latest_only()  # Explicit recovery retains existing user control.
+        self.stop()
+        prepare_overdue_auto_sync(self)
+        prepare_latest_preset(self, 'rate-limited')
+        self.start(self.binary)
+        failed = self.wait_auto_result('failed')
+        failed_calls = synthetic_calls(self)
+        time.sleep(31)
+        if synthetic_calls(self) != failed_calls or failed['stopReason'] != 'rate-limit':
+            raise ValueError('Automatic failure retried or lost recovery reason')
+        self.stop()
+        self.start(self.binary)
+        if synthetic_calls(self) != failed_calls:
+            raise ValueError('Reopen retried failed automatic work')
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.command({'type': 'sync', 'action': 'refresh'})
+        self.command({'type': 'setViewport', 'preset': 'wide'})
+        self.sync_captures.append(
+            {'scenario': 'automatic-rate-limit-recovery', **self.synthetic_sync_capture('wide')}
+        )
+        self.stop()
+        prepare_latest_preset(self, 'known')
+        self.start(self.binary)
+        self.command({'type': 'click', 'target': 'Sync'})
+        self.latest_only()
+        if self.history_digest() != digest or after != before:
+            raise ValueError('Automatic repeat changed history/discovery or normalized facts')
+        private_json(
+            self.root / 'hourly-auto-sync.json',
+            {
+                'source': self.config['source'],
+                'success': success,
+                'cancelled': cancelled,
+                'failed': failed,
+                'dataBefore': before,
+                'dataAfter': after,
+                'historyBytesPreserved': True,
+                'dueControl': 'stopped settled latest timestamp only',
+                'limits': 'authored loopback service; no private Garmin or installed-app proof',
+            },
+        )
 
     def synthetic_sync_capture(self, preset):
         """Finite capture-only opt-out for unrelated Sync images in Snow HR review."""
@@ -1170,6 +1359,8 @@ class HistoryRun(OrdinaryRun):
             or repeat['requestCounts'].get('activity-file', 0)
         ):
             raise ValueError('Identical latest refresh was not idempotent')
+        if getattr(self, 'auto_sync', False):
+            self.hourly_auto_sync()
         self.stop()
         prepare_latest_preset(self, 'new-activity')
         self.start(self.binary)
@@ -1719,6 +1910,11 @@ def main():
         help='Synthetic Sync only: retain operations/assertions but omit unrelated Sync PNGs for Snow HR review',
     )
     parser.add_argument(
+        '--auto-sync',
+        action='store_true',
+        help='Synthetic Sync only: finite hourly Settings/reopen/admission/cancel/failure proof with stopped due metadata',
+    )
+    parser.add_argument(
         '--no-external-tools',
         action='store_true',
         help='macOS: launch the owned app where executing Python/uv/uvx/pip is denied (synthetic scopes only)',
@@ -1743,6 +1939,8 @@ def main():
         )
     if args.snow_hr_no_sync_captures and not args.synthetic_sync:
         parser.error('--snow-hr-no-sync-captures requires --synthetic-sync')
+    if args.auto_sync and not args.synthetic_sync:
+        parser.error('--auto-sync requires --synthetic-sync')
     if args.no_external_tools and not (args.synthetic_sync or args.dependency_guidance):
         parser.error('--no-external-tools applies only to the synthetic Sync scopes')
     if args.token_input:
@@ -1849,6 +2047,7 @@ def history_scenario(
             )
             receipt['realGarmin'] = 'unavailable: no private input or fresh login authority'
         elif args.synthetic_sync:
+            run.auto_sync = args.auto_sync
             prepare_synthetic_history(run)
             run.start(run.binary)
             run.synthetic_sync()

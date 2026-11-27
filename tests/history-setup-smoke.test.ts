@@ -138,6 +138,35 @@ async function setup(
   );
   return invoke;
 }
+it("changes only auto-sync through finite native actions, saves Off and restores it on reopen", async () => {
+  const invoke = await setup(false);
+  expect(window.__trainerHistorySetup("observe").autoSyncOn).toBe(true);
+  expect(window.__trainerHistorySetup("autoSyncOff").autoSyncOff).toBe(true);
+  expect(window.__trainerHistorySetup("save").ok).toBe(true);
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(
+      "save_settings",
+      expect.objectContaining({
+        input: expect.objectContaining({
+          fields: expect.objectContaining({ GARMIN_AUTO_SYNC: "false" }),
+        }),
+      }),
+    ),
+  );
+  await waitFor(() =>
+    expect(
+      (document.getElementById("restart-required") as HTMLDialogElement).open,
+    ).toBe(true),
+  );
+  expect(window.__trainerHistorySetup("dismissRestart").ok).toBe(true);
+  expect(window.__trainerHistorySetup("cancelDraft").ok).toBe(true);
+  await waitFor(() =>
+    expect(window.__trainerHistorySetup("observe").autoSyncOff).toBe(true),
+  );
+  expect(window.__trainerHistorySetup("private-value").ok).toBe(false);
+  (document.getElementById("auto-sync-options") as HTMLElement).hidden = true;
+  expect(window.__trainerHistorySetup("autoSyncOn").ok).toBe(false);
+});
 it("changes only the three summary scalars through real form Save and masks everything else", async () => {
   const invoke = await setup(false);
   const before = Object.fromEntries(

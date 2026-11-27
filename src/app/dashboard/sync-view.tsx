@@ -100,6 +100,16 @@ export function SyncView({
   const active =
     isSyncing || (summaryKnown !== false && importSummary?.syncActive === true);
   const operation = importSummary?.sync?.operation;
+  const backendRecovery: SyncRunState["recovery"] =
+    operation?.outcome !== "failed"
+      ? null
+      : operation.stopReason === "auth" || operation.stopReason === "rate-limit"
+        ? operation.stopReason
+        : operation.stopReason === "network" ||
+            operation.stopReason === "request-timeout"
+          ? "network"
+          : "connector";
+  const recovery = syncRun.recovery ?? backendRecovery;
   const operationInvalid =
     summaryKnown !== false && importSummary?.sync?.operationInvalid;
   const workSummary = operationInvalid
@@ -169,7 +179,17 @@ export function SyncView({
       <div className="sync-view-content">
         <section
           className="sync-action-card"
-          data-sync-kind={syncRun.kind}
+          data-sync-kind={
+            syncRun.kind !== "idle" || !operation
+              ? syncRun.kind
+              : operation.outcome === "settled"
+                ? "completed"
+                : operation.outcome === "failed"
+                  ? "failed"
+                  : operation.outcome === "running"
+                    ? "running"
+                    : "paused"
+          }
           data-sync-running={active}
           aria-labelledby="sync-action-heading"
         >
@@ -223,7 +243,7 @@ export function SyncView({
                     : "Continue historical import"}
               </button>
             ) : null}
-            {isSyncing && cancelSync ? (
+            {active && cancelSync ? (
               <button type="button" onClick={cancelSync}>
                 Cancel sync
               </button>
@@ -317,9 +337,7 @@ export function SyncView({
               syncing.
             </p>
           ) : null}
-          {!active && syncRun.recovery ? (
-            <SyncLoginHelp recovery={syncRun.recovery} />
-          ) : null}
+          {!active && recovery ? <SyncLoginHelp recovery={recovery} /> : null}
           <details
             open={technicalOpen ?? false}
             onToggle={(event) => setTechnicalOpen?.(event.currentTarget.open)}
