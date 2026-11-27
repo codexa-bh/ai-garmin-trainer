@@ -77,7 +77,7 @@ You need:
 - a Garmin Connect account with data from a Garmin device;
 - one AI model provider from the [table below](#choose-a-model).
 
-The latest macOS release is [AI Trainer for Garmin Connect 0.1.5](../../releases/tag/v0.1.5). It uses the same database format as 0.1.4; no migration is needed when upgrading from that version.
+The latest macOS release is [AI Trainer for Garmin Connect 0.1.6](../../releases/tag/v0.1.6). It uses the same database format as 0.1.5 and 0.1.4; no migration is needed when upgrading from either version.
 
 1. **Install.** Run this in Terminal:
 
