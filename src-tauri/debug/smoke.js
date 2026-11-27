@@ -4952,6 +4952,7 @@
         return { ok: true, preset: command.preset };
       }
       case "captureView":
+      case "inspectView":
         return maskedView(command);
       case "supplement": {
         if (

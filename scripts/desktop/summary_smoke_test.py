@@ -358,7 +358,7 @@ class SummarySmokeTests(unittest.TestCase):
     def test_failed_control_preserves_closed_observation_and_capture_without_replay(self):
         with tempfile.TemporaryDirectory() as folder:
 
-            def command(value):
+            def command(value, **_options):
                 if value.get('action') == 'forget':
                     raise RuntimeError('closed failure')
                 return self.command_result(value)
@@ -385,6 +385,7 @@ class SummarySmokeTests(unittest.TestCase):
             self.assertFalse(receipt['mutationReplayed'])
             self.assertEqual(receipt['observation'], {'ok': True})
             self.assertEqual(receipt['capture'], {'ok': True})
+            self.assertTrue(run.command.call_args_list[-1].kwargs['diagnostic'])
 
     def test_fixed_presentation_sequence_never_dispatches_a_mutation_or_confirms_one(self):
         with tempfile.TemporaryDirectory() as folder:

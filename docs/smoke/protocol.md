@@ -15,7 +15,9 @@ This example asserts Trainer → Sync → Trainer, **not Garmin reads**. Run fro
 
 ### Declaration and execution contract
 
-`Scenario(label, scenario, configuration, expected, evidence, dependencies=())` declares unique lowercase alphanumeric/hyphen/underscore identity, actual assertions, evidence/limits and explicit helpers/data. Configuration is exactly keyless/composer/summary and must be compatible across the invocation. No callable certifies its own impact, grants private/paid access or adds native permissions.
+`Scenario(label, scenario, configuration, expected, evidence, dependencies=(), capture_points=())` declares unique lowercase alphanumeric/hyphen/underscore identity, actual assertions, evidence/limits and explicit helpers/data. Configuration is exactly keyless/composer/summary and must be compatible across the invocation. No callable certifies its own impact, grants private/paid access or adds native permissions.
+
+Finite `capture_points` are source-bound `(state, view, preset)` tuples for existing capture opportunities, not native selectors/permissions. Set `run.capture_state` at each opportunity; the owner supplies group/instance. `run_scenarios(captures=(), image_basis=...)` selects `group:state:view:preset:instance=reason` before preparation; empty means behavioral-only. [Image selection](ownership.md#full-baseline-and-captures) owns omission, validation and gallery compatibility.
 
 `run_scenarios` owns preparation, lock/admission, observer, partial runs, launches/restarts, preservation, receipts and settlement. Shared/unknown impact needs full regression plus affected compositions; default CLI remains full. Selected exercises may vary, never ownership safeguards. Composer uses actual restart; Densify fixtures reset to actual inspection and do not prove persistence.
 
@@ -33,6 +35,7 @@ Source declarations bind bytes/origin/inode/mode and fresh-compiled function ide
 - `POST /command` carries UUID request/run IDs and finite command, exact loopback Host, bearer and `X-Smoke-Run`; ordinary adds exact boot. Reject browser Origin/Sec-Fetch-Site; no CORS. Capability never enters URLs/argv/logs/receipts.
 - Result-only permission is restricted to admitted trainer window/origin; Settings/auth gains none. Native binds run/boot/window/origin/pending request and validates closed keys/enums/booleans/action correspondence. No arbitrary JSON/text, selectors, geometry or capture paths. Debug Settings uses a separate native completion.
 - One request at a time; request/result max 16KiB, total read 2s, no duplicate/chunked framing,4096 IDs/run, renderer deadline 5s; PNG 4s/4MiB. Late/duplicate/unknown callbacks cannot settle newer requests.
+- Ordinary-only `inspectView` has the identical finite `view`/`preset` schema and renderer mask/layout validation as `captureView`. It always runs the same native mask-restoration gate, including failure/timeout, but never requests PNG bytes or publishes a file. Its closed result names only ok/view/preset/boundary; it is structural inspection, not visual proof.
 - Capture requests fresh screen updates with bounded background compositor delay, never activation. Validate PNG framing/dimensions and publish exclusive 0600 files atomically under run screenshots, never overwrite.
 - Correlated `ok:true` means renderer completion. HTTP 409 is action/assertion failure,400 malformed command,403 access/framing,504 deadline. **Timeout means unknown effect, not rollback**: no blind mutation retry. Only bounded readonly observation may poll before a fresh explicit action.
 
@@ -52,7 +55,7 @@ Run the finite geometry composition with the required shared-native full baselin
 npm run env -- python3 scripts/desktop/geometry_smoke.py --scratch <canonical-task-root> --bundle <canonical-ordinary-app> --full
 ```
 
-It checks initial usable outer height, native move/resize and settled quit/fresh-boot restoration, then fixed narrow viewport isolation across another boot. Inspect its initial/restored PNGs alongside native observations. Current attached-display evidence does not prove physical multi-monitor/scaling changes or trusted drag input; native model tests cover unavailable display arrangements.
+It checks initial usable outer height, native move/resize and settled quit/fresh-boot restoration, then fixed narrow viewport isolation across another boot. For visual geometry work, explicitly select `window-geometry:initial-native-work-area:trainer:native:1` and/or `window-geometry:restored-native-frame:trainer:native:1` with distinct reasons using `--capture KEY=REASON`; inspect selected PNGs alongside native observations. Current attached-display evidence does not prove physical multi-monitor/scaling changes or trusted drag input; native model tests cover unavailable display arrangements.
 
 No arbitrary selector/text/path/key/login, general scrolling/eval/invoke, state injection, proxy or shutdown endpoint. Fixed authored adapters are permitted only in their documented scopes. Ordinary observations are bounded view/readiness/saved booleans; debug may add fixed Health/disclosure booleans and three equal-length boolean arrays ≤128 entries. Unknown fields/text/inconsistent shapes refuse. Dates/private values remain inside renderer; no transcripts/trace text/credentials escape. DOM actions and native-generated WebView keys are not hardware/global input.
 

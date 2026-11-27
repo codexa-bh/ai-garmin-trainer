@@ -729,8 +729,30 @@ class OrdinaryRun(Run):
             raise ValueError('Verified native boot required')
         return {**super().request(command, request_id), 'expectedBoot': self.boot}
 
-    def command(self, command):
+    def command(self, command, *, diagnostic=False):
+        selecting = (
+            command['type'] == 'captureView' and hasattr(self, 'image_selection') and not diagnostic
+        )
+        if selecting:
+            key = capture_key(
+                self.current_group,
+                getattr(self, 'capture_state', command['view']),
+                command['view'],
+                command['preset'],
+                self.capture_instance,
+            )
+            if key not in self.image_selection['available']:
+                raise ValueError('Undeclared capture opportunity: ' + key)
+            if key not in self.image_selection['requested']:
+                # Preserve the exact native mask/layout checks and restoration too;
+                # only rasterization/publication is omitted, not state prerequisites.
+                inspected = super().command({**command, 'type': 'inspectView'})
+                return {'omitted': True, 'imageKey': key, 'inspection': inspected}
+            if key in self.captured_keys:
+                raise ValueError('Capture opportunity repeated: ' + key)
         result = super().command(command)
+        if selecting:
+            self.captured_keys.append(key)  # Only after successful native capture/restoration.
         if command['type'] == 'captureView':
             self.capture_results.append(
                 {
@@ -740,6 +762,7 @@ class OrdinaryRun(Run):
                     'state': getattr(self, 'capture_state', command['view']),
                     'runId': self.id,
                     'boot': self.boot,
+                    'diagnostic': diagnostic,
                     **result,
                 }
             )
@@ -968,6 +991,185 @@ def security(run, other):
     )
 
 
+def capture_key(group, state, view, preset, instance):
+    return ':'.join((group, state, view, preset, str(instance)))
+
+
+def validate_capture_points(points):
+    views = {
+        'trainer': ('wide', 'narrow', 'native'),
+        'sync': ('wide', 'narrow'),
+        'profile': ('wide', 'narrow'),
+        'composer': ('wide', 'narrow', 'wide-short', 'narrow-short'),
+        'conversation': ('wide', 'narrow'),
+        'memory': ('wide', 'narrow'),
+        'snowRuns': ('wide', 'narrow'),
+        'tables': ('wide', 'narrow'),
+        'terrain': ('wide', 'medium', 'narrow'),
+        'ordinary-chat': ('wide', 'narrow'),
+    }
+    seen = set()
+    for point in points:
+        if (
+            not isinstance(point, tuple)
+            or len(point) != 3
+            or any(not isinstance(value, str) for value in point)
+        ):
+            raise ValueError('Capture points require finite state/view/preset triples')
+        state, view, preset = point
+        if (
+            not state
+            or len(state) > 80
+            or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789-_' for c in state)
+            or view not in views
+            or preset not in views[view]
+            or point in seen
+        ):
+            raise ValueError('Unknown, malformed or duplicate capture point')
+        seen.add(point)
+
+
+def capture_points(group):
+    """Existing producer opportunities, not a required image matrix."""
+    if group == 'baseline-captures':
+        return tuple(
+            (view, view, p) for view in ('trainer', 'sync', 'profile') for p in ('wide', 'narrow')
+        )
+    view = 'memory'
+    narrow = ()
+    if group == 'composer':
+        states, view = ('unselected', 'saved'), 'composer'
+        presets = ('wide', 'narrow', 'wide-short', 'narrow-short')
+    elif group == 'model-eligibility':
+        states, view = ('hidden-saved', 'replacement'), 'composer'
+        presets = ('wide', 'narrow')
+    elif group == 'conversation':
+        states, view = (
+            ('restored-first', 'menu-first', 'menu-second', 'restored-first-collapsed'),
+            'conversation',
+        )
+        presets = ('wide', 'narrow')
+        narrow = ()
+    elif group == 'summary-lifecycle':
+        states = (
+            'failure-collapsed',
+            'failure-expanded',
+            'rebuild-keyless-preflight',
+            'manual-saved',
+            'long-summary-editor',
+            'summary-collapsed',
+            'whole-summary-and-preference',
+        )
+        presets, narrow = ('wide', 'narrow'), ('empty',)
+    elif group == 'summary-densify':
+        states = tuple(
+            'densify-' + s
+            for s in (
+                'ready',
+                'selected',
+                'review',
+                'accepted',
+                'no-reduction',
+                'busy',
+                'unavailable',
+            )
+        )
+        presets = ('wide', 'narrow')
+    elif group == 'summary-overview':
+        states = (
+            'populated',
+            'populated-expanded',
+            'whole-summary-editor',
+            'ordinary',
+            'ordinary-failed',
+            'ordinary-interrupted',
+        )
+        presets = ('wide', 'narrow')
+        narrow = (
+            'manage',
+            'clear-confirmation',
+            'forget-confirmation',
+            'editor',
+            'empty',
+            'error',
+            'off',
+        )
+    elif group == 'summary-history':
+        states = (
+            'history',
+            'running',
+            'complete',
+            'interrupted',
+            'failed',
+            'cancelled',
+            'selected-history',
+            'history-cost-effects',
+            'progressive-complete',
+        )
+        presets, narrow = ('wide', 'narrow'), ('unknown',)
+    else:
+        return ()
+    points = tuple((state, view, p) for state in states for p in presets)
+    points += tuple((state, view, 'narrow') for state in narrow)
+    if group == 'conversation':
+        points += (('delete-last-replacement', view, 'wide'),)
+    return points
+
+
+def image_plan(plan, requests=(), basis='Behavior-only; no visual pass claimed', scenarios=()):
+    """Validate finite image intent before preparation, independently of behavioral scope."""
+    if (
+        not isinstance(basis, str)
+        or not basis.strip()
+        or len(basis) > 1000
+        or not isinstance(requests, (tuple, list))
+    ):
+        raise ValueError('Bounded image basis and explicit capture requests required')
+    declared = {s.label: s.capture_points for s in scenarios}
+    available = []
+    for group in plan['selected']:
+        points = declared.get(group, capture_points(group))
+        validate_capture_points(points)
+        for instance in range(1, plan['instances'] + 1):
+            for state, view, preset in points:
+                # Empty eligibility configuration deliberately never chooses a replacement.
+                if group == 'model-eligibility' and instance == 2 and state == 'replacement':
+                    continue
+                available.append(capture_key(group, state, view, preset, instance))
+    requested = {}
+    for request in requests:
+        if not isinstance(request, str) or '=' not in request:
+            raise ValueError('Capture requires group:state:view:preset:instance=visual reason')
+        key, reason = request.split('=', 1)
+        if key not in available or key in requested or not reason.strip() or len(reason) > 500:
+            raise ValueError(
+                'Unknown, duplicate, impossible capture or missing visual reason: ' + key
+            )
+        requested[key] = reason
+    return {
+        'basis': basis,
+        'available': available,
+        'requested': requested,
+        'omitted': [key for key in available if key not in requested],
+        'claim': 'Only generated originals inspected separately can establish visual proof; omission is not a pass',
+    }
+
+
+def image_arguments(parser):
+    parser.add_argument(
+        '--capture',
+        action='append',
+        default=[],
+        metavar='KEY=REASON',
+        help='Select group:state:view:preset:instance before execution; repeat with distinct visual reasons',
+    )
+    parser.add_argument(
+        '--image-basis',
+        default='Behavior-only; no successful-run images requested or visual pass claimed',
+        help='Explain selected/omitted visual scope; default no success PNGs, behavior unchanged',
+    )
+
+
 SUMMARY_FAMILIES = ('densify', 'overview', 'history')
 BROAD_GROUPS = (
     'security',
@@ -1151,6 +1353,7 @@ class Scenario:
     expected: tuple
     evidence: str
     dependencies: tuple = ()
+    capture_points: tuple = ()  # Finite state/view/preset triples; not native permissions.
 
 
 def scenario_identity(scenario):
@@ -1172,10 +1375,12 @@ def scenario_identity(scenario):
         or not scenario.evidence.strip()
         or len(scenario.evidence) > 1000
         or not isinstance(scenario.dependencies, tuple)
+        or not isinstance(scenario.capture_points, tuple)
     ):
         raise ValueError(
             'Scenario requires finite configuration, stable label, expected assertions and evidence intent'
         )
+    validate_capture_points(scenario.capture_points)
     action = scenario.action
     if (
         not inspect.isfunction(action)
@@ -1229,6 +1434,7 @@ def scenario_identity(scenario):
         'configuration': scenario.configuration,
         'expected': list(scenario.expected),
         'evidence': scenario.evidence,
+        'capturePoints': list(scenario.capture_points),
     }
 
 
@@ -1347,6 +1553,8 @@ def run_scenarios(
     anchor=None,
     timeout=600,
     snow_hr_compact_captures=False,
+    captures=(),
+    image_basis='Behavior-only; no successful-run images requested or visual pass claimed',
 ):
     """Importable guarded authored-synthetic execution; callers own only scenario intent."""
     if type(full) is not bool or type(prepare_only) is not bool:
@@ -1358,7 +1566,12 @@ def run_scenarios(
         and (not full or tuple(s.label for s in scenarios) != ('snow-runs',))
     ):
         raise ValueError('Compact Snow HR captures require full baseline plus only snow-runs')
+    if snow_hr_compact_captures and captures:
+        raise ValueError('Legacy compact gallery cannot combine with targeted captures')
     args.snow_hr_compact_captures = snow_hr_compact_captures
+    plan['images'] = image_plan(plan, captures, image_basis, scenarios)
+    if snow_hr_compact_captures:
+        plan['images'] = {'legacySnowCompact': True, 'basis': image_basis}
     if snow_hr_compact_captures:
         plan['captures'] = {
             'selected': 'trainer wide per instance; first instance Snow populated wide closed/open Times, narrow-right open Times, preserved wide; populated and missing navigation wide/narrow',
@@ -1408,6 +1621,7 @@ def composer_scenario():
             'exact choice retained across fresh origin/boot; stale capabilities denied',
         ),
         'unselected/saved wide+narrow and short-height synthetic DOM; not provider or trusted input',
+        capture_points=capture_points('composer'),
     )
 
 
@@ -1423,6 +1637,7 @@ def densify_scenario():
         ),
         'wide+narrow fixed presentation only; no engine progression or mutation persistence',
         (str(REPO / 'scripts/desktop/summary_smoke.py'),),
+        capture_points('summary-densify'),
     )
 
 
@@ -1536,13 +1751,22 @@ def main():
         action='append',
         help='Finite presentation families; default all',
     )
+    parser.add_argument(
+        '--plan-only',
+        action='store_true',
+        help='Print finite behavioral/image plan; no input access, allocation or launch',
+    )
+    image_arguments(parser)
     args = parser.parse_args()
     args.composer_footer = args.composer_footer or args.model_eligibility
     try:
         plan = selection_plan(args)
+        plan['images'] = image_plan(plan, args.capture, args.image_basis)
     except ValueError as error:
         parser.error(str(error))
     print(json.dumps({'executionPlan': plan}), flush=True)
+    if args.plan_only:
+        return
     os.umask(0o077)
     scratch = private_directory(resources.configure(canonical(args.scratch)))
     prepared = prepare(scratch, args, 'ordinary', synthetic_empty_chat=args.conversation_selection)
@@ -1566,7 +1790,15 @@ def main():
                     )
                 )
             execute_ordinary(
-                args, scratch, prepared, bundle, source, verified, inventory, transport=transport
+                args,
+                scratch,
+                prepared,
+                bundle,
+                source,
+                verified,
+                inventory,
+                transport=transport,
+                plan=plan,
             )
 
 
@@ -1584,6 +1816,13 @@ def execute_ordinary(
     transport=None,
 ):
     plan = selection_plan(args) if plan is None else plan
+    if 'images' not in plan:
+        plan['images'] = image_plan(
+            plan,
+            getattr(args, 'capture', ()),
+            getattr(args, 'image_basis', 'Behavior-only; no visual pass claimed'),
+            scenarios,
+        )
     database = prepared.database
 
     def verify_current():
@@ -1662,6 +1901,10 @@ def execute_ordinary(
                     raise ValueError('Run copy changed final-DMG payload modes/metadata')
             receipt['groupOutcomes'][-1]['run'] = str(runs[-1].root)
             runs[-1].before_start = verify_current
+            if not getattr(args, 'snow_hr_compact_captures', False):
+                runs[-1].image_selection = plan['images']
+                runs[-1].capture_instance = index + 1
+                runs[-1].captured_keys = []
             runs[-1].snow_hr_compact_captures = getattr(args, 'snow_hr_compact_captures', False)
             runs[-1].snow_hr_capture_instance = index == 0
             if args.summary_engine:
@@ -1759,6 +2002,10 @@ def execute_ordinary(
         ):
             raise ValueError('Source/artifact changed during execution')
         verify_current()
+        if not getattr(args, 'snow_hr_compact_captures', False):
+            actual = [key for run in runs for key in run.captured_keys]
+            if set(actual) != set(plan['images']['requested']):
+                raise ValueError('Requested capture was not exercised; no visual pass claimed')
         receipt['assertionsPassed'] = True
     except BaseException as error:
         receipt['scenarioFailure'] = (
@@ -1834,6 +2081,7 @@ def execute_ordinary(
                             if args.model_eligibility
                             else plan['configurations'][0],
                             'captures': run.capture_results,
+                            'capturedKeys': getattr(run, 'captured_keys', []),
                         }
                         for index, run in enumerate(runs)
                     ],

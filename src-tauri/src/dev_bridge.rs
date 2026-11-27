@@ -61,6 +61,7 @@ impl Config {
             }
             Command::SetViewport { .. }
             | Command::CaptureView { .. }
+            | Command::InspectView { .. }
             | Command::Composer { .. }
             | Command::Conversation { .. }
             | Command::Memory { .. }
@@ -178,6 +179,11 @@ pub enum Command {
         view: String,
         preset: String,
     },
+    /// Run the identical finite mask/layout checks and restoration without rasterizing a PNG.
+    InspectView {
+        view: String,
+        preset: String,
+    },
     Composer {
         action: String,
     },
@@ -278,7 +284,7 @@ impl Command {
                 ["wide", "medium", "narrow", "wide-short", "narrow-short"]
                     .contains(&preset.as_str())
             }
-            Self::CaptureView { view, preset } => {
+            Self::CaptureView { view, preset } | Self::InspectView { view, preset } => {
                 [
                     "trainer",
                     "sync",
@@ -821,7 +827,9 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
             && (value["error"] == "Rendered command refused or failed"
                 || (matches!(
                     command,
-                    Command::Memory { .. } | Command::CaptureView { .. }
+                    Command::Memory { .. }
+                        | Command::CaptureView { .. }
+                        | Command::InspectView { .. }
                 ) && [
                     "idle",
                     "action",
@@ -1246,7 +1254,7 @@ fn safe_result(command: &Command, value: &Value, ordinary: bool) -> bool {
         Command::SetViewport { preset } => {
             exact_keys(value, &["ok", "preset"]) && value["preset"].as_str() == Some(preset)
         }
-        Command::CaptureView { view, preset } => {
+        Command::CaptureView { view, preset } | Command::InspectView { view, preset } => {
             exact_keys(value, &["ok", "view", "preset", "boundary"])
                 && value["view"].as_str() == Some(view)
                 && value["preset"].as_str() == Some(preset)
@@ -1466,6 +1474,7 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
     };
     state.pending.lock().unwrap().take();
     let capturing = request.command.is_capture();
+    let inspecting = matches!(request.command, Command::InspectView { .. });
     let result = result.and_then(|value| {
         if safe_result(&request.command, &value, state.config.ordinary.is_some()) {
             Ok(value)
@@ -1524,7 +1533,7 @@ fn handle(app: &tauri::AppHandle, state: &Arc<Bridge>, path: &str, body: &[u8]) 
         }
     };
     // Restore on dispatch, callback, schema, timeout and snapshot failure as well as success.
-    if capturing {
+    if capturing || inspecting {
         let restored = window
             .eval("window.__trainerSmokeRestore && window.__trainerSmokeRestore()")
             .is_ok()
@@ -1989,6 +1998,39 @@ mod tests {
             &json!({"ok":true,"title":"private"}),
             true
         ));
+    }
+    #[test]
+    fn inspect_view_keeps_finite_capture_checks_without_png_production() {
+        let inspect = Command::InspectView {
+            view: "trainer".into(),
+            preset: "wide".into(),
+        };
+        assert!(inspect.valid());
+        assert!(!inspect.is_capture());
+        assert!(!config().permits(&inspect));
+        let result = json!({"ok":true,"view":"trainer","preset":"wide","boundary":"geometry-preserving redacted own-WebView"});
+        assert!(super::safe_result(&inspect, &result, true));
+        assert!(!super::safe_result(
+            &inspect,
+            &json!({"ok":true,"capture":"/tmp/untrusted.png"}),
+            true
+        ));
+        for value in [
+            json!({"type":"inspectView","view":"trainer","preset":"wide","selector":"body"}),
+            json!({"type":"inspectView","view":"trainer","preset":"wide","path":"/tmp/image"}),
+        ] {
+            assert!(serde_json::from_value::<Command>(value).is_err());
+        }
+        assert!(!Command::InspectView {
+            view: "setup".into(),
+            preset: "wide".into()
+        }
+        .valid());
+        assert!(!Command::InspectView {
+            view: "trainer".into(),
+            preset: "arbitrary".into()
+        }
+        .valid());
     }
     #[test]
     fn fixed_capture_presets_are_mode_scoped_and_not_generic_geometry() {

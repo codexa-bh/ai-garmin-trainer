@@ -208,7 +208,7 @@ def memory_controls(run, presentation_families=None, *, native_copy=False):
             try:
                 diagnostics['observation'] = run.command({'type': 'memory', 'action': 'observe'})
                 diagnostics['capture'] = run.command(
-                    {'type': 'captureView', 'view': 'memory', 'preset': 'wide'}
+                    {'type': 'captureView', 'view': 'memory', 'preset': 'wide'}, diagnostic=True
                 )
             except Exception:
                 diagnostics['diagnosticUnavailable'] = True

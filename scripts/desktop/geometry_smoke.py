@@ -4,7 +4,7 @@
 import argparse
 import time
 from native_smoke import private_json
-from ordinary_smoke import Scenario, run_scenarios
+from ordinary_smoke import Scenario, image_arguments, run_scenarios
 
 
 def assert_initial(value):
@@ -79,7 +79,11 @@ def geometry_scenario():
             'moved/resized normal frame survives quit/reopen',
             'temporary fixed capture viewport does not replace preference',
         ),
-        'initial/restored masked native-size WebView PNGs plus AppKit outer frame/work area; no physical multi-display or trusted input claim',
+        'selected initial/restored masked native-size WebView PNGs plus AppKit outer frame/work area; no physical multi-display or trusted input claim',
+        capture_points=(
+            ('initial-native-work-area', 'trainer', 'native'),
+            ('restored-native-frame', 'trainer', 'native'),
+        ),
     )
 
 
@@ -88,6 +92,7 @@ if __name__ == '__main__':
     parser.add_argument('--scratch', required=True)
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--full', action='store_true')
+    image_arguments(parser)
     args = parser.parse_args()
     run_scenarios(
         scratch=args.scratch,
@@ -96,4 +101,6 @@ if __name__ == '__main__':
         impact='shared',
         impact_basis='Trainer native geometry, persistence and capture tracking',
         full=args.full,
+        captures=args.capture,
+        image_basis=args.image_basis,
     )

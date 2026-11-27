@@ -1,7 +1,7 @@
 """Finite authored Snow runs plus full ordinary two-instance regression."""
 
 import argparse
-from ordinary_smoke import Scenario, run_scenarios
+from ordinary_smoke import Scenario, image_arguments, run_scenarios
 
 
 def snow_wait(run, label):
@@ -27,6 +27,7 @@ def capture_selected(run, variant, preset, edge, times=False):
         )
     )
     if selected:
+        run.capture_state = variant + '-' + edge + ('-times' if times else '')
         run.command({'type': 'captureView', 'view': 'snowRuns', 'preset': preset})
 
 
@@ -52,7 +53,10 @@ def scenario(run):
                 navigation = run.command({'type': 'snowRuns', 'action': 'navigation'})
                 if not all(navigation[key] for key in ['ready', 'contained']):
                     raise ValueError('Authored navigation readiness/containment failed')
-                if getattr(run, 'snow_hr_capture_instance', False):
+                if getattr(run, 'snow_hr_capture_instance', False) or hasattr(
+                    run, 'image_selection'
+                ):
+                    run.capture_state = variant + '-navigation'
                     run.command({'type': 'captureView', 'view': 'snowRuns', 'preset': preset})
             run.command({'type': 'setViewport', 'preset': 'wide'})
         run.command({'type': 'snowRuns', 'action': 'collapse'})
@@ -115,6 +119,21 @@ def snow_scenario():
         'exact authored cells, totals and card metrics only, private neighbors hidden; compact '
         'selection is recorded separately. Synthetic DOM, not trusted input, real Garmin or '
         'normal-installed-app proof',
+        capture_points=tuple(
+            (variant + '-' + edge, 'snowRuns', preset)
+            for variant in ('populated', 'unknown', 'unsupported', 'preserved', 'unproven')
+            for preset, edge in (('wide', 'start'), ('narrow', 'start'), ('narrow', 'end'))
+            if not (edge == 'end' and variant in ('unknown', 'unsupported'))
+        )
+        + tuple(
+            (variant + '-navigation', 'snowRuns', preset)
+            for variant in ('populated', 'unknown')
+            for preset in ('wide', 'narrow')
+        )
+        + (
+            ('populated-start-times', 'snowRuns', 'wide'),
+            ('populated-end-times', 'snowRuns', 'narrow'),
+        ),
     )
 
 
@@ -127,6 +146,7 @@ if __name__ == '__main__':
         action='store_true',
         help='Finite Snow HR capture-only selection; all full/two-instance assertions retained',
     )
+    image_arguments(parser)
     args = parser.parse_args()
     run_scenarios(
         scratch=args.scratch,
@@ -138,4 +158,6 @@ if __name__ == '__main__':
         full=True,
         timeout=1200,
         snow_hr_compact_captures=args.compact_captures,
+        captures=args.capture,
+        image_basis=args.image_basis,
     )
