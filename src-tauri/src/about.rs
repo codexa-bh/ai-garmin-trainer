@@ -16,8 +16,23 @@ fn local(window: &tauri::WebviewWindow) -> Result<(), String> {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn build_label(bytes: &[u8]) -> Option<String> {
+    let provenance: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let source = provenance.get("source")?.as_str()?;
+    if ![40, 64].contains(&source.len()) || !source.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let modified = provenance.get("sourceDirty")?.as_bool()?;
+    Some(format!(
+        "{}{}",
+        &source[..7],
+        if modified { " modified" } else { "" }
+    ))
+}
+
 #[cfg(target_os = "macos")]
-pub(crate) fn bundle_metadata() -> Result<Metadata, String> {
+pub(crate) fn bundle_metadata(app: &tauri::AppHandle) -> Result<Metadata, String> {
     use objc2::{class, msg_send, runtime::AnyObject};
     use std::ffi::CStr;
     // SAFETY: NSBundle owns these autoreleased strings. Copy UTF-8 while the
@@ -37,17 +52,24 @@ pub(crate) fn bundle_metadata() -> Result<Metadata, String> {
             .map(str::to_owned)
             .map_err(|_| "App bundle metadata unavailable.".into())
     }
+    // The assembler already records the Git revision/dirty state alongside
+    // the actual bundled resources. Never query Git or the launch checkout.
+    let build = crate::resources(app)
+        .ok()
+        .and_then(|root| std::fs::read(root.join("provenance.json")).ok())
+        .and_then(|bytes| build_label(&bytes))
+        .unwrap_or_else(|| "Unavailable".into());
     unsafe {
         let bundle: *mut AnyObject = msg_send![class!(NSBundle), mainBundle];
         Ok(Metadata {
             name: value(bundle, c"CFBundleName")?,
             version: value(bundle, c"CFBundleShortVersionString")?,
-            build: value(bundle, c"CFBundleVersion")?,
+            build,
         })
     }
 }
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn bundle_metadata() -> Result<Metadata, String> {
+pub(crate) fn bundle_metadata(_app: &tauri::AppHandle) -> Result<Metadata, String> {
     Err("About is available on macOS.".into())
 }
 
@@ -102,7 +124,7 @@ pub fn show(app: &tauri::AppHandle) -> Result<(), tauri::Error> {
 #[tauri::command]
 pub fn about_metadata(window: tauri::WebviewWindow) -> Result<Metadata, String> {
     local(&window)?;
-    bundle_metadata()
+    bundle_metadata(window.app_handle())
 }
 
 #[tauri::command]
@@ -123,6 +145,36 @@ pub fn about_close(window: tauri::WebviewWindow) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn build_identifies_the_recorded_git_revision_and_modified_source() {
+        for (modified, expected) in [(false, "2802a3e"), (true, "2802a3e modified")] {
+            let bytes = serde_json::to_vec(&serde_json::json!({
+                "source": "2802a3e30dd0f84ed57237c6cdc60004706c8f72",
+                "sourceDirty": modified,
+            }))
+            .unwrap();
+            assert_eq!(build_label(&bytes).as_deref(), Some(expected));
+        }
+        let sha256 = serde_json::to_vec(
+            &serde_json::json!({"source": "b".repeat(64), "sourceDirty": false}),
+        )
+        .unwrap();
+        assert_eq!(build_label(&sha256).as_deref(), Some("bbbbbbb"));
+    }
+    #[test]
+    fn missing_or_invalid_provenance_never_becomes_a_version_or_clean_build_claim() {
+        for value in [
+            serde_json::json!({}),
+            serde_json::json!({"source": "0.1.6", "sourceDirty": false}),
+            serde_json::json!({"source": "z".repeat(40), "sourceDirty": false}),
+            serde_json::json!({"source": "é".repeat(20), "sourceDirty": false}),
+            serde_json::json!({"source": "a".repeat(40)}),
+            serde_json::json!({"source": "a".repeat(40), "sourceDirty": "false"}),
+        ] {
+            assert_eq!(build_label(&serde_json::to_vec(&value).unwrap()), None);
+        }
+        assert_eq!(build_label(b"not json"), None);
+    }
     #[test]
     fn about_document_never_navigates_to_settings_or_remote_content() {
         assert!(document(

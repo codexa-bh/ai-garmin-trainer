@@ -33,7 +33,7 @@ fn browser_allowed(action: &Action, activation_policy: isize) -> bool {
 #[cfg(target_os = "macos")]
 fn evaluate(window: &tauri::WebviewWindow, action: &Action) -> Result<Observation, String> {
     use objc2::{class, msg_send, runtime::AnyObject};
-    let expected = serde_json::to_string(&crate::about::bundle_metadata()?)
+    let expected = serde_json::to_string(&crate::about::bundle_metadata(window.app_handle())?)
         .map_err(|_| "Metadata encoding")?;
     let links = serde_json::to_string(&json!({
         "repository": crate::system_open::project_url("repository").map_err(|_| "Repository unavailable")?,
@@ -50,7 +50,7 @@ fn evaluate(window: &tauri::WebviewWindow, action: &Action) -> Result<Observatio
         _ => "",
     };
     let script = std::ffi::CString::new(format!(
-        "(()=>{{const expected={expected},links={links};const ready=!!document.getElementById('close');if(!ready)return JSON.stringify({{ready:false,metadataMatches:false,closeFocused:false,linksMatch:false,linkOpened:false}});const metadataMatches=document.getElementById('app-name').textContent===expected.name&&document.getElementById('version').textContent===expected.version&&document.getElementById('build').textContent===expected.build;const closeFocused=document.activeElement.id==='close';const linksMatch=['repository','licence'].every(key=>document.querySelector('[data-destination='+key+']').href===links[key]);const linkOpened=document.getElementById('status').textContent==='Opened in your browser.';{mutation}return JSON.stringify({{ready,metadataMatches,closeFocused,linksMatch,linkOpened}});}})()"
+        "(()=>{{const expected={expected},links={links};const ready=!!document.getElementById('close');if(!ready)return JSON.stringify({{ready:false,metadataMatches:false,closeFocused:false,linksMatch:false,linkOpened:false}});const metadataMatches=expected.build!=='Unavailable'&&document.getElementById('app-name').textContent===expected.name&&document.getElementById('version').textContent===expected.version&&document.getElementById('build').textContent===expected.build;const closeFocused=document.activeElement.id==='close';const linksMatch=['repository','licence'].every(key=>document.querySelector('[data-destination='+key+']').href===links[key]);const linkOpened=document.getElementById('status').textContent==='Opened in your browser.';{mutation}return JSON.stringify({{ready,metadataMatches,closeFocused,linksMatch,linkOpened}});}})()"
     )).map_err(|_| "Script encoding")?;
     let (tx, rx) = mpsc::sync_channel(1);
     window
