@@ -1,6 +1,6 @@
 # Windows x64 alpha
 
-The last Windows x64 alpha is [v0.1.4](../../../releases/tag/v0.1.4), with its original _Garmin Trainer_ installer name. Latest is macOS-only 0.1.5 and contains no Windows installer. Windows is experimental and outside supported macOS ARM64. Qualification is **hosted Windows Server 2025 x64 only**: not Windows 11, Windows 10 or ARM support. ARM runner availability is not testing.
+The last Windows x64 alpha is [v0.1.4](../../../releases/tag/v0.1.4), with its original _Garmin Trainer_ installer name. Latest is macOS-only 0.1.6 and contains no Windows installer. Windows is experimental and outside supported macOS ARM64. Qualification is **hosted Windows Server 2025 x64 only**: not Windows 11, Windows 10 or ARM support. ARM runner availability is not testing.
 
 The mechanisms and build instructions below describe current `x86_64-pc-windows-msvc` source, including the renamed unsigned per-user NSIS installer, not a newly published or currently qualified Windows build.
 
@@ -57,7 +57,7 @@ gh run view <run-id> --json headSha,event,status,conclusion,url
 
 Default `release_export=false` omits binary export, **not qualification**. Explicit `-f release_export=true` selects the separate export below, not publication.
 
-Before dependencies/Rust/resources/native builds, [rendered preflight](release.md#rendered-disclosure-preflight) checks `release-notes/windows-preflight.json`. It remains frozen at 0.1.4 after the macOS-only 0.1.5 cut, so the manual Windows job refuses current source before expensive preparation. A future explicitly scoped Windows cut must update its prior-release/source/schema context and review current Windows disclosures; never infer Windows qualification from Latest or weaken the guard. Unknown/contradictory context or missing disclosure refuses early; placeholders are not artifact identities.
+Before dependencies/Rust/resources/native builds, [rendered preflight](release.md#rendered-disclosure-preflight) checks `release-notes/windows-preflight.json`. It remains frozen at 0.1.4 while newer releases are macOS-only, so the manual Windows job refuses current source before expensive preparation. A future explicitly scoped Windows cut must update its prior-release/source/schema context and review current Windows disclosures; never infer Windows qualification from Latest or weaken the guard. Unknown/contradictory context or missing disclosure refuses early; placeholders are not artifact identities.
 
 Dispatch resolves once to immutable `github.sha`; checkout/HEAD/`TESTED_SOURCE` must match. Compare provider `headSha` with the intended head. Later branch pushes require a new explicitly requested run; absent automatic Windows checks are not green evidence.
 

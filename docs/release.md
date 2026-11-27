@@ -1,6 +1,6 @@
 # Dual-platform release runbook
 
-Published assets/checksums are on [GitHub Releases](../../../releases), with immutable notes in [`release-notes/releases/`](../release-notes/releases/). Stable Latest [0.1.5](../../../releases/tag/v0.1.5) is macOS ARM64 only: DMG, checksum and `release.json`, built from `bf1861d3b54dcf9a5b6e85057b773c0fb92e3805`. Later documentation commits are not binary source. macOS ships an unsigned/non-notarized DMG, not PKG; minimum macOS 12.0 is not minimum-OS certification. The last [Windows x64 alpha is v0.1.4](../../../releases/tag/v0.1.4), unsigned NSIS qualified only on hosted Server 2025. Shared stable/Latest does not expand platform support. No updater, installer hook, service, login item or release worker.
+Published assets/checksums are on [GitHub Releases](../../../releases), with immutable notes in [`release-notes/releases/`](../release-notes/releases/). Stable Latest [0.1.6](../../../releases/tag/v0.1.6) is macOS ARM64 only: DMG, checksum and `release.json`, built from `16a231cf65b0b12edde45c3388a7fb0ac6273a29`. Later documentation commits are not binary source. macOS ships an unsigned/non-notarized DMG, not PKG; minimum macOS 12.0 is not minimum-OS certification. The last [Windows x64 alpha is v0.1.4](../../../releases/tag/v0.1.4), unsigned NSIS qualified only on hosted Server 2025. Shared stable/Latest does not expand platform support. No updater, installer hook, service, login item or release worker.
 
 ## Release cut runbook
 
@@ -39,7 +39,7 @@ Each scratch-backed invocation writes private `release-timing-<action>-<uuid>.js
 
 ## Version and notes
 
-`package.json` version is canonical. `release:check` verifies npm lock, root Cargo manifest/lock, Tauri, current versioned notes and all pending fragments. Source version 0.1.5 is published; `Status: prepared` is metadata, not live visibility/approval. Version0.1.0 is foundation history, not a download. Preparation changes no dependency versions or earlier notes.
+`package.json` version is canonical. `release:check` verifies npm lock, root Cargo manifest/lock, Tauri, current versioned notes and all pending fragments. Source version 0.1.6 is published; `Status: prepared` is metadata, not live visibility/approval. Version0.1.0 is foundation history, not a download. Preparation changes no dependency versions or earlier notes.
 
 Each change supplies a fragment per [fragment contract](../release-notes/README.md), not a shared Unreleased edit:
 
@@ -75,7 +75,7 @@ Context has exactly these fields, using actual prior-release full commit/version
 }
 ```
 
-Baseline must be locally available and an ancestor; fetch it explicitly if absent. Version/schema come from that Git object; current schema from `src/lib/db/migrations.ts`. Unknown/unsupported/contradictory/downgrade context refuses. For a cut including Windows, update tracked `release-notes/windows-preflight.json` in the same cut diff after preparation: it selects current Windows notes, not inferred Latest or omitted macOS qualification. For macOS-only 0.1.5 it stays frozen at 0.1.4, deliberately blocking the manual Windows job on newer source until a future Windows cut supplies reviewed context/disclosures.
+Baseline must be locally available and an ancestor; fetch it explicitly if absent. Version/schema come from that Git object; current schema from `src/lib/db/migrations.ts`. Unknown/unsupported/contradictory/downgrade context refuses. For a cut including Windows, update tracked `release-notes/windows-preflight.json` in the same cut diff after preparation: it selects current Windows notes, not inferred Latest or omitted macOS qualification. For macOS-only cuts it stays frozen at 0.1.4, deliberately blocking the manual Windows job on newer source until a future Windows cut supplies reviewed context/disclosures.
 
 Assertions are narrow case-insensitive literals (bold ignored), not an NLP classifier. Preserve these reviewed disclosures and inspect other prose for contradictions:
 
@@ -185,6 +185,6 @@ Migration refuses dotenv/relative targets, acquires writer lease and exclusively
 3. Verify integrity/FKs/schema/data preservation and compatible app behavior. Separately approve actual stopped target/cutover/migration/reopen. Startup/Use existing never migrate.
 4. Restore the compatible pre-upgrade app/DB/settings pair first to a fresh exclusive disposable target, or use a forward fix. Never downgrade, force old writers, overwrite newer settings/writes or blindly copy back. Preserve/reconcile newer work with its owner; versioned catalog/settings compatibility is independent.
 
-Current 0.1.5 keeps schema 30 unchanged from 0.1.4; upgrading from 0.1.4 needs no database migration. For older databases, the manual procedure above still applies: 0.1.4 moved schema 28→30. Saved history stays offline, future Sync needs the official Personal API key. Keep the prior compatible app/backup/settings recovery pair, including schema 28 when upgrading from it; extra-data/snow backfill remains separate, not startup/install behavior. Earlier transition details remain in immutable release notes, not current procedure. Windows source-CLI migration remains unqualified.
+Current 0.1.6 keeps schema 30 unchanged from 0.1.5 and 0.1.4; upgrading from either version needs no database migration. For older databases, the manual procedure above still applies: 0.1.4 moved schema 28→30. Saved history stays offline, future Sync needs the official Personal API key. Keep the prior compatible app/backup/settings recovery pair, including schema 28 when upgrading from it; extra-data/snow backfill remains separate, not startup/install behavior. Earlier transition details remain in immutable release notes, not current procedure. Windows source-CLI migration remains unqualified.
 
 Release tooling changes no schema/data/sync semantics, so its production back-sync is a no-op. Deterministic maintenance tests prove copy/refusal/preservation seams, not primary or real-service qualification. Keep path-bearing output private.
