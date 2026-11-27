@@ -105,6 +105,60 @@ class CliTests(unittest.TestCase):
         self.assertFalse(self.gh.release['draft'])
         self.assertEqual(self.native.call_count, 3)
 
+    def test_routine_mac_cli_verifies_and_resumes_without_build_suite_smoke_or_install(self):
+        # Every call reparses explicit inputs like a fresh shell. Native bytes
+        # have separate real-producer/process tests; this proves CLI wiring and
+        # exact three-asset remote semantics, never live provider certification.
+        with (
+            patch('release.build_ordinary', side_effect=AssertionError('second build')) as build,
+            patch('subprocess.run', side_effect=AssertionError('external suite/smoke/install')),
+        ):
+            for action in ('check', 'build', 'package', 'verify', 'status', 'draft', 'publish'):
+                result = self.cli(action, use_set=False)
+                self.assertEqual(self.gh.effects, [])
+                if action == 'verify':
+                    verified = next(
+                        value
+                        for value in map(json.loads, result.splitlines())
+                        if 'verified' in value
+                    )
+                    self.assertFalse(verified['launched'])
+            planned = self.cli('draft', use_set=False)
+            drafted = self.cli('draft', '--execute', use_set=False)
+            published = self.cli('publish', '--execute', use_set=False)
+            tuples = []
+            for output in (planned, drafted, published):
+                tuples.append(
+                    next(
+                        value['selectedTuple']
+                        for value in map(json.loads, output.splitlines())
+                        if 'selectedTuple' in value
+                    )
+                )
+            self.assertEqual(tuples[0], tuples[1])
+            self.assertEqual(tuples[1], tuples[2])
+            self.assertEqual(len(self.gh.assets), 3)
+            self.assertFalse(self.gh.release['draft'])
+            self.foreign.assert_not_called()
+            build.assert_not_called()
+
+    def test_mac_cli_reconciles_each_lost_remote_response_without_blind_retry(self):
+        for step in range(1, 7):
+            with self.subTest(step=step):
+                self.gh = FakeGitHub()
+                self.gh.fail_after = step
+                with self.assertRaises(TimeoutError):
+                    self.cli('draft', '--execute', use_set=False)
+                    self.cli('publish', '--execute', use_set=False)
+                self.assertEqual(len(self.gh.effects), step)
+                self.cli('status', use_set=False)
+                self.assertEqual(len(self.gh.effects), step)
+                # Provider unavailable is still unknown, not absent/retryable.
+                with patch.object(self.gh, 'api', side_effect=RuntimeError('provider unavailable')):
+                    with self.assertRaisesRegex(RuntimeError, 'provider unavailable'):
+                        self.cli('status', use_set=False)
+                self.assertEqual(len(self.gh.effects), step)
+
     def test_legacy_cli_keeps_three_assets_without_foreign_authority(self):
         self.cli('draft', '--execute', use_set=False)
         self.assertEqual(len(self.gh.assets), 3)

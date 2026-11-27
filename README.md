@@ -77,7 +77,7 @@ You need:
 - a Garmin Connect account with data from a Garmin device;
 - one AI model provider from the [table below](#choose-a-model).
 
-The latest macOS release is [AI Trainer for Garmin Connect 0.1.6](../../releases/tag/v0.1.6). It uses the same database format as 0.1.5 and 0.1.4; no migration is needed when upgrading from either version.
+Download the [latest published macOS release](../../releases/latest). Its release page identifies the exact binary source, and its versioned notes say whether a database upgrade is needed; source metadata may describe a not-yet-published candidate.
 
 1. **Install.** Run this in Terminal:
 
@@ -113,7 +113,7 @@ There is no default model and no automatic fallback. How well the trainer works 
 
 There is no auto-update. Quit the app, then run the install command again; it replaces the app and leaves your data alone. Retain a compatible prior app and verified database/settings backups. Versions up to 0.1.4 were named _Garmin Trainer_; installing the renamed app does not replace that app automatically. Both names use the same data and settings; do not run them together. See [installing a release](docs/release.md#installing-a-published-release--only-after-an-actual-authorized-release).
 
-**A version that changes the database format needs a manual upgrade first.** The app never upgrades your database on its own, and today the upgrade runs from a source checkout of that version. Back up your database, then follow [database upgrades](docs/release.md#existing-database-upgrades-and-recovery). The release notes say when an upgrade is needed.
+**Check the selected release notes before replacing an existing app.** An unchanged database format needs no migration; a changed format needs a manual upgrade first. The app never upgrades your database on its own, and today the upgrade runs from a source checkout of that version. Back up your database, then follow [database upgrades](docs/release.md#existing-database-upgrades-and-recovery).
 
 ## Privacy
 

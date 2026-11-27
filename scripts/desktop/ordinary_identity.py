@@ -142,8 +142,15 @@ def document(path):
         or path.stat().st_nlink != 1
         or path.stat().st_size > 16 * 1024 * 1024
     ):
-        raise ValueError('Missing/aliased ordinary provenance; full rebuild required')
-    return json.loads(path.read_text(), object_pairs_hook=unique_object)
+        raise ValueError(
+            'Missing/aliased ordinary provenance; restore original evidence, never relabel a candidate'
+        )
+    try:
+        return json.loads(path.read_text(), object_pairs_hook=unique_object)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(
+            'Corrupt ordinary provenance; retain failure and restore original evidence'
+        ) from error
 
 
 def resources_of(bundle):
@@ -161,7 +168,7 @@ def provenance(bundle):
         or value['version'] != VERSION
     ):
         raise ValueError(
-            'Unsupported ordinary provenance; full rebuild required, never relabel a bundle'
+            'Unsupported ordinary provenance; restore original evidence, never relabel a bundle'
         )
     for field in ['sourceFingerprint', 'buildSourceFingerprint', 'buildContext']:
         if (
@@ -169,7 +176,7 @@ def provenance(bundle):
             or len(value[field]) != 64
             or any(c not in '0123456789abcdef' for c in value[field])
         ):
-            raise ValueError('Malformed ordinary identity; full rebuild required')
+            raise ValueError('Malformed ordinary identity; restore original evidence, never rebind')
     return value
 
 
@@ -212,6 +219,22 @@ def context_key(repo, snapshot):
     return context_identity(repo, snapshot)['key']
 
 
+def context_difference(value, current):
+    """Diagnostic only: component hashes never substitute for the complete key.
+
+    Legacy v2 producers without components may still match the exact key. A
+    mismatch with missing/malformed detail is unknown, never permission to rebind.
+    Report categories, not private environment values or paths.
+    """
+    original = value.get('buildContextComponents')
+    if not isinstance(original, dict) or original.keys() != current['components'].keys():
+        return 'unknown (missing or incompatible original context detail)'
+    changed = [
+        name for name in current['components'] if original[name] != current['components'][name]
+    ]
+    return ', '.join(sorted(changed)) if changed else 'preparation lock identity'
+
+
 def preparation_directory(repo):
     dist = repo / 'dist'
     dist.mkdir(exist_ok=True)
@@ -248,12 +271,20 @@ def verify_ordinary(repo, bundle, source, inventory, workspace=None):
     if current['source'] != source:
         raise ValueError('Current driver/source changed before ordinary verification')
     value = provenance(bundle)
-    context = context_key(repo, current)
-    if (
-        value['buildSourceFingerprint'] != current['buildSource']
-        or value['buildContext'] != context
-    ):
-        raise ValueError('Ordinary build inputs/context mismatch; full desktop:build required')
+    captured_context = context_identity(repo, current)
+    context = captured_context['key']
+    if value['buildSourceFingerprint'] != current['buildSource']:
+        raise ValueError(
+            'Ordinary build inputs/context mismatch: source changed; restore original inputs. '
+            'Never rebind provenance or rebuild a remotely selected candidate'
+        )
+    if value['buildContext'] != context:
+        raise ValueError(
+            'Ordinary build inputs/context mismatch: '
+            + context_difference(value, captured_context)
+            + '; restore the original build inputs/toolchain/environment and retry verification. '
+            'Never replay unverified environment, edit stamps or rebuild a remotely selected candidate'
+        )
     info = bundle.stat()
     expected = {
         'version': VERSION,
@@ -269,7 +300,8 @@ def verify_ordinary(repo, bundle, source, inventory, workspace=None):
         expected['platform'] = producer_platform(bundle)
     if document(repo / 'dist' / STAMP) != expected:
         raise ValueError(
-            'Missing/stale ordinary build stamp or changed inventory; full rebuild required'
+            'Missing/stale ordinary build stamp or changed inventory; restore original producer/evidence. '
+            'Never edit stamps or substitute a copied producer'
         )
     if source_snapshot(repo) != current or context_key(repo, current) != context:
         raise ValueError('Inputs changed during ordinary verification')
