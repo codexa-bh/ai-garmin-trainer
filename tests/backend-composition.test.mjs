@@ -19,6 +19,7 @@ const routes = {
   "profile/route": "profile/composition",
   "summary/route": "local-data/composition",
   "sync/route": "garmin/composition",
+  "sync/auto/route": "garmin/composition",
   "training-plan/route": "training-plan/composition",
   "weekly/route": "weekly/composition",
 };
@@ -94,6 +95,7 @@ it("constructs every production route/factory without opening DB, reading env, s
     import("../src/app/api/profile/route"),
     import("../src/app/api/summary/route"),
     import("../src/app/api/sync/route"),
+    import("../src/app/api/sync/auto/route"),
     import("../src/app/api/training-plan/route"),
     import("../src/app/api/weekly/route"),
     import("../src/lib/ai/sql-analysis"),

@@ -95,9 +95,10 @@ describe("desktop Garmin activation", () => {
     );
     expect(active.garmin).toBe(true);
     expect(active.envText).not.toContain(key);
-    expect(
-      active.env.filter((name) => name !== "GARMIN_HISTORY_START_DATE"),
-    ).toEqual([]);
+    // Only the new non-secret startup switch is added; credentials/tool
+    // configuration remain absent, not a generic GARMIN_* exemption.
+    expect(active.env).toEqual(["GARMIN_AUTO_SYNC"]);
+    expect(JSON.parse(active.envText).GARMIN_AUTO_SYNC).toBe("true");
     // Fixed system directories only; no Homebrew/user tool search for Garmin.
     if (!windows) expect(active.path).toBe("/usr/bin:/bin");
     expect(activateConfiguration({ DATABASE_PATH: database }).garmin).toBe(
